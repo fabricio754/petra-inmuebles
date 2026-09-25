@@ -35,11 +35,22 @@ def _graph_url():
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages"
 
 
+def _is_bsuid(to):
+    """BSUID = ID de usuario por negocio ("CO.123..."): país + punto + id.
+    Llega en lugar del teléfono cuando el usuario usa nombre de usuario."""
+    return "." in to
+
+
 def _dispatch(payload, human_summary):
     """Envía el payload a Meta, o lo simula en modo dry-run.
     Devuelve un resumen legible (usado por el simulador de consola)."""
+    dest = payload["to"]
+    if _is_bsuid(dest):
+        # Meta no acepta un BSUID en "to": va en "recipient".
+        payload = {k: v for k, v in payload.items() if k != "to"}
+        payload["recipient"] = dest
     if DRY_RUN:
-        log.info("[DRY-RUN → %s] %s", payload["to"], human_summary)
+        log.info("[DRY-RUN → %s] %s", dest, human_summary)
         return {"status": "dry-run", "summary": human_summary}
 
     headers = {
@@ -50,7 +61,7 @@ def _dispatch(payload, human_summary):
     if resp.status_code >= 300:
         log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
     else:
-        log.info("[OK WhatsApp API] %s → %s: %s", resp.status_code, payload["to"], human_summary)
+        log.info("[OK WhatsApp API] %s → %s: %s", resp.status_code, dest, human_summary)
     return {"status": resp.status_code, "summary": human_summary, "body": resp.text}
 
 

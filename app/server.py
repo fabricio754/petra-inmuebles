@@ -51,7 +51,9 @@ def receive_webhook():
             return jsonify({"status": "ignored"}), 200
 
         message = messages[0]
-        phone = message["from"]
+        # Si el usuario oculta su número tras un nombre de usuario de WhatsApp,
+        # Meta no manda "from" sino "from_user_id" (BSUID, ej. "CO.123...").
+        phone = message.get("from") or message["from_user_id"]
         event = _to_event(message)
         log.info("Mensaje entrante de %s: %s", phone, event)
         bot.handle_incoming(phone, event)
