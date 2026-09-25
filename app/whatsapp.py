@@ -11,8 +11,11 @@ modo DRY-RUN: no llama a la API real, solo registra qué se habría
 enviado. Así se puede probar toda la lógica de conversación sin
 depender de que la cuenta de Meta ya exista.
 """
+import logging
 import os
 import requests
+
+log = logging.getLogger("petra")
 
 GRAPH_API_VERSION = "v20.0"
 ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
@@ -36,7 +39,7 @@ def _dispatch(payload, human_summary):
     """Envía el payload a Meta, o lo simula en modo dry-run.
     Devuelve un resumen legible (usado por el simulador de consola)."""
     if DRY_RUN:
-        print(f"[DRY-RUN → {payload['to']}] {human_summary}")
+        log.info("[DRY-RUN → %s] %s", payload["to"], human_summary)
         return {"status": "dry-run", "summary": human_summary}
 
     headers = {
@@ -45,7 +48,7 @@ def _dispatch(payload, human_summary):
     }
     resp = requests.post(_graph_url(), headers=headers, json=payload, timeout=15)
     if resp.status_code >= 300:
-        print(f"[ERROR WhatsApp API] {resp.status_code}: {resp.text}")
+        log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
     return {"status": resp.status_code, "summary": human_summary, "body": resp.text}
 
 
