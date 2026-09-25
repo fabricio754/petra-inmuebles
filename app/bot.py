@@ -1,0 +1,292 @@
+"""Máquina de estados de Petra. Toda la lógica de negocio vive acá,
+separada de cómo llega el mensaje (server.py/Meta) o de cómo se prueba
+(scripts/simulate.py). Esto es lo único "programado" del prototipo:
+todo lo demás (menú, catálogo, formularios) es contenido, no lógica.
+"""
+from app import state, whatsapp
+
+# Conjuntos que Petra reconoce. Hoy solo Arrayanes (piloto). La palabra
+# clave es la que va pre-cargada en el link/QR: wa.me/<numero>?text=ARRAYANES
+CONJUNTOS_ACTIVOS = ["ARRAYANES"]
+
+OPCIONES_EN_PREPARACION = {
+    "MENU_CREDITO": "💳 Crédito con garantía hipotecaria",
+}
+
+# === FALLBACK -- flujo conversacional viejo de "Publicar mi inmueble" =====
+# Ya NO se usa por defecto (ver MENU_PUBLICAR más abajo, que ahora llama a
+# _iniciar_publicacion_flow). Se deja intacto a propósito como respaldo
+# mientras se prueba el WhatsApp Flow nuevo. Se puede borrar todo este bloque
+# (hasta _procesar_paso_publicacion) sin afectar el resto del bot.
+# Un campo de texto libre por paso, sin fotos, sin validaciones estrictas
+# más allá de "es un número".
+PUBLICAR_STEPS = ["APTO", "HABITACIONES", "BANOS", "M2", "PRECIO", "OPERACION"]
+
+PUBLICAR_PREGUNTAS = {
+    "APTO": "Para publicar tu inmueble, dime el número o identificador de tu apartamento (ej: 305).",
+    "HABITACIONES": "¿Cuántas habitaciones tiene?",
+    "BANOS": "¿Cuántos baños tiene?",
+    "M2": "¿Cuántos m² tiene?",
+    "PRECIO": "¿Cuál es el precio? (solo el número, ej: 2500000)",
+    "OPERACION": "¿Es para *arriendo* o *venta*? Responde ARRIENDO o VENTA.",
+}
+
+PUBLICAR_CAMPOS = {
+    "APTO": "apartamento",
+    "HABITACIONES": "habitaciones",
+    "BANOS": "banos",
+    "M2": "m2",
+    "PRECIO": "precio",
+    "OPERACION": "operacion",
+}
+
+
+def _detectar_conjunto(texto):
+    texto_upper = texto.strip().upper()
+    for conjunto in CONJUNTOS_ACTIVOS:
+        if conjunto in texto_upper:
+            return conjunto
+    return None
+
+
+def _buscar_apto(apto_id):
+    for item in state.load_inventario():
+        if item["id"] == apto_id:
+            return item
+    return None
+
+
+def _listar_disponibles(conjunto, operacion):
+    return [
+        item for item in state.load_inventario()
+        if item["conjunto"] == conjunto
+        and item["operacion"] == operacion
+        and item["disponibilidad"] == "DISPONIBLE"
+    ]
+
+
+def _iniciar_publicacion(phone):
+    state.set_session(phone, flow="PUBLICAR", flow_step="APTO", flow_data={})
+    return whatsapp.send_text(phone, PUBLICAR_PREGUNTAS["APTO"])
+
+
+def _procesar_paso_publicacion(phone, session, texto):
+    step = session["flow_step"]
+    data = session.get("flow_data", {})
+    valor = texto.strip()
+
+    if step in ("HABITACIONES", "BANOS", "M2", "PRECIO"):
+        limpio = valor.replace(".", "").replace(",", "")
+        if not limpio.isdigit():
+            return whatsapp.send_text(phone, "Ese valor debe ser un número. " + PUBLICAR_PREGUNTAS[step])
+        valor = int(limpio)
+
+    if step == "OPERACION":
+        valor_upper = valor.upper()
+        if valor_upper not in ("ARRIENDO", "VENTA"):
+            return whatsapp.send_text(phone, "Responde ARRIENDO o VENTA.")
+        valor = valor_upper
+
+    if step == "APTO":
+        data["apto_numero"] = valor
+        valor = f"Apto {valor}"
+
+    data[PUBLICAR_CAMPOS[step]] = valor
+
+    siguiente_index = PUBLICAR_STEPS.index(step) + 1
+    if siguiente_index < len(PUBLICAR_STEPS):
+        siguiente_step = PUBLICAR_STEPS[siguiente_index]
+        state.set_session(phone, flow_step=siguiente_step, flow_data=data)
+        return whatsapp.send_text(phone, PUBLICAR_PREGUNTAS[siguiente_step])
+
+    # Formulario completo -> pedir autorización de contacto (obligatoria).
+    state.set_session(phone, flow="AUTORIZACION", flow_data=data)
+    precio_fmt = f"${data['precio']:,.0f}".replace(",", ".")
+    resumen = (
+        f"{data['apartamento']} · {data['habitaciones']} hab · {data['banos']} baños · "
+        f"{data['m2']} m² · {precio_fmt} · {data['operacion'].title()}"
+    )
+    return whatsapp.send_autorizacion_propietario(phone, resumen)
+# === FIN FALLBACK ==========================================================
+
+
+# === WHATSAPP FLOW (nuevo) -- formulario nativo "Publicar mi inmueble" ====
+# Independiente del bloque de arriba: no comparte sesión (no usa flow_step)
+# ni funciones. Se puede borrar el bloque FALLBACK sin tocar nada de acá.
+
+def _iniciar_publicacion_flow(phone):
+    return whatsapp.send_flow_publicar(phone)
+
+
+def _procesar_flow_publicacion(phone, conjunto, response):
+    """Recibe la respuesta ya parseada del webhook nfm_reply (ver
+    server.py:_to_event, event type "flow_reply") y entra EXACTAMENTE al
+    mismo punto de autorización que el flujo conversacional viejo: arma
+    flow_data y llama a send_autorizacion_propietario. Los botones
+    AUTORIZO_PUBLICAR / NO_AUTORIZO_PUBLICAR de más abajo no cambian."""
+    def _numero(valor):
+        limpio = str(valor).strip().replace(".", "").replace(",", "")
+        return int(limpio) if limpio.isdigit() else 0
+
+    apto_numero = str(response.get("apto", "")).strip()
+    data = {
+        "apto_numero": apto_numero,
+        "apartamento": f"Apto {apto_numero}",
+        "habitaciones": _numero(response.get("habitaciones")),
+        "banos": _numero(response.get("banos")),
+        "m2": _numero(response.get("area")),
+        "precio": _numero(response.get("precio")),
+        "operacion": str(response.get("operacion", "")).strip().upper(),
+    }
+
+    state.set_session(phone, flow="AUTORIZACION", flow_data=data)
+    precio_fmt = f"${data['precio']:,.0f}".replace(",", ".")
+    resumen = (
+        f"{data['apartamento']} · {data['habitaciones']} hab · {data['banos']} baños · "
+        f"{data['m2']} m² · {precio_fmt} · {data['operacion'].title()}"
+    )
+    return whatsapp.send_autorizacion_propietario(phone, resumen)
+# === FIN WHATSAPP FLOW ======================================================
+
+
+def handle_incoming(phone, event):
+    """event: {"type": "text", "text": str}
+             | {"type": "list_reply", "id": str}
+             | {"type": "button_reply", "id": str}
+    Devuelve la lista de respuestas enviadas (para logging/pruebas)."""
+    session = state.get_session(phone)
+    conjunto = session.get("conjunto")
+    respuestas = []
+
+    if event["type"] == "flow_reply":
+        # --- WHATSAPP FLOW (nuevo) --------------------------------------
+        respuestas.append(_procesar_flow_publicacion(phone, conjunto, event["response"]))
+        return respuestas
+
+    if event["type"] == "text":
+        # FALLBACK viejo (ver bloque marcado arriba) -- ya no se dispara
+        # desde MENU_PUBLICAR, pero se deja activo por si alguien queda a
+        # mitad del flujo de texto viejo.
+        if session.get("flow") == "PUBLICAR":
+            respuestas.append(_procesar_paso_publicacion(phone, session, event["text"]))
+            return respuestas
+
+        detectado = _detectar_conjunto(event["text"])
+        if not conjunto and detectado:
+            state.set_session(phone, conjunto=detectado)
+            respuestas.append(whatsapp.send_menu(phone, detectado))
+        elif conjunto:
+            # Cualquier texto libre con conjunto ya identificado reabre el menú.
+            respuestas.append(whatsapp.send_menu(phone, conjunto))
+        else:
+            respuestas.append(whatsapp.send_text(
+                phone,
+                "Hola 👋 Soy Petra. Escanea el código QR de tu conjunto para ver su inventario.",
+            ))
+        return respuestas
+
+    if event["type"] == "list_reply":
+        id_ = event["id"]
+
+        if id_ == "MENU_ARRIENDO":
+            if not conjunto:
+                respuestas.append(whatsapp.send_text(phone, "Primero escanea el QR de tu conjunto."))
+            else:
+                listings = _listar_disponibles(conjunto, "ARRIENDO")
+                respuestas.append(whatsapp.send_catalogo(phone, conjunto, "Arriendo", listings))
+            return respuestas
+
+        if id_ == "MENU_COMPRAR":
+            if not conjunto:
+                respuestas.append(whatsapp.send_text(phone, "Primero escanea el QR de tu conjunto."))
+            else:
+                listings = _listar_disponibles(conjunto, "VENTA")
+                respuestas.append(whatsapp.send_catalogo(phone, conjunto, "Venta", listings))
+            return respuestas
+
+        if id_ == "MENU_PUBLICAR":
+            if not conjunto:
+                respuestas.append(whatsapp.send_text(phone, "Primero escanea el QR de tu conjunto."))
+            else:
+                # WHATSAPP FLOW (nuevo). Para volver al fallback de texto,
+                # cambiar por _iniciar_publicacion(phone).
+                respuestas.append(_iniciar_publicacion_flow(phone))
+            return respuestas
+
+        if id_ in OPCIONES_EN_PREPARACION:
+            respuestas.append(whatsapp.send_text(phone, "Estamos preparando esta opción."))
+            return respuestas
+
+        if id_.startswith("APTO_"):
+            apto = _buscar_apto(id_[len("APTO_"):])
+            if apto:
+                respuestas.append(whatsapp.send_apto_detail(phone, apto))
+            else:
+                respuestas.append(whatsapp.send_text(phone, "Ese inmueble ya no está disponible."))
+            return respuestas
+
+    if event["type"] == "button_reply":
+        id_ = event["id"]
+
+        if id_ == "AUTORIZO_PUBLICAR":
+            data = session.get("flow_data", {})
+            nuevo_id = state.next_apto_id(conjunto, data["operacion"], data["apto_numero"])
+            apto = {
+                "id": nuevo_id,
+                "conjunto": conjunto,
+                "operacion": data["operacion"],
+                "apartamento": data["apartamento"],
+                "habitaciones": data["habitaciones"],
+                "banos": data["banos"],
+                "m2": data["m2"],
+                "precio": data["precio"],
+                "gestion": "PROPIETARIO",
+                "disponibilidad": "DISPONIBLE",
+                "propietario_telefono": phone,
+                "owner_contact_authorized": True,
+                "owner_contact_authorized_at": state.now_iso(),
+            }
+            state.save_inmueble(apto)
+            state.set_session(phone, flow=None, flow_step=None, flow_data=None)
+            respuestas.append(whatsapp.send_confirmacion_publicacion(phone, apto))
+            return respuestas
+
+        if id_ == "NO_AUTORIZO_PUBLICAR":
+            state.set_session(phone, flow=None, flow_step=None, flow_data=None)
+            respuestas.append(whatsapp.send_publicacion_rechazada(phone))
+            return respuestas
+
+        if id_.startswith("CONTACTAR_"):
+            apto = _buscar_apto(id_[len("CONTACTAR_"):])
+            if not apto:
+                respuestas.append(whatsapp.send_text(phone, "Ese inmueble ya no está disponible."))
+                return respuestas
+            if apto["gestion"] == "PETRA":
+                state.save_lead(phone, apto)
+                respuestas.append(whatsapp.send_confirmacion_contacto(phone, apto))
+            else:
+                respuestas.append(whatsapp.send_confirmar_contacto_propietario(phone, apto))
+            return respuestas
+
+        if id_.startswith("CONFIRMAR_CONTACTO_"):
+            apto = _buscar_apto(id_[len("CONFIRMAR_CONTACTO_"):])
+            if apto:
+                state.save_lead(
+                    phone, apto,
+                    gestion="PROPIETARIO",
+                    autorizado_interesado=True,
+                    autorizado_en=state.now_iso(),
+                    estado="AUTORIZADO",
+                )
+                respuestas.append(whatsapp.send_conexion_confirmada(phone, apto))
+            else:
+                respuestas.append(whatsapp.send_text(phone, "Ese inmueble ya no está disponible."))
+            return respuestas
+
+        if id_.startswith("CANCELAR_CONTACTO_"):
+            respuestas.append(whatsapp.send_cancelacion_contacto(phone))
+            return respuestas
+
+    # Cualquier otro evento no reconocido: fallback silencioso a texto libre.
+    respuestas.append(whatsapp.send_text(phone, "No entendí eso. Escribe *menu* para ver las opciones."))
+    return respuestas
