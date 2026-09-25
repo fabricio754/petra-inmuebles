@@ -49,6 +49,8 @@ def _dispatch(payload, human_summary):
     resp = requests.post(_graph_url(), headers=headers, json=payload, timeout=15)
     if resp.status_code >= 300:
         log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
+    else:
+        log.info("[OK WhatsApp API] %s → %s: %s", resp.status_code, payload["to"], human_summary)
     return {"status": resp.status_code, "summary": human_summary, "body": resp.text}
 
 
