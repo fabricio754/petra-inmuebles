@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 INVENTARIO_PATH = os.path.join(DATA_DIR, "inventario.json")
+INVENTARIO_SEED_PATH = os.path.join(DATA_DIR, "inventario.seed.json")
 SESSIONS_PATH = os.path.join(DATA_DIR, "sessions.json")
 LEADS_PATH = os.path.join(DATA_DIR, "leads.json")
 
@@ -21,6 +22,7 @@ def _load_json(path, default):
 
 
 def _save_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -30,6 +32,10 @@ def now_iso():
 
 
 def load_inventario():
+    if not os.path.exists(INVENTARIO_PATH) and os.path.exists(INVENTARIO_SEED_PATH):
+        # Primera vez que corre en un entorno nuevo (ej. Render): arranca
+        # con el inventario base en vez de vacío.
+        _save_json(INVENTARIO_PATH, _load_json(INVENTARIO_SEED_PATH, []))
     return _load_json(INVENTARIO_PATH, [])
 
 

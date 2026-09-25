@@ -1,0 +1,38 @@
+[
+  {
+    "id": "ARRAYANES-ARR-101",
+    "conjunto": "ARRAYANES",
+    "operacion": "ARRIENDO",
+    "apartamento": "Apto 101",
+    "habitaciones": 2,
+    "banos": 2,
+    "m2": 68,
+    "precio": 2300000,
+    "gestion": "PETRA",
+    "disponibilidad": "DISPONIBLE"
+  },
+  {
+    "id": "ARRAYANES-ARR-204",
+    "conjunto": "ARRAYANES",
+    "operacion": "ARRIENDO",
+    "apartamento": "Apto 204",
+    "habitaciones": 3,
+    "banos": 2,
+    "m2": 82,
+    "precio": 2700000,
+    "gestion": "PROPIETARIO",
+    "disponibilidad": "DISPONIBLE"
+  },
+  {
+    "id": "ARRAYANES-VTA-502",
+    "conjunto": "ARRAYANES",
+    "operacion": "VENTA",
+    "apartamento": "Apto 502",
+    "habitaciones": 3,
+    "banos": 2,
+    "m2": 78,
+    "precio": 420000000,
+    "gestion": "PETRA",
+    "disponibilidad": "DISPONIBLE"
+  }
+]
