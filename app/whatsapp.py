@@ -71,9 +71,9 @@ def send_menu(to, conjunto):
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": {"type": "text", "text": "Petra 🏘️"},
-            "body": {"text": f"Hola 👋 Soy Petra.\nEstás en *{conjunto.title()}*.\n¿Qué necesitas?"},
-            "footer": {"text": "Petra Inmuebles"},
+            "header": {"type": "text", "text": "Massi 👋"},
+            "body": {"text": f"Hola 👋 Soy Massi.\nEstás en *{conjunto.title()}*.\n¿Qué necesitas?"},
+            "footer": {"text": "Massi te conecta con lo que necesitas"},
             "action": {
                 "button": "Ver opciones",
                 "sections": [{
@@ -83,13 +83,39 @@ def send_menu(to, conjunto):
                         {"id": "MENU_COMPRAR", "title": "🏡 Comprar", "description": "Ver apartamentos en venta"},
                         {"id": "MENU_PUBLICAR", "title": "📋 Publicar mi inmueble", "description": "Arrendar o vender el tuyo"},
                         {"id": "MENU_CREDITO", "title": "💳 Crédito hipotecario", "description": "Con garantía hipotecaria"},
+                        {"id": "MENU_PAGOS", "title": "💰 Pago de servicios", "description": "Administración o servicios públicos"},
                     ],
                 }],
             },
         },
     }
-    summary = f"[MENÚ] {conjunto} → 4 opciones"
+    summary = f"[MENÚ] {conjunto} → 5 opciones"
     return _dispatch(payload, summary)
+
+
+def send_menu_pagos(to):
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "💰 Pago de servicios"},
+            "body": {"text": "¿Qué quieres pagar?"},
+            "footer": {"text": "Massi"},
+            "action": {
+                "button": "Ver opciones",
+                "sections": [{
+                    "title": "Tipo de pago",
+                    "rows": [
+                        {"id": "PAGO_ADMINISTRACION", "title": "🏢 Cuota de administración", "description": "Del conjunto Arrayanes"},
+                        {"id": "PAGO_SERVICIOS", "title": "🔌 Servicios públicos", "description": "Luz, agua, gas o internet"},
+                    ],
+                }],
+            },
+        },
+    }
+    return _dispatch(payload, "[MENÚ PAGOS] 2 opciones")
 
 
 def send_catalogo(to, conjunto, operacion_label, listings):
@@ -266,3 +292,29 @@ def send_flow_publicar(to):
     }
     summary = f"[FLOW PUBLICAR] modo={FLOW_MODE} flow_id={FLOW_ID or '(META_FLOW_PUBLICAR_ID sin configurar)'}"
     return _dispatch(payload, summary)
+
+
+# --- Piloto Crédito (dummy) -------------------------------------------------
+# Sin proveedor real todavía. Termina guardando el lead y avisando que un
+# asesor contactará -- el punto donde se conectaría un proveedor real de
+# crédito está marcado en bot.py.
+
+def send_confirmacion_credito(to):
+    body = (
+        "✅ Recibimos tu solicitud de crédito con garantía hipotecaria.\n"
+        "Un asesor te va a contactar por este mismo WhatsApp."
+    )
+    return send_text(to, body)
+
+
+# --- Piloto Pago de servicios (dummy) ---------------------------------------
+# Sin pasarela de pagos real todavía. Simula el pago y guarda el lead -- el
+# punto donde se conectaría un proveedor real de pagos está marcado en bot.py.
+
+def send_confirmacion_pago(to, monto):
+    monto_fmt = f"${monto:,.0f}".replace(",", ".")
+    body = (
+        f"✅ Pago simulado por {monto_fmt} procesado correctamente.\n"
+        "(Esto es una prueba piloto -- todavía no está conectado a una pasarela de pagos real.)"
+    )
+    return send_text(to, body)

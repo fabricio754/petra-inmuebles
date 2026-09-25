@@ -9,9 +9,7 @@ from app import state, whatsapp
 # clave es la que va pre-cargada en el link/QR: wa.me/<numero>?text=ARRAYANES
 CONJUNTOS_ACTIVOS = ["ARRAYANES"]
 
-OPCIONES_EN_PREPARACION = {
-    "MENU_CREDITO": "💳 Crédito con garantía hipotecaria",
-}
+OPCIONES_EN_PREPARACION = {}
 
 # === FALLBACK -- flujo conversacional viejo de "Publicar mi inmueble" =====
 # Ya NO se usa por defecto (ver MENU_PUBLICAR más abajo, que ahora llama a
@@ -149,6 +147,127 @@ def _procesar_flow_publicacion(phone, conjunto, response):
 # === FIN WHATSAPP FLOW ======================================================
 
 
+# === PILOTO CRÉDITO (dummy) =================================================
+# Sin proveedor real todavía: junta 3 datos por texto y guarda el lead.
+# Punto de conexión a un proveedor real de crédito: justo donde termina
+# _procesar_paso_credito, en vez de solo guardar el lead y confirmar.
+CREDITO_STEPS = ["MONTO", "MOTIVO", "PROPIETARIO"]
+
+CREDITO_PREGUNTAS = {
+    "MONTO": "¿Cuánto crédito necesitas? (solo el número, ej: 20000000)",
+    "MOTIVO": "¿Para qué necesitas el crédito?",
+    "PROPIETARIO": "¿Eres propietario de un inmueble en Arrayanes que puedas dejar en garantía? Responde SI o NO.",
+}
+
+
+def _iniciar_credito(phone):
+    state.set_session(phone, flow="CREDITO", flow_step="MONTO", flow_data={})
+    return whatsapp.send_text(phone, CREDITO_PREGUNTAS["MONTO"])
+
+
+def _procesar_paso_credito(phone, session, texto):
+    step = session["flow_step"]
+    data = session.get("flow_data", {})
+    valor = texto.strip()
+
+    if step == "MONTO":
+        limpio = valor.replace(".", "").replace(",", "")
+        if not limpio.isdigit():
+            return whatsapp.send_text(phone, "Ese valor debe ser un número. " + CREDITO_PREGUNTAS[step])
+        valor = int(limpio)
+
+    if step == "PROPIETARIO":
+        valor_upper = valor.upper()
+        if valor_upper not in ("SI", "SÍ", "NO"):
+            return whatsapp.send_text(phone, "Responde SI o NO.")
+        valor = valor_upper in ("SI", "SÍ")
+
+    data[step.lower()] = valor
+
+    siguiente_index = CREDITO_STEPS.index(step) + 1
+    if siguiente_index < len(CREDITO_STEPS):
+        siguiente_step = CREDITO_STEPS[siguiente_index]
+        state.set_session(phone, flow_step=siguiente_step, flow_data=data)
+        return whatsapp.send_text(phone, CREDITO_PREGUNTAS[siguiente_step])
+
+    # Completo -> (dummy) guardar lead y confirmar. Acá se conectaría un
+    # proveedor real de crédito en vez de solo guardar y avisar.
+    conjunto = session.get("conjunto")
+    state.set_session(phone, flow=None, flow_step=None, flow_data=None)
+    state.save_lead(
+        phone,
+        {"conjunto": conjunto, "id": None, "apartamento": None, "operacion": "CREDITO"},
+        monto=data.get("monto"),
+        motivo=data.get("motivo"),
+        propietario=data.get("propietario"),
+    )
+    return whatsapp.send_confirmacion_credito(phone)
+# === FIN PILOTO CRÉDITO ======================================================
+
+
+# === PILOTO PAGO DE SERVICIOS (dummy) =======================================
+# Sin pasarela de pagos real todavía: junta los datos por texto y guarda el
+# lead. Punto de conexión a un proveedor real de pagos: justo donde termina
+# _procesar_paso_pago, en vez de solo simular el pago.
+PAGO_STEPS = {
+    "ADMINISTRACION": ["APTO", "MONTO"],
+    "SERVICIOS": ["SERVICIO", "REFERENCIA", "MONTO"],
+}
+
+PAGO_PREGUNTAS = {
+    "APTO": "¿Cuál es el número de tu apartamento?",
+    "MONTO": "¿Cuál es el monto a pagar? (solo el número, ej: 350000)",
+    "SERVICIO": "¿Qué servicio quieres pagar? Responde luz, agua, gas o internet.",
+    "REFERENCIA": "¿Cuál es el número de cuenta o referencia de pago?",
+}
+
+
+def _iniciar_pago(phone, tipo):
+    primer_step = PAGO_STEPS[tipo][0]
+    state.set_session(phone, flow="PAGO", flow_tipo=tipo, flow_step=primer_step, flow_data={})
+    return whatsapp.send_text(phone, PAGO_PREGUNTAS[primer_step])
+
+
+def _procesar_paso_pago(phone, session, texto):
+    tipo = session["flow_tipo"]
+    steps = PAGO_STEPS[tipo]
+    step = session["flow_step"]
+    data = session.get("flow_data", {})
+    valor = texto.strip()
+
+    if step == "MONTO":
+        limpio = valor.replace(".", "").replace(",", "")
+        if not limpio.isdigit():
+            return whatsapp.send_text(phone, "Ese valor debe ser un número. " + PAGO_PREGUNTAS[step])
+        valor = int(limpio)
+
+    if step == "SERVICIO":
+        valor_upper = valor.upper()
+        if valor_upper not in ("LUZ", "AGUA", "GAS", "INTERNET"):
+            return whatsapp.send_text(phone, "Responde luz, agua, gas o internet.")
+        valor = valor_upper
+
+    data[step.lower()] = valor
+
+    siguiente_index = steps.index(step) + 1
+    if siguiente_index < len(steps):
+        siguiente_step = steps[siguiente_index]
+        state.set_session(phone, flow_step=siguiente_step, flow_data=data)
+        return whatsapp.send_text(phone, PAGO_PREGUNTAS[siguiente_step])
+
+    # Completo -> (dummy) guardar lead y simular el pago. Acá se conectaría
+    # una pasarela de pagos real en vez de solo simular.
+    conjunto = session.get("conjunto")
+    state.set_session(phone, flow=None, flow_tipo=None, flow_step=None, flow_data=None)
+    state.save_lead(
+        phone,
+        {"conjunto": conjunto, "id": None, "apartamento": data.get("apto"), "operacion": f"PAGO_{tipo}"},
+        **data,
+    )
+    return whatsapp.send_confirmacion_pago(phone, data["monto"])
+# === FIN PILOTO PAGO DE SERVICIOS ============================================
+
+
 def handle_incoming(phone, event):
     """event: {"type": "text", "text": str}
              | {"type": "list_reply", "id": str}
@@ -171,6 +290,14 @@ def handle_incoming(phone, event):
             respuestas.append(_procesar_paso_publicacion(phone, session, event["text"]))
             return respuestas
 
+        if session.get("flow") == "CREDITO":
+            respuestas.append(_procesar_paso_credito(phone, session, event["text"]))
+            return respuestas
+
+        if session.get("flow") == "PAGO":
+            respuestas.append(_procesar_paso_pago(phone, session, event["text"]))
+            return respuestas
+
         detectado = _detectar_conjunto(event["text"])
         if not conjunto and detectado:
             state.set_session(phone, conjunto=detectado)
@@ -181,7 +308,7 @@ def handle_incoming(phone, event):
         else:
             respuestas.append(whatsapp.send_text(
                 phone,
-                "Hola 👋 Soy Petra. Escanea el código QR de tu conjunto para ver su inventario.",
+                "Hola 👋 Soy Massi. Escanea el código QR de tu conjunto para ver su inventario.",
             ))
         return respuestas
 
@@ -211,6 +338,25 @@ def handle_incoming(phone, event):
                 # WHATSAPP FLOW (nuevo). Para volver al fallback de texto,
                 # cambiar por _iniciar_publicacion(phone).
                 respuestas.append(_iniciar_publicacion_flow(phone))
+            return respuestas
+
+        if id_ == "MENU_CREDITO":
+            if not conjunto:
+                respuestas.append(whatsapp.send_text(phone, "Primero escanea el QR de tu conjunto."))
+            else:
+                respuestas.append(_iniciar_credito(phone))
+            return respuestas
+
+        if id_ == "MENU_PAGOS":
+            if not conjunto:
+                respuestas.append(whatsapp.send_text(phone, "Primero escanea el QR de tu conjunto."))
+            else:
+                respuestas.append(whatsapp.send_menu_pagos(phone))
+            return respuestas
+
+        if id_ in ("PAGO_ADMINISTRACION", "PAGO_SERVICIOS"):
+            tipo = "ADMINISTRACION" if id_ == "PAGO_ADMINISTRACION" else "SERVICIOS"
+            respuestas.append(_iniciar_pago(phone, tipo))
             return respuestas
 
         if id_ in OPCIONES_EN_PREPARACION:
