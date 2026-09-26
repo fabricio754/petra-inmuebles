@@ -119,7 +119,7 @@ def send_menu_pagos(to):
                 "sections": [{
                     "title": "Tipo de pago",
                     "rows": [
-                        {"id": "PAGO_ADMINISTRACION", "title": "🏢 Cuota de administración", "description": "Del conjunto Arrayanes"},
+                        {"id": "PAGO_ADMINISTRACION", "title": "🏢 Administración", "description": "Cuota de administración de Arrayanes"},
                         {"id": "PAGO_SERVICIOS", "title": "🔌 Servicios públicos", "description": "Luz, agua, gas o internet"},
                     ],
                 }],
@@ -133,12 +133,16 @@ def send_catalogo(to, conjunto, operacion_label, listings):
     rows = []
     for item in listings:
         precio_fmt = f"${item['precio']:,.0f}".replace(",", ".")
-        title = item["apartamento"]
+        # WhatsApp rechaza toda la lista si un título pasa de 24 caracteres
+        # (el inventario se puede editar a mano en la Sheet).
+        title = item["apartamento"][:24]
         desc = f"{item['habitaciones']} hab · {item['banos']} baños · {item['m2']} m² · {precio_fmt}"
         rows.append({"id": f"APTO_{item['id']}", "title": title, "description": desc})
 
     if not rows:
         return send_text(to, f"En {conjunto} todavía no hay inmuebles publicados en esta operación.")
+    # Máximo 10 filas por lista en WhatsApp.
+    rows = rows[:10]
 
     payload = {
         "messaging_product": "whatsapp",
