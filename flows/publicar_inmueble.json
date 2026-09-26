@@ -55,10 +55,10 @@
       "success": true,
       "data": {
         "apto": { "type": "string", "__example__": "305" },
-        "habitaciones": { "type": "number", "__example__": 2 },
-        "banos": { "type": "number", "__example__": 2 },
-        "area": { "type": "number", "__example__": 68 },
-        "precio": { "type": "number", "__example__": 2500000 },
+        "habitaciones": { "type": "string", "__example__": "2" },
+        "banos": { "type": "string", "__example__": "2" },
+        "area": { "type": "string", "__example__": "68" },
+        "precio": { "type": "string", "__example__": "2500000" },
         "operacion": { "type": "string", "__example__": "ARRIENDO" }
       },
       "layout": {
