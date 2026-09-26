@@ -48,7 +48,8 @@ Piloto: conjunto Arrayanes (el QR manda el texto `ARRAYANES`).
 
 ### WhatsApp Flow "Publicar mi inmueble"
 - Flow nuevo en la WABA de producción: ID `1098781332903923` (en Render: `META_FLOW_PUBLICAR_ID`).
-  Estado: BORRADOR (muestra "This flow is only for testing"). NO publicar sin aprobación.
+  Estado: PUBLICADO (26 sep 2026, aprobado por el usuario). En Render `META_FLOW_PUBLICAR_MODE=published`.
+  Un Flow publicado ya no se puede editar: para cambios, crear uno nuevo y cambiar el ID en Render.
 - Flow viejo en la WABA de prueba: `1448752417166220` (ya no se usa).
 - JSON respaldado en `flows/publicar_inmueble.json`. Una sola pantalla (FORM) que completa
   directo: con dos pantallas, el validador de Meta exige `number` y WhatsApp manda texto.
@@ -60,17 +61,21 @@ Piloto: conjunto Arrayanes (el QR manda el texto `ARRAYANES`).
 - `bot.py`: `_numero` acepta int/float (68.5 no se vuelve 685).
 - `state.py`: Google Sheets (ver Hito 2).
 
+### Hito 4 — Flow definitivo: HECHO
+- Formulario de texto viejo de Publicar borrado del código.
+- Flow publicado (ver arriba).
+- Arreglados de paso: Pago de administración (TypeError al guardar el lead) y el submenú de
+  Pagos (título de fila de 25 caracteres; WhatsApp permite 24). Catálogo: títulos recortados a 24
+  y máximo 10 filas. Probado en vivo: el pago quedó en la pestaña Contactos.
+
 ## Pendiente, en orden
-1. Hito 4 (SOLO con aprobación explícita del usuario):
-   a. Borrar el formulario conversacional viejo (bloque `=== FALLBACK ===` en `app/bot.py`).
-   b. Publicar el Flow (salir de Borrador). Meta exige requisitos de calidad.
-2. Seguridad:
+1. Seguridad:
    - Render API key vieja: revocar y crear nueva, guardándola desde la Terminal del usuario
      (nunca en el chat). Sigue sin confirmarse.
    - GitHub PAT pegado en una sesión anterior: confirmar que se revocó.
    - Llave JSON de Google: el usuario la tiene en Descargas; moverla a un lugar privado.
-3. Limpieza: borrar la Sheet "Massi - Datos" creada por error en la cuenta de Petra Secondaries.
-4. Futuro: "Modo: En desarrollo" de la app de Meta — revisar si hace falta pasarla a Activo
+2. Limpieza: borrar la Sheet "Massi - Datos" creada por error en la cuenta de Petra Secondaries.
+3. Futuro: "Modo: En desarrollo" de la app de Meta — revisar si hace falta pasarla a Activo
    (hoy funciona así). No cambiar sin revisar juntos.
 
 ## Forma de trabajar del usuario
