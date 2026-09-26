@@ -73,7 +73,7 @@ def _to_event(message):
         if interactive["type"] == "button_reply":
             return {"type": "button_reply", "id": interactive["button_reply"]["id"]}
         if interactive["type"] == "nfm_reply":
-            # WHATSAPP FLOW (nuevo) -- respuesta del formulario nativo
+            # WHATSAPP FLOW -- respuesta del formulario nativo
             # "Publicar mi inmueble". response_json llega como string.
             return {
                 "type": "flow_reply",

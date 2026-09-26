@@ -11,34 +11,6 @@ CONJUNTOS_ACTIVOS = ["ARRAYANES"]
 
 OPCIONES_EN_PREPARACION = {}
 
-# === FALLBACK -- flujo conversacional viejo de "Publicar mi inmueble" =====
-# Ya NO se usa por defecto (ver MENU_PUBLICAR más abajo, que ahora llama a
-# _iniciar_publicacion_flow). Se deja intacto a propósito como respaldo
-# mientras se prueba el WhatsApp Flow nuevo. Se puede borrar todo este bloque
-# (hasta _procesar_paso_publicacion) sin afectar el resto del bot.
-# Un campo de texto libre por paso, sin fotos, sin validaciones estrictas
-# más allá de "es un número".
-PUBLICAR_STEPS = ["APTO", "HABITACIONES", "BANOS", "M2", "PRECIO", "OPERACION"]
-
-PUBLICAR_PREGUNTAS = {
-    "APTO": "Para publicar tu inmueble, dime el número o identificador de tu apartamento (ej: 305).",
-    "HABITACIONES": "¿Cuántas habitaciones tiene?",
-    "BANOS": "¿Cuántos baños tiene?",
-    "M2": "¿Cuántos m² tiene?",
-    "PRECIO": "¿Cuál es el precio? (solo el número, ej: 2500000)",
-    "OPERACION": "¿Es para *arriendo* o *venta*? Responde ARRIENDO o VENTA.",
-}
-
-PUBLICAR_CAMPOS = {
-    "APTO": "apartamento",
-    "HABITACIONES": "habitaciones",
-    "BANOS": "banos",
-    "M2": "m2",
-    "PRECIO": "precio",
-    "OPERACION": "operacion",
-}
-
-
 def _detectar_conjunto(texto):
     texto_upper = texto.strip().upper()
     for conjunto in CONJUNTOS_ACTIVOS:
@@ -63,54 +35,7 @@ def _listar_disponibles(conjunto, operacion):
     ]
 
 
-def _iniciar_publicacion(phone):
-    state.set_session(phone, flow="PUBLICAR", flow_step="APTO", flow_data={})
-    return whatsapp.send_text(phone, PUBLICAR_PREGUNTAS["APTO"])
-
-
-def _procesar_paso_publicacion(phone, session, texto):
-    step = session["flow_step"]
-    data = session.get("flow_data", {})
-    valor = texto.strip()
-
-    if step in ("HABITACIONES", "BANOS", "M2", "PRECIO"):
-        limpio = valor.replace(".", "").replace(",", "")
-        if not limpio.isdigit():
-            return whatsapp.send_text(phone, "Ese valor debe ser un número. " + PUBLICAR_PREGUNTAS[step])
-        valor = int(limpio)
-
-    if step == "OPERACION":
-        valor_upper = valor.upper()
-        if valor_upper not in ("ARRIENDO", "VENTA"):
-            return whatsapp.send_text(phone, "Responde ARRIENDO o VENTA.")
-        valor = valor_upper
-
-    if step == "APTO":
-        data["apto_numero"] = valor
-        valor = f"Apto {valor}"
-
-    data[PUBLICAR_CAMPOS[step]] = valor
-
-    siguiente_index = PUBLICAR_STEPS.index(step) + 1
-    if siguiente_index < len(PUBLICAR_STEPS):
-        siguiente_step = PUBLICAR_STEPS[siguiente_index]
-        state.set_session(phone, flow_step=siguiente_step, flow_data=data)
-        return whatsapp.send_text(phone, PUBLICAR_PREGUNTAS[siguiente_step])
-
-    # Formulario completo -> pedir autorización de contacto (obligatoria).
-    state.set_session(phone, flow="AUTORIZACION", flow_data=data)
-    precio_fmt = f"${data['precio']:,.0f}".replace(",", ".")
-    resumen = (
-        f"{data['apartamento']} · {data['habitaciones']} hab · {data['banos']} baños · "
-        f"{data['m2']} m² · {precio_fmt} · {data['operacion'].title()}"
-    )
-    return whatsapp.send_autorizacion_propietario(phone, resumen)
-# === FIN FALLBACK ==========================================================
-
-
-# === WHATSAPP FLOW (nuevo) -- formulario nativo "Publicar mi inmueble" ====
-# Independiente del bloque de arriba: no comparte sesión (no usa flow_step)
-# ni funciones. Se puede borrar el bloque FALLBACK sin tocar nada de acá.
+# === WHATSAPP FLOW -- formulario nativo "Publicar mi inmueble" =============
 
 def _iniciar_publicacion_flow(phone):
     return whatsapp.send_flow_publicar(phone)
@@ -118,9 +43,8 @@ def _iniciar_publicacion_flow(phone):
 
 def _procesar_flow_publicacion(phone, conjunto, response):
     """Recibe la respuesta ya parseada del webhook nfm_reply (ver
-    server.py:_to_event, event type "flow_reply") y entra EXACTAMENTE al
-    mismo punto de autorización que el flujo conversacional viejo: arma
-    flow_data y llama a send_autorizacion_propietario. Los botones
+    server.py:_to_event, event type "flow_reply"): arma flow_data y pide
+    la autorización del propietario (send_autorizacion_propietario). Los botones
     AUTORIZO_PUBLICAR / NO_AUTORIZO_PUBLICAR de más abajo no cambian."""
     def _numero(valor):
         # El Flow puede mandar número (68 / 68.5) o texto ("2.500.000").
@@ -265,7 +189,9 @@ def _procesar_paso_pago(phone, session, texto):
     state.save_lead(
         phone,
         {"conjunto": conjunto, "id": None, "apartamento": data.get("apto"), "operacion": f"PAGO_{tipo}"},
-        **data,
+        # "apto" ya va en "apartamento"; pasarlo en **extra choca con el
+        # parámetro apto de save_lead (TypeError).
+        **{k: v for k, v in data.items() if k != "apto"},
     )
     return whatsapp.send_confirmacion_pago(phone, data["monto"])
 # === FIN PILOTO PAGO DE SERVICIOS ============================================
@@ -281,18 +207,11 @@ def handle_incoming(phone, event):
     respuestas = []
 
     if event["type"] == "flow_reply":
-        # --- WHATSAPP FLOW (nuevo) --------------------------------------
+        # --- WHATSAPP FLOW -----------------------------------------
         respuestas.append(_procesar_flow_publicacion(phone, conjunto, event["response"]))
         return respuestas
 
     if event["type"] == "text":
-        # FALLBACK viejo (ver bloque marcado arriba) -- ya no se dispara
-        # desde MENU_PUBLICAR, pero se deja activo por si alguien queda a
-        # mitad del flujo de texto viejo.
-        if session.get("flow") == "PUBLICAR":
-            respuestas.append(_procesar_paso_publicacion(phone, session, event["text"]))
-            return respuestas
-
         if session.get("flow") == "CREDITO":
             respuestas.append(_procesar_paso_credito(phone, session, event["text"]))
             return respuestas
@@ -338,8 +257,6 @@ def handle_incoming(phone, event):
             if not conjunto:
                 respuestas.append(whatsapp.send_text(phone, "Primero escanea el QR de tu conjunto."))
             else:
-                # WHATSAPP FLOW (nuevo). Para volver al fallback de texto,
-                # cambiar por _iniciar_publicacion(phone).
                 respuestas.append(_iniciar_publicacion_flow(phone))
             return respuestas
 

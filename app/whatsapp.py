@@ -272,10 +272,8 @@ def send_publicacion_rechazada(to):
 
 
 def send_flow_publicar(to):
-    """WHATSAPP FLOW (nuevo) — abre el formulario nativo "Publicar mi inmueble"
-    dentro del chat (pantallas FORM -> RESUMEN definidas en WhatsApp Manager).
-    Reemplaza, para quien lo reciba, al flujo conversacional viejo de
-    PUBLICAR_STEPS -- pero no lo borra, ver bot.py.
+    """WHATSAPP FLOW — abre el formulario nativo "Publicar mi inmueble"
+    dentro del chat (una pantalla, FORM; JSON en flows/publicar_inmueble.json).
 
     Requiere META_FLOW_PUBLICAR_ID configurado (el ID del Flow creado en
     WhatsApp Manager). FLOW_MODE="draft" permite probarlo sin publicar el Flow."""
