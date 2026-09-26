@@ -2,3 +2,4 @@ flask
 requests
 qrcode[pil]
 python-dotenv
+gspread>=6
