@@ -123,6 +123,9 @@ def _procesar_flow_publicacion(phone, conjunto, response):
     flow_data y llama a send_autorizacion_propietario. Los botones
     AUTORIZO_PUBLICAR / NO_AUTORIZO_PUBLICAR de más abajo no cambian."""
     def _numero(valor):
+        # El Flow puede mandar número (68 / 68.5) o texto ("2.500.000").
+        if isinstance(valor, (int, float)):
+            return int(valor)
         limpio = str(valor).strip().replace(".", "").replace(",", "")
         return int(limpio) if limpio.isdigit() else 0
 

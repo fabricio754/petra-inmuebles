@@ -4,6 +4,8 @@
     {
       "id": "FORM",
       "title": "Publicar inmueble",
+      "terminal": true,
+      "success": true,
       "data": {},
       "layout": {
         "type": "SingleColumnLayout",
@@ -12,27 +14,62 @@
             "type": "Form",
             "name": "form_publicar",
             "children": [
-              { "type": "TextInput", "name": "apto", "label": "Apartamento", "input-type": "text", "required": true },
-              { "type": "TextInput", "name": "habitaciones", "label": "Habitaciones", "input-type": "number", "required": true },
-              { "type": "TextInput", "name": "banos", "label": "Baños", "input-type": "number", "required": true },
-              { "type": "TextInput", "name": "area", "label": "Área en m²", "input-type": "number", "required": true },
-              { "type": "TextInput", "name": "precio", "label": "Precio", "input-type": "number", "required": true },
+              {
+                "type": "TextInput",
+                "name": "apto",
+                "label": "Apartamento",
+                "input-type": "text",
+                "required": true
+              },
+              {
+                "type": "TextInput",
+                "name": "habitaciones",
+                "label": "Habitaciones",
+                "input-type": "number",
+                "required": true
+              },
+              {
+                "type": "TextInput",
+                "name": "banos",
+                "label": "Baños",
+                "input-type": "number",
+                "required": true
+              },
+              {
+                "type": "TextInput",
+                "name": "area",
+                "label": "Área en m²",
+                "input-type": "number",
+                "required": true
+              },
+              {
+                "type": "TextInput",
+                "name": "precio",
+                "label": "Precio",
+                "input-type": "number",
+                "required": true
+              },
               {
                 "type": "RadioButtonsGroup",
                 "name": "operacion",
                 "label": "Operación",
                 "required": true,
                 "data-source": [
-                  { "id": "ARRIENDO", "title": "Arriendo" },
-                  { "id": "VENTA", "title": "Venta" }
+                  {
+                    "id": "ARRIENDO",
+                    "title": "Arriendo"
+                  },
+                  {
+                    "id": "VENTA",
+                    "title": "Venta"
+                  }
                 ]
               },
               {
                 "type": "Footer",
-                "label": "Continuar",
+                "label": "Publicar",
                 "on-click-action": {
-                  "name": "navigate",
-                  "next": { "type": "screen", "name": "RESUMEN" },
+                  "name": "complete",
                   "payload": {
                     "apto": "${form.apto}",
                     "habitaciones": "${form.habitaciones}",
@@ -44,42 +81,6 @@
                 }
               }
             ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "RESUMEN",
-      "title": "Confirma tu inmueble",
-      "terminal": true,
-      "success": true,
-      "data": {
-        "apto": { "type": "string", "__example__": "305" },
-        "habitaciones": { "type": "string", "__example__": "2" },
-        "banos": { "type": "string", "__example__": "2" },
-        "area": { "type": "string", "__example__": "68" },
-        "precio": { "type": "string", "__example__": "2500000" },
-        "operacion": { "type": "string", "__example__": "ARRIENDO" }
-      },
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          { "type": "TextHeading", "text": "Revisa los datos" },
-          { "type": "TextBody", "text": "Apto ${data.apto} · ${data.habitaciones} hab · ${data.banos} baños · ${data.area} m² · ${data.precio} · ${data.operacion}" },
-          {
-            "type": "Footer",
-            "label": "Publicar",
-            "on-click-action": {
-              "name": "complete",
-              "payload": {
-                "apto": "${data.apto}",
-                "habitaciones": "${data.habitaciones}",
-                "banos": "${data.banos}",
-                "area": "${data.area}",
-                "precio": "${data.precio}",
-                "operacion": "${data.operacion}"
-              }
-            }
           }
         ]
       }
