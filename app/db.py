@@ -125,3 +125,31 @@ def append_lead(lead):
             "INSERT INTO leads (telefono, operacion, datos) VALUES (%s, %s, %s)",
             (lead.get("telefono"), lead.get("operacion"), Jsonb(datos)),
         )
+
+
+def save_pipeline(data):
+    with _conexion() as conn:
+        conn.execute(
+            "INSERT INTO pipeline "
+            "(telefono, nombre, cedula, email, direccion_inmueble, "
+            "requiere_paz_salvo, autorizacion_datos_en, estado) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                data.get("telefono"),
+                data.get("nombre"),
+                data.get("cedula"),
+                data.get("email"),
+                data.get("direccion_inmueble"),
+                bool(data.get("requiere_paz_salvo", False)),
+                data.get("autorizacion_datos_en"),
+                data.get("estado", "NUEVO"),
+            ),
+        )
+
+
+def mark_no_contactar(phone):
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE contactos SET no_contactar = TRUE WHERE telefono = %s",
+            (phone,),
+        )

@@ -308,9 +308,6 @@ def send_flow_publicar(to):
 
 
 # --- Piloto Crédito (dummy) -------------------------------------------------
-# Sin proveedor real todavía. Termina guardando el lead y avisando que un
-# asesor contactará -- el punto donde se conectaría un proveedor real de
-# crédito está marcado en bot.py.
 
 def send_confirmacion_credito(to):
     body = (
@@ -321,13 +318,85 @@ def send_confirmacion_credito(to):
 
 
 # --- Piloto Pago de servicios (dummy) ---------------------------------------
-# Sin pasarela de pagos real todavía. Simula el pago y guarda el lead -- el
-# punto donde se conectaría un proveedor real de pagos está marcado en bot.py.
 
 def send_confirmacion_pago(to, monto):
     monto_fmt = f"${monto:,.0f}".replace(",", ".")
     body = (
         f"✅ Pago simulado por {monto_fmt} procesado correctamente.\n"
         "(Esto es una prueba piloto -- todavía no está conectado a una pasarela de pagos real.)"
+    )
+    return send_text(to, body)
+
+
+# --- Flujo Sureti (crédito con garantía hipotecaria — Hito 6) ---------------
+
+def send_autorizacion_datos(to):
+    body = (
+        "Hola 👋 Soy Massi de Petra Inmuebles.\n\n"
+        "Para evaluar una solución financiera con garantía hipotecaria, "
+        "necesitamos tu autorización para recolectar y tratar tus datos personales "
+        "según la *Ley 1581 de 2012* (Habeas Data).\n\n"
+        "Tus datos se usarán únicamente para el análisis de tu solicitud "
+        "y no serán compartidos sin tu consentimiento.\n\n"
+        "Responde *SI* para continuar o *NO* para no recibir más mensajes de nuestra parte."
+    )
+    return send_text(to, body)
+
+
+def send_pregunta_si_no(to, pregunta):
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": pregunta},
+            "action": {"buttons": [
+                {"type": "reply", "reply": {"id": "SURETI_SI", "title": "Sí"}},
+                {"type": "reply", "reply": {"id": "SURETI_NO", "title": "No"}},
+            ]},
+        },
+    }
+    return _dispatch(payload, f"[SÍ/NO] {pregunta[:60]}")
+
+
+def send_no_contactar(to):
+    return send_text(
+        to,
+        "Entendido. No te enviaremos más mensajes.\n\n"
+        "Si en el futuro quieres retomar el proceso, puedes escribirnos aquí.",
+    )
+
+
+def send_no_califica(to, motivo):
+    _MENSAJES = {
+        "HIPOTECA": (
+            "Gracias por responder.\n\n"
+            "Lamentablemente, un inmueble con hipoteca o embargo activo "
+            "no aplica para este programa en este momento.\n\n"
+            "Si en el futuro se resuelve esa situación, con gusto revisamos tu caso."
+        ),
+        "PATRIMONIO": (
+            "Gracias por responder.\n\n"
+            "Un inmueble con patrimonio de familia que incluye menores de edad "
+            "no aplica para este programa.\n\n"
+            "Gracias por contactarnos."
+        ),
+        "EDAD": (
+            "Gracias por responder.\n\n"
+            "Este programa no aplica cuando el propietario tiene más de 75 años.\n\n"
+            "Gracias por contactarnos."
+        ),
+    }
+    return send_text(to, _MENSAJES.get(motivo, "Gracias por contactarnos."))
+
+
+def send_confirmacion_pipeline(to, nombre_corto):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    body = (
+        f"✅ ¡Listo{sufijo}!\n\n"
+        "Ya registramos tu información. Un asesor revisará tu caso "
+        "y te contactará por este mismo WhatsApp en los próximos días hábiles.\n\n"
+        "Gracias por confiar en Massi. 🙌"
     )
     return send_text(to, body)

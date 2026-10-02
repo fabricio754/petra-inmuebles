@@ -11,6 +11,22 @@ CONJUNTOS_ACTIVOS = ["ARRAYANES"]
 
 OPCIONES_EN_PREPARACION = {}
 
+# === OPT-OUT UNIVERSAL =======================================================
+# Palabras que en cualquier momento significan "no quiero más mensajes".
+# "NO" solo en AUTORIZACION (primer paso del flujo) y como primer mensaje sin
+# contexto activo (respuesta al outreach del scraper).
+_OPT_OUT_KEYWORDS = {"STOP", "BAJA", "PARA", "SALIR"}
+
+
+def _es_opt_out_global(texto, tiene_flow, tiene_conjunto):
+    t = texto.strip().upper()
+    if t in _OPT_OUT_KEYWORDS:
+        return True
+    # "NO" como respuesta a nuestro primer contacto (sin flujo activo)
+    if t == "NO" and not tiene_flow and not tiene_conjunto:
+        return True
+    return False
+
 def _detectar_conjunto(texto):
     texto_upper = texto.strip().upper()
     for conjunto in CONJUNTOS_ACTIVOS:
@@ -72,6 +88,169 @@ def _procesar_flow_publicacion(phone, conjunto, response):
     )
     return whatsapp.send_autorizacion_propietario(phone, resumen)
 # === FIN WHATSAPP FLOW ======================================================
+
+
+# === FLUJO SURETI — Bot de crédito con garantía hipotecaria (Hito 6) ========
+# Reemplaza el flujo dummy CREDITO. El lead calificado queda en `pipeline`.
+
+_SURETI_STEPS = [
+    "AUTORIZACION",    # Pedir consentimiento Ley 1581
+    "DESC_HIPOTECA",   # ¿Hipoteca/embargo? SI = descarta
+    "DESC_PATRIMONIO", # ¿Patrimonio de familia con menores? SI = descarta
+    "DESC_EDAD",       # ¿Propietario > 75 años? SI = descarta
+    "DESC_PAZSALVO",   # ¿Puede ponerse al día? NO = requiere_paz_salvo
+    "DATOS_NOMBRE",
+    "DATOS_CEDULA",
+    "DATOS_CORREO",
+    "DATOS_DIRECCION",
+]
+
+_DESCARTE_PREGUNTAS = {
+    "DESC_HIPOTECA":   "¿Tu inmueble tiene hipoteca o embargo activo?",
+    "DESC_PATRIMONIO": "¿El inmueble tiene patrimonio de familia con menores de edad?",
+    "DESC_EDAD":       "¿El propietario del inmueble tiene más de 75 años?",
+    "DESC_PAZSALVO":   "¿Puedes ponerte al día con predial, servicios y administración?",
+}
+
+_DATOS_PREGUNTAS = {
+    "DATOS_NOMBRE":    "¿Cuál es tu nombre completo?",
+    "DATOS_CEDULA":    "¿Cuál es tu número de cédula? (solo números)",
+    "DATOS_CORREO":    "¿Cuál es tu correo electrónico?",
+    "DATOS_DIRECCION": "Confirma la dirección del inmueble (calle, número, barrio, ciudad):",
+}
+
+_MOTIVO_DESCARTE = {
+    "DESC_HIPOTECA":   "HIPOTECA",
+    "DESC_PATRIMONIO": "PATRIMONIO",
+    "DESC_EDAD":       "EDAD",
+}
+
+
+def _es_si(texto):
+    return texto.strip().upper() in {"SI", "SÍ", "S", "YES"}
+
+
+def _es_no(texto):
+    return texto.strip().upper() in {"NO", "N"}
+
+
+def _iniciar_sureti(phone):
+    state.set_session(phone, flow="SURETI", flow_step="AUTORIZACION", flow_data={})
+    return whatsapp.send_autorizacion_datos(phone)
+
+
+def _procesar_sureti(phone, session, event):
+    """Procesa un evento (text o button_reply) dentro del flujo SURETI."""
+    step = session.get("flow_step", "AUTORIZACION")
+    data = dict(session.get("flow_data") or {})
+
+    if event["type"] == "text":
+        texto = event["text"].strip()
+    elif event["type"] == "button_reply":
+        texto = event["id"]  # "SURETI_SI" o "SURETI_NO"
+    else:
+        return whatsapp.send_text(phone, "Responde con las opciones que te mostramos.")
+
+    # Opt-out universal dentro del flujo
+    if event["type"] == "text" and texto.strip().upper() in _OPT_OUT_KEYWORDS:
+        state.mark_no_contactar(phone)
+        state.set_session(phone, flow=None, flow_step=None, flow_data=None)
+        return whatsapp.send_no_contactar(phone)
+
+    # --- AUTORIZACION -------------------------------------------------------
+    if step == "AUTORIZACION":
+        if _es_si(texto):
+            data["autorizacion_en"] = state.now_iso()
+            state.set_session(phone, flow_step="DESC_HIPOTECA", flow_data=data)
+            return whatsapp.send_pregunta_si_no(phone, _DESCARTE_PREGUNTAS["DESC_HIPOTECA"])
+        # NO o cualquier otra respuesta = opt-out
+        state.mark_no_contactar(phone)
+        state.set_session(phone, flow=None, flow_step=None, flow_data=None)
+        return whatsapp.send_no_contactar(phone)
+
+    # --- DESCARTE -----------------------------------------------------------
+    if step in _DESCARTE_PREGUNTAS:
+        if event["type"] == "button_reply":
+            respondio_si = (texto == "SURETI_SI")
+        elif _es_si(texto):
+            respondio_si = True
+        elif _es_no(texto):
+            respondio_si = False
+        else:
+            return whatsapp.send_pregunta_si_no(phone, _DESCARTE_PREGUNTAS[step])
+
+        if step == "DESC_PAZSALVO":
+            # Puede ponerse al día → no requiere paz salvo; No puede → requiere
+            data["requiere_paz_salvo"] = not respondio_si
+            state.set_session(phone, flow_step="DATOS_NOMBRE", flow_data=data)
+            return whatsapp.send_text(phone, _DATOS_PREGUNTAS["DATOS_NOMBRE"])
+
+        if respondio_si:
+            motivo = _MOTIVO_DESCARTE[step]
+            state.set_session(phone, flow=None, flow_step=None, flow_data=None)
+            return whatsapp.send_no_califica(phone, motivo)
+
+        # "No" al problema → continuar al siguiente paso
+        siguiente = _SURETI_STEPS[_SURETI_STEPS.index(step) + 1]
+        state.set_session(phone, flow_step=siguiente, flow_data=data)
+        return whatsapp.send_pregunta_si_no(phone, _DESCARTE_PREGUNTAS[siguiente])
+
+    # --- DATOS --------------------------------------------------------------
+    if step in _DATOS_PREGUNTAS:
+        if event["type"] != "text":
+            return whatsapp.send_text(phone, _DATOS_PREGUNTAS[step])
+
+        valor = texto.strip()
+
+        if step == "DATOS_CEDULA":
+            limpio = valor.replace(".", "").replace("-", "").replace(" ", "")
+            if not limpio.isdigit() or len(limpio) < 6:
+                return whatsapp.send_text(
+                    phone, "Ingresa solo los números de tu cédula. " + _DATOS_PREGUNTAS[step]
+                )
+            valor = limpio
+
+        if step == "DATOS_CORREO":
+            partes = valor.split("@")
+            if len(partes) != 2 or "." not in partes[1]:
+                return whatsapp.send_text(
+                    phone, "Eso no parece un correo válido. " + _DATOS_PREGUNTAS[step]
+                )
+
+        _clave = {
+            "DATOS_NOMBRE":    "nombre",
+            "DATOS_CEDULA":    "cedula",
+            "DATOS_CORREO":    "email",
+            "DATOS_DIRECCION": "direccion_inmueble",
+        }[step]
+        data[_clave] = valor
+
+        siguiente_idx = _SURETI_STEPS.index(step) + 1
+        if siguiente_idx < len(_SURETI_STEPS):
+            siguiente = _SURETI_STEPS[siguiente_idx]
+            state.set_session(phone, flow_step=siguiente, flow_data=data)
+            return whatsapp.send_text(phone, _DATOS_PREGUNTAS[siguiente])
+
+        # Último dato recibido → guardar en pipeline y confirmar
+        state.save_pipeline({
+            "telefono": phone,
+            "nombre": data.get("nombre"),
+            "cedula": data.get("cedula"),
+            "email": data.get("email"),
+            "direccion_inmueble": data.get("direccion_inmueble"),
+            "requiere_paz_salvo": data.get("requiere_paz_salvo", False),
+            "autorizacion_datos_en": data.get("autorizacion_en"),
+            "estado": "NUEVO",
+        })
+        state.set_session(phone, flow=None, flow_step=None, flow_data=None)
+        nombre_corto = (data.get("nombre") or "").split()[0]
+        return whatsapp.send_confirmacion_pipeline(phone, nombre_corto)
+
+    # Paso no reconocido: reiniciar
+    state.set_session(phone, flow=None, flow_step=None, flow_data=None)
+    return whatsapp.send_text(phone, "Algo falló. Escribe *menu* para reintentar.")
+
+# === FIN FLUJO SURETI ========================================================
 
 
 # === PILOTO CRÉDITO (dummy) =================================================
@@ -201,22 +380,39 @@ def handle_incoming(phone, event):
     """event: {"type": "text", "text": str}
              | {"type": "list_reply", "id": str}
              | {"type": "button_reply", "id": str}
+             | {"type": "flow_reply", "response": dict}
     Devuelve la lista de respuestas enviadas (para logging/pruebas)."""
     session = state.get_session(phone)
     conjunto = session.get("conjunto")
+    flow = session.get("flow")
     respuestas = []
 
+    # --- WhatsApp Flow (formulario nativo) ----------------------------------
     if event["type"] == "flow_reply":
-        # --- WHATSAPP FLOW -----------------------------------------
         respuestas.append(_procesar_flow_publicacion(phone, conjunto, event["response"]))
         return respuestas
 
+    # --- Opt-out global (STOP/BAJA/etc. en cualquier momento) ---------------
     if event["type"] == "text":
-        if session.get("flow") == "CREDITO":
+        if _es_opt_out_global(event["text"], flow, conjunto):
+            state.mark_no_contactar(phone)
+            state.set_session(phone, flow=None, flow_step=None, flow_data=None)
+            respuestas.append(whatsapp.send_no_contactar(phone))
+            return respuestas
+
+    # --- Flujo SURETI (texto o botones Sí/No) --------------------------------
+    if flow == "SURETI":
+        if event["type"] in ("text", "button_reply"):
+            respuestas.append(_procesar_sureti(phone, session, event))
+            return respuestas
+
+    # --- Texto libre ---------------------------------------------------------
+    if event["type"] == "text":
+        if flow == "CREDITO":
             respuestas.append(_procesar_paso_credito(phone, session, event["text"]))
             return respuestas
 
-        if session.get("flow") == "PAGO":
+        if flow == "PAGO":
             respuestas.append(_procesar_paso_pago(phone, session, event["text"]))
             return respuestas
 
@@ -225,15 +421,14 @@ def handle_incoming(phone, event):
             state.set_session(phone, conjunto=detectado)
             respuestas.append(whatsapp.send_menu(phone, detectado))
         elif conjunto:
-            # Cualquier texto libre con conjunto ya identificado reabre el menú.
+            # Texto libre con conjunto activo → reabre el menú de Arrayanes.
             respuestas.append(whatsapp.send_menu(phone, conjunto))
         else:
-            respuestas.append(whatsapp.send_text(
-                phone,
-                "Hola 👋 Soy Massi. Escanea el código QR de tu conjunto para ver su inventario.",
-            ))
+            # Nuevo contacto sin contexto → inicia el flujo de crédito Sureti.
+            respuestas.append(_iniciar_sureti(phone))
         return respuestas
 
+    # --- Selección de lista (menú interactivo) --------------------------------
     if event["type"] == "list_reply":
         id_ = event["id"]
 
@@ -291,6 +486,7 @@ def handle_incoming(phone, event):
                 respuestas.append(whatsapp.send_text(phone, "Ese inmueble ya no está disponible."))
             return respuestas
 
+    # --- Botones de respuesta rápida -----------------------------------------
     if event["type"] == "button_reply":
         id_ = event["id"]
 
@@ -353,6 +549,5 @@ def handle_incoming(phone, event):
             respuestas.append(whatsapp.send_cancelacion_contacto(phone))
             return respuestas
 
-    # Cualquier otro evento no reconocido: fallback silencioso a texto libre.
     respuestas.append(whatsapp.send_text(phone, "No entendí eso. Escribe *menu* para ver las opciones."))
     return respuestas

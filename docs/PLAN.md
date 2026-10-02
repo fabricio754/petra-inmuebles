@@ -4,24 +4,32 @@ Aprobado por el usuario el 2 oct 2026. Reemplaza el menú de Arrayanes por el fl
 con Sureti. Hitos 1–4 (bot en vivo, Google Sheets, número de producción, Flow) ya están hechos:
 ver `docs/TRASPASO.md`.
 
-Reglas: se trabaja en la rama `claude/relaxed-wozniak-l1yxva`; nada entra a `main` sin
+Reglas: se trabaja en la rama `claude/busy-albattani-etg12j`; nada entra a `main` sin
 autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el chat.
 
-## Hito 5 — Infraestructura (≈ USD 13/mes)
+## Hito 5 — Infraestructura (≈ USD 13/mes) — HECHO (2 oct 2026), falta la copia diaria a la Sheet
 - Usuario: Render plan Starter (USD 7) + Postgres Basic-256mb (USD 6), guiado.
 - Claude: tablas `contactos`, `sesiones`, `pipeline`, `documentos`, `remarketing`;
   `state.py` a Postgres sin cambiar sus funciones; migrar datos de la Sheet;
   exportación diaria a la Sheet para consulta.
 - Listo: el bot responde sin la espera de 50 s y los datos viven en Postgres.
+- Estado: Render plan 0.5c-512mb, Postgres `massi-db` (0.1c-256mb, PG 18, Virginia),
+  `DATABASE_URL` en Render, Start Command
+  `gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app`.
+  Importó de la Sheet: 6 inmuebles, 2 sesiones, 5 contactos. Pendiente: copia diaria a la Sheet.
+- MCP de Render: conector oficial de claude.ai (OAuth) conectado.
 
-## Hito 6 — Bot de crédito (reemplaza Arrayanes)
+## Hito 6 — Bot de crédito (reemplaza Arrayanes) — HECHO (2 oct 2026)
 - Autorización de tratamiento de datos (Ley 1581) como primer paso.
 - 4 preguntas de descarte: hipoteca/embargo, patrimonio de familia con menores,
   propietario mayor de 75, ponerse al día con predial/servicios/administración
   (marca `requiere_paz_salvo`).
 - 4 datos: nombre, cédula, correo, confirmar dirección.
-- Opción "NO" para no recibir más mensajes, en cualquier momento.
+- Opción "NO" para no recibir más mensajes, en cualquier momento (+ STOP/BAJA/PARA/SALIR).
 - Listo: un lead calificado queda en `pipeline` con todos sus datos.
+- Flujo `SURETI` en `bot.py`; botones interactivos para preguntas Sí/No;
+  `save_pipeline()` y `mark_no_contactar()` en `state.py` y `db.py`.
+- El menú de Arrayanes sigue vivo: quienes escaneen el QR siguen viéndolo.
 
 ## Hito 7 — Captación
 - `app/scraper.py`: Finca Raíz Bogotá primero (luego Metrocuadrado y otras ciudades).
@@ -62,7 +70,8 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
 - Decidir: más volumen, más ciudades/Metrocuadrado o un segundo número.
 
 ## Hito 12 — Seguridad (al final, por decisión del usuario)
-- Revocar la Render API key vieja y confirmar que el GitHub PAT viejo está revocado.
+- HECHO (2 oct 2026): Render API keys viejas revocadas; el MCP de Render usa el conector
+  oficial con OAuth. Falta: confirmar que el GitHub PAT viejo está revocado.
 - Mover la llave JSON de Google a un lugar privado.
 - Borrar la Sheet creada por error en la cuenta de Petra Secondaries.
 

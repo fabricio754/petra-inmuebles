@@ -396,6 +396,25 @@ def save_lead(phone, apto, **extra):
     return lead
 
 
+def save_pipeline(data):
+    """Guarda un lead calificado en la tabla pipeline (Hito 6+)."""
+    if USE_POSTGRES:
+        _db().save_pipeline(data)
+    else:
+        lead = {"operacion": "SURETI_PIPELINE", **data}
+        if USE_SHEETS:
+            _sheets_append_lead(lead)
+        else:
+            _json_append_lead(lead)
+
+
+def mark_no_contactar(phone):
+    """Marca al contacto para no volver a escribirle (opt-out)."""
+    if USE_POSTGRES:
+        _db().mark_no_contactar(phone)
+    set_session(phone, no_contactar=True)
+
+
 def _db():
     from app import db  # solo se importa (y se necesita psycopg) en modo Postgres
     return db
