@@ -7,12 +7,18 @@ ver `docs/TRASPASO.md`.
 Reglas: se trabaja en la rama `claude/relaxed-wozniak-l1yxva`; nada entra a `main` sin
 autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el chat.
 
-## Hito 5 — Infraestructura (≈ USD 13/mes)
+## Hito 5 — Infraestructura (≈ USD 13/mes) — HECHO (2 oct 2026), falta la copia diaria a la Sheet
 - Usuario: Render plan Starter (USD 7) + Postgres Basic-256mb (USD 6), guiado.
 - Claude: tablas `contactos`, `sesiones`, `pipeline`, `documentos`, `remarketing`;
   `state.py` a Postgres sin cambiar sus funciones; migrar datos de la Sheet;
   exportación diaria a la Sheet para consulta.
 - Listo: el bot responde sin la espera de 50 s y los datos viven en Postgres.
+- Estado: Render plan 0.5c-512mb, Postgres `massi-db` (0.1c-256mb, PG 18, Virginia),
+  `DATABASE_URL` en Render, Start Command
+  `gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app`.
+  Importó de la Sheet: 6 inmuebles, 2 sesiones, 5 contactos. Pendiente: copia diaria a la Sheet.
+- Siguiente: conectar el MCP de Render (https://mcp.render.com/mcp, header
+  `Authorization: Bearer <API key nueva>`) en una sesión nueva; de paso revocar la key vieja.
 
 ## Hito 6 — Bot de crédito (reemplaza Arrayanes)
 - Autorización de tratamiento de datos (Ley 1581) como primer paso.
