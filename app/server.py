@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # debe cargar antes de importar app.bot -> app.whatsapp (lee env al importar)
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 
 from app import bot
 
@@ -24,6 +24,17 @@ app = Flask(__name__)
 @app.get("/")
 def health():
     return {"status": "ok", "service": "petra-inmuebles-webhook"}
+
+
+@app.get("/privacidad")
+def privacidad():
+    """Política de tratamiento de datos (Ley 1581), enlazada desde el bot."""
+    return render_template(
+        "privacidad.html",
+        responsable=os.environ.get("POLITICA_RESPONSABLE", "Massi"),
+        contacto=os.environ.get("POLITICA_CONTACTO", "WhatsApp +57 320 2813268"),
+        fecha="2 de octubre de 2026",
+    )
 
 
 @app.get("/webhook")

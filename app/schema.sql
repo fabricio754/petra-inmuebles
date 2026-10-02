@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS contactos (
   no_contactar BOOLEAN DEFAULT FALSE
 );
 
+-- Los usuarios con nombre de usuario de WhatsApp llegan con un ID tipo
+-- "CO.1107512575300980" (hasta 128 caracteres), no con teléfono.
+ALTER TABLE contactos ALTER COLUMN telefono TYPE VARCHAR(150);
+
 CREATE TABLE IF NOT EXISTS documentos (
   id SERIAL PRIMARY KEY,
   telefono VARCHAR(100),

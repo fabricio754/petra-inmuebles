@@ -4,7 +4,7 @@ Aprobado por el usuario el 2 oct 2026. Reemplaza el menú de Arrayanes por el fl
 con Sureti. Hitos 1–4 (bot en vivo, Google Sheets, número de producción, Flow) ya están hechos:
 ver `docs/TRASPASO.md`.
 
-Reglas: se trabaja en la rama `claude/relaxed-wozniak-l1yxva`; nada entra a `main` sin
+Reglas: se trabaja en la rama `claude/busy-albattani-etg12j`; nada entra a `main` sin
 autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el chat.
 
 ## Hito 5 — Infraestructura (≈ USD 13/mes) — HECHO (2 oct 2026), falta la copia diaria a la Sheet
@@ -17,17 +17,25 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
   `DATABASE_URL` en Render, Start Command
   `gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app`.
   Importó de la Sheet: 6 inmuebles, 2 sesiones, 5 contactos. Pendiente: copia diaria a la Sheet.
-- MCP de Render: conector oficial de claude.ai (OAuth) conectado. Probar en sesión nueva con
-  list_workspaces / list_logs sobre `srv-daraa5ad0e5s73dvng6g`.
+- MCP de Render: EN PAUSA. El conector oficial queda "Connected" pero toda llamada devuelve
+  `unauthorized` (probado en 3 sesiones). Se sigue con capturas; reintentar más adelante.
 
-## Hito 6 — Bot de crédito (reemplaza Arrayanes)
+## Hito 6 — Bot de crédito (reemplaza Arrayanes) — EN CURSO
 - Autorización de tratamiento de datos (Ley 1581) como primer paso.
 - 4 preguntas de descarte: hipoteca/embargo, patrimonio de familia con menores,
   propietario mayor de 75, ponerse al día con predial/servicios/administración
   (marca `requiere_paz_salvo`).
 - 4 datos: nombre, cédula, correo, confirmar dirección.
-- Opción "NO" para no recibir más mensajes, en cualquier momento.
+- Opción "NO" para no recibir más mensajes, en cualquier momento (+ STOP/BAJA/PARA/SALIR).
 - Listo: un lead calificado queda en `pipeline` con todos sus datos.
+- Hecho en código (pendiente de subir a main y probar en vivo): el bot es SOLO de crédito
+  (Arrayanes, catálogo, Publicar/Flow, pagos y crédito dummy eliminados, decisión del usuario).
+  Autorización con botones Acepto/No acepto que menciona a Sureti y enlaza
+  `/privacidad` (política servida por el bot; responsable y contacto por variables
+  `POLITICA_RESPONSABLE` y `POLITICA_CONTACTO`). Respuesta ambigua → se repite la pregunta.
+  Paz y salvo: No → `pausado_paz_salvo` (remarketing a 30 días); Sí → sigue con
+  `requiere_paz_salvo`. Descartes quedan en pipeline como `descartado_<motivo>`.
+  `set_no_contactar` hace upsert en `contactos` (teléfono hasta 150 caracteres por BSUID).
 
 ## Hito 7 — Captación
 - `app/scraper.py`: Finca Raíz Bogotá primero (luego Metrocuadrado y otras ciudades).

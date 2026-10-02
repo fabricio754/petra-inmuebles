@@ -125,3 +125,34 @@ def append_lead(lead):
             "INSERT INTO leads (telefono, operacion, datos) VALUES (%s, %s, %s)",
             (lead.get("telefono"), lead.get("operacion"), Jsonb(datos)),
         )
+
+
+def save_pipeline(data):
+    with _conexion() as conn:
+        conn.execute(
+            "INSERT INTO pipeline "
+            "(telefono, nombre, cedula, email, direccion_inmueble, "
+            "requiere_paz_salvo, autorizacion_datos_en, estado) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                data.get("telefono"),
+                data.get("nombre"),
+                data.get("cedula"),
+                data.get("email"),
+                data.get("direccion_inmueble"),
+                bool(data.get("requiere_paz_salvo", False)),
+                data.get("autorizacion_datos_en"),
+                data.get("estado", "NUEVO"),
+            ),
+        )
+
+
+def set_no_contactar(phone, valor):
+    # Quien escribe por su cuenta no está en contactos (eso lo llena el
+    # raspador), así que se inserta si no existe.
+    with _conexion() as conn:
+        conn.execute(
+            "INSERT INTO contactos (telefono, no_contactar) VALUES (%s, %s) "
+            "ON CONFLICT (telefono) DO UPDATE SET no_contactar = EXCLUDED.no_contactar",
+            (phone, valor),
+        )
