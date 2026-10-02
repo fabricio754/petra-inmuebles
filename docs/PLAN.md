@@ -17,8 +17,8 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
   `DATABASE_URL` en Render, Start Command
   `gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app`.
   Importó de la Sheet: 6 inmuebles, 2 sesiones, 5 contactos. Pendiente: copia diaria a la Sheet.
-- Siguiente: conectar el MCP de Render (https://mcp.render.com/mcp, header
-  `Authorization: Bearer <API key nueva>`) en una sesión nueva; de paso revocar la key vieja.
+- MCP de Render: conector oficial de claude.ai (OAuth) conectado. Probar en sesión nueva con
+  list_workspaces / list_logs sobre `srv-daraa5ad0e5s73dvng6g`.
 
 ## Hito 6 — Bot de crédito (reemplaza Arrayanes)
 - Autorización de tratamiento de datos (Ley 1581) como primer paso.
@@ -68,7 +68,8 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
 - Decidir: más volumen, más ciudades/Metrocuadrado o un segundo número.
 
 ## Hito 12 — Seguridad (al final, por decisión del usuario)
-- Revocar la Render API key vieja y confirmar que el GitHub PAT viejo está revocado.
+- HECHO (2 oct 2026): Render API keys viejas revocadas; no queda ninguna (el MCP de Render usa el
+  conector oficial con OAuth). Falta: confirmar que el GitHub PAT viejo está revocado.
 - Mover la llave JSON de Google a un lugar privado.
 - Borrar la Sheet creada por error en la cuenta de Petra Secondaries.
 
