@@ -3,3 +3,5 @@ requests
 qrcode[pil]
 python-dotenv
 gspread>=6
+psycopg[binary,pool]>=3.2
+gunicorn

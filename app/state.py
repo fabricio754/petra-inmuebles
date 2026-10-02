@@ -1,11 +1,12 @@
 """Persistencia del bot. bot.py solo llama a estas funciones, así que el
 almacenamiento se puede cambiar sin tocar la lógica del bot.
 
-Dos modos:
-- Google Sheets (producción): si existe la variable GOOGLE_SHEET_ID. Los
-  datos sobreviven a los reinicios de Render y se pueden editar a mano en
-  la Sheet (pestañas Inventario, Sesiones y Contactos).
-- Archivos JSON en data/ (desarrollo local): si GOOGLE_SHEET_ID no existe.
+Tres modos, en este orden de prioridad:
+- PostgreSQL (producción): si existe DATABASE_URL. Ver app/db.py. La
+  primera vez copia lo que había en la Google Sheet.
+- Google Sheets: si existe GOOGLE_SHEET_ID (y no DATABASE_URL). Pestañas
+  Inventario, Sesiones y Contactos, editables a mano.
+- Archivos JSON en data/ (desarrollo local): si no existe ninguna.
 """
 import json
 import logging
@@ -29,7 +30,8 @@ SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "").strip()
 CREDENTIALS_FILE = os.environ.get(
     "GOOGLE_CREDENTIALS_FILE", "/etc/secrets/google-credentials.json"
 )
-USE_SHEETS = bool(SHEET_ID)
+USE_POSTGRES = bool(os.environ.get("DATABASE_URL", "").strip())
+USE_SHEETS = bool(SHEET_ID) and not USE_POSTGRES
 
 
 def now_iso():
@@ -303,15 +305,51 @@ def _sheets_append_lead(lead):
         _agregar_fila(_hoja(TAB_CONTACTOS, CONTACTOS_COLS), lead)
 
 
+def inventario_seed():
+    return _load_json(INVENTARIO_SEED_PATH, [])
+
+
+def leer_todo_de_sheets():
+    """Para la migración a Postgres: (inventario, sesiones, leads) tal como
+    están hoy en la Sheet. No crea pestañas que no existan."""
+    libro = _libro()
+    pestañas = {h.title for h in libro.worksheets()}
+
+    inventario = []
+    if TAB_INVENTARIO in pestañas:
+        filas = _leer_filas(libro.worksheet(TAB_INVENTARIO))
+        inventario = [_limpiar_inmueble(f) for f in filas if str(f.get("id", "")).strip()]
+
+    sesiones = {}
+    if TAB_SESIONES in pestañas:
+        for fila in libro.worksheet(TAB_SESIONES).get_all_values()[1:]:
+            if not fila or not fila[0].strip():
+                continue
+            try:
+                sesiones[fila[0].strip()] = json.loads(fila[1]) if len(fila) > 1 and fila[1] else {}
+            except json.JSONDecodeError:
+                pass
+
+    leads = []
+    if TAB_CONTACTOS in pestañas:
+        for fila in _leer_filas(libro.worksheet(TAB_CONTACTOS)):
+            leads.append({k: (_a_texto(v) if v != "" else None) for k, v in fila.items()})
+    return inventario, sesiones, leads
+
+
 # === API usada por bot.py ===================================================
 
 def load_inventario():
+    if USE_POSTGRES:
+        return _db().load_inventario()
     return _sheets_load_inventario() if USE_SHEETS else _json_load_inventario()
 
 
 def save_inmueble(apto):
     """Agrega un inmueble nuevo (publicado por un propietario) al inventario."""
-    if USE_SHEETS:
+    if USE_POSTGRES:
+        _db().save_inmueble(apto)
+    elif USE_SHEETS:
         _sheets_save_inmueble(apto)
     else:
         _json_save_inmueble(apto)
@@ -319,13 +357,17 @@ def save_inmueble(apto):
 
 
 def get_session(phone):
+    if USE_POSTGRES:
+        return _db().get_session(phone)
     return _sheets_get_session(phone) if USE_SHEETS else _json_get_session(phone)
 
 
 def set_session(phone, **fields):
     session = get_session(phone)
     session.update(fields)
-    if USE_SHEETS:
+    if USE_POSTGRES:
+        _db().save_session(phone, session)
+    elif USE_SHEETS:
         _sheets_save_session(phone, session)
     else:
         _json_save_session(phone, session)
@@ -345,8 +387,15 @@ def save_lead(phone, apto, **extra):
         "operacion": apto.get("operacion"),
     }
     lead.update(extra)
-    if USE_SHEETS:
+    if USE_POSTGRES:
+        _db().append_lead(lead)
+    elif USE_SHEETS:
         _sheets_append_lead(lead)
     else:
         _json_append_lead(lead)
     return lead
+
+
+def _db():
+    from app import db  # solo se importa (y se necesita psycopg) en modo Postgres
+    return db
