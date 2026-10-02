@@ -1,0 +1,120 @@
+{
+  "version": "7.3",
+  "screens": [
+    {
+      "id": "REQUISITOS",
+      "title": "Paso 1 de 2: requisitos",
+      "terminal": true,
+      "success": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "form_requisitos",
+            "children": [
+              {
+                "type": "TextBody",
+                "text": "4 preguntas rápidas sobre el inmueble."
+              },
+              {
+                "type": "TextBody",
+                "text": "1. ¿El inmueble tiene hipoteca o embargo vigente?"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "hipoteca",
+                "label": "Hipoteca o embargo",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SI",
+                    "title": "Sí"
+                  },
+                  {
+                    "id": "NO",
+                    "title": "No"
+                  }
+                ]
+              },
+              {
+                "type": "TextBody",
+                "text": "2. ¿Tiene patrimonio de familia con hijos menores de edad?"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "patrimonio",
+                "label": "Patrimonio de familia",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SI",
+                    "title": "Sí"
+                  },
+                  {
+                    "id": "NO",
+                    "title": "No"
+                  }
+                ]
+              },
+              {
+                "type": "TextBody",
+                "text": "3. ¿El propietario tiene más de 75 años?"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "edad",
+                "label": "Propietario mayor de 75",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SI",
+                    "title": "Sí"
+                  },
+                  {
+                    "id": "NO",
+                    "title": "No"
+                  }
+                ]
+              },
+              {
+                "type": "TextBody",
+                "text": "4. ¿Estás dispuesto a ponerte al día con predial, servicios y administración?"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "paz_salvo",
+                "label": "Ponerse al día",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SI",
+                    "title": "Sí"
+                  },
+                  {
+                    "id": "NO",
+                    "title": "No"
+                  }
+                ]
+              },
+              {
+                "type": "Footer",
+                "label": "Continuar",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "hipoteca": "${form.hipoteca}",
+                    "patrimonio": "${form.patrimonio}",
+                    "edad": "${form.edad}",
+                    "paz_salvo": "${form.paz_salvo}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

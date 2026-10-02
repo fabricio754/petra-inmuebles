@@ -1,0 +1,70 @@
+{
+  "version": "7.3",
+  "screens": [
+    {
+      "id": "DATOS",
+      "title": "Paso 2 de 2: tus datos",
+      "terminal": true,
+      "success": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "form_datos",
+            "children": [
+              {
+                "type": "TextBody",
+                "text": "Datos del propietario del inmueble."
+              },
+              {
+                "type": "TextInput",
+                "name": "nombre",
+                "label": "Nombre completo",
+                "input-type": "text",
+                "required": true
+              },
+              {
+                "type": "TextInput",
+                "name": "cedula",
+                "label": "Cédula",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "Solo números"
+              },
+              {
+                "type": "TextInput",
+                "name": "email",
+                "label": "Correo electrónico",
+                "input-type": "email",
+                "required": true
+              },
+              {
+                "type": "TextInput",
+                "name": "direccion",
+                "label": "Dirección",
+                "input-type": "text",
+                "required": true,
+                "helper-text": "Calle, número, barrio y ciudad del inmueble"
+              },
+              {
+                "type": "Footer",
+                "label": "Enviar",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "nombre": "${form.nombre}",
+                    "cedula": "${form.cedula}",
+                    "email": "${form.email}",
+                    "direccion": "${form.direccion}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

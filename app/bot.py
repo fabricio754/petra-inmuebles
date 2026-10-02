@@ -5,6 +5,8 @@ de cómo llega el mensaje (server.py/Meta) o de cómo se prueba
 
 Flujo (docs/PLAN.md, Hito 6):
   AUTORIZACION (Ley 1581) → 4 preguntas de descarte → 4 datos → pipeline.
+Con los Flows configurados (META_FLOW_REQUISITOS_ID y META_FLOW_DATOS_ID) las
+preguntas van en dos formularios de WhatsApp; si no, se hacen por chat.
 """
 from app import state, whatsapp
 
@@ -89,6 +91,40 @@ def _guardar(phone, data, estado):
     })
 
 
+def _limpiar_cedula(valor):
+    valor = str(valor or "").strip()
+    if valor.endswith(".0"):  # un campo numérico puede llegar como 1020304050.0
+        valor = valor[:-2]
+    valor = valor.replace(".", "").replace("-", "").replace(" ", "")
+    return valor if valor.isdigit() and 5 <= len(valor) <= 12 else ""
+
+
+def _correo_valido(valor):
+    usuario, _, dominio = valor.partition("@")
+    return bool(usuario) and "." in dominio and " " not in valor
+
+
+def _descartar(phone, data, motivo):
+    _guardar(phone, data, f"descartado_{motivo.lower()}")
+    _terminar(phone)
+    return whatsapp.send_no_califica(phone, motivo)
+
+
+def _pausar(phone, data):
+    # No está dispuesto a ponerse al día por ahora: se le vuelve a escribir
+    # en 30 días (Hito 10).
+    _guardar(phone, data, "pausado_paz_salvo")
+    _terminar(phone)
+    return whatsapp.send_pausa_paz_salvo(phone)
+
+
+def _completar(phone, data):
+    _guardar(phone, data, "nuevo")
+    _terminar(phone)
+    nombre = (data.get("nombre") or "").split()
+    return whatsapp.send_confirmacion_pipeline(phone, nombre[0] if nombre else "")
+
+
 def _procesar(phone, session, event):
     step = session.get("flow_step") or "AUTORIZACION"
     data = dict(session.get("flow_data") or {})
@@ -99,6 +135,9 @@ def _procesar(phone, session, event):
         if resp in SI:
             data["autorizacion_en"] = state.now_iso()
             state.set_no_contactar(phone, False)
+            if whatsapp.USE_FLOWS:
+                state.set_session(phone, flow_step="FORM_REQUISITOS", flow_data=data)
+                return whatsapp.send_form_requisitos(phone)
             state.set_session(phone, flow_step="DESC_HIPOTECA", flow_data=data)
             return whatsapp.send_pregunta_si_no(phone, PREGUNTAS_DESCARTE["DESC_HIPOTECA"])
         if resp in NO:
@@ -108,7 +147,39 @@ def _procesar(phone, session, event):
         # Cualquier otra cosa ("¿quién eres?"): volver a preguntar.
         return whatsapp.send_autorizacion_datos(phone, repetir=True)
 
-    # --- Preguntas de descarte ------------------------------------------
+    # --- Formularios de WhatsApp (Flows) --------------------------------
+    if step == "FORM_REQUISITOS":
+        r = event.get("response") if event["type"] == "flow_reply" else None
+        if not r or "hipoteca" not in r:
+            return whatsapp.send_form_requisitos(phone, repetir=True)
+        for paso, campo in (("DESC_HIPOTECA", "hipoteca"), ("DESC_PATRIMONIO", "patrimonio"),
+                            ("DESC_EDAD", "edad")):
+            if str(r.get(campo)).upper() == "SI":
+                return _descartar(phone, data, MOTIVO_DESCARTE[paso])
+        if str(r.get("paz_salvo")).upper() != "SI":
+            return _pausar(phone, data)
+        data["requiere_paz_salvo"] = True
+        state.set_session(phone, flow_step="FORM_DATOS", flow_data=data)
+        return whatsapp.send_form_datos(phone)
+
+    if step == "FORM_DATOS":
+        r = event.get("response") if event["type"] == "flow_reply" else None
+        if not r or "nombre" not in r:
+            return whatsapp.send_form_datos(phone, repetir=True)
+        cedula = _limpiar_cedula(r.get("cedula"))
+        email = str(r.get("email") or "").strip().lower()
+        if not cedula or not _correo_valido(email):
+            whatsapp.send_text(phone, "Revisa la cédula (solo números) y el correo, por favor.")
+            return whatsapp.send_form_datos(phone, repetir=True)
+        data.update(
+            nombre=str(r.get("nombre") or "").strip(),
+            cedula=cedula,
+            email=email,
+            direccion_inmueble=str(r.get("direccion") or "").strip(),
+        )
+        return _completar(phone, data)
+
+    # --- Preguntas de descarte (por chat, si no hay formularios) ---------
     if step in PREGUNTAS_DESCARTE:
         if resp not in SI and resp not in NO:
             return whatsapp.send_pregunta_si_no(phone, PREGUNTAS_DESCARTE[step])
@@ -116,20 +187,13 @@ def _procesar(phone, session, event):
 
         if step == "DESC_PAZSALVO":
             if not dijo_si:
-                # No está dispuesto por ahora: se pausa y se le vuelve a
-                # escribir en 30 días (Hito 10).
-                _guardar(phone, data, "pausado_paz_salvo")
-                _terminar(phone)
-                return whatsapp.send_pausa_paz_salvo(phone)
+                return _pausar(phone, data)
             data["requiere_paz_salvo"] = True
             state.set_session(phone, flow_step="DATOS_NOMBRE", flow_data=data)
             return whatsapp.send_text(phone, PREGUNTAS_DATOS["DATOS_NOMBRE"])
 
         if dijo_si:
-            motivo = MOTIVO_DESCARTE[step]
-            _guardar(phone, data, f"descartado_{motivo.lower()}")
-            _terminar(phone)
-            return whatsapp.send_no_califica(phone, motivo)
+            return _descartar(phone, data, MOTIVO_DESCARTE[step])
 
         siguiente = PASOS[PASOS.index(step) + 1]
         state.set_session(phone, flow_step=siguiente, flow_data=data)
@@ -142,16 +206,15 @@ def _procesar(phone, session, event):
         valor = event["text"].strip()
 
         if step == "DATOS_CEDULA":
-            valor = valor.replace(".", "").replace("-", "").replace(" ", "")
-            if not valor.isdigit() or not 5 <= len(valor) <= 12:
+            valor = _limpiar_cedula(valor)
+            if not valor:
                 return whatsapp.send_text(
                     phone, "Escribe solo los números de la cédula. " + PREGUNTAS_DATOS[step]
                 )
 
         if step == "DATOS_CORREO":
             valor = valor.lower()
-            usuario, _, dominio = valor.partition("@")
-            if not usuario or "." not in dominio or " " in valor:
+            if not _correo_valido(valor):
                 return whatsapp.send_text(
                     phone, "Eso no parece un correo válido. " + PREGUNTAS_DATOS[step]
                 )
@@ -162,11 +225,7 @@ def _procesar(phone, session, event):
             state.set_session(phone, flow_step=siguiente, flow_data=data)
             return whatsapp.send_text(phone, PREGUNTAS_DATOS[siguiente])
 
-        # Último dato → lead calificado en pipeline.
-        _guardar(phone, data, "nuevo")
-        _terminar(phone)
-        nombre_corto = (data.get("nombre") or "").split()[0] if data.get("nombre") else ""
-        return whatsapp.send_confirmacion_pipeline(phone, nombre_corto)
+        return _completar(phone, data)
 
     # Paso desconocido (sesión vieja): empezar de nuevo.
     return _iniciar(phone)

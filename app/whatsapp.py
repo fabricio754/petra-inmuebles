@@ -26,6 +26,15 @@ DRY_RUN = not (ACCESS_TOKEN and PHONE_NUMBER_ID)
 # Dirección pública del bot, para enlazar la política de datos (/privacidad).
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://petra-inmuebles.onrender.com").rstrip("/")
 
+# Formularios nativos de WhatsApp (Flows) del crédito. JSON en flows/.
+# Si no hay IDs configurados, el bot pregunta por chat (bot.py).
+FLOW_REQUISITOS_ID = os.environ.get("META_FLOW_REQUISITOS_ID", "")
+FLOW_DATOS_ID = os.environ.get("META_FLOW_DATOS_ID", "")
+# "draft" mientras los Flows estén en borrador en WhatsApp Manager;
+# "published" cuando se publiquen.
+FLOWS_MODE = os.environ.get("META_FLOWS_MODE", "draft")
+USE_FLOWS = bool(FLOW_REQUISITOS_ID and FLOW_DATOS_ID)
+
 
 def _graph_url():
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages"
@@ -89,7 +98,53 @@ def _botones(to, cuerpo, botones, resumen):
     return _dispatch(payload, resumen)
 
 
+def _flow(to, flow_id, screen, cuerpo, cta, resumen):
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "flow",
+            "header": {"type": "text", "text": "Massi"},
+            "body": {"text": cuerpo},
+            "action": {
+                "name": "flow",
+                "parameters": {
+                    "flow_message_version": "3",
+                    "flow_token": f"{screen}:{to}",
+                    "flow_id": flow_id,
+                    "flow_cta": cta,
+                    "flow_action": "navigate",
+                    "flow_action_payload": {"screen": screen},
+                    "mode": FLOWS_MODE,
+                },
+            },
+        },
+    }
+    return _dispatch(payload, f"{resumen} modo={FLOWS_MODE} flow_id={flow_id}")
+
+
 # --- Flujo de crédito con Sureti (Hito 6) -----------------------------------
+
+def send_form_requisitos(to, repetir=False):
+    cuerpo = (
+        "Toca el botón para abrir el formulario." if repetir else
+        "Son 2 pasos cortos:\n"
+        "1️⃣ 4 preguntas de requisitos del inmueble (Sí/No).\n"
+        "2️⃣ 4 datos del propietario.\n\n"
+        "Empecemos con los requisitos."
+    )
+    return _flow(to, FLOW_REQUISITOS_ID, "REQUISITOS", cuerpo, "Paso 1: requisitos", "[FORM REQUISITOS]")
+
+
+def send_form_datos(to, repetir=False):
+    cuerpo = (
+        "Toca el botón para abrir el formulario." if repetir else
+        "¡Tu inmueble cumple los requisitos! 🎉\n\n"
+        "Último paso: los datos del propietario (nombre, cédula, correo y dirección)."
+    )
+    return _flow(to, FLOW_DATOS_ID, "DATOS", cuerpo, "Paso 2: tus datos", "[FORM DATOS]")
+
 
 def send_autorizacion_datos(to, repetir=False):
     if repetir:
