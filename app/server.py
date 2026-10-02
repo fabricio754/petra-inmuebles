@@ -31,8 +31,13 @@ def privacidad():
     """Política de tratamiento de datos (Ley 1581), enlazada desde el bot."""
     return render_template(
         "privacidad.html",
-        responsable=os.environ.get("POLITICA_RESPONSABLE", "Massi"),
-        contacto=os.environ.get("POLITICA_CONTACTO", "WhatsApp +57 320 2813268"),
+        responsable=os.environ.get(
+            "POLITICA_RESPONSABLE",
+            "ALMOND CORP S.A.S. (marca Massi), NIT 901.931.289-4, domicilio principal en Bogotá D.C.",
+        ),
+        contacto=os.environ.get(
+            "POLITICA_CONTACTO", "fabricio@petrasecondaries.com o WhatsApp +57 320 2813268"
+        ),
         fecha="2 de octubre de 2026",
     )
 
