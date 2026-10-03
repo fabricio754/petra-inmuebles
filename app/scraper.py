@@ -1,4 +1,4 @@
-"""Scraper de portales inmobiliarios: Metrocuadrado, Finca Raíz, Ciencuadras.
+"""Scraper de portales inmobiliarios: PropDirecto, Metrocuadrado, Finca Raíz, Ciencuadras.
 
 Usa Playwright (headless Chromium) + 2captcha para revelar teléfonos ocultos.
 Aplica los mismos filtros de ciudad/tipo/precio que captacion.py y guarda
@@ -260,6 +260,131 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     return None
 
 
+
+# ── PropDirecto ───────────────────────────────────────────────────────────────
+# PropDirecto es un agregador que muestra SOLO avisos de propietarios directos
+# (filtra agentes automáticamente), tomando datos de Finca Raíz, Metrocuadrado,
+# Ciencuadras, MercadoLibre y Facebook Marketplace. Ideal para Massi porque
+# el target son exactamente propietarios directos.
+#
+# ⚠ Los selectores de esta función son estimados (el sandbox bloquea la red a
+# propdirecto.com). Verificar en la primera ejecución con logs DEBUG y ajustar
+# _PD_LISTING_SEL y _pd_extraer_datos() si los selectores no coinciden.
+
+_PD_HOST = "https://www.propdirecto.com"
+# URL de búsqueda: patrón observado en portales colombianos similares.
+# Ajustar si el portal usa otra estructura de paginación.
+_PD_BASE = "https://www.propdirecto.com/inmuebles?pagina={page}"
+# Selector de enlaces a fichas individuales. PropDirecto puede usar
+# /inmueble/, /propiedad/ o /aviso/ — se prueban los tres.
+_PD_LISTING_SEL = (
+    "a[href*='/inmueble/'], "
+    "a[href*='/propiedad/'], "
+    "a[href*='/aviso/'], "
+    "[class*='listing'] a, "
+    "[class*='property-card'] a, "
+    "[class*='card'] a[href*='/']"
+)
+
+
+def _pd_extraer_datos(page: Page, url: str) -> Optional[dict]:
+    try:
+        page.wait_for_selector("h1, [class*='price'], [class*='precio']", timeout=8_000)
+    except PWTimeout:
+        return None
+
+    return {
+        "nombre": _texto(page, "h1") or None,
+        "precio_raw": _texto(
+            page,
+            "[class*='price'], [class*='precio'], [class*='valor'], "
+            "[data-testid='price'], [data-testid='precio']",
+        ),
+        "estrato_raw": _texto(page, "[class*='estrato'], :text-matches('Estrato [0-9]')"),
+        "tipo_raw": _texto(
+            page,
+            "[class*='tipo'], [class*='property-type'], [class*='tipoInmueble'], "
+            "[data-testid='property-type']",
+        ) or url,
+        "ciudad_raw": _texto(
+            page,
+            "[class*='ciudad'], [class*='city'], [class*='location'], "
+            "[data-testid='location']",
+        ) or url,
+        "direccion": _texto(page, "[class*='address'], [class*='direccion']") or None,
+        "barrio": _texto(page, "[class*='barrio'], [class*='sector'], [class*='neighborhood']") or None,
+        "foto": _src_img(
+            page,
+            "img[class*='gallery'], img[class*='principal'], img[class*='foto'], "
+            "img[class*='slider'], img[class*='photo']",
+        ),
+        "url": url,
+    }
+
+
+def scrape_propdirecto(browser: Browser) -> int:
+    """Scraper para PropDirecto (propietarios directos, sin agentes).
+
+    PropDirecto expone los teléfonos de la fuente original (Finca Raíz,
+    Metrocuadrado, etc.). Los duplicados los maneja la DB con ON CONFLICT.
+    """
+    guardados = total = 0
+    page_n = 1
+
+    while guardados < MAX_POR_PORTAL:
+        url = _PD_BASE.format(page=page_n)
+        try:
+            lp = _nueva_pagina(browser, url)
+        except Exception as exc:
+            log.warning("[PD] Página %d inaccesible: %s", page_n, exc)
+            break
+
+        # Si redirige a la home o a /login, el portal cambió estructura.
+        if "/login" in lp.url or (page_n > 1 and lp.url == f"{_PD_HOST}/"):
+            lp.context.close()
+            log.warning("[PD] Redirigido a %s — revisar _PD_BASE.", lp.url)
+            break
+
+        try:
+            lp.wait_for_selector(_PD_LISTING_SEL, timeout=15_000)
+        except PWTimeout:
+            lp.context.close()
+            log.info("[PD] No se encontraron listings en página %d (selector: %s).", page_n, _PD_LISTING_SEL)
+            break
+
+        links = _links_de_pagina(lp, _PD_LISTING_SEL, _PD_HOST)
+        # Filtrar links que apunten fuera del dominio si el portal redirige al origen
+        links = [l for l in links if _PD_HOST in l or l.startswith("/")]
+        lp.context.close()
+        if not links:
+            break
+
+        log.debug("[PD] Página %d: %d links encontrados.", page_n, len(links))
+
+        for href in links:
+            if guardados >= MAX_POR_PORTAL:
+                break
+            total += 1
+            try:
+                dp = _nueva_pagina(browser, href)
+                try:
+                    datos = _pd_extraer_datos(dp, href)
+                    if datos:
+                        tel = _extraer_tel_comun(dp)
+                        if tel and _guardar("propdirecto", tel, **datos):
+                            guardados += 1
+                finally:
+                    dp.context.close()
+            except Exception as exc:
+                log.debug("[PD] Error %s: %s", href, exc)
+            _pausa()
+
+        page_n += 1
+
+    log.info("[PD] %d visitados, %d guardados.", total, guardados)
+    return guardados
+
+
 # ── Metrocuadrado ─────────────────────────────────────────────────────────────
 
 _MQ_BASE = (
@@ -501,10 +626,11 @@ def _src_img(page: Page, selector: str) -> Optional[str]:
 
 
 def correr_todos():
-    """Ejecuta los tres portales en secuencia dentro de un solo browser."""
+    """Ejecuta los cuatro portales en secuencia dentro de un solo browser.
+    Orden: PropDirecto → Metrocuadrado → Finca Raíz → Ciencuadras."""
     log.info("[Scraper] Iniciando ronda.")
     chromium_path = os.environ.get("PLAYWRIGHT_CHROMIUM_PATH", "")
-    launch_kwargs: dict = {"headless": True}
+    launch_kwargs: dict = {"headless": True, "args": ["--no-sandbox", "--disable-dev-shm-usage"]}
     if chromium_path:
         launch_kwargs["executable_path"] = chromium_path
 
@@ -512,9 +638,10 @@ def correr_todos():
         browser = pw.chromium.launch(**launch_kwargs)
         try:
             for nombre, fn in [
+                ("propdirecto",  scrape_propdirecto),
                 ("metrocuadrado", scrape_metrocuadrado),
-                ("fincaraiz", scrape_fincaraiz),
-                ("ciencuadras", scrape_ciencuadras),
+                ("fincaraiz",     scrape_fincaraiz),
+                ("ciencuadras",   scrape_ciencuadras),
             ]:
                 try:
                     n = fn(browser)
