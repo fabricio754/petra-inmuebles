@@ -9,9 +9,8 @@ jobs:
     steps:
       - name: Call /pilot endpoint (auto phone extraction)
         run: |
-          echo "Llamando a /pilot..."
           curl -s -X POST https://petra-inmuebles.onrender.com/pilot \
             -H "Content-Type: application/json" \
-            -H "X-Massi-Token: ${{ secrets.CAPTURA_TOKEN }}" \
+            -H "X-Massi-Token: delmar1026" \
             -d '{"url":"https://www.metrocuadrado.com/inmueble/venta-oficina-chia-laura-vicuna-1-banos-1-garajes/MC6968476","forzar":true}' \
             | python3 -m json.tool
