@@ -56,6 +56,12 @@ CAMPO_DATO = {
     "DATOS_DIRECCION": "direccion_inmueble",
 }
 
+# IDs de la lista de ciudades del formulario de datos (flows/credito_datos.json).
+CIUDADES = {
+    "BOGOTA": "Bogotá", "MEDELLIN": "Medellín", "BARRANQUILLA": "Barranquilla",
+    "CARTAGENA": "Cartagena", "SANTA_MARTA": "Santa Marta", "CUCUTA": "Cúcuta", "OTRA": "Otra",
+}
+
 SI = {"SI", "SÍ", "S", "ACEPTO", "BOTON_SI"}
 NO = {"NO", "N", "NO ACEPTO", "BOTON_NO"}
 
@@ -85,6 +91,7 @@ def _guardar(phone, data, estado):
         "cedula": data.get("cedula"),
         "email": data.get("email"),
         "direccion_inmueble": data.get("direccion_inmueble"),
+        "ciudad": data.get("ciudad"),
         "requiere_paz_salvo": data.get("requiere_paz_salvo", False),
         "autorizacion_datos_en": data.get("autorizacion_en"),
         "estado": estado,
@@ -175,7 +182,10 @@ def _procesar(phone, session, event):
             nombre=str(r.get("nombre") or "").strip(),
             cedula=cedula,
             email=email,
-            direccion_inmueble=str(r.get("direccion") or "").strip(),
+            direccion_inmueble=", ".join(
+                x for x in (str(r.get("direccion") or "").strip(), str(r.get("barrio") or "").strip()) if x
+            ),
+            ciudad=CIUDADES.get(str(r.get("ciudad") or "").upper(), str(r.get("ciudad") or "")),
         )
         return _completar(phone, data)
 

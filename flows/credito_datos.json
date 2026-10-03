@@ -52,7 +52,50 @@
                 "label": "Dirección",
                 "input-type": "text",
                 "required": true,
-                "helper-text": "Calle, número, barrio y ciudad del inmueble"
+                "helper-text": "Ej: Cra 45 # 80-20, apto 302"
+              },
+              {
+                "type": "TextInput",
+                "name": "barrio",
+                "label": "Barrio",
+                "input-type": "text",
+                "required": true
+              },
+              {
+                "type": "Dropdown",
+                "name": "ciudad",
+                "label": "Ciudad",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "BOGOTA",
+                    "title": "Bogotá"
+                  },
+                  {
+                    "id": "MEDELLIN",
+                    "title": "Medellín"
+                  },
+                  {
+                    "id": "BARRANQUILLA",
+                    "title": "Barranquilla"
+                  },
+                  {
+                    "id": "CARTAGENA",
+                    "title": "Cartagena"
+                  },
+                  {
+                    "id": "SANTA_MARTA",
+                    "title": "Santa Marta"
+                  },
+                  {
+                    "id": "CUCUTA",
+                    "title": "Cúcuta"
+                  },
+                  {
+                    "id": "OTRA",
+                    "title": "Otra"
+                  }
+                ]
               },
               {
                 "type": "TextCaption",
@@ -67,7 +110,9 @@
                     "nombre": "${form.nombre}",
                     "cedula": "${form.cedula}",
                     "email": "${form.email}",
-                    "direccion": "${form.direccion}"
+                    "direccion": "${form.direccion}",
+                    "barrio": "${form.barrio}",
+                    "ciudad": "${form.ciudad}"
                   }
                 }
               }

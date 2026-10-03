@@ -131,15 +131,16 @@ def save_pipeline(data):
     with _conexion() as conn:
         conn.execute(
             "INSERT INTO pipeline "
-            "(telefono, nombre, cedula, email, direccion_inmueble, "
+            "(telefono, nombre, cedula, email, direccion_inmueble, ciudad, "
             "requiere_paz_salvo, autorizacion_datos_en, estado) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 data.get("telefono"),
                 data.get("nombre"),
                 data.get("cedula"),
                 data.get("email"),
                 data.get("direccion_inmueble"),
+                data.get("ciudad"),
                 bool(data.get("requiere_paz_salvo", False)),
                 data.get("autorizacion_datos_en"),
                 data.get("estado", "NUEVO"),
