@@ -23,6 +23,8 @@ TIPOS = {
 }
 RESIDENCIAL = {"apartamento", "casa"}
 PORCENTAJE = {"residencial": 0.40, "comercial": 0.30}
+# Rango de crédito de Sureti, en millones.
+MONTO_MIN_M, MONTO_MAX_M = 20, 800
 
 PORTALES = {"metrocuadrado": "Metrocuadrado", "fincaraiz": "Finca Raíz"}
 
@@ -91,7 +93,9 @@ def procesar(anuncio):
         return "descartado", "No se pudo leer el precio (o es menor a $50M)."
 
     categoria = "residencial" if tipo in RESIDENCIAL else "comercial"
-    monto_hasta = int(precio * PORCENTAJE[categoria] / 1_000_000)
+    monto_hasta = min(int(precio * PORCENTAJE[categoria] / 1_000_000), MONTO_MAX_M)
+    if monto_hasta < MONTO_MIN_M:
+        return "descartado", f"El monto daría menos de ${MONTO_MIN_M}M (mínimo de Sureti)."
 
     contacto = {
         "telefono": telefono,

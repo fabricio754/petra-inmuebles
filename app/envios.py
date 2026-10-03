@@ -22,6 +22,10 @@ ZONA = ZoneInfo("America/Bogota")
 FESTIVOS = holidays.country_holidays("CO")
 ACTIVO = os.environ.get("ENVIO_AUTOMATICO", "false").strip().lower() == "true"
 LIMITE_DIARIO = int(os.environ.get("ENVIO_LIMITE_DIARIO", "20"))
+# Fecha (AAAA-MM-DD, hora Colombia): solo se escribe a contactos capturados
+# desde ese día. Sirve para dejar fuera las capturas de prueba.
+_desde = os.environ.get("ENVIO_DESDE", "").strip()
+DESDE = datetime.fromisoformat(_desde).replace(tzinfo=ZONA) if _desde else None
 INTERVALO_SEG = 300   # revisa la cola cada 5 minutos
 POR_RONDA = 10        # y manda como máximo 10 por ronda, para repartir en el día
 
@@ -50,7 +54,7 @@ def ronda():
     if disponibles <= 0:
         return 0
     enviados = 0
-    for c in db.contactos_por_enviar(min(disponibles, POR_RONDA)):
+    for c in db.contactos_por_enviar(min(disponibles, POR_RONDA), DESDE):
         r = whatsapp.send_plantilla_apertura(c["telefono"], c["tipo"], c["portal"], c["monto_hasta"])
         ok = r.get("status") == "dry-run" or (isinstance(r.get("status"), int) and r["status"] < 300)
         db.marcar_contactado(c["telefono"], "plantilla_enviada" if ok else "error_envio")

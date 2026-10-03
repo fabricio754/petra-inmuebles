@@ -178,14 +178,16 @@ def guardar_contacto(c):
     return fila is not None
 
 
-def contactos_por_enviar(limite):
+def contactos_por_enviar(limite, desde=None):
+    """desde: solo contactos capturados a partir de esa fecha (deja fuera pruebas)."""
     with _conexion() as conn:
         filas = conn.execute(
             "SELECT telefono, tipo_inmueble, portal, monto_hasta_millones FROM contactos "
             "WHERE NOT contactado AND NOT COALESCE(no_contactar, FALSE) "
             "AND monto_hasta_millones IS NOT NULL "
+            "AND (%s::timestamptz IS NULL OR fecha_scraping >= %s::timestamptz) "
             "ORDER BY fecha_scraping LIMIT %s",
-            (limite,),
+            (desde, desde, limite),
         ).fetchall()
     return [dict(zip(("telefono", "tipo", "portal", "monto_hasta"), f)) for f in filas]
 
