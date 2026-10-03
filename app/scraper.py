@@ -555,10 +555,8 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
 # propdirecto.com). Verificar en la primera ejecución con logs DEBUG y ajustar
 # _PD_LISTING_SEL y _pd_extraer_datos() si los selectores no coinciden.
 
-_PD_HOST = "https://www.propdirecto.com"
-# URL de búsqueda: patrón observado en portales colombianos similares.
-# Ajustar si el portal usa otra estructura de paginación.
-_PD_BASE = "https://www.propdirecto.com/inmuebles?pagina={page}"
+_PD_HOST = "https://propdirecto.com"
+_PD_BASE = "https://propdirecto.com/propiedades.php?pagina={page}"
 # Selector de enlaces a fichas individuales. PropDirecto puede usar
 # /inmueble/, /propiedad/ o /aviso/ — se prueban los tres.
 _PD_LISTING_SEL = (
@@ -626,7 +624,7 @@ def scrape_propdirecto(browser: Browser) -> int:
             break
 
         # Si redirige a la home o a /login, el portal cambió estructura.
-        if "/login" in lp.url or (page_n > 1 and lp.url == f"{_PD_HOST}/"):
+        if "/login" in lp.url or (page_n > 1 and lp.url.rstrip("/") == _PD_HOST):
             lp.context.close()
             log.warning("[PD] Redirigido a %s — revisar _PD_BASE.", lp.url)
             break
@@ -641,7 +639,7 @@ def scrape_propdirecto(browser: Browser) -> int:
 
         links = _links_de_pagina(lp, _PD_LISTING_SEL, _PD_HOST)
         # Filtrar links que apunten fuera del dominio si el portal redirige al origen
-        links = [l for l in links if _PD_HOST in l or l.startswith("/")]
+        links = [l for l in links if "propdirecto.com" in l or l.startswith("/")]
         lp.context.close()
         if not links:
             break
