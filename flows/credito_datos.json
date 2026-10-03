@@ -16,11 +16,15 @@
             "children": [
               {
                 "type": "TextHeading",
-                "text": "Datos del propietario"
+                "text": "Últimos datos"
               },
               {
                 "type": "TextBody",
                 "text": "Con esto enviamos tu solicitud a Sureti para que estudie tu crédito."
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Propietario"
               },
               {
                 "type": "TextInput",
@@ -47,12 +51,16 @@
                 "helper-text": "Aquí te enviaremos novedades de tu solicitud"
               },
               {
+                "type": "TextSubheading",
+                "text": "Inmueble"
+              },
+              {
                 "type": "TextInput",
                 "name": "direccion",
                 "label": "Dirección",
                 "input-type": "text",
                 "required": true,
-                "helper-text": "Ej: Cra 45 # 80-20"
+                "helper-text": "Dirección del inmueble. Ej: Cra 45 # 80-20"
               },
               {
                 "type": "TextInput",
@@ -67,12 +75,13 @@
                 "name": "barrio",
                 "label": "Barrio",
                 "input-type": "text",
-                "required": true
+                "required": true,
+                "helper-text": "Barrio donde está el inmueble"
               },
               {
                 "type": "Dropdown",
                 "name": "ciudad",
-                "label": "Ciudad",
+                "label": "Ciudad del inmueble",
                 "required": true,
                 "data-source": [
                   {
