@@ -3,7 +3,7 @@
   "screens": [
     {
       "id": "REQUISITOS",
-      "title": "Paso 1 de 2: requisitos",
+      "title": "Paso 1 de 2",
       "terminal": true,
       "success": true,
       "data": {},
@@ -15,17 +15,18 @@
             "name": "form_requisitos",
             "children": [
               {
-                "type": "TextBody",
-                "text": "4 preguntas rápidas sobre el inmueble."
+                "type": "TextHeading",
+                "text": "Revisemos tu inmueble"
               },
               {
                 "type": "TextBody",
-                "text": "1. ¿El inmueble tiene hipoteca o embargo vigente?"
+                "text": "Son 4 preguntas rápidas. Si todo está bien, el siguiente paso son los datos del propietario."
               },
               {
                 "type": "RadioButtonsGroup",
                 "name": "hipoteca",
                 "label": "Hipoteca o embargo",
+                "description": "¿El inmueble tiene hipoteca o embargo vigente?",
                 "required": true,
                 "data-source": [
                   {
@@ -37,15 +38,12 @@
                     "title": "No"
                   }
                 ]
-              },
-              {
-                "type": "TextBody",
-                "text": "2. ¿Tiene patrimonio de familia con hijos menores de edad?"
               },
               {
                 "type": "RadioButtonsGroup",
                 "name": "patrimonio",
                 "label": "Patrimonio de familia",
+                "description": "¿Tiene patrimonio de familia con hijos menores de edad?",
                 "required": true,
                 "data-source": [
                   {
@@ -57,15 +55,12 @@
                     "title": "No"
                   }
                 ]
-              },
-              {
-                "type": "TextBody",
-                "text": "3. ¿El propietario tiene más de 75 años?"
               },
               {
                 "type": "RadioButtonsGroup",
                 "name": "edad",
-                "label": "Propietario mayor de 75",
+                "label": "Edad del propietario",
+                "description": "¿El propietario tiene más de 75 años?",
                 "required": true,
                 "data-source": [
                   {
@@ -77,15 +72,12 @@
                     "title": "No"
                   }
                 ]
-              },
-              {
-                "type": "TextBody",
-                "text": "4. ¿Estás dispuesto a ponerte al día con predial, servicios y administración?"
               },
               {
                 "type": "RadioButtonsGroup",
                 "name": "paz_salvo",
-                "label": "Ponerse al día",
+                "label": "Pagos al día",
+                "description": "¿Estás dispuesto a ponerte al día con predial, servicios y administración?",
                 "required": true,
                 "data-source": [
                   {
@@ -97,6 +89,10 @@
                     "title": "No"
                   }
                 ]
+              },
+              {
+                "type": "TextCaption",
+                "text": "Tus respuestas solo se usan para evaluar tu solicitud."
               },
               {
                 "type": "Footer",

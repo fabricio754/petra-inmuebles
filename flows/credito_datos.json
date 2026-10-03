@@ -3,7 +3,7 @@
   "screens": [
     {
       "id": "DATOS",
-      "title": "Paso 2 de 2: tus datos",
+      "title": "Paso 2 de 2",
       "terminal": true,
       "success": true,
       "data": {},
@@ -15,15 +15,20 @@
             "name": "form_datos",
             "children": [
               {
+                "type": "TextHeading",
+                "text": "Datos del propietario"
+              },
+              {
                 "type": "TextBody",
-                "text": "Datos del propietario del inmueble."
+                "text": "Con esto enviamos tu solicitud a Sureti para que estudie tu crédito."
               },
               {
                 "type": "TextInput",
                 "name": "nombre",
                 "label": "Nombre completo",
                 "input-type": "text",
-                "required": true
+                "required": true,
+                "helper-text": "Como aparece en la cédula"
               },
               {
                 "type": "TextInput",
@@ -31,14 +36,15 @@
                 "label": "Cédula",
                 "input-type": "number",
                 "required": true,
-                "helper-text": "Solo números"
+                "helper-text": "Solo números, sin puntos"
               },
               {
                 "type": "TextInput",
                 "name": "email",
                 "label": "Correo electrónico",
                 "input-type": "email",
-                "required": true
+                "required": true,
+                "helper-text": "Aquí te enviaremos novedades de tu solicitud"
               },
               {
                 "type": "TextInput",
@@ -49,8 +55,12 @@
                 "helper-text": "Calle, número, barrio y ciudad del inmueble"
               },
               {
+                "type": "TextCaption",
+                "text": "Al enviar, autorizas compartir estos datos con Sureti para estudiar tu crédito."
+              },
+              {
                 "type": "Footer",
-                "label": "Enviar",
+                "label": "Enviar solicitud",
                 "on-click-action": {
                   "name": "complete",
                   "payload": {
