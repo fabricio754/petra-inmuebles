@@ -44,7 +44,7 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
   `requiere_paz_salvo`. Descartes quedan en pipeline como `descartado_<motivo>`.
   `set_no_contactar` hace upsert en `contactos` (teléfono hasta 150 caracteres por BSUID).
 
-## Hito 7 — Captación (rediseñado 3 oct 2026)
+## Hito 7 — Captación (rediseñado 3 oct 2026) — EN VIVO desde 2 oct 2026 (noche)
 Los portales (Metrocuadrado, Finca Raíz) solo muestran el teléfono tras un formulario
 (+ reCAPTCHA en Metrocuadrado): no se automatiza ese formulario ni un WhatsApp personal.
 Solución acordada:
@@ -59,6 +59,12 @@ Solución acordada:
 - Monto "hasta": 40 % del precio publicado si es residencial (apartamento, casa),
   30 % si es comercial (local, oficina, bodega, lote).
 - Costo: ≈ USD 0,013 por mensaje de marketing (Colombia).
+- Estado: plantilla aprobada (es_CO). Extensión v1.1 probada en Metrocuadrado y Finca Raíz
+  reales. Render: CAPTURA_TOKEN, META_PLANTILLA_APERTURA=massi_apertura_a,
+  META_PLANTILLA_IDIOMA=es_CO, ENVIO_DESDE=2026-10-03, ENVIO_LIMITE_DIARIO=20,
+  ENVIO_AUTOMATICO=true. Monto "hasta" limitado a $20M–$800M.
+- Pendiente: vigilar calidad del número y respuestas la primera semana antes de subir el
+  límite; muchos anuncios son de inmobiliarias (usar filtro de dueño directo).
 
 ## Hito 8 — Documentos
 - CHIP por dirección con ArcGIS de Catastro Bogotá (servicio público).
