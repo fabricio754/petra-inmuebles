@@ -1,0 +1,24 @@
+name: Set ENVIO_AUTOMATICO=true
+on:
+  workflow_dispatch:
+jobs:
+  update-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get service ID
+        id: svc
+        run: |
+          SVC_ID=$(curl -sf -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services?name=petra-inmuebles&limit=1" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['service']['id'])")
+          echo "id=$SVC_ID" >> $GITHUB_OUTPUT
+          echo "Service ID: $SVC_ID"
+
+      - name: Set ENVIO_AUTOMATICO=true
+        run: |
+          curl -sf -X PUT \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/${{ steps.svc.outputs.id }}/env-vars" \
+            -d '[{"key":"ENVIO_AUTOMATICO","value":"true"}]'
+          echo "Variable actualizada."
