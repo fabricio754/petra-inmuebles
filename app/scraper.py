@@ -226,18 +226,34 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
         _resolver_captcha(page)
         page.wait_for_timeout(3_000)
 
+    # 2b. Clic en botón de WhatsApp (Metrocuadrado: "Contactar por WhatsApp")
+    wa_btn = page.query_selector(
+        "button:has-text('Contactar'), "
+        "a:has-text('Contactar'), "
+        "button[aria-label*='WhatsApp'], "
+        "a[aria-label*='WhatsApp']"
+    )
+    if wa_btn:
+        try:
+            wa_btn.click()
+            page.wait_for_timeout(2_000)
+        except Exception:
+            pass
+
     # 3. Buscar enlace tel:
     tel_link = page.query_selector("a[href^='tel:']")
     if tel_link:
         return re.sub(r"\D", "", tel_link.get_attribute("href") or "")
 
-    # 3b. Buscar enlace wa.me (WhatsApp)
-    wa_link = page.query_selector("a[href*='wa.me/']")
-    if wa_link:
-        href = wa_link.get_attribute("href") or ""
-        m = re.search(r"wa\.me/\+?(\d+)", href)
-        if m:
-            return m.group(1)
+    # 3b. Buscar cualquier enlace de WhatsApp (wa.me o api.whatsapp.com)
+    for wa_sel in ("a[href*='wa.me/']", "a[href*='whatsapp.com']"):
+        wa_link = page.query_selector(wa_sel)
+        if wa_link:
+            href = wa_link.get_attribute("href") or ""
+            # wa.me/573001234567 o api.whatsapp.com/send?phone=573001234567
+            m = re.search(r"(?:wa\.me/|phone=)\+?(\d{10,15})", href)
+            if m:
+                return m.group(1)
 
     # 4. Buscar contenedor con número por clase
     for sel in (
