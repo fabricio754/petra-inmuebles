@@ -23,12 +23,22 @@ PHONE_NUMBER_ID = os.environ.get("META_PHONE_NUMBER_ID", "")
 
 DRY_RUN = not (ACCESS_TOKEN and PHONE_NUMBER_ID)
 
-# --- WhatsApp Flow "Publicar mi inmueble" (formulario nativo) --------------
-# FLOW_MODE controla si mandamos la versión draft (sin publicar, para probar
-# contra el número de prueba) o la publicada. Por defecto "draft": NO publicar
-# el Flow en WhatsApp Manager hasta aprobación explícita.
-FLOW_ID = os.environ.get("META_FLOW_PUBLICAR_ID", "")
-FLOW_MODE = os.environ.get("META_FLOW_PUBLICAR_MODE", "draft")
+# Dirección pública del bot, para enlazar la política de datos (/privacidad).
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://petra-inmuebles.onrender.com").rstrip("/")
+
+# Formularios nativos de WhatsApp (Flows) del crédito. JSON en flows/.
+# Si no hay IDs configurados, el bot pregunta por chat (bot.py).
+FLOW_REQUISITOS_ID = os.environ.get("META_FLOW_REQUISITOS_ID", "")
+FLOW_DATOS_ID = os.environ.get("META_FLOW_DATOS_ID", "")
+# "draft" mientras los Flows estén en borrador en WhatsApp Manager;
+# "published" cuando se publiquen.
+FLOWS_MODE = os.environ.get("META_FLOWS_MODE", "draft")
+USE_FLOWS = bool(FLOW_REQUISITOS_ID and FLOW_DATOS_ID)
+
+# Plantilla de apertura aprobada por Meta (Hito 7). Variables del cuerpo:
+# {{1}} tipo de inmueble, {{2}} portal, {{3}} monto "hasta" en millones.
+PLANTILLA_APERTURA = os.environ.get("META_PLANTILLA_APERTURA", "")
+PLANTILLA_IDIOMA = os.environ.get("META_PLANTILLA_IDIOMA", "es_CO")
 
 
 def _graph_url():
@@ -75,259 +85,392 @@ def send_text(to, body):
     return _dispatch(payload, body)
 
 
-def send_menu(to, conjunto):
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "list",
-            "header": {"type": "text", "text": "Massi 👋"},
-            "body": {"text": f"Hola 👋 Soy Massi.\nEstás en *{conjunto.title()}*.\n¿Qué necesitas?"},
-            "footer": {"text": "Massi te conecta con lo que necesitas"},
-            "action": {
-                "button": "Ver opciones",
-                "sections": [{
-                    "title": "Menú principal",
-                    "rows": [
-                        {"id": "MENU_ARRIENDO", "title": "🏠 Tomar en arriendo", "description": "Ver apartamentos disponibles"},
-                        {"id": "MENU_COMPRAR", "title": "🏡 Comprar", "description": "Ver apartamentos en venta"},
-                        {"id": "MENU_PUBLICAR", "title": "📋 Publicar mi inmueble", "description": "Arrendar o vender el tuyo"},
-                        {"id": "MENU_CREDITO", "title": "💳 Crédito hipotecario", "description": "Con garantía hipotecaria"},
-                        {"id": "MENU_PAGOS", "title": "💰 Pago de servicios", "description": "Administración o servicios públicos"},
-                    ],
-                }],
-            },
-        },
-    }
-    summary = f"[MENÚ] {conjunto} → 5 opciones"
-    return _dispatch(payload, summary)
-
-
-def send_menu_pagos(to):
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "list",
-            "header": {"type": "text", "text": "💰 Pago de servicios"},
-            "body": {"text": "¿Qué quieres pagar?"},
-            "footer": {"text": "Massi"},
-            "action": {
-                "button": "Ver opciones",
-                "sections": [{
-                    "title": "Tipo de pago",
-                    "rows": [
-                        {"id": "PAGO_ADMINISTRACION", "title": "🏢 Administración", "description": "Cuota de administración de Arrayanes"},
-                        {"id": "PAGO_SERVICIOS", "title": "🔌 Servicios públicos", "description": "Luz, agua, gas o internet"},
-                    ],
-                }],
-            },
-        },
-    }
-    return _dispatch(payload, "[MENÚ PAGOS] 2 opciones")
-
-
-def send_catalogo(to, conjunto, operacion_label, listings):
-    rows = []
-    for item in listings:
-        precio_fmt = f"${item['precio']:,.0f}".replace(",", ".")
-        # WhatsApp rechaza toda la lista si un título pasa de 24 caracteres
-        # (el inventario se puede editar a mano en la Sheet).
-        title = item["apartamento"][:24]
-        desc = f"{item['habitaciones']} hab · {item['banos']} baños · {item['m2']} m² · {precio_fmt}"
-        rows.append({"id": f"APTO_{item['id']}", "title": title, "description": desc})
-
-    if not rows:
-        return send_text(to, f"En {conjunto} todavía no hay inmuebles publicados en esta operación.")
-    # Máximo 10 filas por lista en WhatsApp.
-    rows = rows[:10]
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "list",
-            "header": {"type": "text", "text": f"{conjunto} · {operacion_label}"},
-            "body": {"text": "Inmuebles disponibles:"},
-            "footer": {"text": "Toca un apartamento para ver más"},
-            "action": {"button": "Ver inmuebles", "sections": [{"title": "Disponibles", "rows": rows}]},
-        },
-    }
-    summary = f"[CATÁLOGO {operacion_label}] {conjunto} → {len(rows)} inmuebles: " + ", ".join(r["title"] for r in rows)
-    return _dispatch(payload, summary)
-
-
-def send_apto_detail(to, apto):
-    precio_fmt = f"${apto['precio']:,.0f}".replace(",", ".")
-    es_petra = apto["gestion"] == "PETRA"
-    gestion_label = "Gestiona Petra" if es_petra else "Publicado por el propietario"
-    boton_label = "Contactar Petra" if es_petra else "Contactar"
-    body = (
-        f"*{apto['apartamento']} · {apto['conjunto'].title()}*\n"
-        f"{apto['habitaciones']} habitaciones · {apto['banos']} baños · {apto['m2']} m²\n"
-        f"{precio_fmt} · {gestion_label}"
-    )
+def _botones(to, cuerpo, botones, resumen):
+    """Mensaje con hasta 3 botones de respuesta. Título de botón: máx. 20 caracteres."""
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": body},
-            "action": {"buttons": [{"type": "reply", "reply": {"id": f"CONTACTAR_{apto['id']}", "title": boton_label}}]},
-        },
-    }
-    summary = f"[FICHA] {apto['apartamento']} ({apto['conjunto']}) — botón {boton_label}"
-    return _dispatch(payload, summary)
-
-
-def send_confirmacion_contacto(to, apto):
-    """Solo para inmuebles gestion=PETRA — sin cambios de comportamiento."""
-    body = (
-        f"✅ Recibimos tu interés en *{apto['apartamento']}* ({apto['conjunto'].title()}).\n"
-        f"Un asesor de Petra te va a escribir por este mismo WhatsApp."
-    )
-    return send_text(to, body)
-
-
-def send_confirmar_contacto_propietario(to, apto):
-    body = (
-        f"🏠 *{apto['apartamento']} · {apto['conjunto'].title()}*\n\n"
-        "Perfecto. Le vamos a compartir al propietario que estás interesado en este inmueble.\n\n"
-        "¿Quieres que lo contactemos?"
-    )
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": body},
+            "body": {"text": cuerpo},
             "action": {"buttons": [
-                {"type": "reply", "reply": {"id": f"CONFIRMAR_CONTACTO_{apto['id']}", "title": "Sí, contactar"}},
-                {"type": "reply", "reply": {"id": f"CANCELAR_CONTACTO_{apto['id']}", "title": "Cancelar"}},
+                {"type": "reply", "reply": {"id": id_, "title": titulo}}
+                for id_, titulo in botones
             ]},
         },
     }
-    summary = f"[CONFIRMAR CONTACTO] {apto['apartamento']} ({apto['conjunto']})"
-    return _dispatch(payload, summary)
+    return _dispatch(payload, resumen)
 
 
-def send_conexion_confirmada(to, apto):
-    body = (
-        "✅ Listo.\n\n"
-        f"Ya le avisamos al propietario de *{apto['apartamento']}* de tu interés en este inmueble "
-        "y le compartimos tu contacto para que pueda comunicarse contigo.\n\n"
-        "Puedes esperar su mensaje."
-    )
-    return send_text(to, body)
-
-
-def send_cancelacion_contacto(to):
-    return send_text(to, "Entendido, no compartimos tu contacto con el propietario.")
-
-
-def send_autorizacion_propietario(to, resumen):
-    body = (
-        f"{resumen}\n\n"
-        "Para publicar tu inmueble, necesitamos tu autorización:\n\n"
-        "\"Autorizo a Petra Inmuebles a compartir mi información de contacto con las "
-        "personas interesadas en este inmueble, exclusivamente para facilitar el contacto "
-        "relacionado con su arriendo o venta.\""
-    )
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": body},
-            "action": {"buttons": [
-                {"type": "reply", "reply": {"id": "AUTORIZO_PUBLICAR", "title": "Autorizo"}},
-                {"type": "reply", "reply": {"id": "NO_AUTORIZO_PUBLICAR", "title": "No autorizo"}},
-            ]},
-        },
-    }
-    summary = "[AUTORIZACIÓN PUBLICAR] pidiendo consentimiento de contacto"
-    return _dispatch(payload, summary)
-
-
-def send_confirmacion_publicacion(to, apto):
-    precio_fmt = f"${apto['precio']:,.0f}".replace(",", ".")
-    body = (
-        "✅ Tu inmueble quedó publicado:\n\n"
-        f"*{apto['apartamento']} · {apto['conjunto'].title()}*\n"
-        f"{apto['habitaciones']} hab · {apto['banos']} baños · {apto['m2']} m² · {precio_fmt}\n\n"
-        "Ya está visible para quienes busquen en tu conjunto."
-    )
-    return send_text(to, body)
-
-
-def send_publicacion_rechazada(to):
-    return send_text(
-        to,
-        "Sin esa autorización no podemos publicar tu inmueble, porque no podríamos "
-        "conectarte con las personas interesadas. Si cambias de opinión, escribe *menu* "
-        "para intentarlo de nuevo.",
-    )
-
-
-def send_flow_publicar(to):
-    """WHATSAPP FLOW — abre el formulario nativo "Publicar mi inmueble"
-    dentro del chat (una pantalla, FORM; JSON en flows/publicar_inmueble.json).
-
-    Requiere META_FLOW_PUBLICAR_ID configurado (el ID del Flow creado en
-    WhatsApp Manager). FLOW_MODE="draft" permite probarlo sin publicar el Flow."""
+def _flow(to, flow_id, screen, cuerpo, cta, resumen):
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
         "interactive": {
             "type": "flow",
-            "header": {"type": "text", "text": "Petra Inmuebles"},
-            "body": {"text": "Completa los datos de tu inmueble."},
+            "header": {"type": "text", "text": "Massi"},
+            "body": {"text": cuerpo},
             "action": {
                 "name": "flow",
                 "parameters": {
                     "flow_message_version": "3",
-                    "flow_token": to,
-                    "flow_id": FLOW_ID,
-                    "flow_cta": "Publicar mi inmueble",
+                    "flow_token": f"{screen}:{to}",
+                    "flow_id": flow_id,
+                    "flow_cta": cta,
                     "flow_action": "navigate",
-                    "flow_action_payload": {"screen": "FORM"},
-                    "mode": FLOW_MODE,
+                    "flow_action_payload": {"screen": screen},
+                    "mode": FLOWS_MODE,
                 },
             },
         },
     }
-    summary = f"[FLOW PUBLICAR] modo={FLOW_MODE} flow_id={FLOW_ID or '(META_FLOW_PUBLICAR_ID sin configurar)'}"
-    return _dispatch(payload, summary)
+    return _dispatch(payload, f"{resumen} modo={FLOWS_MODE} flow_id={flow_id}")
 
 
-# --- Piloto Crédito (dummy) -------------------------------------------------
-# Sin proveedor real todavía. Termina guardando el lead y avisando que un
-# asesor contactará -- el punto donde se conectaría un proveedor real de
-# crédito está marcado en bot.py.
+# --- Flujo de crédito con Sureti (Hito 6) -----------------------------------
 
-def send_confirmacion_credito(to):
-    body = (
-        "✅ Recibimos tu solicitud de crédito con garantía hipotecaria.\n"
-        "Un asesor te va a contactar por este mismo WhatsApp."
+def send_form_requisitos(to, repetir=False):
+    cuerpo = (
+        "Toca el botón para abrir el formulario." if repetir else
+        "Son 2 pasos cortos:\n"
+        "1️⃣ Ubicación del inmueble y 4 preguntas de requisitos.\n"
+        "2️⃣ Datos del propietario.\n\n"
+        "Empecemos con tu inmueble."
     )
-    return send_text(to, body)
+    return _flow(to, FLOW_REQUISITOS_ID, "REQUISITOS", cuerpo, "Paso 1: tu inmueble", "[FORM REQUISITOS]")
 
 
-# --- Piloto Pago de servicios (dummy) ---------------------------------------
-# Sin pasarela de pagos real todavía. Simula el pago y guarda el lead -- el
-# punto donde se conectaría un proveedor real de pagos está marcado en bot.py.
-
-def send_confirmacion_pago(to, monto):
-    monto_fmt = f"${monto:,.0f}".replace(",", ".")
-    body = (
-        f"✅ Pago simulado por {monto_fmt} procesado correctamente.\n"
-        "(Esto es una prueba piloto -- todavía no está conectado a una pasarela de pagos real.)"
+def send_form_datos(to, repetir=False):
+    cuerpo = (
+        "Toca el botón para abrir el formulario." if repetir else
+        "¡Tu inmueble cumple los requisitos! 🎉\n\n"
+        "Último paso: los datos del propietario (nombre, cédula y correo)."
     )
-    return send_text(to, body)
+    return _flow(to, FLOW_DATOS_ID, "DATOS", cuerpo, "Paso 2: propietario", "[FORM DATOS]")
+
+
+def send_autorizacion_datos(to, repetir=False):
+    if repetir:
+        cuerpo = (
+            "Para continuar necesito que aceptes o no la autorización de datos. "
+            f"Puedes leer la política aquí: {PUBLIC_BASE_URL}/privacidad"
+        )
+    else:
+        cuerpo = (
+            "Hola 👋 Soy Massi. Te ayudamos a conseguir liquidez usando tu inmueble "
+            "como garantía, sin venderlo, con nuestro aliado financiero *Sureti*.\n\n"
+            "Para revisar tu caso necesito tu autorización para tratar tus datos "
+            "personales (Ley 1581 de 2012): los usaremos para evaluar tu solicitud "
+            "de crédito y los *compartiremos con Sureti* para su estudio. Puedes "
+            "consultarlos, corregirlos o pedir que los borremos cuando quieras.\n\n"
+            f"Política de datos: {PUBLIC_BASE_URL}/privacidad\n\n"
+            "Escribe *SALIR* en cualquier momento para no recibir más mensajes.\n\n"
+            "¿Aceptas?"
+        )
+    return _botones(
+        to, cuerpo, [("BOTON_SI", "Acepto"), ("BOTON_NO", "No acepto")],
+        "[AUTORIZACIÓN DATOS]" + (" (repetida)" if repetir else ""),
+    )
+
+
+def send_pregunta_si_no(to, pregunta):
+    return _botones(to, pregunta, [("BOTON_SI", "Sí"), ("BOTON_NO", "No")], f"[SÍ/NO] {pregunta[:60]}")
+
+
+def _lista(to, cuerpo, filas, boton, resumen):
+    """Mensaje de lista interactiva (una sección, hasta 10 filas)."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": cuerpo},
+            "action": {
+                "sections": [{"title": "Opciones", "rows": filas}],
+                "button": boton,
+            },
+        },
+    }
+    return _dispatch(payload, resumen)
+
+
+def send_tipo_inmueble(to):
+    return _lista(
+        to,
+        "¿Qué tipo de inmueble es la garantía?",
+        [
+            {"id": "TIPO_CASA", "title": "Casa"},
+            {"id": "TIPO_APTO", "title": "Apartamento"},
+            {"id": "TIPO_LOCAL", "title": "Local comercial"},
+            {"id": "TIPO_OFICINA", "title": "Oficina"},
+            {"id": "TIPO_LOTE", "title": "Lote"},
+            {"id": "TIPO_BODEGA", "title": "Bodega"},
+        ],
+        "Ver tipos",
+        "[TIPO INMUEBLE]",
+    )
+
+
+def send_objetivo_prestamo(to):
+    return _lista(
+        to,
+        "¿Para qué necesitas el préstamo?",
+        [
+            {"id": "OBJ_CAPITAL", "title": "Capital de trabajo"},
+            {"id": "OBJ_DEUDAS", "title": "Pagar deudas"},
+            {"id": "OBJ_INVERSION", "title": "Inversión"},
+            {"id": "OBJ_GASTOS", "title": "Gastos personales"},
+            {"id": "OBJ_OTRO", "title": "Otro"},
+        ],
+        "Ver opciones",
+        "[OBJETIVO PRÉSTAMO]",
+    )
+
+
+def send_no_contactar(to):
+    return send_text(
+        to,
+        "Entendido. No te enviaremos más mensajes.\n\n"
+        "Si en el futuro quieres retomar, solo escríbenos por aquí.",
+    )
+
+
+def send_no_califica(to, motivo):
+    mensajes = {
+        "HIPOTECA": (
+            "Gracias por responder. Por ahora no podemos avanzar con un inmueble que "
+            "tiene hipoteca o embargo vigente.\n\n"
+            "Si la situación cambia, escríbenos y con gusto revisamos tu caso."
+        ),
+        "PATRIMONIO": (
+            "Gracias por responder. Por ahora no podemos avanzar con un inmueble que "
+            "tiene patrimonio de familia con hijos menores de edad.\n\n"
+            "Si la situación cambia, escríbenos."
+        ),
+        "EDAD": (
+            "Gracias por responder. Por ahora este crédito no aplica cuando el "
+            "propietario tiene más de 75 años.\n\n"
+            "Gracias por escribirnos."
+        ),
+    }
+    return send_text(to, mensajes.get(motivo, "Gracias por escribirnos."))
+
+
+def send_pausa_paz_salvo(to):
+    return send_text(
+        to,
+        "Entendido. Para avanzar con el crédito el inmueble debe estar al día en "
+        "predial, servicios y administración.\n\n"
+        "Te escribiremos en unos 30 días por si quieres retomar. Si lo logras "
+        "antes, escríbenos cuando quieras.",
+    )
+
+
+def send_confirmacion_pipeline(to, nombre_corto):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    return send_text(
+        to,
+        f"✅ ¡Listo{sufijo}!\n\n"
+        "Ya tenemos tu información. Revisaremos tu caso y te escribiremos por este "
+        "mismo WhatsApp en los próximos días hábiles.\n\n"
+        "Gracias por confiar en Massi. 🙌",
+    )
+
+
+# --- Captación (Hito 7) ------------------------------------------------------
+
+def send_doc_recibido(to, avaluo=None, direccion="", matricula=""):
+    """Confirma recepción de un documento y muestra lo que se extrajo."""
+    if avaluo:
+        avaluo_fmt = f"${avaluo:,}".replace(",", ".")
+        detalle = (
+            f"✅ Recibí tu recibo de predial.\n\n"
+            f"• Avalúo catastral: *{avaluo_fmt}*\n"
+            + (f"• Dirección: {direccion}\n" if direccion else "")
+            + (f"• Matrícula: {matricula}\n" if matricula else "")
+            + "\nListo, ya tengo esta información para tu solicitud."
+        )
+    else:
+        detalle = (
+            "✅ Recibí el documento. No pude leer el avalúo catastral "
+            "automáticamente — nuestro equipo lo revisará."
+        )
+    return send_text(to, detalle)
+
+
+def send_tipo_doc_invalido(to):
+    return send_text(
+        to,
+        "Solo acepto fotos (JPEG/PNG) o archivos PDF. "
+        "Por favor envía el documento en uno de esos formatos.",
+    )
+
+
+def send_solicitud_ctl(to):
+    """Pide al cliente el Certificado de Tradición y Libertad del inmueble."""
+    return send_text(
+        to,
+        "📄 *Siguiente paso: Certificado de Tradición y Libertad*\n\n"
+        "Para continuar con el estudio necesito que nos envíes el *Certificado "
+        "de Tradición y Libertad* del inmueble.\n\n"
+        "Puedes descargarlo en línea (sin costo) en:\n"
+        "🔗 https://certificados.supernotariado.gov.co\n\n"
+        "Búscalo con el número de matrícula inmobiliaria y envíalo aquí como PDF "
+        "o foto. Si no lo tienes a la mano, puedes enviarlo después.",
+    )
+
+
+def send_credito_aprobado(to, nombre_corto, monto):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    monto_fmt = f"${monto:,}".replace(",", ".") if monto else ""
+    cuerpo = (
+        f"🎉 ¡Buenas noticias{sufijo}!\n\n"
+        "Tu solicitud de crédito con *Sureti* fue *aprobada*."
+        + (f" El monto aprobado es de *{monto_fmt} millones*." if monto_fmt else "")
+        + "\n\nNuestro equipo te contactará pronto para coordinar los siguientes pasos. "
+        "Gracias por confiar en Massi. 🙌"
+    )
+    return send_text(to, cuerpo)
+
+
+def send_credito_rechazado(to, razon=None):
+    detalle = f"\n\nMotivo: _{razon}_" if razon else ""
+    return send_text(
+        to,
+        "Hola. Lamentamos informarte que tu solicitud de crédito con *Sureti* "
+        f"no fue aprobada en esta ocasión.{detalle}\n\n"
+        "Si tu situación cambia o tienes preguntas, escríbenos y con gusto te ayudamos.",
+    )
+
+
+def send_credito_desembolsado(to, nombre_corto, monto, comision):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    monto_fmt = f"${monto:,}".replace(",", ".") if monto else ""
+    comision_fmt = f"${comision:,}".replace(",", ".") if comision else ""
+    cuerpo = (
+        f"🎊 ¡Excelente noticia{sufijo}!\n\n"
+        "Tu crédito con *Sureti* fue *desembolsado*."
+        + (f" Monto: *{monto_fmt}*." if monto_fmt else "")
+        + (f"\n\nComisión Massi: *{comision_fmt}* (se cobra en 4 cuotas)." if comision_fmt else "")
+        + "\n\nNuestro equipo te contactará pronto para coordinar los siguientes pasos. "
+        "Muchas gracias por confiar en Massi. 🙌"
+    )
+    return send_text(to, cuerpo)
+
+
+def send_paz_salvo_recordatorio(to, nombre_corto, dia):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    if dia == 15:
+        cuerpo = (
+            f"Hola{sufijo} 👋 Hace 15 días hablamos sobre tu crédito con garantía hipotecaria.\n\n"
+            "¿Pudiste ponerte al día con predial, servicios y administración? "
+            "Si es así, aquí estamos para ayudarte a avanzar con tu solicitud. "
+            "Solo escríbenos."
+        )
+    else:
+        cuerpo = (
+            f"Hola{sufijo}. Te hacemos un último recordatorio: cuando puedas ponerte "
+            "al día con el inmueble, escríbenos y retomamos tu solicitud de crédito. 🏡\n\n"
+            "Escribe *SALIR* si prefieres no recibir más mensajes."
+        )
+    return send_text(to, cuerpo)
+
+
+def send_plantilla_apertura(to, tipo, portal, monto_hasta):
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "template",
+        "template": {
+            "name": PLANTILLA_APERTURA,
+            "language": {"code": PLANTILLA_IDIOMA},
+            "components": [{
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": tipo},
+                    {"type": "text", "text": portal or "internet"},
+                    {"type": "text", "text": f"{monto_hasta:,}".replace(",", ".")},
+                ],
+            }],
+        },
+    }
+    return _dispatch(payload, f"[PLANTILLA {PLANTILLA_APERTURA}] {tipo} en {portal}, hasta ${monto_hasta}M")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mensajes del flujo de crédito
+# ─────────────────────────────────────────────────────────────────────────────
+
+def send_solicitud_enviada(to: str):
+    """Confirma al vendedor que la solicitud fue enviada a Sureti."""
+    return send_text(
+        to,
+        "✅ Listo, ya tenemos todo para enviar la solicitud a nuestro aliado financiero.\n\n"
+        "Sureti hará su propio estudio del inmueble y te diremos el monto exacto que pueden "
+        "prestarte. Te avisamos en cuanto haya respuesta (aproximadamente 1 día hábil).",
+    )
+
+
+def send_credito_aprobado(to: str, monto_m: int):
+    """Notifica al vendedor que el crédito fue aprobado."""
+    return send_text(
+        to,
+        f"🎉 *¡Excelentes noticias!*\n\n"
+        f"Tu solicitud fue *aprobada* por Sureti por un monto de *${monto_m:,}M* COP.\n\n"
+        "Ahora necesitamos unos documentos adicionales para continuar. "
+        "¿Tienes las *escrituras de tradición* del inmueble?",
+    )
+
+
+def send_credito_rechazado(to: str, razon: str = ""):
+    """Notifica al vendedor que el crédito no fue aprobado."""
+    msg = (
+        "😔 Lo sentimos, en este momento Sureti no pudo aprobar la solicitud"
+        + (f" por el siguiente motivo:\n_{razon}_" if razon else ".")
+        + "\n\nEstaremos pendientes por si la situación cambia."
+    )
+    return send_text(to, msg)
+
+
+def send_solicitud_ctl(to: str):
+    """Le pide al vendedor el CTL si no lo pudimos conseguir automáticamente."""
+    return send_text(
+        to,
+        "Para completar tu solicitud necesitamos el *Certificado de Tradición y "
+        "Libertad* del inmueble.\n\n"
+        "Puedes descargarlo gratis en:\n"
+        "https://certificados.supernotariado.gov.co\n\n"
+        "Busca por el número de matrícula inmobiliaria y envíanos el PDF aquí.",
+    )
+
+
+def send_doc_recibido(to: str, tipo_doc: str = ""):
+    """Confirma recepción de un documento."""
+    return send_text(
+        to,
+        f"✅ Documento recibido{(' (' + tipo_doc + ')') if tipo_doc else ''}. "
+        "Continuamos procesando tu solicitud.",
+    )
+
+
+def send_credito_desembolsado(to: str, monto_m: int):
+    """Notifica al vendedor que el crédito fue desembolsado."""
+    return send_text(
+        to,
+        f"🏦 *¡El crédito fue desembolsado!*\n\n"
+        f"Sureti ha confirmado el desembolso de *${monto_m:,}M* COP. "
+        "El proceso está completo.\n\n"
+        "Gracias por confiar en Massi. 🙌",
+    )
+
+
+def send_tipo_doc_invalido(to: str):
+    """Avisa que el archivo enviado no es un formato soportado."""
+    return send_text(
+        to,
+        "❌ El archivo que enviaste no es compatible. Por favor envía una *imagen (JPG/PNG)* "
+        "o un *PDF*.",
+    )

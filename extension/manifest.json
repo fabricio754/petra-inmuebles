@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Enviar a Massi",
+  "version": "1.1.0",
+  "description": "Envía a Massi el contacto de un anuncio de Metrocuadrado o Finca Raíz con un clic.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://petra-inmuebles.onrender.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Enviar a Massi",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.metrocuadrado.com/*",
+        "https://www.fincaraiz.com.co/*"
+      ],
+      "js": [
+        "intercept.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": [
+        "https://www.metrocuadrado.com/*",
+        "https://www.fincaraiz.com.co/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ]
+}

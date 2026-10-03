@@ -1,0 +1,188 @@
+{
+  "version": "7.3",
+  "screens": [
+    {
+      "id": "REQUISITOS",
+      "title": "Paso 1 de 2",
+      "terminal": true,
+      "success": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "form_requisitos",
+            "children": [
+              {
+                "type": "TextHeading",
+                "text": "Tu inmueble"
+              },
+              {
+                "type": "TextBody",
+                "text": "Cuéntanos dónde está y responde 4 preguntas rápidas."
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Ubicación"
+              },
+              {
+                "type": "TextInput",
+                "name": "direccion",
+                "label": "Dirección",
+                "input-type": "text",
+                "required": true,
+                "helper-text": "Dirección del inmueble. Ej: Cra 45 # 80-20"
+              },
+              {
+                "type": "TextInput",
+                "name": "apto",
+                "label": "Apto / interior",
+                "input-type": "text",
+                "required": false,
+                "helper-text": "Opcional. Ej: Apto 302, Torre 2"
+              },
+              {
+                "type": "TextInput",
+                "name": "barrio",
+                "label": "Barrio",
+                "input-type": "text",
+                "required": true,
+                "helper-text": "Barrio donde está el inmueble"
+              },
+              {
+                "type": "Dropdown",
+                "name": "ciudad",
+                "label": "Ciudad del inmueble",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "BOGOTA",
+                    "title": "Bogotá"
+                  },
+                  {
+                    "id": "MEDELLIN",
+                    "title": "Medellín"
+                  },
+                  {
+                    "id": "BARRANQUILLA",
+                    "title": "Barranquilla"
+                  },
+                  {
+                    "id": "CARTAGENA",
+                    "title": "Cartagena"
+                  },
+                  {
+                    "id": "SANTA_MARTA",
+                    "title": "Santa Marta"
+                  },
+                  {
+                    "id": "CUCUTA",
+                    "title": "Cúcuta"
+                  },
+                  {
+                    "id": "OTRA",
+                    "title": "Otra"
+                  }
+                ]
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Requisitos"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "hipoteca",
+                "label": "Hipoteca o embargo",
+                "description": "¿El inmueble tiene hipoteca o embargo vigente?",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SI",
+                    "title": "Sí"
+                  },
+                  {
+                    "id": "NO",
+                    "title": "No"
+                  }
+                ]
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "patrimonio",
+                "label": "Patrimonio de familia",
+                "description": "¿Tiene patrimonio de familia con hijos menores de edad?",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SI",
+                    "title": "Sí"
+                  },
+                  {
+                    "id": "NO",
+                    "title": "No"
+                  }
+                ]
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "edad",
+                "label": "Edad del propietario",
+                "description": "¿El propietario tiene más de 75 años?",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SI",
+                    "title": "Sí"
+                  },
+                  {
+                    "id": "NO",
+                    "title": "No"
+                  }
+                ]
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "paz_salvo",
+                "label": "Pagos al día",
+                "description": "¿Estás dispuesto a ponerte al día con predial, servicios y administración?",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SI",
+                    "title": "Sí"
+                  },
+                  {
+                    "id": "NO",
+                    "title": "No"
+                  }
+                ]
+              },
+              {
+                "type": "TextCaption",
+                "text": "Tus respuestas solo se usan para evaluar tu solicitud."
+              },
+              {
+                "type": "Footer",
+                "label": "Continuar",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "direccion": "${form.direccion}",
+                    "apto": "${form.apto}",
+                    "barrio": "${form.barrio}",
+                    "ciudad": "${form.ciudad}",
+                    "hipoteca": "${form.hipoteca}",
+                    "patrimonio": "${form.patrimonio}",
+                    "edad": "${form.edad}",
+                    "paz_salvo": "${form.paz_salvo}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

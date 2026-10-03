@@ -9,21 +9,176 @@ from dotenv import load_dotenv
 
 load_dotenv()  # debe cargar antes de importar app.bot -> app.whatsapp (lee env al importar)
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 
-from app import bot
+from app import bot, envios, scraper, scheduler
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("petra")
 
 VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "petra-verify-token")
 
+# MIMEs soportados para documentos enviados por el vendedor
+MIME_SOPORTADOS = {"image/jpeg", "image/png", "application/pdf"}
+
 app = Flask(__name__)
+envios.iniciar()
+scraper.iniciar()
+scheduler.iniciar()
+
+# APScheduler (scraper, Sureti check, remarketing)
+try:
+    from app import scheduler as _sched
+    _sched.iniciar()
+except Exception as _e:
+    log.warning("[Server] No se pudo iniciar scheduler: %s", _e)
 
 
 @app.get("/")
 def health():
     return {"status": "ok", "service": "petra-inmuebles-webhook"}
+
+
+@app.post("/captura")
+def captura():
+    """Recibe un anuncio desde la extensión de Chrome "Enviar a Massi"."""
+    token = os.environ.get("CAPTURA_TOKEN", "")
+    if not token or request.headers.get("X-Massi-Token") != token:
+        return jsonify({"resultado": "no_autorizado"}), 401
+    from app import captacion  # requiere Postgres
+    anuncio = request.get_json(silent=True) or {}
+    resultado, detalle = captacion.procesar(anuncio)
+    log.info("[Captura] %s: %s (%s)", resultado, detalle, anuncio.get("url"))
+    return jsonify({"resultado": resultado, "detalle": detalle})
+
+
+@app.post("/pilot")
+def pilot():
+    """Piloto: scrapea una URL de Metrocuadrado e inyecta el contacto en la DB.
+
+    Body JSON:
+      url      — URL del anuncio en Metrocuadrado (requerido)
+      telefono — teléfono del propietario (requerido; evita depender de 2captcha)
+      nombre   — nombre opcional
+      forzar   — si true, elimina el registro previo con ese teléfono y lo re-inserta
+
+    Protegido con el mismo CAPTURA_TOKEN (header X-Massi-Token).
+    Úsalo para verificar que el scraper captura correctamente tu publicación
+    y que el bot envía la plantilla de apertura.
+    """
+    token = os.environ.get("CAPTURA_TOKEN", "")
+    if not token or request.headers.get("X-Massi-Token") != token:
+        return jsonify({"resultado": "no_autorizado"}), 401
+
+    body = request.get_json(silent=True) or {}
+    url = str(body.get("url") or "").strip()
+    telefono_raw = str(body.get("telefono") or "").strip()
+    nombre = body.get("nombre")
+    forzar = bool(body.get("forzar", False))
+
+    if not url or "metrocuadrado.com" not in url:
+        return jsonify({"resultado": "error", "detalle": "Se requiere una URL de metrocuadrado.com"}), 400
+
+    from app.captacion import normalizar_telefono, _precio, _buscar, CIUDADES, TIPOS, RESIDENCIAL, PORCENTAJE, MONTO_MAX_M, MONTO_MIN_M
+    telefono = normalizar_telefono(telefono_raw)
+    if not telefono:
+        return jsonify({"resultado": "error", "detalle": "Teléfono colombiano inválido (ej: 3001234567)"}), 400
+
+    # Scraping de la URL específica con Playwright
+    datos_scrapeados = {}
+    error_scrape = None
+    try:
+        from playwright.sync_api import sync_playwright
+        chromium_path = os.environ.get("PLAYWRIGHT_CHROMIUM_PATH", "")
+        launch_kwargs = {"headless": True, "args": ["--no-sandbox", "--disable-dev-shm-usage"]}
+        if chromium_path:
+            launch_kwargs["executable_path"] = chromium_path
+
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(**launch_kwargs)
+            try:
+                from app.scraper import _nueva_pagina, _mq_extraer_datos
+                page = _nueva_pagina(browser, url)
+                try:
+                    datos_scrapeados = _mq_extraer_datos(page, url) or {}
+                finally:
+                    page.context.close()
+            finally:
+                browser.close()
+    except Exception as exc:
+        error_scrape = str(exc)
+        log.warning("[Pilot] Error scrapeando %s: %s", url, exc)
+
+    # Construir el contacto con los datos scrapeados + teléfono provisto
+    from app import db as _db
+
+    precio_raw = datos_scrapeados.get("precio_raw", "")
+    precio = _precio(precio_raw)
+    ciudad_raw = datos_scrapeados.get("ciudad_raw", "") or url
+    tipo_raw = datos_scrapeados.get("tipo_raw", "") or url
+
+    ciudad = _buscar(CIUDADES, ciudad_raw, url) or "Bogotá"
+    tipo = _buscar(TIPOS, tipo_raw, url) or "apartamento"
+
+    # Usar el precio scrapeado; si no se obtuvo, pedir al body
+    if precio < 50_000_000:
+        precio_body = int(str(body.get("precio", 0) or 0).replace(".", "").replace(",", "") or 0)
+        if precio_body >= 50_000_000:
+            precio = precio_body
+        else:
+            precio = 300_000_000  # fallback conservador para no bloquear el piloto
+
+    categoria = "residencial" if tipo in RESIDENCIAL else "comercial"
+    monto_hasta = min(int(precio * PORCENTAJE[categoria] / 1_000_000), MONTO_MAX_M)
+    monto_hasta = max(monto_hasta, MONTO_MIN_M)
+
+    contacto = {
+        "telefono": telefono,
+        "nombre": nombre or datos_scrapeados.get("nombre"),
+        "direccion": datos_scrapeados.get("direccion"),
+        "barrio": datos_scrapeados.get("barrio"),
+        "ciudad": ciudad,
+        "tipo": tipo,
+        "precio": precio,
+        "estrato": None,
+        "requiere_ph": False,
+        "url": url,
+        "portal": "metrocuadrado",
+        "foto": datos_scrapeados.get("foto"),
+        "monto_hasta": monto_hasta,
+    }
+
+    if forzar:
+        with _db._conexion() as conn:
+            conn.execute("DELETE FROM contactos WHERE telefono = %s", (telefono,))
+
+    guardado = _db.guardar_contacto(contacto)
+    resultado = "nuevo" if guardado else "duplicado"
+
+    log.info("[Pilot] %s — %s (%s, $%dM hasta $%dM)", resultado, telefono, ciudad, precio // 1_000_000, monto_hasta)
+    return jsonify({
+        "resultado": resultado,
+        "contacto": {k: v for k, v in contacto.items() if v is not None},
+        "scrape_ok": not error_scrape,
+        "scrape_error": error_scrape,
+        "datos_scrapeados": {k: v for k, v in datos_scrapeados.items() if v},
+    })
+
+
+@app.get("/privacidad")
+def privacidad():
+    """Política de tratamiento de datos (Ley 1581), enlazada desde el bot."""
+    return render_template(
+        "privacidad.html",
+        responsable=os.environ.get(
+            "POLITICA_RESPONSABLE",
+            "ALMOND CORP S.A.S. (marca Massi), NIT 901.931.289-4, domicilio principal en Bogotá D.C.",
+        ),
+        contacto=os.environ.get(
+            "POLITICA_CONTACTO", "fabricio@petrasecondaries.com o WhatsApp +57 320 2813268"
+        ),
+        fecha="2 de octubre de 2026",
+    )
 
 
 @app.get("/webhook")
@@ -56,6 +211,18 @@ def receive_webhook():
         phone = message.get("from") or message["from_user_id"]
         event = _to_event(message)
         log.info("Mensaje entrante de %s: %s", phone, event)
+
+        if event["type"] == "media":
+            from app import media as media_mod
+            mime = event["mime_type"]
+            if mime not in media_mod.MIME_SOPORTADOS:
+                from app import whatsapp as wa
+                wa.send_tipo_doc_invalido(phone)
+                return jsonify({"status": "received"}), 200
+            ruta = media_mod.download_and_save(phone, event["media_id"], mime)
+            media_mod.registrar(phone, event["media_id"], mime, ruta)
+            event["ruta_local"] = ruta
+
         bot.handle_incoming(phone, event)
     except Exception:
         log.exception("Error procesando webhook. Payload: %s", payload)
@@ -64,6 +231,10 @@ def receive_webhook():
 
 def _to_event(message):
     msg_type = message.get("type")
+    if msg_type == "button":
+        # Botón de respuesta rápida de una plantilla (ej. "Quiero saber más").
+        boton = message.get("button", {})
+        return {"type": "template_button", "text": boton.get("text") or boton.get("payload") or ""}
     if msg_type == "text":
         return {"type": "text", "text": message["text"]["body"]}
     if msg_type == "interactive":
@@ -74,12 +245,27 @@ def _to_event(message):
             return {"type": "button_reply", "id": interactive["button_reply"]["id"]}
         if interactive["type"] == "nfm_reply":
             # WHATSAPP FLOW -- respuesta del formulario nativo
-            # "Publicar mi inmueble". response_json llega como string.
             return {
                 "type": "flow_reply",
                 "response": json.loads(interactive["nfm_reply"]["response_json"]),
             }
-    # Tipo no manejado (imagen, audio, ubicación...) -> se trata como texto vacío.
+    if msg_type == "image":
+        img = message.get("image", {})
+        return {
+            "type": "media",
+            "media_id": img.get("id", ""),
+            "mime_type": img.get("mime_type", "image/jpeg"),
+            "filename": "",
+        }
+    if msg_type == "document":
+        doc = message.get("document", {})
+        return {
+            "type": "media",
+            "media_id": doc.get("id", ""),
+            "mime_type": doc.get("mime_type", "application/pdf"),
+            "filename": doc.get("filename", ""),
+        }
+    # Tipo no manejado (audio, ubicación...) → texto vacío.
     return {"type": "text", "text": ""}
 
 

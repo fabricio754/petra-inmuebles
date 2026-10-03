@@ -1,7 +1,31 @@
 .env
+.env.local
 __pycache__/
 *.pyc
+*.pyo
+
+# Datos locales (solo inventario base versionado)
 data/*.json
 !data/inventario.seed.json
+
+# Credenciales (NUNCA en el repo)
+google-credentials.json
+*credentials*.json
+*service-account*.json
+*.pem
+*.p12
+
+# Archivos de medios recibidos por WhatsApp
+/var/data/
+media/
+
+# Artefactos de desarrollo
 qr-arrayanes.png
 bin/cloudflared
+extension-enviar-a-massi.zip
+extension-enviar-a-massi-v1.1.zip
+
+# Editor
+.vscode/
+.idea/
+*.swp

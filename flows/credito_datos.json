@@ -1,0 +1,71 @@
+{
+  "version": "7.3",
+  "screens": [
+    {
+      "id": "DATOS",
+      "title": "Paso 2 de 2",
+      "terminal": true,
+      "success": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "form_datos",
+            "children": [
+              {
+                "type": "TextHeading",
+                "text": "Datos del propietario"
+              },
+              {
+                "type": "TextBody",
+                "text": "Con esto enviamos tu solicitud a Sureti para que estudie tu crédito."
+              },
+              {
+                "type": "TextInput",
+                "name": "nombre",
+                "label": "Nombre completo",
+                "input-type": "text",
+                "required": true,
+                "helper-text": "Como aparece en la cédula"
+              },
+              {
+                "type": "TextInput",
+                "name": "cedula",
+                "label": "Cédula",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "Solo números, sin puntos"
+              },
+              {
+                "type": "TextInput",
+                "name": "email",
+                "label": "Correo electrónico",
+                "input-type": "email",
+                "required": true,
+                "helper-text": "Aquí te enviaremos novedades de tu solicitud"
+              },
+              {
+                "type": "TextCaption",
+                "text": "Al enviar, autorizas compartir estos datos con Sureti para estudiar tu crédito."
+              },
+              {
+                "type": "Footer",
+                "label": "Enviar solicitud",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "nombre": "${form.nombre}",
+                    "cedula": "${form.cedula}",
+                    "email": "${form.email}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
