@@ -282,6 +282,29 @@ def send_confirmacion_pipeline(to, nombre_corto):
 
 # --- Captación (Hito 7) ------------------------------------------------------
 
+def send_credito_aprobado(to, nombre_corto, monto):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    monto_fmt = f"${monto:,}".replace(",", ".") if monto else ""
+    cuerpo = (
+        f"🎉 ¡Buenas noticias{sufijo}!\n\n"
+        "Tu solicitud de crédito con *Sureti* fue *aprobada*."
+        + (f" El monto aprobado es de *{monto_fmt} millones*." if monto_fmt else "")
+        + "\n\nNuestro equipo te contactará pronto para coordinar los siguientes pasos. "
+        "Gracias por confiar en Massi. 🙌"
+    )
+    return send_text(to, cuerpo)
+
+
+def send_credito_rechazado(to, razon=None):
+    detalle = f"\n\nMotivo: _{razon}_" if razon else ""
+    return send_text(
+        to,
+        "Hola. Lamentamos informarte que tu solicitud de crédito con *Sureti* "
+        f"no fue aprobada en esta ocasión.{detalle}\n\n"
+        "Si tu situación cambia o tienes preguntas, escríbenos y con gusto te ayudamos.",
+    )
+
+
 def send_plantilla_apertura(to, tipo, portal, monto_hasta):
     payload = {
         "messaging_product": "whatsapp",

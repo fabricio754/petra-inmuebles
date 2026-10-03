@@ -221,3 +221,62 @@ def marcar_respuesta(telefono, resultado):
             "UPDATE contactos SET resultado_contacto = %s WHERE telefono = %s AND contactado",
             (resultado, telefono),
         )
+
+
+# === Pipeline / Sureti (Hito 8) =============================================
+
+def leads_nuevos():
+    """Leads en estado NUEVO sin sureti_lead_id (pendientes de registrar)."""
+    with _conexion() as conn:
+        filas = conn.execute(
+            "SELECT id, telefono, nombre, cedula, edad, email, direccion_inmueble, ciudad, "
+            "tipo_inmueble, estrato, es_ph, objetivo_prestamo, valor_solicitado, "
+            "requiere_paz_salvo "
+            "FROM pipeline WHERE (estado = 'NUEVO' OR estado IS NULL) "
+            "AND sureti_lead_id IS NULL",
+        ).fetchall()
+    cols = ("id", "telefono", "nombre", "cedula", "edad", "email", "direccion_inmueble",
+            "ciudad", "tipo_inmueble", "estrato", "es_ph", "objetivo_prestamo",
+            "valor_solicitado", "requiere_paz_salvo")
+    return [dict(zip(cols, f)) for f in filas]
+
+
+def leads_en_seguimiento():
+    """Leads ya registrados en Sureti con estado REGISTRADO o EN_ESTUDIO."""
+    with _conexion() as conn:
+        filas = conn.execute(
+            "SELECT id, telefono, nombre, sureti_lead_id, estado "
+            "FROM pipeline WHERE estado IN ('REGISTRADO', 'EN_ESTUDIO') "
+            "AND sureti_lead_id IS NOT NULL",
+        ).fetchall()
+    return [dict(zip(("id", "telefono", "nombre", "sureti_lead_id", "estado"), f))
+            for f in filas]
+
+
+def marcar_registrado_sureti(pipeline_id, sureti_lead_id):
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET sureti_lead_id = %s, estado = 'REGISTRADO' WHERE id = %s",
+            (sureti_lead_id, pipeline_id),
+        )
+
+
+def actualizar_estado_lead(pipeline_id, estado, monto=None, razon=None):
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET estado = %s, monto_aprobado = COALESCE(%s, monto_aprobado), "
+            "razon_no_aprobado = COALESCE(%s, razon_no_aprobado), "
+            "fecha_aprobacion = CASE WHEN %s = 'APROBADO' THEN NOW() ELSE fecha_aprobacion END "
+            "WHERE id = %s",
+            (estado, monto, razon, estado, pipeline_id),
+        )
+
+
+def documentos_de(telefono):
+    """Devuelve los documentos disponibles para un teléfono."""
+    with _conexion() as conn:
+        filas = conn.execute(
+            "SELECT tipo, media_id, url_storage FROM documentos WHERE telefono = %s",
+            (telefono,),
+        ).fetchall()
+    return [dict(zip(("tipo", "media_id", "url_storage"), f)) for f in filas]
