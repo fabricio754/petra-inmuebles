@@ -1,0 +1,24 @@
+name: List Meta WhatsApp Templates
+on:
+  workflow_dispatch:
+jobs:
+  list-templates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get WABA ID and list approved templates
+        run: |
+          # Get phone number details to find WABA ID
+          PHONE_RESP=$(curl -sf \
+            "https://graph.facebook.com/v20.0/${{ secrets.META_PHONE_NUMBER_ID }}?fields=id,display_phone_number,name_status&access_token=${{ secrets.META_ACCESS_TOKEN }}")
+          echo "Phone: $PHONE_RESP"
+
+          # Get WABA ID
+          WABA_ID=$(curl -sf \
+            "https://graph.facebook.com/v20.0/${{ secrets.META_PHONE_NUMBER_ID }}?fields=whatsapp_business_account&access_token=${{ secrets.META_ACCESS_TOKEN }}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['whatsapp_business_account']['id'])")
+          echo "WABA ID: $WABA_ID"
+
+          # List approved templates
+          curl -sf \
+            "https://graph.facebook.com/v20.0/$WABA_ID/message_templates?status=APPROVED&limit=20&access_token=${{ secrets.META_ACCESS_TOKEN }}" \
+            | python3 -m json.tool
