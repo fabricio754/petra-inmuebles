@@ -27,6 +27,9 @@ def _conexion():
     if _pool is None:
         with _pool_lock:
             if _pool is None:
+                import re as _re
+                import concurrent.futures as _cf
+
                 url = DATABASE_URL
                 if url and "connect_timeout" not in url:
                     sep = "&" if "?" in url else "?"
@@ -34,22 +37,31 @@ def _conexion():
                 # sslmode=disable: Render's internal network is private; SSL is optional.
                 # libpq's SSL handshake can hang indefinitely in non-main threads because
                 # OpenSSL ignores connect_timeout. Disabling SSL avoids the hang entirely.
-                # Always force sslmode=disable — replace any existing value in the URL.
                 if url:
-                    import re as _re
                     if "sslmode" in url:
                         url = _re.sub(r"sslmode=[^&\s]*", "sslmode=disable", url)
                     else:
                         sep = "&" if "?" in url else "?"
                         url = f"{url}{sep}sslmode=disable"
-                # min_size=0: no pre-created connections (avoids blocking on init).
-                # timeout=20: pool.connection() raises PoolTimeout if DB unreachable,
-                #             so the gunicorn 120s limit is never hit silently.
-                # open=False then pool.open(): socket.setdefaulttimeout(20) is already
-                # active when open() runs, so the SSL handshake times out in threads.
-                pool = ConnectionPool(url, min_size=0, max_size=2, open=False, timeout=20.0)
-                pool.open()
-                _preparar(pool)
+
+                safe_url = _re.sub(r":[^@]+@", ":***@", url) if url else url
+                log.info("[DB] Conectando a: %s", safe_url)
+
+                def _init_pool():
+                    p = ConnectionPool(url, min_size=0, max_size=2, open=False, timeout=20.0)
+                    p.open()
+                    _preparar(p)
+                    return p
+
+                # concurrent.futures wraps _init_pool so fut.result(timeout=15) enforces
+                # a hard wall-clock limit even when libpq hangs at the TCP/SSL layer
+                # (connect_timeout uses alarm() which is main-thread-only).
+                with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                    _fut = _ex.submit(_init_pool)
+                    try:
+                        pool = _fut.result(timeout=15)
+                    except _cf.TimeoutError:
+                        raise Exception("[DB] Timeout de 15s al conectar — host inalcanzable")
                 _pool = pool
     return _pool.connection(timeout=20.0)
 
@@ -316,7 +328,7 @@ def registrar_documento(telefono, tipo, media_id, url_storage):
 
 
 def update_avaluo(telefono, avaluo, direccion=None, matricula=None):
-    """Actualiza el avaluó catastral y opcionalmente la dirección/matrícula en pipeline."""
+    """Actualiza el avalúo catastral y opcionalmente la dirección/matrícula en pipeline."""
     with _conexion() as conn:
         conn.execute(
             "UPDATE pipeline SET avaluo_catastral = %s, "
