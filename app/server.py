@@ -52,6 +52,119 @@ def captura():
     return jsonify({"resultado": resultado, "detalle": detalle})
 
 
+@app.post("/pilot")
+def pilot():
+    """Piloto: scrapea una URL de Metrocuadrado e inyecta el contacto en la DB.
+
+    Body JSON:
+      url      — URL del anuncio en Metrocuadrado (requerido)
+      telefono — teléfono del propietario (requerido; evita depender de 2captcha)
+      nombre   — nombre opcional
+      forzar   — si true, elimina el registro previo con ese teléfono y lo re-inserta
+
+    Protegido con el mismo CAPTURA_TOKEN (header X-Massi-Token).
+    Úsalo para verificar que el scraper captura correctamente tu publicación
+    y que el bot envía la plantilla de apertura.
+    """
+    token = os.environ.get("CAPTURA_TOKEN", "")
+    if not token or request.headers.get("X-Massi-Token") != token:
+        return jsonify({"resultado": "no_autorizado"}), 401
+
+    body = request.get_json(silent=True) or {}
+    url = str(body.get("url") or "").strip()
+    telefono_raw = str(body.get("telefono") or "").strip()
+    nombre = body.get("nombre")
+    forzar = bool(body.get("forzar", False))
+
+    if not url or "metrocuadrado.com" not in url:
+        return jsonify({"resultado": "error", "detalle": "Se requiere una URL de metrocuadrado.com"}), 400
+
+    from app.captacion import normalizar_telefono, _precio, _buscar, CIUDADES, TIPOS, RESIDENCIAL, PORCENTAJE, MONTO_MAX_M, MONTO_MIN_M
+    telefono = normalizar_telefono(telefono_raw)
+    if not telefono:
+        return jsonify({"resultado": "error", "detalle": "Teléfono colombiano inválido (ej: 3001234567)"}), 400
+
+    # Scraping de la URL específica con Playwright
+    datos_scrapeados = {}
+    error_scrape = None
+    try:
+        from playwright.sync_api import sync_playwright
+        chromium_path = os.environ.get("PLAYWRIGHT_CHROMIUM_PATH", "")
+        launch_kwargs = {"headless": True, "args": ["--no-sandbox", "--disable-dev-shm-usage"]}
+        if chromium_path:
+            launch_kwargs["executable_path"] = chromium_path
+
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(**launch_kwargs)
+            try:
+                from app.scraper import _nueva_pagina, _mq_extraer_datos
+                page = _nueva_pagina(browser, url)
+                try:
+                    datos_scrapeados = _mq_extraer_datos(page, url) or {}
+                finally:
+                    page.context.close()
+            finally:
+                browser.close()
+    except Exception as exc:
+        error_scrape = str(exc)
+        log.warning("[Pilot] Error scrapeando %s: %s", url, exc)
+
+    # Construir el contacto con los datos scrapeados + teléfono provisto
+    from app import db as _db
+
+    precio_raw = datos_scrapeados.get("precio_raw", "")
+    precio = _precio(precio_raw)
+    ciudad_raw = datos_scrapeados.get("ciudad_raw", "") or url
+    tipo_raw = datos_scrapeados.get("tipo_raw", "") or url
+
+    ciudad = _buscar(CIUDADES, ciudad_raw, url) or "Bogotá"
+    tipo = _buscar(TIPOS, tipo_raw, url) or "apartamento"
+
+    # Usar el precio scrapeado; si no se obtuvo, pedir al body
+    if precio < 50_000_000:
+        precio_body = int(str(body.get("precio", 0) or 0).replace(".", "").replace(",", "") or 0)
+        if precio_body >= 50_000_000:
+            precio = precio_body
+        else:
+            precio = 300_000_000  # fallback conservador para no bloquear el piloto
+
+    categoria = "residencial" if tipo in RESIDENCIAL else "comercial"
+    monto_hasta = min(int(precio * PORCENTAJE[categoria] / 1_000_000), MONTO_MAX_M)
+    monto_hasta = max(monto_hasta, MONTO_MIN_M)
+
+    contacto = {
+        "telefono": telefono,
+        "nombre": nombre or datos_scrapeados.get("nombre"),
+        "direccion": datos_scrapeados.get("direccion"),
+        "barrio": datos_scrapeados.get("barrio"),
+        "ciudad": ciudad,
+        "tipo": tipo,
+        "precio": precio,
+        "estrato": None,
+        "requiere_ph": False,
+        "url": url,
+        "portal": "metrocuadrado",
+        "foto": datos_scrapeados.get("foto"),
+        "monto_hasta": monto_hasta,
+    }
+
+    if forzar:
+        with _db._conexion() as conn:
+            conn.execute("DELETE FROM contactos WHERE telefono = %s", (telefono,))
+
+    guardado = _db.guardar_contacto(contacto)
+    resultado = "nuevo" if guardado else "duplicado"
+
+    log.info("[Pilot] %s — %s (%s, $%dM hasta $%dM)", resultado, telefono, ciudad, precio // 1_000_000, monto_hasta)
+    return jsonify({
+        "resultado": resultado,
+        "contacto": {k: v for k, v in contacto.items() if v is not None},
+        "scrape_ok": not error_scrape,
+        "scrape_error": error_scrape,
+        "datos_scrapeados": {k: v for k, v in datos_scrapeados.items() if v},
+    })
+
+
 @app.get("/privacidad")
 def privacidad():
     """Política de tratamiento de datos (Ley 1581), enlazada desde el bot."""
