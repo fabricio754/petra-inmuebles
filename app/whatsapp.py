@@ -110,8 +110,8 @@ def _flow(to, flow_id, screen, cuerpo, cta, resumen):
         "type": "interactive",
         "interactive": {
             "type": "flow",
-            "header": {"type": "text", "text": "Massi"},
             "body": {"text": cuerpo},
+            "footer": {"text": "Massi"},
             "action": {
                 "name": "flow",
                 "parameters": {
@@ -133,20 +133,16 @@ def _flow(to, flow_id, screen, cuerpo, cta, resumen):
 
 def send_form_requisitos(to, repetir=False):
     cuerpo = (
-        "Toca el botón para abrir el formulario." if repetir else
-        "Son 2 pasos cortos:\n"
-        "1️⃣ Ubicación del inmueble y 4 preguntas de requisitos.\n"
-        "2️⃣ Datos del propietario.\n\n"
-        "Empecemos con tu inmueble."
+        "Toca el botón para continuar." if repetir else
+        "Paso 1 de 2: ubicación y preguntas del inmueble."
     )
     return _flow(to, FLOW_REQUISITOS_ID, "REQUISITOS", cuerpo, "Paso 1: tu inmueble", "[FORM REQUISITOS]")
 
 
 def send_form_datos(to, repetir=False):
     cuerpo = (
-        "Toca el botón para abrir el formulario." if repetir else
-        "¡Tu inmueble cumple los requisitos! 🎉\n\n"
-        "Último paso: los datos del propietario (nombre, cédula y correo)."
+        "Toca el botón para continuar." if repetir else
+        "Tu inmueble cumple los requisitos.\n\nPaso 2 de 2: datos del propietario."
     )
     return _flow(to, FLOW_DATOS_ID, "DATOS", cuerpo, "Paso 2: propietario", "[FORM DATOS]")
 
@@ -154,23 +150,20 @@ def send_form_datos(to, repetir=False):
 def send_autorizacion_datos(to, repetir=False):
     if repetir:
         cuerpo = (
-            "Para continuar necesito que aceptes o no la autorización de datos. "
-            f"Puedes leer la política aquí: {PUBLIC_BASE_URL}/privacidad"
+            "¿Autorizas el uso de tus datos para evaluar tu solicitud? "
+            "(Ley 1581 de 2012)\n\n"
+            f"Política completa: {PUBLIC_BASE_URL}/privacidad"
         )
     else:
         cuerpo = (
-            "Hola 👋 Soy Massi. Te ayudamos a conseguir liquidez usando tu inmueble "
-            "como garantía, sin venderlo, con nuestro aliado financiero *Sureti*.\n\n"
-            "Para revisar tu caso necesito tu autorización para tratar tus datos "
-            "personales (Ley 1581 de 2012): los usaremos para evaluar tu solicitud "
-            "de crédito y los *compartiremos con Sureti* para su estudio. Puedes "
-            "consultarlos, corregirlos o pedir que los borremos cuando quieras.\n\n"
-            f"Política de datos: {PUBLIC_BASE_URL}/privacidad\n\n"
-            "Escribe *SALIR* en cualquier momento para no recibir más mensajes.\n\n"
-            "¿Aceptas?"
+            "Para avanzar con tu solicitud necesito tu autorización para tratar "
+            "tus datos personales (Ley 1581 de 2012).\n\n"
+            "Los usaremos para evaluar el crédito y los compartiremos con *Sureti*, "
+            "nuestro aliado financiero. Escribe *SALIR* para no recibir más mensajes.\n\n"
+            "¿Autorizas?"
         )
     return _botones(
-        to, cuerpo, [("BOTON_SI", "Acepto"), ("BOTON_NO", "No acepto")],
+        to, cuerpo, [("BOTON_SI", "Autorizo"), ("BOTON_NO", "No autorizo")],
         "[AUTORIZACIÓN DATOS]" + (" (repetida)" if repetir else ""),
     )
 
