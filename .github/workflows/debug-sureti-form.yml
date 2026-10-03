@@ -1,0 +1,101 @@
+name: Debug Sureti — mapear formulario
+on:
+  workflow_dispatch:
+
+jobs:
+  mapear:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar Playwright
+        run: |
+          pip install playwright
+          python -m playwright install chromium --with-deps
+
+      - name: Login y screenshot del formulario
+        run: |
+          python3 - <<'EOF'
+          import json, os, re
+          from playwright.sync_api import sync_playwright
+
+          EMAIL    = "${{ secrets.SURETI_EMAIL }}"
+          PASSWORD = "${{ secrets.SURETI_PASSWORD }}"
+          URL      = "https://agentes.sureti.co"
+
+          with sync_playwright() as pw:
+              browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+              page = browser.new_page()
+              page.set_extra_http_headers({"Accept-Language": "es-CO,es;q=0.9"})
+
+              # 1. Login
+              print("→ Abriendo login...")
+              page.goto(f"{URL}/login", wait_until="networkidle", timeout=30_000)
+              page.screenshot(path="ss_login.png", full_page=True)
+
+              # Detectar campos de login
+              inputs = page.query_selector_all("input")
+              print("Inputs en login:")
+              for i in inputs:
+                  print(" ", i.get_attribute("type"), i.get_attribute("name"),
+                        i.get_attribute("id"), i.get_attribute("placeholder"))
+
+              page.fill("input[type='email'], input[name='email']", EMAIL)
+              page.fill("input[type='password'], input[name='password']", PASSWORD)
+              page.click("button[type='submit'], input[type='submit']")
+              page.wait_for_load_state("networkidle", timeout=20_000)
+              page.screenshot(path="ss_post_login.png", full_page=True)
+              print(f"URL tras login: {page.url}")
+
+              # 2. Navegar al formulario nuevo lead
+              for path in ["/nuevo-lead", "/leads/nuevo", "/leads/create",
+                           "/clientes/nuevo", "/solicitudes/nueva"]:
+                  try:
+                      page.goto(f"{URL}{path}", wait_until="networkidle", timeout=15_000)
+                      if page.url != f"{URL}/login":
+                          print(f"✅ Formulario encontrado en: {page.url}")
+                          break
+                  except Exception as e:
+                      print(f"  {path} → {e}")
+
+              page.screenshot(path="ss_form.png", full_page=True)
+
+              # 3. Mapear todos los campos del formulario
+              print("\n=== INPUTS ===")
+              for el in page.query_selector_all("input, select, textarea"):
+                  print(json.dumps({
+                      "tag":   el.evaluate("e => e.tagName"),
+                      "type":  el.get_attribute("type"),
+                      "name":  el.get_attribute("name"),
+                      "id":    el.get_attribute("id"),
+                      "placeholder": el.get_attribute("placeholder"),
+                      "class": el.get_attribute("class"),
+                  }, ensure_ascii=False))
+
+              print("\n=== LABELS ===")
+              for el in page.query_selector_all("label"):
+                  print(repr(el.inner_text().strip()), "→ for=", el.get_attribute("for"))
+
+              # 4. Guardar HTML completo
+              with open("form.html", "w") as f:
+                  f.write(page.content())
+              print("\nHTML guardado en form.html")
+
+              browser.close()
+          EOF
+
+      - name: Subir artefactos
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sureti-form-debug
+          path: |
+            ss_login.png
+            ss_post_login.png
+            ss_form.png
+            form.html
+          retention-days: 3
