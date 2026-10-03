@@ -282,6 +282,20 @@ def send_confirmacion_pipeline(to, nombre_corto):
 
 # --- Captación (Hito 7) ------------------------------------------------------
 
+def send_solicitud_ctl(to):
+    """Pide al cliente el Certificado de Tradición y Libertad del inmueble."""
+    return send_text(
+        to,
+        "📄 *Siguiente paso: Certificado de Tradición y Libertad*\n\n"
+        "Para continuar con el estudio necesito que nos envíes el *Certificado "
+        "de Tradición y Libertad* del inmueble.\n\n"
+        "Puedes descargarlo en línea (sin costo) en:\n"
+        "🔗 https://certificados.supernotariado.gov.co\n\n"
+        "Búscalo con el número de matrícula inmobiliaria y envíalo aquí como PDF "
+        "o foto. Si no lo tienes a la mano, puedes enviarlo después.",
+    )
+
+
 def send_credito_aprobado(to, nombre_corto, monto):
     sufijo = f", {nombre_corto}" if nombre_corto else ""
     monto_fmt = f"${monto:,}".replace(",", ".") if monto else ""

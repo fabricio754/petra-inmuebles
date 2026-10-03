@@ -280,3 +280,14 @@ def documentos_de(telefono):
             (telefono,),
         ).fetchall()
     return [dict(zip(("tipo", "media_id", "url_storage"), f)) for f in filas]
+
+
+def update_chip(telefono, chip):
+    """Guarda el CHIP catastral en el registro de pipeline más reciente."""
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET chip = %s WHERE telefono = %s AND id = ("
+            "  SELECT id FROM pipeline WHERE telefono = %s ORDER BY fecha_ingreso DESC LIMIT 1"
+            ")",
+            (chip, telefono, telefono),
+        )

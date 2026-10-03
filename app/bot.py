@@ -177,7 +177,22 @@ def _completar(phone, data):
     _guardar(phone, data, "nuevo")
     _terminar(phone)
     nombre = (data.get("nombre") or "").split()
-    return whatsapp.send_confirmacion_pipeline(phone, nombre[0] if nombre else "")
+    whatsapp.send_confirmacion_pipeline(phone, nombre[0] if nombre else "")
+
+    # Consulta CHIP catastral (solo Bogotá; para el resto continúa sin él).
+    try:
+        from app import docs_auto, db as _db
+        direccion = data.get("direccion_inmueble") or ""
+        ciudad    = data.get("ciudad") or ""
+        chip = docs_auto.obtener_chip(direccion, ciudad)
+        if chip:
+            _db.update_chip(phone, chip)
+    except Exception:
+        import logging
+        logging.getLogger("petra").exception("[CHIP] Error en _completar, se ignora.")
+
+    # Solicitud del CTL (todos los casos, independiente del CHIP).
+    return whatsapp.send_solicitud_ctl(phone)
 
 
 def _enviar_paso_inicial(phone, paso):
