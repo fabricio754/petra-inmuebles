@@ -58,18 +58,22 @@ def _preparar(pool):
 def _cargar_datos_iniciales(conn):
     """Copia lo que había en la Sheet (si está configurada); si no, el
     inventario base de data/inventario.seed.json."""
+    import concurrent.futures
     from app import state  # import tardío: state importa este módulo
 
     inventario, sesiones, leads = [], {}, []
     if state.SHEET_ID:
         try:
-            inventario, sesiones, leads = state.leer_todo_de_sheets()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                inventario, sesiones, leads = ex.submit(
+                    state.leer_todo_de_sheets
+                ).result(timeout=8)
             log.info(
                 "[Postgres] Importando de la Sheet: %d inmuebles, %d sesiones, %d contactos.",
                 len(inventario), len(sesiones), len(leads),
             )
         except Exception:
-            log.exception("[Postgres] No se pudo leer la Sheet; se usa el inventario base.")
+            log.exception("[Postgres] No se pudo leer la Sheet (timeout o error); se usa el inventario base.")
             inventario, sesiones, leads = [], {}, []
     if not inventario:
         inventario = state.inventario_seed()
