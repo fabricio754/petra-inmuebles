@@ -5,3 +5,4 @@ data/*.json
 !data/inventario.seed.json
 qr-arrayanes.png
 bin/cloudflared
+extension-enviar-a-massi.zip
