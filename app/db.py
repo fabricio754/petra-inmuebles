@@ -27,10 +27,17 @@ def _conexion():
     if _pool is None:
         with _pool_lock:
             if _pool is None:
-                pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=4, open=True)
+                url = DATABASE_URL
+                if url and "connect_timeout" not in url:
+                    sep = "&" if "?" in url else "?"
+                    url = f"{url}{sep}connect_timeout=10"
+                # min_size=0: no pre-created connections (avoids blocking on init).
+                # timeout=20: pool.connection() raises PoolTimeout if DB unreachable,
+                #             so the gunicorn 120s limit is never hit silently.
+                pool = ConnectionPool(url, min_size=0, max_size=2, open=True, timeout=20.0)
                 _preparar(pool)
                 _pool = pool
-    return _pool.connection()
+    return _pool.connection(timeout=20.0)
 
 
 def _preparar(pool):
