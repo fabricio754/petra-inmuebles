@@ -111,6 +111,16 @@ def _correo_valido(valor):
     return bool(usuario) and "." in dominio and " " not in valor
 
 
+def _ubicacion(r):
+    """Dirección, apto y barrio en un solo texto + ciudad, desde un formulario."""
+    partes = [str(r.get(c) or "").strip() for c in ("direccion", "apto", "barrio")]
+    ciudad = str(r.get("ciudad") or "")
+    return {
+        "direccion_inmueble": ", ".join(p for p in partes if p),
+        "ciudad": CIUDADES.get(ciudad.upper(), ciudad),
+    }
+
+
 def _descartar(phone, data, motivo):
     _guardar(phone, data, f"descartado_{motivo.lower()}")
     _terminar(phone)
@@ -159,6 +169,7 @@ def _procesar(phone, session, event):
         r = event.get("response") if event["type"] == "flow_reply" else None
         if not r or "hipoteca" not in r:
             return whatsapp.send_form_requisitos(phone, repetir=True)
+        data.update(_ubicacion(r))
         for paso, campo in (("DESC_HIPOTECA", "hipoteca"), ("DESC_PATRIMONIO", "patrimonio"),
                             ("DESC_EDAD", "edad")):
             if str(r.get(campo)).upper() == "SI":
@@ -182,13 +193,9 @@ def _procesar(phone, session, event):
             nombre=str(r.get("nombre") or "").strip(),
             cedula=cedula,
             email=email,
-            direccion_inmueble=", ".join(
-                str(r.get(campo) or "").strip()
-                for campo in ("direccion", "apto", "barrio")
-                if str(r.get(campo) or "").strip()
-            ),
-            ciudad=CIUDADES.get(str(r.get("ciudad") or "").upper(), str(r.get("ciudad") or "")),
         )
+        if r.get("direccion"):  # versión anterior del formulario de datos
+            data.update(_ubicacion(r))
         return _completar(phone, data)
 
     # --- Preguntas de descarte (por chat, si no hay formularios) ---------

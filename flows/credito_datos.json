@@ -16,15 +16,11 @@
             "children": [
               {
                 "type": "TextHeading",
-                "text": "Últimos datos"
+                "text": "Datos del propietario"
               },
               {
                 "type": "TextBody",
                 "text": "Con esto enviamos tu solicitud a Sureti para que estudie tu crédito."
-              },
-              {
-                "type": "TextSubheading",
-                "text": "Propietario"
               },
               {
                 "type": "TextInput",
@@ -51,70 +47,6 @@
                 "helper-text": "Aquí te enviaremos novedades de tu solicitud"
               },
               {
-                "type": "TextSubheading",
-                "text": "Inmueble"
-              },
-              {
-                "type": "TextInput",
-                "name": "direccion",
-                "label": "Dirección",
-                "input-type": "text",
-                "required": true,
-                "helper-text": "Dirección del inmueble. Ej: Cra 45 # 80-20"
-              },
-              {
-                "type": "TextInput",
-                "name": "apto",
-                "label": "Apto / interior",
-                "input-type": "text",
-                "required": false,
-                "helper-text": "Opcional. Ej: Apto 302, Torre 2"
-              },
-              {
-                "type": "TextInput",
-                "name": "barrio",
-                "label": "Barrio",
-                "input-type": "text",
-                "required": true,
-                "helper-text": "Barrio donde está el inmueble"
-              },
-              {
-                "type": "Dropdown",
-                "name": "ciudad",
-                "label": "Ciudad del inmueble",
-                "required": true,
-                "data-source": [
-                  {
-                    "id": "BOGOTA",
-                    "title": "Bogotá"
-                  },
-                  {
-                    "id": "MEDELLIN",
-                    "title": "Medellín"
-                  },
-                  {
-                    "id": "BARRANQUILLA",
-                    "title": "Barranquilla"
-                  },
-                  {
-                    "id": "CARTAGENA",
-                    "title": "Cartagena"
-                  },
-                  {
-                    "id": "SANTA_MARTA",
-                    "title": "Santa Marta"
-                  },
-                  {
-                    "id": "CUCUTA",
-                    "title": "Cúcuta"
-                  },
-                  {
-                    "id": "OTRA",
-                    "title": "Otra"
-                  }
-                ]
-              },
-              {
                 "type": "TextCaption",
                 "text": "Al enviar, autorizas compartir estos datos con Sureti para estudiar tu crédito."
               },
@@ -126,11 +58,7 @@
                   "payload": {
                     "nombre": "${form.nombre}",
                     "cedula": "${form.cedula}",
-                    "email": "${form.email}",
-                    "direccion": "${form.direccion}",
-                    "apto": "${form.apto}",
-                    "barrio": "${form.barrio}",
-                    "ciudad": "${form.ciudad}"
+                    "email": "${form.email}"
                   }
                 }
               }

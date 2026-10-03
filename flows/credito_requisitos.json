@@ -16,11 +16,79 @@
             "children": [
               {
                 "type": "TextHeading",
-                "text": "Revisemos tu inmueble"
+                "text": "Tu inmueble"
               },
               {
                 "type": "TextBody",
-                "text": "Son 4 preguntas rápidas. Si todo está bien, el siguiente paso son los datos del propietario."
+                "text": "Cuéntanos dónde está y responde 4 preguntas rápidas."
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Ubicación"
+              },
+              {
+                "type": "TextInput",
+                "name": "direccion",
+                "label": "Dirección",
+                "input-type": "text",
+                "required": true,
+                "helper-text": "Dirección del inmueble. Ej: Cra 45 # 80-20"
+              },
+              {
+                "type": "TextInput",
+                "name": "apto",
+                "label": "Apto / interior",
+                "input-type": "text",
+                "required": false,
+                "helper-text": "Opcional. Ej: Apto 302, Torre 2"
+              },
+              {
+                "type": "TextInput",
+                "name": "barrio",
+                "label": "Barrio",
+                "input-type": "text",
+                "required": true,
+                "helper-text": "Barrio donde está el inmueble"
+              },
+              {
+                "type": "Dropdown",
+                "name": "ciudad",
+                "label": "Ciudad del inmueble",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "BOGOTA",
+                    "title": "Bogotá"
+                  },
+                  {
+                    "id": "MEDELLIN",
+                    "title": "Medellín"
+                  },
+                  {
+                    "id": "BARRANQUILLA",
+                    "title": "Barranquilla"
+                  },
+                  {
+                    "id": "CARTAGENA",
+                    "title": "Cartagena"
+                  },
+                  {
+                    "id": "SANTA_MARTA",
+                    "title": "Santa Marta"
+                  },
+                  {
+                    "id": "CUCUTA",
+                    "title": "Cúcuta"
+                  },
+                  {
+                    "id": "OTRA",
+                    "title": "Otra"
+                  }
+                ]
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Requisitos"
               },
               {
                 "type": "RadioButtonsGroup",
@@ -100,6 +168,10 @@
                 "on-click-action": {
                   "name": "complete",
                   "payload": {
+                    "direccion": "${form.direccion}",
+                    "apto": "${form.apto}",
+                    "barrio": "${form.barrio}",
+                    "ciudad": "${form.ciudad}",
                     "hipoteca": "${form.hipoteca}",
                     "patrimonio": "${form.patrimonio}",
                     "edad": "${form.edad}",
