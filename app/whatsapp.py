@@ -346,6 +346,39 @@ def send_credito_rechazado(to, razon=None):
     )
 
 
+def send_credito_desembolsado(to, nombre_corto, monto, comision):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    monto_fmt = f"${monto:,}".replace(",", ".") if monto else ""
+    comision_fmt = f"${comision:,}".replace(",", ".") if comision else ""
+    cuerpo = (
+        f"🎊 ¡Excelente noticia{sufijo}!\n\n"
+        "Tu crédito con *Sureti* fue *desembolsado*."
+        + (f" Monto: *{monto_fmt}*." if monto_fmt else "")
+        + (f"\n\nComisión Massi: *{comision_fmt}* (se cobra en 4 cuotas)." if comision_fmt else "")
+        + "\n\nNuestro equipo te contactará pronto para coordinar los siguientes pasos. "
+        "Muchas gracias por confiar en Massi. 🙌"
+    )
+    return send_text(to, cuerpo)
+
+
+def send_paz_salvo_recordatorio(to, nombre_corto, dia):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    if dia == 15:
+        cuerpo = (
+            f"Hola{sufijo} 👋 Hace 15 días hablamos sobre tu crédito con garantía hipotecaria.\n\n"
+            "¿Pudiste ponerte al día con predial, servicios y administración? "
+            "Si es así, aquí estamos para ayudarte a avanzar con tu solicitud. "
+            "Solo escríbenos."
+        )
+    else:
+        cuerpo = (
+            f"Hola{sufijo}. Te hacemos un último recordatorio: cuando puedas ponerte "
+            "al día con el inmueble, escríbenos y retomamos tu solicitud de crédito. 🏡\n\n"
+            "Escribe *SALIR* si prefieres no recibir más mensajes."
+        )
+    return send_text(to, cuerpo)
+
+
 def send_plantilla_apertura(to, tipo, portal, monto_hasta):
     payload = {
         "messaging_product": "whatsapp",

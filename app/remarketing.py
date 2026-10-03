@@ -1,11 +1,10 @@
-"""Secuencia de remarketing para contactos que no respondieron el mensaje de apertura.
+"""Remarketing diario (9am hora Colombia).
 
-Corre diariamente a las 9am hora Colombia. Para cada etapa (día 3, 7, 15) busca
-contactos con resultado_contacto = 'no_responde' cuya fecha_contacto fue
-exactamente N días atrás, y les envía el mensaje correspondiente si aún no lo
-han recibido (verificado en tabla remarketing).
+1. No-respondedores de captación (días 3, 7, 15): contactos con
+   resultado_contacto = 'no_responde'. Día 15 cierra el contacto.
 
-Día 15 además cierra el contacto (resultado_contacto = 'cerrado').
+2. Paz y salvos (días 15, 30): leads en pipeline con estado
+   'pausado_paz_salvo'. Recordatorio a día 15 y último aviso a día 30.
 
 Cumple Ley 2300: no envía domingos ni festivos colombianos.
 """
@@ -80,6 +79,8 @@ def ejecutar():
     for etapa in SECUENCIA:
         _procesar_etapa(etapa)
 
+    _procesar_paz_salvos()
+
 
 # ---------------------------------------------------------------------------
 
@@ -123,3 +124,28 @@ def _enviar(c: dict, etapa: dict):
     if etapa.get("cerrar"):
         db.cerrar_contacto(telefono)
         log.info("[Remarketing] Contacto %s cerrado (día 15).", telefono)
+
+
+# ---------------------------------------------------------------------------
+# Paz y salvos
+
+_PAZ_SALVO_DIAS = [15, 30]
+
+
+def _procesar_paz_salvos():
+    for dias in _PAZ_SALVO_DIAS:
+        leads = db.leads_paz_salvo_por_contactar(dias)
+        if not leads:
+            continue
+        log.info("[Remarketing] paz_salvo_dia_%d: %d leads elegibles.", dias, len(leads))
+        for lead in leads:
+            try:
+                telefono = lead["telefono"]
+                nombre_raw = (lead.get("nombre") or "").strip()
+                nombre_corto = nombre_raw.split()[0] if nombre_raw else ""
+                whatsapp.send_paz_salvo_recordatorio(telefono, nombre_corto, dias)
+                tipo = f"paz_salvo_dia_{dias}"
+                db.registrar_remarketing_envio(telefono, tipo, f"paz_salvo_dia_{dias}")
+                log.info("[Remarketing] %s enviado a %s.", tipo, telefono)
+            except Exception:
+                log.exception("[Remarketing] Error paz_salvo_dia_%d a %s", dias, lead.get("telefono"))

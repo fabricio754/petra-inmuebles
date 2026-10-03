@@ -242,11 +242,11 @@ def leads_nuevos():
 
 
 def leads_en_seguimiento():
-    """Leads ya registrados en Sureti con estado REGISTRADO o EN_ESTUDIO."""
+    """Leads registrados en Sureti con estado REGISTRADO, EN_ESTUDIO o APROBADO."""
     with _conexion() as conn:
         filas = conn.execute(
             "SELECT id, telefono, nombre, sureti_lead_id, estado "
-            "FROM pipeline WHERE estado IN ('REGISTRADO', 'EN_ESTUDIO') "
+            "FROM pipeline WHERE estado IN ('REGISTRADO', 'EN_ESTUDIO', 'APROBADO') "
             "AND sureti_lead_id IS NOT NULL",
         ).fetchall()
     return [dict(zip(("id", "telefono", "nombre", "sureti_lead_id", "estado"), f))
@@ -352,3 +352,58 @@ def cerrar_contacto(telefono: str) -> None:
             "UPDATE contactos SET resultado_contacto = 'cerrado' WHERE telefono = %s",
             (telefono,),
         )
+
+
+# === Comisión y desembolso (Hito 10) =========================================
+
+def calcular_comision(monto_aprobado: int) -> int | None:
+    """Escala: 3.5 % ($15M–$99M), 3 % ($100M–$399M), 2.5 % ($400M+)."""
+    if not monto_aprobado or monto_aprobado <= 0:
+        return None
+    if monto_aprobado < 100_000_000:
+        return round(monto_aprobado * 0.035)
+    if monto_aprobado < 400_000_000:
+        return round(monto_aprobado * 0.030)
+    return round(monto_aprobado * 0.025)
+
+
+def registrar_desembolso(pipeline_id: int, monto: int, fecha=None) -> int | None:
+    """Marca el lead como DESEMBOLSADO y guarda la comisión calculada."""
+    comision = calcular_comision(monto)
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET estado = 'DESEMBOLSADO', "
+            "fecha_desembolso = COALESCE(%s::timestamptz, NOW()), "
+            "comision = %s "
+            "WHERE id = %s",
+            (fecha, comision, pipeline_id),
+        )
+    return comision
+
+
+def marcar_comision_cobrada(pipeline_id: int) -> None:
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET comision_cobrada = TRUE WHERE id = %s",
+            (pipeline_id,),
+        )
+
+
+# === Remarketing paz y salvos (Hito 10) =====================================
+
+def leads_paz_salvo_por_contactar(dias: int) -> list[dict]:
+    """Leads en 'pausado_paz_salvo' cuya fecha_ingreso fue hace exactamente N días
+    y que aún no recibieron el recordatorio correspondiente."""
+    tipo = f"paz_salvo_dia_{dias}"
+    with _conexion() as conn:
+        filas = conn.execute(
+            "SELECT id, telefono, nombre FROM pipeline "
+            "WHERE estado = 'pausado_paz_salvo' "
+            "AND NOT COALESCE((SELECT no_contactar FROM contactos "
+            "                  WHERE contactos.telefono = pipeline.telefono LIMIT 1), FALSE) "
+            "AND (fecha_ingreso AT TIME ZONE 'America/Bogota')::date = "
+            "    (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date - %s "
+            "AND telefono NOT IN (SELECT telefono FROM remarketing WHERE tipo = %s)",
+            (dias, tipo),
+        ).fetchall()
+    return [dict(zip(("id", "telefono", "nombre"), f)) for f in filas]

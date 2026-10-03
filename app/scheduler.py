@@ -83,16 +83,21 @@ def revisar_leads():
 
             monto = resultado.get("monto_aprobado")
             razon = resultado.get("razon")
-            db.actualizar_estado_lead(lead["id"], nuevo_estado, monto=monto, razon=razon)
-            log.info("[Scheduler] Lead %s: %s → %s", lead["id"], lead["estado"], nuevo_estado)
-
+            fecha_desembolso = resultado.get("fecha_desembolso")
             telefono = lead["telefono"]
             nombre   = lead.get("nombre") or ""
             nombre_corto = nombre.split()[0] if nombre else ""
 
-            if nuevo_estado == "APROBADO":
-                whatsapp.send_credito_aprobado(telefono, nombre_corto, monto)
-            elif nuevo_estado == "RECHAZADO":
-                whatsapp.send_credito_rechazado(telefono, razon)
+            if nuevo_estado == "DESEMBOLSADO":
+                comision = db.registrar_desembolso(lead["id"], monto, fecha_desembolso)
+                log.info("[Scheduler] Lead %s desembolsado — comisión: %s", lead["id"], comision)
+                whatsapp.send_credito_desembolsado(telefono, nombre_corto, monto, comision)
+            else:
+                db.actualizar_estado_lead(lead["id"], nuevo_estado, monto=monto, razon=razon)
+                log.info("[Scheduler] Lead %s: %s → %s", lead["id"], lead["estado"], nuevo_estado)
+                if nuevo_estado == "APROBADO":
+                    whatsapp.send_credito_aprobado(telefono, nombre_corto, monto)
+                elif nuevo_estado == "RECHAZADO":
+                    whatsapp.send_credito_rechazado(telefono, razon)
         except Exception:
             log.exception("[Scheduler] Error revisando lead %s", lead.get("id"))
