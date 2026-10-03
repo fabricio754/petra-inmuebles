@@ -308,6 +308,17 @@ def send_doc_recibido(to: str, tipo_doc: str = ""):
     )
 
 
+def send_credito_desembolsado(to: str, monto_m: int):
+    """Notifica al vendedor que el crédito fue desembolsado."""
+    return send_text(
+        to,
+        f"🏦 *¡El crédito fue desembolsado!*\n\n"
+        f"Sureti ha confirmado el desembolso de *${monto_m:,}M* COP. "
+        "El proceso está completo.\n\n"
+        "Gracias por confiar en Massi. 🙌",
+    )
+
+
 def send_tipo_doc_invalido(to: str):
     """Avisa que el archivo enviado no es un formato soportado."""
     return send_text(

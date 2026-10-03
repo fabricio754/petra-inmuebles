@@ -262,10 +262,10 @@ def leads_nuevos() -> list[dict]:
 
 
 def leads_en_seguimiento() -> list[dict]:
-    """Leads en estado registrado o en_estudio para revisar en Sureti."""
+    """Leads activos en Sureti: registrado, en_estudio o aprobado (esperando desembolso)."""
     with _conexion() as conn:
         rows = conn.execute(
-            "SELECT * FROM pipeline WHERE estado IN ('registrado', 'en_estudio')"
+            "SELECT * FROM pipeline WHERE estado IN ('registrado', 'en_estudio', 'aprobado')"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -361,6 +361,49 @@ def registrar_remarketing_envio(telefono: str, tipo: str, mensaje: str):
             "INSERT INTO remarketing (telefono, tipo, mensaje_enviado, fecha_envio) "
             "VALUES (%s, %s, %s, NOW())",
             (telefono, tipo, mensaje),
+        )
+
+
+def calcular_comision(monto_aprobado: int) -> int:
+    """
+    Comisión de Massi sobre el monto desembolsado (en COP):
+      3.5% para $15M–$99M
+      3.0% para $100M–$399M
+      2.5% para $400M+
+    Devuelve la comisión en COP (entero).
+    """
+    if monto_aprobado <= 0:
+        return 0
+    m = monto_aprobado / 1_000_000
+    if m < 100:
+        tasa = 0.035
+    elif m < 400:
+        tasa = 0.030
+    else:
+        tasa = 0.025
+    return round(monto_aprobado * tasa)
+
+
+def registrar_desembolso(telefono: str, monto_aprobado: int, comision: int):
+    """Marca el lead como desembolsado y registra comisión y fecha."""
+    with _conexion() as conn:
+        conn.execute(
+            """UPDATE pipeline
+               SET estado = 'desembolsado',
+                   fecha_desembolso = NOW(),
+                   monto_aprobado = COALESCE(%s, monto_aprobado),
+                   comision = %s,
+                   comision_cobrada = FALSE
+               WHERE telefono = %s""",
+            (monto_aprobado or None, comision, telefono),
+        )
+
+
+def marcar_comision_cobrada(telefono: str):
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET comision_cobrada = TRUE WHERE telefono = %s",
+            (telefono,),
         )
 
 

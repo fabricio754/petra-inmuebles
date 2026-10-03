@@ -285,7 +285,9 @@ class SuretiSession:
             el = self._page.query_selector(sel_cand)
             if el:
                 txt = el.inner_text().strip().lower()
-                if any(k in txt for k in ("aprobad", "approved")):
+                if any(k in txt for k in ("desembolsad", "disbursed", "entregad")):
+                    estado = "desembolsado"
+                elif any(k in txt for k in ("aprobad", "approved")):
                     estado = "aprobado"
                 elif any(k in txt for k in ("rechaz", "no aprobad", "rejected")):
                     estado = "no_aprobado"
@@ -314,7 +316,21 @@ class SuretiSession:
         if el_razon:
             razon = el_razon.inner_text().strip()
 
-        return {"estado": estado, "monto_aprobado": monto, "razon": razon}
+        # Fecha de desembolso (si aplica)
+        fecha_desembolso = None
+        if estado == "desembolsado":
+            el_fecha = self._page.query_selector(
+                "[class*='fecha_desembolso'], [class*='disbursement_date'], [class*='fecha-desembolso']"
+            )
+            if el_fecha:
+                fecha_desembolso = el_fecha.inner_text().strip()
+
+        return {
+            "estado": estado,
+            "monto_aprobado": monto,
+            "razon": razon,
+            "fecha_desembolso": fecha_desembolso,
+        }
 
     def subir_documentos_fase2(self, lead_id: str, docs: list[dict]) -> bool:
         """

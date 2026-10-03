@@ -63,7 +63,18 @@ def _job_revisar_leads():
             telefono = lead["telefono"]
             db.actualizar_estado_lead(telefono, estado, resultado)
 
-            if estado == "aprobado":
+            if estado == "desembolsado":
+                monto = resultado.get("monto_aprobado", 0) or 0
+                comision = db.calcular_comision(monto)
+                db.registrar_desembolso(telefono, monto, comision)
+                monto_m = round(monto / 1_000_000)
+                whatsapp.send_credito_desembolsado(telefono, monto_m)
+                log.info(
+                    "[Scheduler] Desembolso: %s — $%dM — comisión $%s COP",
+                    telefono, monto_m, f"{comision:,}",
+                )
+
+            elif estado == "aprobado":
                 monto = resultado.get("monto_aprobado", 0) or 0
                 monto_m = round(monto / 1_000_000)
                 whatsapp.send_credito_aprobado(telefono, monto_m)
