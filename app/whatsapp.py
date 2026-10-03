@@ -266,10 +266,43 @@ def send_confirmacion_pipeline(to, nombre_corto):
     sufijo = f", {nombre_corto}" if nombre_corto else ""
     return send_text(
         to,
-        f"✅ ¡Listo{sufijo}!\n\n"
-        "Ya tenemos tu información. Revisaremos tu caso y te escribiremos por este "
-        "mismo WhatsApp en los próximos días hábiles.\n\n"
-        "Gracias por confiar en Massi. 🙌",
+        f"✅ ¡Listo{sufijo}! Ya recibimos tu información del inmueble.\n\n"
+        "Falta un último paso para completar tu solicitud. 👇",
+    )
+
+
+def send_pedir_extractos(to, recordar=False):
+    if recordar:
+        return send_text(
+            to,
+            "Para completar la solicitud necesitamos tus extractos bancarios "
+            "de los últimos 3 meses (uno por mensaje). Envíalos cuando puedas. 📄\n\n"
+            "Cuando los hayas enviado todos, escribe *LISTO*.",
+        )
+    return send_text(
+        to,
+        "Necesitamos tus *extractos bancarios de los últimos 3 meses* "
+        "(uno por mensaje, en PDF o foto).\n\n"
+        "Cuando los hayas enviado todos, escribe *LISTO*.",
+    )
+
+
+def send_extracto_recibido(to, count):
+    falta = 3 - count
+    if falta > 0:
+        return send_text(
+            to,
+            f"📄 Extracto recibido ({count}/3). "
+            f"{'Falta' if falta == 1 else 'Faltan'} {falta} más.",
+        )
+    return send_extractos_completos(to)
+
+
+def send_extractos_completos(to):
+    return send_text(
+        to,
+        "✅ ¡Extractos recibidos! Tu solicitud está completa.\n\n"
+        "Revisaremos tu caso y te escribiremos en los próximos días hábiles. 🙌",
     )
 
 

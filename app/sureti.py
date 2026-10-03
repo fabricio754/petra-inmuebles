@@ -74,12 +74,13 @@ class SuretiSession:
 
     def _login(self):
         page = self._page
-        page.goto(f"{SURETI_URL}/login", wait_until="networkidle", timeout=30_000)
-        page.fill("input[type='email'], input[name='email']", SURETI_EMAIL)
-        page.fill("input[type='password'], input[name='password']", SURETI_PASSWORD)
-        page.click("button[type='submit'], input[type='submit']")
+        page.goto(f"{SURETI_URL}/auth", wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_selector("input[name='email']", timeout=15_000)
+        page.fill("input[name='email']", SURETI_EMAIL)
+        page.fill("input[type='password']", SURETI_PASSWORD)
+        page.click("button[type='submit']")
         page.wait_for_load_state("networkidle", timeout=20_000)
-        if "/login" in page.url:
+        if "/auth" in page.url:
             raise RuntimeError("Login en Sureti falló — verifica SURETI_EMAIL y SURETI_PASSWORD.")
         log.info("[Sureti] Sesión iniciada.")
 
@@ -90,88 +91,57 @@ class SuretiSession:
     def registrar_lead(self, data: dict, docs: list[dict] | None = None) -> str:
         """Llena el formulario 'Nuevo Lead' y devuelve el sureti_lead_id."""
         page = self._page
-        page.goto(f"{SURETI_URL}/nuevo-lead", wait_until="networkidle", timeout=30_000)
+        page.goto(f"{SURETI_URL}/nuevo-lead", wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_selector("input[name='name']", timeout=15_000)
 
-        # ---- Datos del propietario ----
-        _fill(page, "[name='nombre'], #nombre", data.get("nombre", ""))
-        _fill(page, "[name='cedula'], #cedula", str(data.get("cedula", "")))
-        _fill(page, "[name='email'], #email", data.get("email", ""))
-        # Celular: solo el número sin prefijo (el formulario ya tiene +57 seleccionado)
+        # ---- Datos del cliente ----
+        _fill(page, "input[name='name']", data.get("nombre", ""))
+        _fill(page, "input[name='cedula']", str(data.get("cedula", "")))
+        _fill(page, "input[name='email']", data.get("email", ""))
         telefono = str(data.get("telefono", "")).lstrip("+").lstrip("57")
-        _fill(page, "[name='telefono'], #telefono, [name='celular'], #celular", telefono)
+        _fill(page, "input[name='phone']", telefono)
 
         # ---- Inmueble ----
-        _fill(page, "[name='direccion'], #direccion, [name='direccion_inmueble']",
-              data.get("direccion_inmueble", ""))
-        _fill(page, "[name='ciudad'], #ciudad", data.get("ciudad", "Bogotá"))
+        _fill(page, "input[name='city']", data.get("ciudad", ""))
+        _fill(page, "input[name='address']", data.get("direccion_inmueble", ""))
 
-        # Matrícula inmobiliaria: dos campos (oficina + número)
+        # Matrícula inmobiliaria: SELECT de oficina + campo número (sin name attr)
         matricula = str(data.get("matricula_numero", ""))
         if matricula and "-" in matricula:
             prefijo, numero = matricula.split("-", 1)
-            _select_or_fill(page,
-                "[name='oficina_registro'], #oficina_registro, [name='prefijo_matricula']",
-                prefijo.strip())
-            _fill(page,
-                "[name='numero_matricula'], #numero_matricula, [name='matricula_numero']",
-                numero.strip())
+            try:
+                page.locator("select").first.select_option(label=prefijo.strip())
+            except Exception:
+                pass
+            _fill(page, "input[placeholder='1234567']", numero.strip())
         elif matricula:
-            _fill(page,
-                "[name='numero_matricula'], #numero_matricula, [name='matricula_numero'], "
-                "[name='matricula'], #matricula",
-                matricula)
+            _fill(page, "input[placeholder='1234567']", matricula)
 
         # ---- Crédito ----
         valor = data.get("valor_solicitado")
         if valor:
-            _fill(page, "[name='valor_solicitado'], #valor_solicitado, [name='monto']",
-                  str(valor))
+            _fill(page, "input[name='loan_amount']", str(valor))
 
-        objetivo = data.get("objetivo_prestamo", "")
+        objetivo = data.get("objetivo", "") or data.get("objetivo_prestamo", "")
         if objetivo:
-            _fill(page,
-                "[name='objetivo'], #objetivo, [name='objetivo_prestamo'], "
-                "[name='comentarios'], #comentarios",
-                objetivo)
+            _fill(page, "textarea[name='loan_objective']", objetivo)
 
-        # ---- Tipo de persona (siempre Persona Natural) ----
-        for sel in ["[value='natural']", "[value='persona_natural']"]:
+        # ---- Tipo de persona ----
+        tipo_persona = str(data.get("tipo_persona", "NATURAL")).upper()
+        try:
+            if tipo_persona == "JURIDICA":
+                page.locator("#pt-juridica").check()
+            else:
+                page.locator("#pt-natural").check()
+        except Exception:
             try:
-                el = page.query_selector(f"input[type='radio']{sel}")
-                if el and el.is_visible():
-                    el.check()
-                    break
+                label = "Persona Jurídica" if tipo_persona == "JURIDICA" else "Persona Natural"
+                page.locator(f"label:has-text('{label}')").first.click()
             except Exception:
                 pass
-        # Fallback: label con texto "Persona Natural"
-        try:
-            page.locator("label:has-text('Persona Natural')").first.click()
-        except Exception:
-            pass
-
-        # ---- Aceptar tratamiento de datos (obligatorio) ----
-        for sel in ["[name='tratamiento_datos'][value='si']",
-                    "[name='tratamiento_datos'][value='true']",
-                    "[name='autoriza'][value='si']"]:
-            try:
-                el = page.query_selector(f"input[type='radio']{sel}")
-                if el and el.is_visible():
-                    el.check()
-                    break
-            except Exception:
-                pass
-        # Fallback: botón/label "Sí" en la sección de tratamiento de datos
-        try:
-            page.locator("label:has-text('Sí')").first.click()
-        except Exception:
-            pass
-
-        # ---- Documentos ----
-        if docs:
-            _subir_documentos(page, docs)
 
         # ---- Enviar ----
-        page.click("button[type='submit'], input[type='submit'], [data-action='guardar']")
+        page.click("button[type='submit']")
         page.wait_for_load_state("networkidle", timeout=20_000)
 
         lead_id = _extraer_lead_id(page)
