@@ -69,6 +69,27 @@ def _nueva_pagina(browser: Browser, url: str) -> Page:
         viewport={"width": 1366, "height": 768},
         locale="es-CO",
     )
+    # Inject before React loads so our override is called by the app's own handlers
+    ctx.add_init_script("""
+        window.__massiBotUris = [];
+        const _origOpen = window.open;
+        window.open = function(url, ...a) {
+            if (url) window.__massiBotUris.push(String(url));
+            try { return _origOpen && _origOpen.apply(this, [url, ...a]); } catch(e){}
+        };
+        try {
+            const desc = Object.getOwnPropertyDescriptor(window.location, 'href');
+            const _set = desc && desc.set;
+            Object.defineProperty(window.location, 'href', {
+                set: function(v) {
+                    if (v) window.__massiBotUris.push(String(v));
+                    if (_set) _set.call(this, v);
+                },
+                get: desc && desc.get,
+                configurable: true,
+            });
+        } catch(e) {}
+    """)
     page = ctx.new_page()
     page.goto(url, wait_until="domcontentloaded", timeout=30_000)
     return page
@@ -228,32 +249,6 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
 
     page.on("response", _on_xhr_response)
 
-    # B. JS: interceptar window.open / location.href para capturar whatsapp:// URIs
-    # Metrocuadrado abre "whatsapp://send?phone=57..." sin cambios en el DOM.
-    try:
-        page.evaluate("""() => {
-            window.__massiBotUris = [];
-            const _orig = window.open;
-            window.open = function(url, ...a) {
-                if (url) window.__massiBotUris.push(String(url));
-                try { return _orig && _orig.apply(this, [url, ...a]); } catch(e){}
-            };
-            try {
-                const desc = Object.getOwnPropertyDescriptor(window.location, 'href');
-                const _set = desc && desc.set;
-                Object.defineProperty(window.location, 'href', {
-                    set: function(v) {
-                        if (v) window.__massiBotUris.push(String(v));
-                        if (_set) _set.call(this, v);
-                    },
-                    get: desc && desc.get,
-                    configurable: true,
-                });
-            } catch(e) {}
-        }""")
-    except Exception:
-        pass
-
     # ── 0. __NEXT_DATA__ / JSON-LD — SSR sin interacción ─────────────────────
     try:
         next_json = page.evaluate("() => JSON.stringify(window.__NEXT_DATA__ || null)")
@@ -324,7 +319,7 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     # ── 2c. Revisar captura de JS (window.open / location.href) ──────────────
     try:
         uris = page.evaluate("() => window.__massiBotUris || []")
-        log.debug("[Scraper] URIs capturadas por window.open: %s", uris)
+        log.info("[Scraper] URIs capturadas por window.open: %s", uris)
         for uri in uris:
             # whatsapp://send?phone=573001234567
             # intent://send?phone=57300...
@@ -339,16 +334,11 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     # ── 2d. Revisar captura de red (XHR) ─────────────────────────────────────
     if phones_xhr:
         from collections import Counter
-        log.debug("[Scraper] Teléfonos capturados por XHR: %s", phones_xhr)
+        log.info("[Scraper] Teléfonos capturados por XHR: %s", phones_xhr)
         top, _ = Counter(phones_xhr).most_common(1)[0]
         return top
 
-    # ── 3. Buscar enlace tel: ─────────────────────────────────────────────────
-    tel_link = page.query_selector("a[href^='tel:']")
-    if tel_link:
-        return re.sub(r"\D", "", tel_link.get_attribute("href") or "")
-
-    # ── 3b. Buscar enlaces wa.me / api.whatsapp.com ───────────────────────────
+    # ── 3. Buscar enlaces wa.me / api.whatsapp.com (antes que tel: para preferir móvil) ─
     for wa_sel in ("a[href*='wa.me/']", "a[href*='whatsapp.com']"):
         wa_link = page.query_selector(wa_sel)
         if wa_link:
@@ -356,6 +346,11 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
             m = re.search(r"(?:wa\.me/|phone=)\+?(\d{10,15})", href)
             if m:
                 return m.group(1)
+
+    # ── 3b. Buscar enlace tel: (puede ser fijo/landline) ─────────────────────
+    tel_link = page.query_selector("a[href^='tel:']")
+    if tel_link:
+        return re.sub(r"\D", "", tel_link.get_attribute("href") or "")
 
     # ── 4. Buscar contenedor con número por clase CSS ─────────────────────────
     for sel in (
