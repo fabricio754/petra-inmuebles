@@ -28,53 +28,47 @@ def _conexion():
         with _pool_lock:
             if _pool is None:
                 import re as _re
-                import concurrent.futures as _cf
 
                 url = DATABASE_URL
-                if url and "connect_timeout" not in url:
+                if not url:
+                    raise Exception("[DB] DATABASE_URL no configurado")
+
+                # TCP keepalives: kernel-managed, work in all threads.
+                # After 30s idle the kernel probes the connection; 3 failed probes
+                # (15s total) close the socket with a real error instead of hanging.
+                if "keepalives" not in url:
+                    sep = "&" if "?" in url else "?"
+                    url = (f"{url}{sep}keepalives=1&keepalives_idle=30"
+                           "&keepalives_interval=5&keepalives_count=3")
+                if "connect_timeout" not in url:
                     sep = "&" if "?" in url else "?"
                     url = f"{url}{sep}connect_timeout=10"
-                # sslmode=disable: Render's internal network is private; SSL is optional.
-                # libpq's SSL handshake can hang indefinitely in non-main threads because
-                # OpenSSL ignores connect_timeout. Disabling SSL avoids the hang entirely.
-                if url:
-                    if "sslmode" in url:
-                        url = _re.sub(r"sslmode=[^&\s]*", "sslmode=disable", url)
-                    else:
-                        sep = "&" if "?" in url else "?"
-                        url = f"{url}{sep}sslmode=disable"
+                # sslmode=prefer: try SSL first, fall back to plain — Render's internal
+                # PostgreSQL may require SSL; sslmode=disable can cause the server to
+                # drop the connection silently.
+                if "sslmode" in url:
+                    url = _re.sub(r"sslmode=[^&\s]*", "sslmode=prefer", url)
+                else:
+                    sep = "&" if "?" in url else "?"
+                    url = f"{url}{sep}sslmode=prefer"
 
-                safe_url = _re.sub(r":[^@]+@", ":***@", url) if url else url
+                safe_url = _re.sub(r":[^@]+@", ":***@", url)
                 log.info("[DB] Conectando a: %s", safe_url)
 
-                def _init_pool():
-                    # connect_timeout en kwargs usa el mecanismo de psycopg (no alarm() de
-                    # libpq), por lo que funciona en todos los hilos, incluidos los de gunicorn.
-                    p = ConnectionPool(
-                        url,
-                        min_size=0,
-                        max_size=2,
-                        open=False,
-                        timeout=20.0,
-                        kwargs={"connect_timeout": 12},
-                    )
-                    p.open()
-                    _preparar(p)
-                    return p
-
-                # concurrent.futures wraps _init_pool so fut.result(timeout=15) enforces
-                # a hard wall-clock limit even when libpq hangs at the TCP/SSL layer
-                # (connect_timeout uses alarm() which is main-thread-only).
-                # IMPORTANT: do NOT use `with` — ThreadPoolExecutor.__exit__ calls
-                # shutdown(wait=True) which re-blocks even after TimeoutError.
-                _ex = _cf.ThreadPoolExecutor(max_workers=1)
-                _fut = _ex.submit(_init_pool)
-                try:
-                    pool = _fut.result(timeout=15)
-                except _cf.TimeoutError:
-                    _ex.shutdown(wait=False)
-                    raise Exception("[DB] Timeout de 15s al conectar — host inalcanzable")
-                _pool = pool
+                # connect_timeout via kwargs: psycopg3 handles this with select(),
+                # which works in all threads — unlike connect_timeout in the DSN
+                # which libpq resolves with alarm() (main thread only).
+                # min_size=1: pool keeps one live connection so requests reuse it
+                # without creating new TCP connections from worker threads.
+                p = ConnectionPool(
+                    url,
+                    min_size=1,
+                    max_size=2,
+                    open=True,
+                    kwargs={"connect_timeout": 12},
+                )
+                _preparar(p)
+                _pool = p
     return _pool.connection(timeout=20.0)
 
 
