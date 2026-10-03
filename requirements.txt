@@ -10,5 +10,6 @@ tzdata
 playwright>=1.40
 2captcha-python>=1.2
 APScheduler>=3.10
+pytz
 pdfplumber>=0.9
 anthropic>=0.40

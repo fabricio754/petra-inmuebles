@@ -20,6 +20,8 @@ import re
 import time
 from typing import Optional
 
+import pytz
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from playwright.sync_api import Browser, Page, TimeoutError as PWTimeout, sync_playwright
 
@@ -955,7 +957,6 @@ def iniciar():
         return
 
     from datetime import datetime
-    import pytz
     _tz = pytz.timezone("America/Bogota")
     _scheduler = BackgroundScheduler(timezone=_tz)
     _scheduler.add_job(
