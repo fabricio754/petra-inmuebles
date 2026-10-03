@@ -206,17 +206,73 @@ def _links_de_pagina(page: Page, selector: str, host: str) -> list[str]:
 
 def _extraer_tel_comun(page: Page) -> Optional[str]:
     """Intenta revelar y extraer el teléfono usando patrones comunes a los tres portales."""
-    # 0. __NEXT_DATA__ / JSON-LD — datos SSR antes de cualquier interacción
+
+    # ── Interceptores pre-click ───────────────────────────────────────────────
+    # A. Red: capturar teléfonos de respuestas XHR/fetch (ej. API de contacto)
+    phones_xhr: list = []
+
+    def _on_xhr_response(response):
+        try:
+            if response.status not in (200, 201, 202):
+                return
+            ct = response.headers.get("content-type", "")
+            if "json" not in ct and "text" not in ct:
+                return
+            body = response.text()
+            blob = re.sub(r"[\s\-]", "", body)
+            for m in re.finditer(r"(?:57)?3\d{9}", blob):
+                d = m.group(0)
+                phones_xhr.append(d if d.startswith("57") else "57" + d)
+        except Exception:
+            pass
+
+    page.on("response", _on_xhr_response)
+
+    # B. JS: interceptar window.open / location.href para capturar whatsapp:// URIs
+    # Metrocuadrado abre "whatsapp://send?phone=57..." sin cambios en el DOM.
+    try:
+        page.evaluate("""() => {
+            window.__massiBotUris = [];
+            const _orig = window.open;
+            window.open = function(url, ...a) {
+                if (url) window.__massiBotUris.push(String(url));
+                try { return _orig && _orig.apply(this, [url, ...a]); } catch(e){}
+            };
+            try {
+                const desc = Object.getOwnPropertyDescriptor(window.location, 'href');
+                const _set = desc && desc.set;
+                Object.defineProperty(window.location, 'href', {
+                    set: function(v) {
+                        if (v) window.__massiBotUris.push(String(v));
+                        if (_set) _set.call(this, v);
+                    },
+                    get: desc && desc.get,
+                    configurable: true,
+                });
+            } catch(e) {}
+        }""")
+    except Exception:
+        pass
+
+    # ── 0. __NEXT_DATA__ / JSON-LD — SSR sin interacción ─────────────────────
     try:
         next_json = page.evaluate("() => JSON.stringify(window.__NEXT_DATA__ || null)")
         if next_json and next_json != "null":
-            # buscar número colombiano en el blob JSON (sin espacios ni guiones)
+            # Primero buscar bajo claves semánticas de teléfono
+            for km in re.finditer(
+                r'"(?:phone|telefono|celular|movil|mobile|whatsapp|contactPhone)[^"]*"\s*:\s*"([^"]{8,16})"',
+                next_json, re.IGNORECASE,
+            ):
+                candidate = re.sub(r"\D", "", km.group(1))
+                if len(candidate) == 10 and candidate.startswith("3"):
+                    return "57" + candidate
+                if len(candidate) == 12 and candidate.startswith("573"):
+                    return candidate
+            # Fallback: primer número colombiano en el blob
             blob = re.sub(r"[\s\-]", "", next_json)
             for m in re.finditer(r"(?:57)?3\d{9}", blob):
                 digits = m.group(0)
-                if not digits.startswith("57"):
-                    digits = "57" + digits
-                return digits
+                return digits if digits.startswith("57") else "57" + digits
     except Exception:
         pass
 
@@ -231,7 +287,7 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     except Exception:
         pass
 
-    # 1. Click en botón de "Ver teléfono"
+    # ── 1. Click en botón de "Ver teléfono" ──────────────────────────────────
     btn = page.query_selector(
         "button:has-text('Ver teléfono'), "
         "button:has-text('Mostrar teléfono'), "
@@ -246,12 +302,12 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
         except Exception:
             pass
 
-    # 2. Resolver captcha si apareció
+    # ── 2. Resolver captcha si apareció ──────────────────────────────────────
     if page.query_selector("iframe[src*='recaptcha'], .g-recaptcha, .h-captcha"):
         _resolver_captcha(page)
         page.wait_for_timeout(3_000)
 
-    # 2b. Clic en botón de WhatsApp (Metrocuadrado: "Contactar por WhatsApp")
+    # ── 2b. Clic en botón Contactar / WhatsApp (Metrocuadrado) ───────────────
     wa_btn = page.query_selector(
         "button:has-text('Contactar'), "
         "a:has-text('Contactar'), "
@@ -261,35 +317,52 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     if wa_btn:
         try:
             wa_btn.click()
-            page.wait_for_timeout(2_000)
+            page.wait_for_timeout(3_000)  # tiempo extra para respuesta XHR
         except Exception:
             pass
 
-    # 3. Buscar enlace tel:
+    # ── 2c. Revisar captura de JS (window.open / location.href) ──────────────
+    try:
+        uris = page.evaluate("() => window.__massiBotUris || []")
+        log.debug("[Scraper] URIs capturadas por window.open: %s", uris)
+        for uri in uris:
+            # whatsapp://send?phone=573001234567
+            # intent://send?phone=57300...
+            # wa.me/573001234567
+            m = re.search(r"(?:phone[=%/]|wa\.me/)\+?(\d{10,15})", uri)
+            if m:
+                digits = m.group(1)
+                return digits if digits.startswith("57") else "57" + digits
+    except Exception:
+        pass
+
+    # ── 2d. Revisar captura de red (XHR) ─────────────────────────────────────
+    if phones_xhr:
+        from collections import Counter
+        log.debug("[Scraper] Teléfonos capturados por XHR: %s", phones_xhr)
+        top, _ = Counter(phones_xhr).most_common(1)[0]
+        return top
+
+    # ── 3. Buscar enlace tel: ─────────────────────────────────────────────────
     tel_link = page.query_selector("a[href^='tel:']")
     if tel_link:
         return re.sub(r"\D", "", tel_link.get_attribute("href") or "")
 
-    # 3b. Buscar cualquier enlace de WhatsApp (wa.me o api.whatsapp.com)
+    # ── 3b. Buscar enlaces wa.me / api.whatsapp.com ───────────────────────────
     for wa_sel in ("a[href*='wa.me/']", "a[href*='whatsapp.com']"):
         wa_link = page.query_selector(wa_sel)
         if wa_link:
             href = wa_link.get_attribute("href") or ""
-            # wa.me/573001234567 o api.whatsapp.com/send?phone=573001234567
             m = re.search(r"(?:wa\.me/|phone=)\+?(\d{10,15})", href)
             if m:
                 return m.group(1)
 
-    # 4. Buscar contenedor con número por clase
+    # ── 4. Buscar contenedor con número por clase CSS ─────────────────────────
     for sel in (
-        "[class*='phone-number']",
-        "[class*='phoneNumber']",
-        "[class*='phone_number']",
-        "[class*='telefono']",
-        "[class*='celular']",
-        "[class*='tel-']",
-        "[data-testid*='phone']",
-        "[data-testid*='tel']",
+        "[class*='phone-number']", "[class*='phoneNumber']",
+        "[class*='phone_number']", "[class*='telefono']",
+        "[class*='celular']", "[class*='tel-']",
+        "[data-testid*='phone']", "[data-testid*='tel']",
     ):
         el = page.query_selector(sel)
         if el:
@@ -297,16 +370,19 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
             if 10 <= len(digits) <= 13:
                 return digits
 
-    # 5. Buscar patrón de teléfono colombiano en todo el texto visible
+    # ── 5. Buscar patrón colombiano en texto visible ──────────────────────────
     try:
         body_text = page.locator("body").inner_text(timeout=3_000)
-        m = re.search(r"\b(57\s*3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4}|3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4})\b", body_text)
+        m = re.search(
+            r"\b(57\s*3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4}|3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4})\b",
+            body_text,
+        )
         if m:
             return re.sub(r"\D", "", m.group(0))
     except Exception:
         pass
 
-    # 6. Buscar en HTML completo (data-*, atributos ocultos, scripts inline)
+    # ── 6. Buscar en HTML completo (data-*, atributos ocultos, scripts inline) ─
     try:
         html = page.content()
         blob = re.sub(r"[\s\-]", "", html)
@@ -314,7 +390,7 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
         if matches:
             from collections import Counter
             top, count = Counter(matches).most_common(1)[0]
-            if count >= 2:  # aparece al menos 2 veces → más probable que sea real
+            if count >= 2:
                 return top if top.startswith("57") else "57" + top
     except Exception:
         pass
