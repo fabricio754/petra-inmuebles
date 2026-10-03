@@ -55,9 +55,18 @@ def _conexion():
                 safe_url = _re.sub(r":[^@]+@", ":***@", url)
                 log.info("[DB] Conectando a: %s", safe_url)
 
+                # connect_timeout via kwargs: psycopg3 handles this with select(),
+                # which works in all threads — unlike connect_timeout in the DSN
+                # which libpq resolves with alarm() (main thread only).
                 # min_size=1: pool keeps one live connection so requests reuse it
-                # rather than creating new TCP connections from worker threads.
-                p = ConnectionPool(url, min_size=1, max_size=2, open=True)
+                # without creating new TCP connections from worker threads.
+                p = ConnectionPool(
+                    url,
+                    min_size=1,
+                    max_size=2,
+                    open=True,
+                    kwargs={"connect_timeout": 12},
+                )
                 _preparar(p)
                 _pool = p
     return _pool.connection(timeout=20.0)
