@@ -186,9 +186,6 @@ def _completar(phone, data):
         logging.getLogger("petra").exception("[COMPLETAR] No se pudo leer contacto, se ignora.")
 
     _guardar(phone, data, "nuevo")
-    _terminar(phone)
-    nombre = (data.get("nombre") or "").split()
-    resultado = whatsapp.send_confirmacion_pipeline(phone, nombre[0] if nombre else "")
 
     # Consulta CHIP catastral (solo Bogotá; para el resto continúa sin él).
     try:
@@ -202,7 +199,34 @@ def _completar(phone, data):
         import logging
         logging.getLogger("petra").exception("[CHIP] Error en _completar, se ignora.")
 
-    return resultado
+    nombre = (data.get("nombre") or "").split()
+    state.set_session(phone, flow="SURETI", flow_step="DOCS_EXTRACTOS", flow_data=data)
+    whatsapp.send_confirmacion_pipeline(phone, nombre[0] if nombre else "")
+    return whatsapp.send_pedir_extractos(phone)
+
+
+def _procesar_extracto(phone, session, event):
+    """Guarda un extracto bancario recibido y lleva la cuenta."""
+    data = dict(session.get("flow_data") or {})
+    media_id = event.get("media_id", "")
+
+    if media_id:
+        try:
+            from app import db as _db
+            _db.registrar_documento(phone, "extracto", media_id, None)
+        except Exception:
+            import logging
+            logging.getLogger("petra").exception("[EXTRACTO] Error guardando documento.")
+
+    # Contar extractos guardados
+    count = data.get("extractos_count", 0) + (1 if media_id else 0)
+    data["extractos_count"] = count
+    state.set_session(phone, flow_step="DOCS_EXTRACTOS", flow_data=data)
+
+    if count >= 3:
+        _terminar(phone)
+        return whatsapp.send_extractos_completos(phone)
+    return whatsapp.send_extracto_recibido(phone, count)
 
 
 def _enviar_paso_inicial(phone, paso):
@@ -273,6 +297,7 @@ def _procesar(phone, session, event):
             nombre=str(r.get("nombre") or "").strip(),
             cedula=cedula,
             email=email,
+            tipo_persona=str(r.get("tipo_persona") or "NATURAL").upper(),
         )
         if r.get("direccion"):  # versión anterior del formulario de datos
             data.update(_ubicacion(r))
@@ -383,6 +408,13 @@ def _procesar(phone, session, event):
         state.set_session(phone, flow_step="DATOS_EDAD_PROP", flow_data=data)
         return whatsapp.send_text(phone, PREGUNTAS_DATOS["DATOS_EDAD_PROP"])
 
+    # --- Recolección de extractos bancarios ---------------------------------
+    if step == "DOCS_EXTRACTOS":
+        if resp in {"LISTO", "YA", "ENVIADOS", "LISTO.", "YA.", "YA LOS ENVIE", "YA LOS ENVIÉ"}:
+            _terminar(phone)
+            return whatsapp.send_extractos_completos(phone)
+        return whatsapp.send_pedir_extractos(phone, recordar=True)
+
     # Paso desconocido (sesión vieja): empezar de nuevo.
     return _iniciar(phone)
 
@@ -418,22 +450,22 @@ def handle_incoming(phone, event):
              | {"type": "media", "media_id": str, "mime_type": str}
              | {"type": "media_invalido"}
     Devuelve la lista de respuestas enviadas (para logging/pruebas)."""
-    # Archivo con formato inválido
     if event["type"] == "media_invalido":
         return [whatsapp.send_tipo_doc_invalido(phone)]
 
-    # Documento enviado por el vendedor
+    session = state.get_session(phone)
+    en_flujo = session.get("flow") == "SURETI"
+
+    # Extractos bancarios esperados (paso DOCS_EXTRACTOS del flujo Sureti).
+    if event["type"] == "media" and en_flujo and session.get("flow_step") == "DOCS_EXTRACTOS":
+        return [_procesar_extracto(phone, session, event)]
+
+    # Documento genérico (predial) enviado por el vendedor.
     if event["type"] == "media":
         _procesar_media(phone, event)
         return []
 
-    session = state.get_session(phone)
-    en_flujo = session.get("flow") == "SURETI"
     resp = _respuesta(event)
-
-    # Documentos recibidos (imagen o PDF).
-    if event["type"] == "media":
-        return [_procesar_media(phone, event)]
 
     # Botones de la plantilla de apertura (Hito 7).
     if event["type"] == "template_button":

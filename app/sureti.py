@@ -126,12 +126,17 @@ class SuretiSession:
         if objetivo:
             _fill(page, "textarea[name='loan_objective']", objetivo)
 
-        # ---- Tipo de persona: siempre Persona Natural ----
+        # ---- Tipo de persona ----
+        tipo_persona = str(data.get("tipo_persona", "NATURAL")).upper()
         try:
-            page.locator("#pt-natural").check()
+            if tipo_persona == "JURIDICA":
+                page.locator("#pt-juridica").check()
+            else:
+                page.locator("#pt-natural").check()
         except Exception:
             try:
-                page.locator("label:has-text('Persona Natural')").first.click()
+                label = "Persona Jurídica" if tipo_persona == "JURIDICA" else "Persona Natural"
+                page.locator(f"label:has-text('{label}')").first.click()
             except Exception:
                 pass
 

@@ -23,6 +23,17 @@
                 "text": "Con esto enviamos tu solicitud a Sureti para que estudie tu crédito."
               },
               {
+                "type": "RadioButtonsGroup",
+                "name": "tipo_persona",
+                "label": "Tipo de propietario",
+                "description": "¿El dueño del inmueble es una persona o una empresa?",
+                "required": true,
+                "data-source": [
+                  { "id": "NATURAL", "title": "Persona natural" },
+                  { "id": "JURIDICA", "title": "Empresa / jurídica" }
+                ]
+              },
+              {
                 "type": "TextInput",
                 "name": "nombre",
                 "label": "Nombre completo",
@@ -77,6 +88,7 @@
                 "on-click-action": {
                   "name": "complete",
                   "payload": {
+                    "tipo_persona": "${form.tipo_persona}",
                     "nombre": "${form.nombre}",
                     "cedula": "${form.cedula}",
                     "email": "${form.email}",
