@@ -31,6 +31,12 @@ def _conexion():
                 if url and "connect_timeout" not in url:
                     sep = "&" if "?" in url else "?"
                     url = f"{url}{sep}connect_timeout=10"
+                # sslmode=disable: Render's internal network is private; SSL is optional.
+                # libpq's SSL handshake can hang indefinitely in non-main threads because
+                # OpenSSL ignores connect_timeout. Disabling SSL avoids the hang entirely.
+                if url and "sslmode" not in url:
+                    sep = "&" if "?" in url else "?"
+                    url = f"{url}{sep}sslmode=disable"
                 # min_size=0: no pre-created connections (avoids blocking on init).
                 # timeout=20: pool.connection() raises PoolTimeout if DB unreachable,
                 #             so the gunicorn 120s limit is never hit silently.
@@ -250,7 +256,7 @@ def leads_en_seguimiento():
             "SELECT id, telefono, nombre, sureti_lead_id, estado "
             "FROM pipeline WHERE estado IN ('REGISTRADO', 'EN_ESTUDIO', 'APROBADO') "
             "AND sureti_lead_id IS NOT NULL",
-        ).fetchall()
+        ).fetchall()  
     return [dict(zip(("id", "telefono", "nombre", "sureti_lead_id", "estado"), f))
             for f in filas]
 
