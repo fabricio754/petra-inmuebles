@@ -11,7 +11,7 @@ load_dotenv()  # debe cargar antes de importar app.bot -> app.whatsapp (lee env 
 
 from flask import Flask, request, jsonify, render_template
 
-from app import bot, envios
+from app import bot, envios, scraper
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("petra")
@@ -20,6 +20,7 @@ VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "petra-verify-token")
 
 app = Flask(__name__)
 envios.iniciar()
+scraper.iniciar()
 
 
 @app.get("/")
