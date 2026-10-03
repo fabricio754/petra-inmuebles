@@ -30,7 +30,10 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
 - Listo: un lead calificado queda en `pipeline` con todos sus datos.
 - Preguntas en 2 WhatsApp Flows (pedido del usuario): `Credito requisitos` (ID 1752916979273486)
   y `Credito datos` (ID 4394652567511716), JSON en `flows/`. Render: `META_FLOW_REQUISITOS_ID`,
-  `META_FLOW_DATOS_ID`, `META_FLOWS_MODE=draft`. Pendiente: publicar ambos y pasar a `published`.
+  `META_FLOW_DATOS_ID`, `META_FLOWS_MODE=published`. Ambos PUBLICADOS (3 oct 2026): no se
+  pueden editar; para cambiarlos se crea un Flow nuevo y se cambia el ID en Render.
+  Paso 1 = ubicación del inmueble (dirección, apto, barrio, ciudad) + 4 requisitos;
+  Paso 2 = propietario (nombre, cédula, correo).
   WhatsApp para Mac no abre Flows; probar en el celular.
 - El bot es SOLO de crédito
   (Arrayanes, catálogo, Publicar/Flow, pagos y crédito dummy eliminados, decisión del usuario).
