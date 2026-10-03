@@ -48,7 +48,16 @@ def _conexion():
                 log.info("[DB] Conectando a: %s", safe_url)
 
                 def _init_pool():
-                    p = ConnectionPool(url, min_size=0, max_size=2, open=False, timeout=20.0)
+                    # connect_timeout en kwargs usa el mecanismo de psycopg (no alarm() de
+                    # libpq), por lo que funciona en todos los hilos, incluidos los de gunicorn.
+                    p = ConnectionPool(
+                        url,
+                        min_size=0,
+                        max_size=2,
+                        open=False,
+                        timeout=20.0,
+                        kwargs={"connect_timeout": 12},
+                    )
                     p.open()
                     _preparar(p)
                     return p
