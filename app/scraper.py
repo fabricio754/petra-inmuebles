@@ -134,6 +134,7 @@ def _nueva_pagina(browser: Browser, url: str) -> Page:
     """)
     page = ctx.new_page()
     page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+    page.wait_for_timeout(4_000)  # wait for React hydration before any DOM queries
     return page
 
 
@@ -324,6 +325,14 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     except Exception:
         pass
 
+    # ── 0b. Log all buttons for diagnosis ───────────────────────────────────
+    try:
+        all_btns = page.query_selector_all("button, a[role='button']")
+        btn_texts = [b.inner_text()[:50].strip() for b in all_btns[:20]]
+        log.info("[Scraper] Botones en página: %s", btn_texts)
+    except Exception:
+        pass
+
     # ── 1. Click en botón de "Ver teléfono" ──────────────────────────────────
     btn = page.query_selector(
         "button:has-text('Ver teléfono'), "
@@ -348,13 +357,20 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     wa_btn = page.query_selector(
         "button:has-text('Contactar'), "
         "a:has-text('Contactar'), "
+        "button:has-text('WhatsApp'), "
+        "a:has-text('WhatsApp'), "
         "button[aria-label*='WhatsApp'], "
-        "a[aria-label*='WhatsApp']"
+        "a[aria-label*='WhatsApp'], "
+        "[class*='whatsapp' i] button, "
+        "[class*='contact' i] button, "
+        "button[class*='whatsapp' i], "
+        "button[class*='contact' i]"
     )
+    log.info("[Scraper] Botón Contactar encontrado: %s", wa_btn is not None)
     if wa_btn:
         try:
             wa_btn.click()
-            page.wait_for_timeout(3_000)  # tiempo extra para respuesta XHR
+            page.wait_for_timeout(3_000)  # tiempo extra para modal/XHR
         except Exception:
             pass
 
@@ -389,10 +405,14 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
             if m:
                 return m.group(1)
 
-    # ── 3b. Buscar enlace tel: (puede ser fijo/landline) ─────────────────────
-    tel_link = page.query_selector("a[href^='tel:']")
-    if tel_link:
-        return re.sub(r"\D", "", tel_link.get_attribute("href") or "")
+    # ── 3b. Buscar todos los enlaces tel: y priorizar móvil colombiano ─────────
+    tel_links = page.query_selector_all("a[href^='tel:']")
+    tel_numbers = [re.sub(r"\D", "", el.get_attribute("href") or "") for el in tel_links]
+    log.info("[Scraper] tel: links encontrados: %s", tel_numbers)
+    for num in tel_numbers:
+        if re.match(r"^(57)?3\d{9}$", num):
+            return num if num.startswith("57") else "57" + num
+    # Don't return landline as fallback — let step 6 search full HTML
 
     # ── 4. Buscar contenedor con número por clase CSS ─────────────────────────
     for sel in (
@@ -424,11 +444,11 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
         html = page.content()
         blob = re.sub(r"[\s\-]", "", html)
         matches = re.findall(r"(?:57)?3\d{9}", blob)
+        log.info("[Scraper] Números móviles en HTML: %s", list(set(matches)))
         if matches:
             from collections import Counter
-            top, count = Counter(matches).most_common(1)[0]
-            if count >= 2:
-                return top if top.startswith("57") else "57" + top
+            top, _ = Counter(matches).most_common(1)[0]
+            return top if top.startswith("57") else "57" + top
     except Exception:
         pass
 
