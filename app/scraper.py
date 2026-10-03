@@ -589,7 +589,8 @@ def scrape_propdirecto(browser: Browser) -> int:
 
 _MQ_BASE = (
     "https://www.metrocuadrado.com/inmuebles/venta/"
-    "?search=form&propertyType=Apartamento,Casa,Local,Oficina,Lote&page={page}"
+    "?search=form&propertyType=Apartamento,Casa,Local,Oficina,Lote"
+    "&tipoAnunciante=particular&page={page}"
 )
 _MQ_HOST = "https://www.metrocuadrado.com"
 _MQ_LISTING_SEL = "a[href*='/inmueble/venta/']"
