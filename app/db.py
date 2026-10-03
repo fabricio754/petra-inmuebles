@@ -56,30 +56,15 @@ def _preparar(pool):
 
 
 def _cargar_datos_iniciales(conn):
-    """Copia lo que había en la Sheet (si está configurada); si no, el
-    inventario base de data/inventario.seed.json."""
-    import concurrent.futures
+    """Carga el inventario base de data/inventario.seed.json.
+
+    La importación desde Google Sheets se omite intencionalmente en el arranque
+    para evitar bloqueos de red que cuelgan el worker de gunicorn."""
     from app import state  # import tardío: state importa este módulo
 
-    inventario, sesiones, leads = [], {}, []
-    if state.SHEET_ID:
-        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        try:
-            inventario, sesiones, leads = ex.submit(
-                state.leer_todo_de_sheets
-            ).result(timeout=8)
-            log.info(
-                "[Postgres] Importando de la Sheet: %d inmuebles, %d sesiones, %d contactos.",
-                len(inventario), len(sesiones), len(leads),
-            )
-        except Exception:
-            log.exception("[Postgres] No se pudo leer la Sheet (timeout o error); se usa el inventario base.")
-            inventario, sesiones, leads = [], {}, []
-        finally:
-            # wait=False: don't block if the Sheets thread is still running.
-            ex.shutdown(wait=False)
-    if not inventario:
-        inventario = state.inventario_seed()
+    inventario = state.inventario_seed()
+    sesiones: dict = {}
+    leads: list = []
 
     for apto in inventario:
         conn.execute(
