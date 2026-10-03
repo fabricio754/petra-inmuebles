@@ -11,7 +11,7 @@ load_dotenv()  # debe cargar antes de importar app.bot -> app.whatsapp (lee env 
 
 from flask import Flask, request, jsonify, render_template
 
-from app import bot
+from app import bot, envios
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("petra")
@@ -19,11 +19,25 @@ log = logging.getLogger("petra")
 VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "petra-verify-token")
 
 app = Flask(__name__)
+envios.iniciar()
 
 
 @app.get("/")
 def health():
     return {"status": "ok", "service": "petra-inmuebles-webhook"}
+
+
+@app.post("/captura")
+def captura():
+    """Recibe un anuncio desde la extensión de Chrome "Enviar a Massi"."""
+    token = os.environ.get("CAPTURA_TOKEN", "")
+    if not token or request.headers.get("X-Massi-Token") != token:
+        return jsonify({"resultado": "no_autorizado"}), 401
+    from app import captacion  # requiere Postgres
+    anuncio = request.get_json(silent=True) or {}
+    resultado, detalle = captacion.procesar(anuncio)
+    log.info("[Captura] %s: %s (%s)", resultado, detalle, anuncio.get("url"))
+    return jsonify({"resultado": resultado, "detalle": detalle})
 
 
 @app.get("/privacidad")
@@ -80,6 +94,10 @@ def receive_webhook():
 
 def _to_event(message):
     msg_type = message.get("type")
+    if msg_type == "button":
+        # Botón de respuesta rápida de una plantilla (ej. "Quiero saber más").
+        boton = message.get("button", {})
+        return {"type": "template_button", "text": boton.get("text") or boton.get("payload") or ""}
     if msg_type == "text":
         return {"type": "text", "text": message["text"]["body"]}
     if msg_type == "interactive":

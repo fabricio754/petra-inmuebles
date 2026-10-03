@@ -70,7 +70,7 @@ def _respuesta(event):
     """Texto normalizado de un mensaje o de un botón."""
     if event["type"] == "button_reply":
         return event["id"].strip().upper()
-    if event["type"] == "text":
+    if event["type"] in ("text", "template_button"):
         return event["text"].strip().upper().rstrip(".!")
     return ""
 
@@ -253,12 +253,23 @@ def _procesar(phone, session, event):
 def handle_incoming(phone, event):
     """event: {"type": "text", "text": str}
              | {"type": "button_reply", "id": str}
+             | {"type": "template_button", "text": str}
              | {"type": "list_reply", "id": str}
              | {"type": "flow_reply", "response": dict}
     Devuelve la lista de respuestas enviadas (para logging/pruebas)."""
     session = state.get_session(phone)
     en_flujo = session.get("flow") == "SURETI"
     resp = _respuesta(event)
+
+    # Botones de la plantilla de apertura (Hito 7).
+    if event["type"] == "template_button":
+        if "NO ME INTERESA" in event["text"].upper():
+            state.marcar_respuesta(phone, "no_interesa")
+            state.set_no_contactar(phone, True)
+            _terminar(phone)
+            return [whatsapp.send_no_contactar(phone)]
+        state.marcar_respuesta(phone, "interesado")
+        return [_iniciar(phone)]
 
     # Salir en cualquier momento (STOP, BAJA, SALIR, PARA).
     if event["type"] == "text" and resp in OPT_OUT_KEYWORDS:

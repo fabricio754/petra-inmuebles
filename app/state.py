@@ -416,6 +416,12 @@ def set_no_contactar(phone, valor=True):
     set_session(phone, no_contactar=valor)
 
 
+def marcar_respuesta(phone, resultado):
+    """Cómo respondió un contacto captado a la plantilla de apertura."""
+    if USE_POSTGRES:
+        _db().marcar_respuesta(phone, resultado)
+
+
 def _db():
     from app import db  # solo se importa (y se necesita psycopg) en modo Postgres
     return db

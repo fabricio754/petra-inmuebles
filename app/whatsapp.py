@@ -35,6 +35,11 @@ FLOW_DATOS_ID = os.environ.get("META_FLOW_DATOS_ID", "")
 FLOWS_MODE = os.environ.get("META_FLOWS_MODE", "draft")
 USE_FLOWS = bool(FLOW_REQUISITOS_ID and FLOW_DATOS_ID)
 
+# Plantilla de apertura aprobada por Meta (Hito 7). Variables del cuerpo:
+# {{1}} tipo de inmueble, {{2}} portal, {{3}} monto "hasta" en millones.
+PLANTILLA_APERTURA = os.environ.get("META_PLANTILLA_APERTURA", "")
+PLANTILLA_IDIOMA = os.environ.get("META_PLANTILLA_IDIOMA", "es_CO")
+
 
 def _graph_url():
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages"
@@ -222,3 +227,26 @@ def send_confirmacion_pipeline(to, nombre_corto):
         "mismo WhatsApp en los próximos días hábiles.\n\n"
         "Gracias por confiar en Massi. 🙌",
     )
+
+
+# --- Captación (Hito 7) ------------------------------------------------------
+
+def send_plantilla_apertura(to, tipo, portal, monto_hasta):
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "template",
+        "template": {
+            "name": PLANTILLA_APERTURA,
+            "language": {"code": PLANTILLA_IDIOMA},
+            "components": [{
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": tipo},
+                    {"type": "text", "text": portal or "internet"},
+                    {"type": "text", "text": f"{monto_hasta:,}".replace(",", ".")},
+                ],
+            }],
+        },
+    }
+    return _dispatch(payload, f"[PLANTILLA {PLANTILLA_APERTURA}] {tipo} en {portal}, hasta ${monto_hasta}M")

@@ -157,3 +157,58 @@ def set_no_contactar(phone, valor):
             "ON CONFLICT (telefono) DO UPDATE SET no_contactar = EXCLUDED.no_contactar",
             (phone, valor),
         )
+
+
+# === Captación (Hito 7) ======================================================
+
+def guardar_contacto(c):
+    """Inserta un anuncio capturado. Devuelve True si es nuevo, False si el
+    teléfono ya existía (no se toca: ni se recontacta ni se pisa no_contactar)."""
+    with _conexion() as conn:
+        fila = conn.execute(
+            "INSERT INTO contactos (telefono, nombre, direccion, barrio, ciudad, tipo_inmueble, "
+            "precio_publicado, estrato, requiere_ph, url_listing, portal, foto_url, "
+            "monto_hasta_millones) "
+            "VALUES (%(telefono)s, %(nombre)s, %(direccion)s, %(barrio)s, %(ciudad)s, %(tipo)s, "
+            "%(precio)s, %(estrato)s, %(requiere_ph)s, %(url)s, %(portal)s, %(foto)s, "
+            "%(monto_hasta)s) "
+            "ON CONFLICT (telefono) DO NOTHING RETURNING id",
+            c,
+        ).fetchone()
+    return fila is not None
+
+
+def contactos_por_enviar(limite):
+    with _conexion() as conn:
+        filas = conn.execute(
+            "SELECT telefono, tipo_inmueble, portal, monto_hasta_millones FROM contactos "
+            "WHERE NOT contactado AND NOT COALESCE(no_contactar, FALSE) "
+            "AND monto_hasta_millones IS NOT NULL "
+            "ORDER BY fecha_scraping LIMIT %s",
+            (limite,),
+        ).fetchall()
+    return [dict(zip(("telefono", "tipo", "portal", "monto_hasta"), f)) for f in filas]
+
+
+def enviados_desde(desde):
+    with _conexion() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM contactos WHERE fecha_contacto >= %s", (desde,)
+        ).fetchone()[0]
+
+
+def marcar_contactado(telefono, resultado):
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE contactos SET contactado = TRUE, fecha_contacto = NOW(), "
+            "resultado_contacto = %s WHERE telefono = %s",
+            (resultado, telefono),
+        )
+
+
+def marcar_respuesta(telefono, resultado):
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE contactos SET resultado_contacto = %s WHERE telefono = %s AND contactado",
+            (resultado, telefono),
+        )
