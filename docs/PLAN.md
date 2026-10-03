@@ -20,7 +20,7 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
 - MCP de Render: EN PAUSA. El conector oficial queda "Connected" pero toda llamada devuelve
   `unauthorized` (probado en 3 sesiones). Se sigue con capturas; reintentar más adelante.
 
-## Hito 6 — Bot de crédito (reemplaza Arrayanes) — EN CURSO
+## Hito 6 — Bot de crédito (reemplaza Arrayanes) — HECHO (2 oct 2026, probado en vivo)
 - Autorización de tratamiento de datos (Ley 1581) como primer paso.
 - 4 preguntas de descarte: hipoteca/embargo, patrimonio de familia con menores,
   propietario mayor de 75, ponerse al día con predial/servicios/administración
@@ -28,7 +28,11 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
 - 4 datos: nombre, cédula, correo, confirmar dirección.
 - Opción "NO" para no recibir más mensajes, en cualquier momento (+ STOP/BAJA/PARA/SALIR).
 - Listo: un lead calificado queda en `pipeline` con todos sus datos.
-- Hecho en código (pendiente de subir a main y probar en vivo): el bot es SOLO de crédito
+- Preguntas en 2 WhatsApp Flows (pedido del usuario): `Credito requisitos` (ID 1752916979273486)
+  y `Credito datos` (ID 4394652567511716), JSON en `flows/`. Render: `META_FLOW_REQUISITOS_ID`,
+  `META_FLOW_DATOS_ID`, `META_FLOWS_MODE=draft`. Pendiente: publicar ambos y pasar a `published`.
+  WhatsApp para Mac no abre Flows; probar en el celular.
+- El bot es SOLO de crédito
   (Arrayanes, catálogo, Publicar/Flow, pagos y crédito dummy eliminados, decisión del usuario).
   Autorización con botones Acepto/No acepto que menciona a Sureti y enlaza
   `/privacidad` (política servida por el bot; responsable y contacto por variables
