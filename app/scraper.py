@@ -873,7 +873,13 @@ def iniciar():
     if _scheduler is not None:
         return
 
-    _scheduler = BackgroundScheduler(timezone="America/Bogota")
-    _scheduler.add_job(correr_todos, "interval", hours=2, id="scraper_portales")
+    from datetime import datetime
+    import pytz
+    _tz = pytz.timezone("America/Bogota")
+    _scheduler = BackgroundScheduler(timezone=_tz)
+    _scheduler.add_job(
+        correr_todos, "interval", hours=2, id="scraper_portales",
+        next_run_time=datetime.now(tz=_tz),
+    )
     _scheduler.start()
-    log.info("[Scraper] Scheduler iniciado (cada 2h).")
+    log.info("[Scraper] Scheduler iniciado (cada 2h). Primera ronda inmediata.")
