@@ -89,11 +89,37 @@ Solución acordada:
 - Medir respuesta, calificación, envíos a Sureti, aprobaciones y calidad del número.
 - Decidir: más volumen, más ciudades/Metrocuadrado o un segundo número.
 
-## Hito 12 — Seguridad (al final, por decisión del usuario)
-- HECHO (2 oct 2026): Render API keys viejas revocadas; no queda ninguna (el MCP de Render usa el
-  conector oficial con OAuth). Falta: confirmar que el GitHub PAT viejo está revocado.
-- Mover la llave JSON de Google a un lugar privado.
-- Borrar la Sheet creada por error en la cuenta de Petra Secondaries.
+Pasos de configuración previos al piloto:
+  1. En Render Dashboard: usar `render.yaml` como Blueprint o configurar manualmente.
+     Build command: `pip install -r requirements.txt && playwright install chromium`
+     Start command: `gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app`
+     Disco persistente: montar en `/var/data/media`.
+  2. Variables de entorno: completar todas las marcadas con `sync: false` en `render.yaml`.
+     En especial: `SURETI_EMAIL`, `SURETI_PASSWORD`, `ANTHROPIC_API_KEY`, `CAPTURA_TOKEN`.
+  3. Secret File: subir `google-credentials.json` en Settings → Secret Files de Render.
+  4. ⚠️ Verificar selectores de Sureti: abrir agentes.sureti.co con F12 abierto,
+     ir al formulario de registro de lead y confirmar que los selectores en
+     `app/sureti.py` (`_fill`, `_select_or_fill`, `_check_radio`) coincidan.
+  5. Plantilla Meta `massi_apertura_a`: confirmar aprobación en WhatsApp Manager.
+     Activar `ENVIO_AUTOMATICO=true` solo una vez aprobada.
+  6. Activar scraper: `SCRAPER_ENABLED=true` + `TWOCAPTCHA_API_KEY` cuando todo lo
+     anterior esté verificado.
+
+## Hito 12 — Seguridad
+- HECHO (2 oct 2026): Render API keys viejas revocadas; no queda ninguna.
+- HECHO (3 oct 2026): `.gitignore` actualizado — bloquea `google-credentials.json`,
+  `*credentials*.json`, `*service-account*.json`, `.env.local`, etc.
+- HECHO (3 oct 2026): `render.yaml` — blueprint de deploy reproducible con todas las
+  variables de entorno documentadas.
+
+Pendiente (acciones manuales, 5 min):
+  1. GitHub PAT viejo → github.com → Settings → Developer settings →
+     Personal access tokens → revocar el token que tenía acceso a este repo.
+  2. Llave JSON de Google → ya apunta a `/etc/secrets/google-credentials.json`
+     (Render Secret File). Verificar que NO esté en otro directorio accesible
+     ni en la Sheet ni en el email. Si está en otro lugar, bórralo de ahí.
+  3. Sheet en Petra Secondaries → ir a Google Drive de esa cuenta, encontrar la
+     Sheet y borrarla (vaciar también la papelera).
 
 ## En pausa hasta tener permiso o concepto
 - Automatizar Supernotariado (CAPTCHA): solo con permiso escrito. Antes, preguntar a

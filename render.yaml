@@ -1,0 +1,89 @@
+# Blueprint de deploy en Render.com — Massi bot
+# Documentación: https://render.com/docs/blueprint-spec
+#
+# ANTES de usar este archivo:
+#   1. En Render Dashboard → New → Blueprint → apunta a este repo.
+#   2. SECRET FILE: sube google-credentials.json en Settings → Secret Files
+#      con nombre exacto "google-credentials.json" (queda en /etc/secrets/).
+#   3. Completa las variables marcadas con "sync: false" en el dashboard.
+
+services:
+  - type: web
+    name: petra-inmuebles
+    runtime: python
+    region: oregon          # Cambia si prefieres otra región
+    plan: starter           # USD 7/mes
+    buildCommand: pip install -r requirements.txt && playwright install chromium
+    startCommand: gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app
+    healthCheckPath: /
+
+    disk:
+      name: massi-media
+      mountPath: /var/data/media
+      sizeGB: 1
+
+    envVars:
+      # === Meta / WhatsApp ===
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_VERIFY_TOKEN
+        value: petra-verify-token
+      - key: META_FLOWS_MODE
+        value: published
+      - key: META_FLOW_REQUISITOS_ID
+        sync: false
+      - key: META_FLOW_DATOS_ID
+        sync: false
+      - key: META_PLANTILLA_APERTURA
+        sync: false
+      - key: META_PLANTILLA_IDIOMA
+        value: es_CO
+
+      # === Captación ===
+      - key: CAPTURA_TOKEN
+        sync: false
+      - key: ENVIO_AUTOMATICO
+        value: "false"       # Cambiar a "true" cuando se apruebe la plantilla
+      - key: ENVIO_LIMITE_DIARIO
+        value: "20"
+      - key: ENVIO_DESDE
+        sync: false          # Fecha AAAA-MM-DD desde la que se envían (ej. 2026-10-01)
+
+      # === Google Sheets (backup/consulta) ===
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_CREDENTIALS_FILE
+        value: /etc/secrets/google-credentials.json
+
+      # === Sureti ===
+      - key: SURETI_EMAIL
+        sync: false
+      - key: SURETI_PASSWORD
+        sync: false
+
+      # === Parser de documentos ===
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: MEDIA_DIR
+        value: /var/data/media
+
+      # === Scraper ===
+      - key: SCRAPER_ENABLED
+        value: "false"       # Activar solo cuando esté listo (consume recursos)
+      - key: TWOCAPTCHA_API_KEY
+        sync: false
+
+      # === Política de datos ===
+      - key: PUBLIC_BASE_URL
+        sync: false          # URL pública del servicio (ej. https://petra-inmuebles.onrender.com)
+      - key: POLITICA_RESPONSABLE
+        value: "ALMOND CORP S.A.S. (marca Massi), NIT 901.931.289-4, domicilio principal en Bogotá D.C."
+      - key: POLITICA_CONTACTO
+        value: "fabricio@petrasecondaries.com o WhatsApp +57 320 2813268"
+
+databases:
+  - name: massi-db
+    plan: basic-256mb       # USD 6/mes — PG 18
+    region: oregon
