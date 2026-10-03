@@ -276,11 +276,12 @@ def _guardar(portal: str, telefono_raw: str, **campos) -> bool:
     """Aplica filtros de calidad y guarda en contactos. Retorna True si se insertó."""
     telefono = normalizar_telefono(telefono_raw)
     if not telefono:
+        log.info("[Guardar] tel inválido: %r", telefono_raw)
         return False
 
     anunciante = campos.get("anunciante") or {}
     if _es_broker(anunciante):
-        log.debug("[Scraper] Descartado broker: %s (pub=%d)", anunciante.get("nombre"), anunciante.get("num_publicaciones", 0))
+        log.info("[Guardar] broker: %s (pub=%d)", anunciante.get("nombre"), anunciante.get("num_publicaciones", 0))
         return False
 
     url = campos.get("url", "")
@@ -291,19 +292,23 @@ def _guardar(portal: str, telefono_raw: str, **campos) -> bool:
 
     ciudad = _buscar(CIUDADES, ciudad_raw, url, direccion, barrio)
     if not ciudad:
+        log.info("[Guardar] ciudad no encontrada: ciudad_raw=%r url=%r", ciudad_raw, url[:80])
         return False
 
     if ciudad == "Bogotá" and any(
         z in _sin_tildes(f"{direccion} {barrio} {url}") for z in ZONAS_EXCLUIDAS
     ):
+        log.info("[Guardar] zona excluida Bogotá: dir=%r barrio=%r", direccion, barrio)
         return False
 
     tipo = _buscar(TIPOS, tipo_raw, url)
     if not tipo:
+        log.info("[Guardar] tipo no encontrado: tipo_raw=%r url=%r", tipo_raw, url[:80])
         return False
 
     precio = _precio(campos.get("precio_raw", 0))
     if precio < 50_000_000:
+        log.info("[Guardar] precio bajo: %s → %d", campos.get("precio_raw"), precio)
         return False
 
     try:
