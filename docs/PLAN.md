@@ -44,16 +44,21 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
   `requiere_paz_salvo`. Descartes quedan en pipeline como `descartado_<motivo>`.
   `set_no_contactar` hace upsert en `contactos` (teléfono hasta 150 caracteres por BSUID).
 
-## Hito 7 — Captación
-- `app/scraper.py`: Finca Raíz Bogotá primero (luego Metrocuadrado y otras ciudades).
-  Pre-filtro: ciudad cubierta, estrato (1 descartado; 2–3 con PH), tipo aceptado,
-  no contactado antes. Deduplicar por teléfono. Guarda fotos (fachada).
-- 3 plantillas A/B de primer mensaje (estimado 20–30 % del precio publicado) para
-  aprobación de Meta. Identifican a Massi y ofrecen salir con "NO".
-- Envío solo L–V 7:00–19:00 y sáb 8:00–15:00 (Ley 2300), volumen bajo al inicio,
-  vigilando la calidad del número en WhatsApp Manager.
+## Hito 7 — Captación (rediseñado 3 oct 2026)
+Los portales (Metrocuadrado, Finca Raíz) solo muestran el teléfono tras un formulario
+(+ reCAPTCHA en Metrocuadrado): no se automatiza ese formulario ni un WhatsApp personal.
+Solución acordada:
+- Extensión de Chrome "Enviar a Massi": una persona navega el portal (formulario lleno una
+  vez) y con un clic por anuncio la extensión toma teléfono (enlace wa.me), precio, ciudad,
+  estrato, tipo, URL y foto, y los manda al bot (endpoint con clave secreta).
+- El bot filtra (ciudad, estrato, tipo, duplicados, no_contactar), guarda en `contactos`
+  y envía la plantilla desde el número oficial (API) solo L–V 7:00–19:00 y sáb 8:00–15:00
+  (Ley 2300), con límite diario que sube poco a poco.
+- Plantilla `massi_apertura_a` (Marketing, 3 variables: tipo, portal, monto "hasta" en
+  millones) con botones "Quiero saber más" / "No me interesa". En revisión de Meta.
+- Monto "hasta": 40 % del precio publicado si es residencial (apartamento, casa),
+  30 % si es comercial (local, oficina, bodega, lote).
 - Costo: ≈ USD 0,013 por mensaje de marketing (Colombia).
-- Listo: 50 mensajes de prueba enviados; las respuestas entran al flujo del Hito 6.
 
 ## Hito 8 — Documentos
 - CHIP por dirección con ArcGIS de Catastro Bogotá (servicio público).
