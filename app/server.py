@@ -41,7 +41,7 @@ def health():
 
 @app.post("/captura")
 def captura():
-    """Recibe un anuncio desde la extensión de Chrome "Enviar a Massi"."""
+    """Recibe un anuncio desde la extensión de Chrome \"Enviar a Massi\"."""
     token = os.environ.get("CAPTURA_TOKEN", "")
     if not token or request.headers.get("X-Massi-Token") != token:
         return jsonify({"resultado": "no_autorizado"}), 401
@@ -161,12 +161,17 @@ def pilot():
         "monto_hasta": monto_hasta,
     }
 
-    if forzar:
-        with _db._conexion() as conn:
-            conn.execute("DELETE FROM contactos WHERE telefono = %s", (telefono,))
+    log.info("[Pilot] Guardando contacto: tel=%s ciudad=%s tipo=%s precio=%d monto=%d", telefono, ciudad, tipo, precio, monto_hasta)
+    try:
+        if forzar:
+            with _db._conexion() as conn:
+                conn.execute("DELETE FROM contactos WHERE telefono = %s", (telefono,))
 
-    guardado = _db.guardar_contacto(contacto)
-    resultado = "nuevo" if guardado else "duplicado"
+        guardado = _db.guardar_contacto(contacto)
+        resultado = "nuevo" if guardado else "duplicado"
+    except Exception as db_exc:
+        log.exception("[Pilot] ERROR guardando contacto: %s", db_exc)
+        return jsonify({"resultado": "error", "detalle": str(db_exc), "scrape_ok": not error_scrape}), 500
 
     log.info("[Pilot] %s — %s (%s, $%dM hasta $%dM)", resultado, telefono, ciudad, precio // 1_000_000, monto_hasta)
     return jsonify({
