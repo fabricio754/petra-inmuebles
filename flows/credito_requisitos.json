@@ -20,7 +20,7 @@
               },
               {
                 "type": "TextBody",
-                "text": "Cuéntanos dónde está y responde 4 preguntas rápidas."
+                "text": "Cuéntanos dónde está y responde unas preguntas rápidas."
               },
               {
                 "type": "TextSubheading",
@@ -56,34 +56,38 @@
                 "label": "Ciudad del inmueble",
                 "required": true,
                 "data-source": [
-                  {
-                    "id": "BOGOTA",
-                    "title": "Bogotá"
-                  },
-                  {
-                    "id": "MEDELLIN",
-                    "title": "Medellín"
-                  },
-                  {
-                    "id": "BARRANQUILLA",
-                    "title": "Barranquilla"
-                  },
-                  {
-                    "id": "CARTAGENA",
-                    "title": "Cartagena"
-                  },
-                  {
-                    "id": "SANTA_MARTA",
-                    "title": "Santa Marta"
-                  },
-                  {
-                    "id": "CUCUTA",
-                    "title": "Cúcuta"
-                  },
-                  {
-                    "id": "OTRA",
-                    "title": "Otra"
-                  }
+                  { "id": "BOGOTA", "title": "Bogotá" },
+                  { "id": "MEDELLIN", "title": "Medellín" },
+                  { "id": "BARRANQUILLA", "title": "Barranquilla" },
+                  { "id": "CARTAGENA", "title": "Cartagena" },
+                  { "id": "SANTA_MARTA", "title": "Santa Marta" },
+                  { "id": "CUCUTA", "title": "Cúcuta" },
+                  { "id": "OTRA", "title": "Otra" }
+                ]
+              },
+              {
+                "type": "Dropdown",
+                "name": "estrato",
+                "label": "Estrato",
+                "required": true,
+                "data-source": [
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" }
+                ]
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "es_ph",
+                "label": "Propiedad horizontal",
+                "description": "¿El inmueble está en conjunto o edificio (propiedad horizontal)?",
+                "required": true,
+                "data-source": [
+                  { "id": "SI", "title": "Sí" },
+                  { "id": "NO", "title": "No" }
                 ]
               },
               {
@@ -97,14 +101,8 @@
                 "description": "¿El inmueble tiene hipoteca o embargo vigente?",
                 "required": true,
                 "data-source": [
-                  {
-                    "id": "SI",
-                    "title": "Sí"
-                  },
-                  {
-                    "id": "NO",
-                    "title": "No"
-                  }
+                  { "id": "SI", "title": "Sí" },
+                  { "id": "NO", "title": "No" }
                 ]
               },
               {
@@ -114,14 +112,8 @@
                 "description": "¿Tiene patrimonio de familia con hijos menores de edad?",
                 "required": true,
                 "data-source": [
-                  {
-                    "id": "SI",
-                    "title": "Sí"
-                  },
-                  {
-                    "id": "NO",
-                    "title": "No"
-                  }
+                  { "id": "SI", "title": "Sí" },
+                  { "id": "NO", "title": "No" }
                 ]
               },
               {
@@ -131,14 +123,8 @@
                 "description": "¿El propietario tiene más de 75 años?",
                 "required": true,
                 "data-source": [
-                  {
-                    "id": "SI",
-                    "title": "Sí"
-                  },
-                  {
-                    "id": "NO",
-                    "title": "No"
-                  }
+                  { "id": "SI", "title": "Sí" },
+                  { "id": "NO", "title": "No" }
                 ]
               },
               {
@@ -148,14 +134,8 @@
                 "description": "¿Estás dispuesto a ponerte al día con predial, servicios y administración?",
                 "required": true,
                 "data-source": [
-                  {
-                    "id": "SI",
-                    "title": "Sí"
-                  },
-                  {
-                    "id": "NO",
-                    "title": "No"
-                  }
+                  { "id": "SI", "title": "Sí" },
+                  { "id": "NO", "title": "No" }
                 ]
               },
               {
@@ -172,6 +152,8 @@
                     "apto": "${form.apto}",
                     "barrio": "${form.barrio}",
                     "ciudad": "${form.ciudad}",
+                    "estrato": "${form.estrato}",
+                    "es_ph": "${form.es_ph}",
                     "hipoteca": "${form.hipoteca}",
                     "patrimonio": "${form.patrimonio}",
                     "edad": "${form.edad}",

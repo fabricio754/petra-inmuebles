@@ -230,6 +230,16 @@ def contactos_por_enviar(limite, desde=None):
     return [dict(zip(("telefono", "tipo", "portal", "monto_hasta"), f)) for f in filas]
 
 
+def get_contacto(telefono):
+    """Devuelve tipo_inmueble y monto_hasta_millones del contacto (o None si no existe)."""
+    with _conexion() as conn:
+        fila = conn.execute(
+            "SELECT tipo_inmueble, monto_hasta_millones FROM contactos WHERE telefono = %s",
+            (telefono,),
+        ).fetchone()
+    return {"tipo_inmueble": fila[0], "monto_hasta": fila[1]} if fila else None
+
+
 def enviados_desde(desde):
     with _conexion() as conn:
         return conn.execute(

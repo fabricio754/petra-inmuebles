@@ -47,6 +47,27 @@
                 "helper-text": "Aquí te enviaremos novedades de tu solicitud"
               },
               {
+                "type": "Dropdown",
+                "name": "objetivo",
+                "label": "¿Para qué necesitas el préstamo?",
+                "required": true,
+                "data-source": [
+                  { "id": "OBJ_CAPITAL", "title": "Capital de trabajo" },
+                  { "id": "OBJ_DEUDAS", "title": "Pagar deudas" },
+                  { "id": "OBJ_INVERSION", "title": "Inversión" },
+                  { "id": "OBJ_GASTOS", "title": "Gastos personales" },
+                  { "id": "OBJ_OTRO", "title": "Otro" }
+                ]
+              },
+              {
+                "type": "TextInput",
+                "name": "edad",
+                "label": "Edad del propietario",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "Años cumplidos"
+              },
+              {
                 "type": "TextCaption",
                 "text": "Al enviar, autorizas compartir estos datos con Sureti para estudiar tu crédito."
               },
@@ -58,7 +79,9 @@
                   "payload": {
                     "nombre": "${form.nombre}",
                     "cedula": "${form.cedula}",
-                    "email": "${form.email}"
+                    "email": "${form.email}",
+                    "objetivo": "${form.objetivo}",
+                    "edad": "${form.edad}"
                   }
                 }
               }
