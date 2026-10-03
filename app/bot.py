@@ -139,7 +139,35 @@ def _completar(phone, data):
     _guardar(phone, data, "nuevo")
     _terminar(phone)
     nombre = (data.get("nombre") or "").split()
-    return whatsapp.send_confirmacion_pipeline(phone, nombre[0] if nombre else "")
+    whatsapp.send_confirmacion_pipeline(phone, nombre[0] if nombre else "")
+
+    # Iniciar obtención automática de documentos en segundo plano
+    import threading
+    def _docs_bg():
+        try:
+            from app import docs_auto, db
+            res = docs_auto.obtener_docs_automaticos(
+                telefono=phone,
+                direccion=data.get("direccion_inmueble", ""),
+                cedula=data.get("cedula", ""),
+                ciudad=data.get("ciudad", "Bogotá"),
+            )
+            if res.get("chip"):
+                db.update_chip(phone, res["chip"])
+            # Registrar docs obtenidos automáticamente
+            for tipo_doc, ruta in [("cert_tradicion", res.get("ctl")), ("predial", res.get("predial"))]:
+                if ruta:
+                    db.registrar_documento({
+                        "telefono": phone, "tipo": tipo_doc,
+                        "media_id": None, "url_storage": ruta,
+                        "obtenido_automaticamente": True,
+                    })
+        except Exception as e:
+            import logging
+            logging.getLogger("petra").warning("[Bot] Error en docs_bg: %s", e)
+
+    threading.Thread(target=_docs_bg, daemon=True).start()
+    return None
 
 
 def _procesar(phone, session, event):
@@ -250,13 +278,40 @@ def _procesar(phone, session, event):
     return _iniciar(phone)
 
 
+def _procesar_media(phone, event):
+    """Descarga y parsea un archivo enviado por el vendedor."""
+    from app import db, media, parser, whatsapp as wa
+    media_id = event["media_id"]
+    mime = event["mime_type"]
+
+    ruta = media.download_and_save(phone, media_id, mime)
+    media.registrar(phone, media_id, mime, ruta, tipo_doc="predial")
+
+    if ruta and ruta.endswith(".pdf") or mime.startswith("image/"):
+        resultado = parser.parsear_predial(ruta or "")
+        if resultado.get("avaluo"):
+            db.update_avaluo(phone, resultado["avaluo"])
+    wa.send_doc_recibido(phone)
+
+
 def handle_incoming(phone, event):
     """event: {"type": "text", "text": str}
              | {"type": "button_reply", "id": str}
              | {"type": "template_button", "text": str}
              | {"type": "list_reply", "id": str}
              | {"type": "flow_reply", "response": dict}
+             | {"type": "media", "media_id": str, "mime_type": str}
+             | {"type": "media_invalido"}
     Devuelve la lista de respuestas enviadas (para logging/pruebas)."""
+    # Archivo con formato inválido
+    if event["type"] == "media_invalido":
+        return [whatsapp.send_tipo_doc_invalido(phone)]
+
+    # Documento enviado por el vendedor
+    if event["type"] == "media":
+        _procesar_media(phone, event)
+        return []
+
     session = state.get_session(phone)
     en_flujo = session.get("flow") == "SURETI"
     resp = _respuesta(event)

@@ -7,3 +7,8 @@ psycopg[binary,pool]>=3.2
 gunicorn
 holidays
 tzdata
+playwright
+2captcha-python
+apscheduler
+pdfplumber
+anthropic

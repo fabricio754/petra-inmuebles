@@ -18,8 +18,18 @@ log = logging.getLogger("petra")
 
 VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "petra-verify-token")
 
+# MIMEs soportados para documentos enviados por el vendedor
+MIME_SOPORTADOS = {"image/jpeg", "image/png", "application/pdf"}
+
 app = Flask(__name__)
 envios.iniciar()
+
+# APScheduler (scraper, Sureti check, remarketing)
+try:
+    from app import scheduler as _sched
+    _sched.iniciar()
+except Exception as _e:
+    log.warning("[Server] No se pudo iniciar scheduler: %s", _e)
 
 
 @app.get("/")
@@ -113,7 +123,20 @@ def _to_event(message):
                 "type": "flow_reply",
                 "response": json.loads(interactive["nfm_reply"]["response_json"]),
             }
-    # Tipo no manejado (imagen, audio, ubicación...) -> se trata como texto vacío.
+    # Documentos/imágenes enviados por el vendedor
+    if msg_type in ("image", "document"):
+        media_obj = message.get(msg_type, {})
+        mime = media_obj.get("mime_type", "")
+        media_id = media_obj.get("id", "")
+        if mime not in MIME_SOPORTADOS:
+            return {"type": "media_invalido"}
+        return {
+            "type": "media",
+            "media_id": media_id,
+            "mime_type": mime,
+            "caption": media_obj.get("caption", ""),
+        }
+    # Tipo no manejado (audio, ubicación...) -> se trata como texto vacío.
     return {"type": "text", "text": ""}
 
 
