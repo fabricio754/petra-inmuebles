@@ -140,8 +140,8 @@ def _nueva_pagina(browser: Browser, url: str) -> Page:
         "**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}",
         lambda route: route.abort(),
     )
-    page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-    page.wait_for_timeout(4_000)  # wait for React hydration before any DOM queries
+    page.goto(url, wait_until="load", timeout=45_000)
+    page.wait_for_timeout(6_000)  # wait for React hydration before any DOM queries
     return page
 
 
@@ -629,8 +629,9 @@ def scrape_propdirecto(browser: Browser) -> int:
         try:
             lp.wait_for_selector(_PD_LISTING_SEL, timeout=15_000)
         except PWTimeout:
+            log.warning("[PD] Timeout pág %d. url_final=%s title=%r html=%r",
+                        page_n, lp.url, lp.title(), lp.content()[:2000])
             lp.context.close()
-            log.info("[PD] No se encontraron listings en página %d (selector: %s).", page_n, _PD_LISTING_SEL)
             break
 
         links = _links_de_pagina(lp, _PD_LISTING_SEL, _PD_HOST)
@@ -674,7 +675,7 @@ _MQ_BASE = (
     "&tipoAnunciante=particular&page={page}"
 )
 _MQ_HOST = "https://www.metrocuadrado.com"
-_MQ_LISTING_SEL = "a[href*='/inmueble/venta/']"
+_MQ_LISTING_SEL = "a[href*='/inmueble/'], a[href*='/apartamento-'], a[href*='/casa-'], a[href*='metrocuadrado.com/']"
 
 
 def _mq_extraer_datos(page: Page, url: str) -> Optional[dict]:
@@ -713,6 +714,8 @@ def scrape_metrocuadrado(browser: Browser) -> int:
         try:
             lp.wait_for_selector(_MQ_LISTING_SEL, timeout=15_000)
         except PWTimeout:
+            log.warning("[MQ] Timeout pág %d. url_final=%s title=%r html=%r",
+                        page_n, lp.url, lp.title(), lp.content()[:2000])
             lp.context.close()
             break
 
@@ -791,6 +794,8 @@ def scrape_fincaraiz(browser: Browser) -> int:
         try:
             lp.wait_for_selector(_FR_LISTING_SEL, timeout=15_000)
         except PWTimeout:
+            log.warning("[FR] Timeout pág %d. url_final=%s title=%r html=%r",
+                        page_n, lp.url, lp.title(), lp.content()[:2000])
             lp.context.close()
             break
 
@@ -866,6 +871,8 @@ def scrape_ciencuadras(browser: Browser) -> int:
         try:
             lp.wait_for_selector(_CC_LISTING_SEL, timeout=15_000)
         except PWTimeout:
+            log.warning("[CC] Timeout pág %d. url_final=%s title=%r html=%r",
+                        page_n, lp.url, lp.title(), lp.content()[:2000])
             lp.context.close()
             break
 
