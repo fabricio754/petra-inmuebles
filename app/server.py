@@ -110,6 +110,9 @@ def pilot():
         error_scrape = str(exc)
         log.warning("[Pilot] Error scrapeando %s: %s", url, exc)
 
+    # Liberar memoria de Playwright antes de abrir conexión a DB (evita OOM en 512MB)
+    import gc; gc.collect()
+
     # Usar teléfono provisto o el que se scrapeó
     if not telefono_raw and telefono_scrapeado:
         telefono_raw = telefono_scrapeado

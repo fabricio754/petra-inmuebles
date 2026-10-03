@@ -133,6 +133,11 @@ def _nueva_pagina(browser: Browser, url: str) -> Page:
         } catch(e) {}
     """)
     page = ctx.new_page()
+    # Block images/fonts to reduce memory during page load (~50% less RAM)
+    page.route(
+        "**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}",
+        lambda route: route.abort(),
+    )
     page.goto(url, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_timeout(4_000)  # wait for React hydration before any DOM queries
     return page
