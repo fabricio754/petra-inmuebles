@@ -80,13 +80,11 @@ def pilot():
         return jsonify({"resultado": "error", "detalle": "Se requiere una URL de metrocuadrado.com"}), 400
 
     from app.captacion import normalizar_telefono, _precio, _buscar, CIUDADES, TIPOS, RESIDENCIAL, PORCENTAJE, MONTO_MAX_M, MONTO_MIN_M
-    telefono = normalizar_telefono(telefono_raw)
-    if not telefono:
-        return jsonify({"resultado": "error", "detalle": "Teléfono colombiano inválido (ej: 3001234567)"}), 400
 
     # Scraping de la URL específica con Playwright
     datos_scrapeados = {}
     error_scrape = None
+    telefono_scrapeado = None
     try:
         from playwright.sync_api import sync_playwright
         chromium_path = os.environ.get("PLAYWRIGHT_CHROMIUM_PATH", "")
@@ -97,10 +95,13 @@ def pilot():
         with sync_playwright() as pw:
             browser = pw.chromium.launch(**launch_kwargs)
             try:
-                from app.scraper import _nueva_pagina, _mq_extraer_datos
+                from app.scraper import _nueva_pagina, _mq_extraer_datos, _extraer_tel_comun
                 page = _nueva_pagina(browser, url)
                 try:
                     datos_scrapeados = _mq_extraer_datos(page, url) or {}
+                    if not telefono_raw:
+                        telefono_scrapeado = _extraer_tel_comun(page)
+                        log.info("[Pilot] Teléfono scrapeado: %s", telefono_scrapeado)
                 finally:
                     page.context.close()
             finally:
@@ -108,6 +109,18 @@ def pilot():
     except Exception as exc:
         error_scrape = str(exc)
         log.warning("[Pilot] Error scrapeando %s: %s", url, exc)
+
+    # Usar teléfono provisto o el que se scrapeó
+    if not telefono_raw and telefono_scrapeado:
+        telefono_raw = telefono_scrapeado
+
+    telefono = normalizar_telefono(telefono_raw)
+    if not telefono:
+        return jsonify({
+            "resultado": "error",
+            "detalle": "No se encontró teléfono en la publicación ni se proveyó uno.",
+            "scrape_error": error_scrape,
+        }), 400
 
     # Construir el contacto con los datos scrapeados + teléfono provisto
     from app import db as _db
