@@ -206,6 +206,31 @@ def _links_de_pagina(page: Page, selector: str, host: str) -> list[str]:
 
 def _extraer_tel_comun(page: Page) -> Optional[str]:
     """Intenta revelar y extraer el teléfono usando patrones comunes a los tres portales."""
+    # 0. __NEXT_DATA__ / JSON-LD — datos SSR antes de cualquier interacción
+    try:
+        next_json = page.evaluate("() => JSON.stringify(window.__NEXT_DATA__ || null)")
+        if next_json and next_json != "null":
+            # buscar número colombiano en el blob JSON (sin espacios ni guiones)
+            blob = re.sub(r"[\s\-]", "", next_json)
+            for m in re.finditer(r"(?:57)?3\d{9}", blob):
+                digits = m.group(0)
+                if not digits.startswith("57"):
+                    digits = "57" + digits
+                return digits
+    except Exception:
+        pass
+
+    try:
+        for script in page.query_selector_all("script[type='application/ld+json']"):
+            content = script.inner_text()
+            m = re.search(r'"telephone"\s*:\s*"([^"]+)"', content)
+            if m:
+                digits = re.sub(r"\D", "", m.group(1))
+                if 10 <= len(digits) <= 13:
+                    return digits
+    except Exception:
+        pass
+
     # 1. Click en botón de "Ver teléfono"
     btn = page.query_selector(
         "button:has-text('Ver teléfono'), "
@@ -278,6 +303,19 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
         m = re.search(r"\b(57\s*3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4}|3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4})\b", body_text)
         if m:
             return re.sub(r"\D", "", m.group(0))
+    except Exception:
+        pass
+
+    # 6. Buscar en HTML completo (data-*, atributos ocultos, scripts inline)
+    try:
+        html = page.content()
+        blob = re.sub(r"[\s\-]", "", html)
+        matches = re.findall(r"(?:57)?3\d{9}", blob)
+        if matches:
+            from collections import Counter
+            top, count = Counter(matches).most_common(1)[0]
+            if count >= 2:  # aparece al menos 2 veces → más probable que sea real
+                return top if top.startswith("57") else "57" + top
     except Exception:
         pass
 
