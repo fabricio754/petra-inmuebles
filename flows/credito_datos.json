@@ -52,7 +52,15 @@
                 "label": "Dirección",
                 "input-type": "text",
                 "required": true,
-                "helper-text": "Ej: Cra 45 # 80-20, apto 302"
+                "helper-text": "Ej: Cra 45 # 80-20"
+              },
+              {
+                "type": "TextInput",
+                "name": "apto",
+                "label": "Apto / interior",
+                "input-type": "text",
+                "required": false,
+                "helper-text": "Opcional. Ej: Apto 302, Torre 2"
               },
               {
                 "type": "TextInput",
@@ -111,6 +119,7 @@
                     "cedula": "${form.cedula}",
                     "email": "${form.email}",
                     "direccion": "${form.direccion}",
+                    "apto": "${form.apto}",
                     "barrio": "${form.barrio}",
                     "ciudad": "${form.ciudad}"
                   }

@@ -183,7 +183,9 @@ def _procesar(phone, session, event):
             cedula=cedula,
             email=email,
             direccion_inmueble=", ".join(
-                x for x in (str(r.get("direccion") or "").strip(), str(r.get("barrio") or "").strip()) if x
+                str(r.get(campo) or "").strip()
+                for campo in ("direccion", "apto", "barrio")
+                if str(r.get(campo) or "").strip()
             ),
             ciudad=CIUDADES.get(str(r.get("ciudad") or "").upper(), str(r.get("ciudad") or "")),
         )
