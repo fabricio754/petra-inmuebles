@@ -90,33 +90,36 @@ class SuretiSession:
     def registrar_lead(self, data: dict, docs: list[dict] | None = None) -> str:
         """Llena el formulario 'Nuevo Lead' y devuelve el sureti_lead_id."""
         page = self._page
-        page.goto(f"{SURETI_URL}/leads/nuevo", wait_until="networkidle", timeout=30_000)
+        page.goto(f"{SURETI_URL}/nuevo-lead", wait_until="networkidle", timeout=30_000)
 
         # ---- Datos del propietario ----
         _fill(page, "[name='nombre'], #nombre", data.get("nombre", ""))
         _fill(page, "[name='cedula'], #cedula", str(data.get("cedula", "")))
         _fill(page, "[name='email'], #email", data.get("email", ""))
-        _fill(page, "[name='telefono'], #telefono", data.get("telefono", ""))
-
-        edad = data.get("edad")
-        if edad:
-            _fill(page, "[name='edad'], #edad", str(edad))
+        # Celular: solo el número sin prefijo (el formulario ya tiene +57 seleccionado)
+        telefono = str(data.get("telefono", "")).lstrip("+").lstrip("57")
+        _fill(page, "[name='telefono'], #telefono, [name='celular'], #celular", telefono)
 
         # ---- Inmueble ----
         _fill(page, "[name='direccion'], #direccion, [name='direccion_inmueble']",
               data.get("direccion_inmueble", ""))
         _fill(page, "[name='ciudad'], #ciudad", data.get("ciudad", "Bogotá"))
 
-        tipo = data.get("tipo_inmueble", "")
-        _select_or_fill(page, "[name='tipo_inmueble'], #tipo_inmueble", tipo)
-
-        estrato = data.get("estrato")
-        if estrato:
-            _select_or_fill(page, "[name='estrato'], #estrato", str(estrato))
-
-        es_ph = data.get("es_ph")
-        if es_ph is not None:
-            _check_radio(page, "[name='es_ph'], [name='propiedad_horizontal']", bool(es_ph))
+        # Matrícula inmobiliaria: dos campos (oficina + número)
+        matricula = str(data.get("matricula_numero", ""))
+        if matricula and "-" in matricula:
+            prefijo, numero = matricula.split("-", 1)
+            _select_or_fill(page,
+                "[name='oficina_registro'], #oficina_registro, [name='prefijo_matricula']",
+                prefijo.strip())
+            _fill(page,
+                "[name='numero_matricula'], #numero_matricula, [name='matricula_numero']",
+                numero.strip())
+        elif matricula:
+            _fill(page,
+                "[name='numero_matricula'], #numero_matricula, [name='matricula_numero'], "
+                "[name='matricula'], #matricula",
+                matricula)
 
         # ---- Crédito ----
         valor = data.get("valor_solicitado")
@@ -126,13 +129,42 @@ class SuretiSession:
 
         objetivo = data.get("objetivo_prestamo", "")
         if objetivo:
-            _select_or_fill(page, "[name='objetivo'], #objetivo, [name='objetivo_prestamo']",
-                            objetivo)
+            _fill(page,
+                "[name='objetivo'], #objetivo, [name='objetivo_prestamo'], "
+                "[name='comentarios'], #comentarios",
+                objetivo)
 
-        # ---- Paz y salvo ----
-        requiere = data.get("requiere_paz_salvo", False)
-        if requiere:
-            _check_radio(page, "[name='requiere_paz_salvo']", True)
+        # ---- Tipo de persona (siempre Persona Natural) ----
+        for sel in ["[value='natural']", "[value='persona_natural']"]:
+            try:
+                el = page.query_selector(f"input[type='radio']{sel}")
+                if el and el.is_visible():
+                    el.check()
+                    break
+            except Exception:
+                pass
+        # Fallback: label con texto "Persona Natural"
+        try:
+            page.locator("label:has-text('Persona Natural')").first.click()
+        except Exception:
+            pass
+
+        # ---- Aceptar tratamiento de datos (obligatorio) ----
+        for sel in ["[name='tratamiento_datos'][value='si']",
+                    "[name='tratamiento_datos'][value='true']",
+                    "[name='autoriza'][value='si']"]:
+            try:
+                el = page.query_selector(f"input[type='radio']{sel}")
+                if el and el.is_visible():
+                    el.check()
+                    break
+            except Exception:
+                pass
+        # Fallback: botón/label "Sí" en la sección de tratamiento de datos
+        try:
+            page.locator("label:has-text('Sí')").first.click()
+        except Exception:
+            pass
 
         # ---- Documentos ----
         if docs:
