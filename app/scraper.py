@@ -198,10 +198,87 @@ def _monto_hasta(precio: int, tipo: str) -> Optional[int]:
     return monto if monto >= MONTO_MIN_M else None
 
 
+# Palabras que delatan a un anunciante profesional / inmobiliaria
+_BROKER_KEYWORDS = {
+    "inmobiliaria", "realty", "propiedades", "bienes raices", "bienes raíces",
+    "constructora", "constructor", "finca raiz", "finca raíz", "inversiones",
+    "soluciones inmobiliarias", "asesor inmobiliario", "agente inmobiliario",
+    "ltda", "s.a.s", "s.a.", " corp", "grupo inmobiliario",
+}
+# Si el anunciante tiene más de este número de publicaciones activas, es broker
+_MAX_PUBLICACIONES_PROPIETARIO = 4
+
+
+def _anunciante_info(page: Page) -> dict:
+    """Extrae nombre del anunciante y conteo de publicaciones de la página de detalle.
+    Devuelve {'nombre': str, 'num_publicaciones': int}."""
+    nombre = ""
+    num_pub = 0
+
+    # Selectores comunes para el nombre del anunciante en portales colombianos
+    for sel in [
+        "[class*='advertiser'] [class*='name']",
+        "[class*='anunciante'] [class*='nombre']",
+        "[class*='publisher'] [class*='name']",
+        "[class*='agent-name']", "[class*='agent_name']",
+        "[class*='contact-name']", "[class*='contacto'] [class*='nombre']",
+        "[data-testid='advertiser-name']", "[data-testid='agent-name']",
+    ]:
+        t = _texto(page, sel)
+        if t:
+            nombre = t
+            break
+
+    # Selectores para conteo de publicaciones del anunciante
+    for sel in [
+        "[class*='advertiser'] [class*='count']",
+        "[class*='advertiser'] [class*='listings']",
+        "[class*='anunciante'] [class*='publicaciones']",
+        "[class*='inmuebles-activos']", "[class*='active-listings']",
+        "[data-testid='listing-count']",
+    ]:
+        t = _texto(page, sel)
+        if t:
+            digits = re.sub(r"\D", "", t)
+            if digits:
+                num_pub = int(digits)
+                break
+
+    # Fallback: buscar texto como "12 inmuebles" o "5 publicaciones" en el bloque del anunciante
+    if num_pub == 0:
+        for sel in [
+            "[class*='advertiser']", "[class*='anunciante']",
+            "[class*='publisher']", "[class*='agent']",
+        ]:
+            bloque = _texto(page, sel)
+            if bloque:
+                m = re.search(r"(\d+)\s*(?:inmuebles?|publicaciones?|propiedades?|listings?)", bloque, re.I)
+                if m:
+                    num_pub = int(m.group(1))
+                    break
+
+    return {"nombre": nombre, "num_publicaciones": num_pub}
+
+
+def _es_broker(anunciante: dict) -> bool:
+    """Retorna True si el anunciante parece ser un broker o inmobiliaria."""
+    nombre_lower = _sin_tildes((anunciante.get("nombre") or "").lower())
+    if any(kw in nombre_lower for kw in _BROKER_KEYWORDS):
+        return True
+    if anunciante.get("num_publicaciones", 0) > _MAX_PUBLICACIONES_PROPIETARIO:
+        return True
+    return False
+
+
 def _guardar(portal: str, telefono_raw: str, **campos) -> bool:
     """Aplica filtros de calidad y guarda en contactos. Retorna True si se insertó."""
     telefono = normalizar_telefono(telefono_raw)
     if not telefono:
+        return False
+
+    anunciante = campos.get("anunciante") or {}
+    if _es_broker(anunciante):
+        log.debug("[Scraper] Descartado broker: %s (pub=%d)", anunciante.get("nombre"), anunciante.get("num_publicaciones", 0))
         return False
 
     url = campos.get("url", "")
@@ -518,6 +595,7 @@ def _pd_extraer_datos(page: Page, url: str) -> Optional[dict]:
             "img[class*='gallery'], img[class*='principal'], img[class*='foto'], "
             "img[class*='slider'], img[class*='photo']",
         ),
+        "anunciante": _anunciante_info(page),
         "url": url,
     }
 
@@ -611,6 +689,7 @@ def _mq_extraer_datos(page: Page, url: str) -> Optional[dict]:
         "direccion": _texto(page, "[class*='address'], [class*='direccion']") or None,
         "barrio": _texto(page, "[class*='neighborhood'], [class*='barrio'], [class*='sector']") or None,
         "foto": (page.query_selector("img[class*='gallery'], img[class*='slider'], img[class*='photo']") or _primer_img(page)) and _src_img(page, "img[class*='gallery'], img[class*='slider'], img[class*='photo']"),
+        "anunciante": _anunciante_info(page),
         "url": url,
     }
 
@@ -687,6 +766,7 @@ def _fr_extraer_datos(page: Page, url: str) -> Optional[dict]:
         "direccion": _texto(page, "[class*='address'], [class*='direccion']") or None,
         "barrio": _texto(page, "[class*='neighborhood'], [class*='barrio'], [class*='sector']") or None,
         "foto": _src_img(page, "img[class*='gallery'], img[class*='principal'], img[class*='foto']"),
+        "anunciante": _anunciante_info(page),
         "url": url,
     }
 
@@ -760,6 +840,7 @@ def _cc_extraer_datos(page: Page, url: str) -> Optional[dict]:
         "direccion": _texto(page, "[class*='direccion'], [class*='address']") or None,
         "barrio": _texto(page, "[class*='barrio'], [class*='sector'], [class*='neighborhood']") or None,
         "foto": _src_img(page, "img[class*='gallery'], img[class*='principal'], img[class*='foto']"),
+        "anunciante": _anunciante_info(page),
         "url": url,
     }
 
