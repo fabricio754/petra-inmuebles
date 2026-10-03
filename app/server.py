@@ -166,12 +166,15 @@ def pilot():
 
     log.info("[Pilot] Guardando contacto: tel=%s ciudad=%s tipo=%s precio=%d monto=%d", telefono, ciudad, tipo, precio, monto_hasta)
     try:
+        log.info("[Pilot] Abriendo conexión DB…")
         if forzar:
             with _db._conexion() as conn:
                 conn.execute("DELETE FROM contactos WHERE telefono = %s", (telefono,))
+            log.info("[Pilot] DELETE completado.")
 
         guardado = _db.guardar_contacto(contacto)
         resultado = "nuevo" if guardado else "duplicado"
+        log.info("[Pilot] INSERT completado: %s", resultado)
     except Exception as db_exc:
         log.exception("[Pilot] ERROR guardando contacto: %s", db_exc)
         return jsonify({"resultado": "error", "detalle": str(db_exc), "scrape_ok": not error_scrape}), 500
