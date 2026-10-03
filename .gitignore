@@ -25,6 +25,9 @@ bin/cloudflared
 extension-enviar-a-massi.zip
 extension-enviar-a-massi-v1.1.zip
 
+# Playwright browsers (instalados en el proyecto para Render)
+.playwright/
+
 # Editor
 .vscode/
 .idea/
