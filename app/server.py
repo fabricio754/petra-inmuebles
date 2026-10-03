@@ -5,7 +5,13 @@ haya hosting propio."""
 import os
 import json
 import logging
+import socket
 from dotenv import load_dotenv
+
+# Python-level socket timeout so DB/network connections time out in worker threads.
+# libpq's connect_timeout uses alarm(2) which only fires in the main thread;
+# setdefaulttimeout() uses select(2) which works in all threads including gunicorn's.
+socket.setdefaulttimeout(20)
 
 load_dotenv()  # debe cargar antes de importar app.bot -> app.whatsapp (lee env al importar)
 

@@ -34,7 +34,7 @@ def _conexion():
                 # min_size=0: no pre-created connections (avoids blocking on init).
                 # timeout=20: pool.connection() raises PoolTimeout if DB unreachable,
                 #             so the gunicorn 120s limit is never hit silently.
-                pool = ConnectionPool(url, min_size=0, max_size=2, open=True, timeout=20.0)
+                pool = ConnectionPool(url, min_size=0, max_size=2, open=False, timeout=20.0)
                 _preparar(pool)
                 _pool = pool
     return _pool.connection(timeout=20.0)
