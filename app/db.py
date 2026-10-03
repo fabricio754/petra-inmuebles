@@ -32,9 +32,10 @@ def _conexion():
                     sep = "&" if "?" in url else "?"
                     url = f"{url}{sep}connect_timeout=10"
                 # min_size=0: no pre-created connections (avoids blocking on init).
-                # timeout=20: pool.connection() raises PoolTimeout if DB unreachable,
-                #             so the gunicorn 120s limit is never hit silently.
-                pool = ConnectionPool(url, min_size=0, max_size=2, open=True, timeout=20.0)
+                # open=False: defer pool opening to first use so socket.setdefaulttimeout
+                #             is already active and covers the SSL handshake in threads.
+                # timeout=20: pool.connection() raises PoolTimeout if DB unreachable.
+                pool = ConnectionPool(url, min_size=0, max_size=2, open=False, timeout=20.0)
                 _preparar(pool)
                 _pool = pool
     return _pool.connection(timeout=20.0)

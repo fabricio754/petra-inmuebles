@@ -5,7 +5,13 @@ haya hosting propio."""
 import os
 import json
 import logging
+import socket
 from dotenv import load_dotenv
+
+# Python-level socket timeout so DB/network connections time out in worker threads.
+# libpq's connect_timeout uses alarm(2) which only fires in the main thread;
+# setdefaulttimeout() uses select(2) which works in all threads including gunicorn's.
+socket.setdefaulttimeout(20)
 
 load_dotenv()  # debe cargar antes de importar app.bot -> app.whatsapp (lee env al importar)
 
@@ -256,7 +262,7 @@ def receive_webhook():
 def _to_event(message):
     msg_type = message.get("type")
     if msg_type == "button":
-        # Botón de respuesta rápida de una plantilla (ej. \"Quiero saber más\").
+        # Botón de respuesta rápida de una plantilla (ej. "Quiero saber más").
         boton = message.get("button", {})
         return {"type": "template_button", "text": boton.get("text") or boton.get("payload") or ""}
     if msg_type == "text":
