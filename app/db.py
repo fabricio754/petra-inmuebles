@@ -56,12 +56,15 @@ def _conexion():
                 # concurrent.futures wraps _init_pool so fut.result(timeout=15) enforces
                 # a hard wall-clock limit even when libpq hangs at the TCP/SSL layer
                 # (connect_timeout uses alarm() which is main-thread-only).
-                with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
-                    _fut = _ex.submit(_init_pool)
-                    try:
-                        pool = _fut.result(timeout=15)
-                    except _cf.TimeoutError:
-                        raise Exception("[DB] Timeout de 15s al conectar — host inalcanzable")
+                # IMPORTANT: do NOT use `with` — ThreadPoolExecutor.__exit__ calls
+                # shutdown(wait=True) which re-blocks even after TimeoutError.
+                _ex = _cf.ThreadPoolExecutor(max_workers=1)
+                _fut = _ex.submit(_init_pool)
+                try:
+                    pool = _fut.result(timeout=15)
+                except _cf.TimeoutError:
+                    _ex.shutdown(wait=False)
+                    raise Exception("[DB] Timeout de 15s al conectar — host inalcanzable")
                 _pool = pool
     return _pool.connection(timeout=20.0)
 
