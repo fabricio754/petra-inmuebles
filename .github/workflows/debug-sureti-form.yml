@@ -17,73 +17,128 @@ jobs:
           pip install playwright
           python -m playwright install chromium --with-deps
 
-      - name: Login y screenshot del formulario
+      - name: Login y mapear formulario
         run: |
           python3 - <<'EOF'
-          import json, os, re
+          import json, time
           from playwright.sync_api import sync_playwright
 
           EMAIL    = "${{ secrets.SURETI_EMAIL }}"
           PASSWORD = "${{ secrets.SURETI_PASSWORD }}"
           URL      = "https://agentes.sureti.co"
 
+          def dump_page(page, label):
+              print(f"\n{'='*60}")
+              print(f"  {label}")
+              print(f"  URL: {page.url}")
+              print(f"{'='*60}")
+              # Dump all form elements via JS (handles shadow DOM better)
+              result = page.evaluate("""() => {
+                  const all = [...document.querySelectorAll('input, select, textarea')];
+                  return all.map(el => ({
+                      tag: el.tagName,
+                      type: el.type || null,
+                      name: el.name || null,
+                      id: el.id || null,
+                      placeholder: el.placeholder || null,
+                      value: el.value || null,
+                      className: el.className || null,
+                  }));
+              }""")
+              print(f"Form elements ({len(result)}):")
+              for el in result:
+                  print(" ", json.dumps(el, ensure_ascii=False))
+
+              labels = page.evaluate("""() => {
+                  return [...document.querySelectorAll('label')].map(l => ({
+                      text: l.innerText.trim().slice(0, 80),
+                      for: l.getAttribute('for'),
+                  }));
+              }""")
+              print(f"Labels ({len(labels)}):")
+              for l in labels:
+                  print(" ", json.dumps(l, ensure_ascii=False))
+
+              # Also print <body> opening to identify framework
+              body_html = page.evaluate("() => document.body.innerHTML.slice(0, 3000)")
+              print(f"\n--- body HTML (first 3000 chars) ---\n{body_html}\n---")
+
           with sync_playwright() as pw:
               browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
               page = browser.new_page()
               page.set_extra_http_headers({"Accept-Language": "es-CO,es;q=0.9"})
 
-              # 1. Login
-              print("→ Abriendo login...")
-              page.goto(f"{URL}/login", wait_until="networkidle", timeout=30_000)
+              # 1. Abrir login
+              print("→ Navegando a login...")
+              page.goto(URL, wait_until="domcontentloaded", timeout=30_000)
+              time.sleep(3)  # esperar JS
               page.screenshot(path="ss_login.png", full_page=True)
+              dump_page(page, "PÁGINA INICIAL")
 
-              # Detectar campos de login
-              inputs = page.query_selector_all("input")
-              print("Inputs en login:")
-              for i in inputs:
-                  print(" ", i.get_attribute("type"), i.get_attribute("name"),
-                        i.get_attribute("id"), i.get_attribute("placeholder"))
+              # Intentar detectar el formulario de login
+              # Probar selectores comunes de SPAs
+              for sel in ["input[type='email']", "input[name='email']",
+                          "input[type='text']", "[placeholder*='correo']",
+                          "[placeholder*='email']", "[placeholder*='usuario']",
+                          "input:first-of-type"]:
+                  count = page.locator(sel).count()
+                  if count > 0:
+                      print(f"✅ Selector '{sel}' encontrado ({count} elementos)")
+                      break
+                  else:
+                      print(f"   Selector '{sel}' → 0 elementos")
 
-              page.fill("input[type='email'], input[name='email']", EMAIL)
-              page.fill("input[type='password'], input[name='password']", PASSWORD)
-              page.click("button[type='submit'], input[type='submit']")
-              page.wait_for_load_state("networkidle", timeout=20_000)
-              page.screenshot(path="ss_post_login.png", full_page=True)
-              print(f"URL tras login: {page.url}")
+              # Intentar login
+              try:
+                  # Esperar que aparezca algún input con timeout extendido
+                  page.wait_for_selector("input", timeout=15_000)
+                  inputs = page.query_selector_all("input")
+                  print(f"\nInputs encontrados después de espera: {len(inputs)}")
+                  for i in inputs:
+                      print(" ", i.get_attribute("type"), i.get_attribute("name"),
+                            i.get_attribute("id"), i.get_attribute("placeholder"))
 
-              # 2. Navegar al formulario nuevo lead
+                  # Llenar email
+                  email_sel = "input[type='email'], input[name='email'], input[name='username'], input[type='text']:first-of-type"
+                  page.fill(email_sel, EMAIL, timeout=10_000)
+                  page.fill("input[type='password']", PASSWORD, timeout=10_000)
+                  page.keyboard.press("Enter")
+                  page.wait_for_load_state("networkidle", timeout=20_000)
+                  time.sleep(2)
+                  page.screenshot(path="ss_post_login.png", full_page=True)
+                  print(f"\n→ URL tras login: {page.url}")
+                  dump_page(page, "POST-LOGIN")
+              except Exception as e:
+                  print(f"[ERROR en login] {e}")
+                  page.screenshot(path="ss_post_login.png", full_page=True)
+
+              # 2. Buscar formulario nuevo lead
+              found_form = False
               for path in ["/nuevo-lead", "/leads/nuevo", "/leads/create",
-                           "/clientes/nuevo", "/solicitudes/nueva"]:
+                           "/clientes/nuevo", "/solicitudes/nueva",
+                           "/dashboard", "/"]:
                   try:
-                      page.goto(f"{URL}{path}", wait_until="networkidle", timeout=15_000)
-                      if page.url != f"{URL}/login":
-                          print(f"✅ Formulario encontrado en: {page.url}")
+                      page.goto(f"{URL}{path}", wait_until="domcontentloaded", timeout=15_000)
+                      time.sleep(2)
+                      real_url = page.url
+                      print(f"  {path} → {real_url}")
+                      if "/login" not in real_url and real_url != URL + "/":
+                          print(f"✅ Posible formulario en: {real_url}")
+                          page.screenshot(path="ss_form.png", full_page=True)
+                          dump_page(page, f"FORMULARIO: {path}")
+                          # Guardar HTML
+                          with open("form.html", "w") as f:
+                              f.write(page.content())
+                          found_form = True
                           break
                   except Exception as e:
-                      print(f"  {path} → {e}")
+                      print(f"  {path} → ERROR: {e}")
 
-              page.screenshot(path="ss_form.png", full_page=True)
-
-              # 3. Mapear todos los campos del formulario
-              print("\n=== INPUTS ===")
-              for el in page.query_selector_all("input, select, textarea"):
-                  print(json.dumps({
-                      "tag":   el.evaluate("e => e.tagName"),
-                      "type":  el.get_attribute("type"),
-                      "name":  el.get_attribute("name"),
-                      "id":    el.get_attribute("id"),
-                      "placeholder": el.get_attribute("placeholder"),
-                      "class": el.get_attribute("class"),
-                  }, ensure_ascii=False))
-
-              print("\n=== LABELS ===")
-              for el in page.query_selector_all("label"):
-                  print(repr(el.inner_text().strip()), "→ for=", el.get_attribute("for"))
-
-              # 4. Guardar HTML completo
-              with open("form.html", "w") as f:
-                  f.write(page.content())
-              print("\nHTML guardado en form.html")
+              if not found_form:
+                  page.screenshot(path="ss_form.png", full_page=True)
+                  dump_page(page, "PÁGINA ACTUAL (sin form encontrado)")
+                  with open("form.html", "w") as f:
+                      f.write(page.content())
 
               browser.close()
           EOF
