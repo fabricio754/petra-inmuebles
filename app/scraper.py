@@ -948,8 +948,7 @@ def iniciar():
         log.warning("[Scraper] Sin DATABASE_URL; scheduler no iniciado.")
         return
     if not TWOCAPTCHA_KEY:
-        log.warning("[Scraper] Sin TWOCAPTCHA_API_KEY; scheduler no iniciado.")
-        return
+        log.warning("[Scraper] Sin TWOCAPTCHA_API_KEY; el scraper correrá sin resolver captchas (teléfonos ocultos no se revelarán).")
 
     global _scheduler
     if _scheduler is not None:
