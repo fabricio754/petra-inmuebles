@@ -72,22 +72,64 @@ def _nueva_pagina(browser: Browser, url: str) -> Page:
     # Inject before React loads so our override is called by the app's own handlers
     ctx.add_init_script("""
         window.__massiBotUris = [];
+
+        // 1. window.open
         const _origOpen = window.open;
         window.open = function(url, ...a) {
             if (url) window.__massiBotUris.push(String(url));
             try { return _origOpen && _origOpen.apply(this, [url, ...a]); } catch(e){}
         };
+
+        // 2. window.location.href setter
         try {
-            const desc = Object.getOwnPropertyDescriptor(window.location, 'href');
+            const desc = Object.getOwnPropertyDescriptor(window.location, 'href')
+                      || Object.getOwnPropertyDescriptor(Location.prototype, 'href');
             const _set = desc && desc.set;
             Object.defineProperty(window.location, 'href', {
                 set: function(v) {
                     if (v) window.__massiBotUris.push(String(v));
-                    if (_set) _set.call(this, v);
+                    if (_set) _set.call(window.location, v);
                 },
                 get: desc && desc.get,
                 configurable: true,
             });
+        } catch(e) {}
+
+        // 3. location.assign / location.replace
+        try {
+            const _assign = window.location.assign.bind(window.location);
+            window.location.assign = function(url) {
+                if (url) window.__massiBotUris.push(String(url));
+                try { return _assign(url); } catch(e){}
+            };
+        } catch(e) {}
+        try {
+            const _replace = window.location.replace.bind(window.location);
+            window.location.replace = function(url) {
+                if (url) window.__massiBotUris.push(String(url));
+                try { return _replace(url); } catch(e){}
+            };
+        } catch(e) {}
+
+        // 4. Programmatic anchor clicks (create el + set href + click)
+        try {
+            const _origAnchorClick = HTMLAnchorElement.prototype.click;
+            HTMLAnchorElement.prototype.click = function() {
+                const h = (this.getAttribute && this.getAttribute('href')) || this.href || '';
+                if (h) window.__massiBotUris.push(String(h));
+                return _origAnchorClick.apply(this, arguments);
+            };
+        } catch(e) {}
+
+        // 5. Also watch setAttribute on anchors for dynamic href setting
+        try {
+            const _origSetAttr = Element.prototype.setAttribute;
+            Element.prototype.setAttribute = function(name, value) {
+                if (name === 'href' && this.tagName === 'A' && value) {
+                    window.__massiBotUris.push(String(value));
+                }
+                return _origSetAttr.apply(this, arguments);
+            };
         } catch(e) {}
     """)
     page = ctx.new_page()
