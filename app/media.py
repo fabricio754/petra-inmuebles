@@ -1,86 +1,80 @@
-"""Descarga y almacenamiento de archivos multimedia enviados por WhatsApp.
+"""Descarga y almacenamiento de archivos multimedia recibidos por WhatsApp.
 
-Meta entrega un media_id; nosotros lo resolvemos a URL y descargamos el binario.
-El archivo se guarda en MEDIA_DIR/{telefono}/{media_id}.{ext} y se registra
-en la tabla documentos.
+Meta no devuelve el binario directamente: primero hay que resolver la URL con
+el media_id (GET /{version}/{media_id} → {"url": "..."}), y luego descargar
+el binario con el mismo Bearer token.
+
+Si no hay credenciales (DRY-RUN), download_and_save devuelve None y no toca
+el disco; registrar() sigue funcionando para dejar constancia en la BD.
 """
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 import requests
 
-from app import db
-
 log = logging.getLogger("petra")
 
-MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", "/var/data/media"))
-META_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
-GRAPH_BASE = "https://graph.facebook.com/v18.0"
+_DEFAULT_MEDIA = os.path.join(tempfile.gettempdir(), "massi_media")
+MEDIA_DIR = os.environ.get("MEDIA_DIR", _DEFAULT_MEDIA)
 
 MIME_EXT = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "application/pdf": "pdf",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "application/pdf": ".pdf",
 }
+MIME_SOPORTADOS = set(MIME_EXT.keys())
 
 
-def download_and_save(telefono: str, media_id: str, mime_type: str) -> str | None:
+def download_and_save(phone: str, media_id: str, mime_type: str) -> str | None:
+    """Descarga el archivo de Meta y lo guarda en disco.
+
+    Retorna la ruta local o None (DRY-RUN / error).
     """
-    Descarga el archivo del media_id de Meta y lo guarda localmente.
-    Devuelve la ruta absoluta del archivo, o None si falla.
-    """
-    if not META_TOKEN:
-        log.warning("[Media] META_ACCESS_TOKEN no configurado — dry-run.")
+    from app.whatsapp import GRAPH_API_VERSION, ACCESS_TOKEN
+    if not ACCESS_TOKEN:
+        log.info("[Media DRY-RUN] media_id=%s mime=%s", media_id, mime_type)
         return None
 
-    ext = MIME_EXT.get(mime_type, "bin")
-    destino = MEDIA_DIR / telefono / f"{media_id}.{ext}"
-    destino.parent.mkdir(parents=True, exist_ok=True)
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    try:
+        # Paso 1: resolver URL del binario
+        meta = requests.get(
+            f"https://graph.facebook.com/{GRAPH_API_VERSION}/{media_id}",
+            headers=headers,
+            timeout=15,
+        )
+        meta.raise_for_status()
+        url = meta.json().get("url")
+        if not url:
+            log.error("[Media] Sin URL para media_id=%s", media_id)
+            return None
 
-    if destino.exists():
-        return str(destino)
+        # Paso 2: descargar el binario
+        resp = requests.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
 
-    # 1. Resolver media_id → URL de descarga
-    r = requests.get(
-        f"{GRAPH_BASE}/{media_id}",
-        headers={"Authorization": f"Bearer {META_TOKEN}"},
-        timeout=10,
-    )
-    if not r.ok:
-        log.error("[Media] No se pudo resolver media_id %s: %s", media_id, r.text[:200])
+        # Paso 3: guardar en disco
+        ext = MIME_EXT.get(mime_type, ".bin")
+        directorio = Path(MEDIA_DIR) / phone
+        directorio.mkdir(parents=True, exist_ok=True)
+        ruta = directorio / f"{media_id}{ext}"
+        ruta.write_bytes(resp.content)
+
+        log.info("[Media] Guardado: %s (%d bytes)", ruta, len(resp.content))
+        return str(ruta)
+
+    except Exception:
+        log.exception("[Media] Error descargando media_id=%s", media_id)
         return None
 
-    url = r.json().get("url")
-    if not url:
-        log.error("[Media] Respuesta sin URL para media_id %s", media_id)
-        return None
 
-    # 2. Descargar binario
-    r2 = requests.get(
-        url,
-        headers={"Authorization": f"Bearer {META_TOKEN}"},
-        timeout=30,
-        stream=True,
-    )
-    if not r2.ok:
-        log.error("[Media] Error al descargar %s: %s", url, r2.status_code)
-        return None
-
-    with open(destino, "wb") as f:
-        for chunk in r2.iter_content(chunk_size=8192):
-            f.write(chunk)
-
-    log.info("[Media] Guardado %s → %s", media_id, destino)
-    return str(destino)
-
-
-def registrar(telefono: str, media_id: str, mime_type: str, ruta: str | None, tipo_doc: str):
-    """Persiste el documento en la tabla documentos."""
-    db.registrar_documento({
-        "telefono": telefono,
-        "tipo": tipo_doc,
-        "media_id": media_id,
-        "url_storage": ruta,
-        "obtenido_automaticamente": False,
-    })
+def registrar(phone: str, media_id: str, mime_type: str,
+               ruta_local: str | None, tipo: str = "documento") -> None:
+    """Registra el documento en la tabla documentos."""
+    from app import db
+    try:
+        db.registrar_documento(phone, tipo, media_id, ruta_local)
+    except Exception:
+        log.exception("[Media] Error registrando documento en BD.")

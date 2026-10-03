@@ -1,20 +1,15 @@
-"""Sistema de remarketing automático.
+"""Remarketing diario (9am hora Colombia).
 
-Se ejecuta diariamente a las 9am hora Colombia (APScheduler en scheduler.py).
-Antes de correr verifica que no sea festivo colombiano ni fin de semana.
+1. No-respondedores de captación (días 3, 7, 15): contactos con
+   resultado_contacto = 'no_responde'. Día 15 cierra el contacto.
 
-Segmentos:
-  1. No contestaron el primer mensaje:
-     Día 3  → recordatorio con monto estimado
-     Día 7  → propuesta de valor
-     Día 15 → cierre definitivo
-  2. Paz y salvos pendiente (dijeron sí pero necesitan ponerse al día):
-     Día 15 → retoma
-     Día 30 → cierre definitivo
+2. Paz y salvos (días 15, 30): leads en pipeline con estado
+   'pausado_paz_salvo'. Recordatorio a día 15 y último aviso a día 30.
+
+Cumple Ley 2300: no envía domingos ni festivos colombianos.
 """
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import date
 
 import holidays
 
@@ -22,97 +17,135 @@ from app import db, whatsapp
 
 log = logging.getLogger("petra")
 
-ZONA = ZoneInfo("America/Bogota")
-FESTIVOS = holidays.country_holidays("CO")
+_CO_HOLIDAYS = holidays.Colombia()
 
-# Mensajes por día (se formatea con los datos del contacto)
-_MSG = {
-    "no_responde_d3": (
-        "Hola {nombre} 👋 ¿Pudiste ver mi mensaje anterior?\n\n"
-        "El propietario de {direccion} podría acceder a ~${monto}M en liquidez "
-        "sin necesidad de vender el inmueble. Tenemos un aliado financiero que "
-        "puede ayudar. ¿Le interesa saber cómo funciona?"
-    ),
-    "no_responde_d7": (
-        "Hola {nombre}, ¿el propietario ha pensado en usar el inmueble como "
-        "respaldo para conseguir liquidez rápida?\n\n"
-        "No necesita venderlo. Se puede conseguir hasta ${monto}M manteniendo "
-        "la propiedad. Escribenos para contarles más 🏠"
-    ),
-    "no_responde_d15": (
-        "Hola {nombre}, voy a cerrar este caso por ahora.\n\n"
-        "Si en algún momento el propietario necesita liquidez con su inmueble "
-        "como garantía, estamos disponibles. ¡Hasta pronto! 👋"
-    ),
-    "paz_salvo_d15": (
-        "Hola {nombre} 👋 ¿Lograste ponerte al día con predial y servicios?\n\n"
-        "Podemos retomar el proceso de crédito cuando quieras. Solo avísanos."
-    ),
-    "paz_salvo_d30": (
-        "Hola {nombre}, hacemos un último seguimiento. Si en algún momento "
-        "lograste ponerte al día y quieres explorar el crédito, escríbenos.\n\n"
-        "Estamos disponibles 🤝"
-    ),
-}
-
-
-def _puede_correr() -> bool:
-    ahora = datetime.now(ZONA)
-    if ahora.date() in FESTIVOS:
-        log.info("[Remarketing] Hoy es festivo — omitiendo.")
-        return False
-    if ahora.weekday() >= 5:  # sábado o domingo
-        log.info("[Remarketing] Fin de semana — omitiendo.")
-        return False
-    return True
-
-
-def _monto_estimado(precio_publicado: int | None) -> int:
-    """25% del precio publicado, en millones (Sureti usa ~25% de tasación)."""
+# Monto estimado: 25 % del precio publicado como crédito disponible.
+def _monto(precio_publicado):
     if not precio_publicado:
-        return 50  # fallback razonable
-    return max(20, round(precio_publicado * 0.25 / 1_000_000))
+        return None
+    return round(precio_publicado * 0.25 / 1_000_000)
 
 
-def _enviar(telefono: str, tipo: str, contacto: dict):
-    plantilla = _MSG.get(tipo, "")
-    if not plantilla:
-        return
-
-    nombre = (contacto.get("nombre") or "").split()[0] or "buenas"
-    direccion = contacto.get("direccion") or "su inmueble"
-    monto = _monto_estimado(contacto.get("precio_publicado"))
-
-    mensaje = plantilla.format(nombre=nombre, direccion=direccion, monto=monto)
-    whatsapp.send_text(telefono, mensaje)
-    db.registrar_remarketing_envio(telefono, tipo, mensaje)
-    log.info("[Remarketing] %s → %s", tipo, telefono)
+SECUENCIA = [
+    {
+        "tipo": "dia_3",
+        "dias": 3,
+        "plantilla": (
+            "Hola {nombre}, ¿pudiste ver mi mensaje?\n\n"
+            "El propietario de {direccion} podría acceder a ~${monto}M "
+            "sin vender el inmueble. ¿Le interesaría?"
+        ),
+        "plantilla_sin_monto": (
+            "Hola {nombre}, ¿pudiste ver mi mensaje?\n\n"
+            "El propietario de {direccion} podría acceder a liquidez rápida "
+            "usando el inmueble como respaldo, sin venderlo. ¿Le interesaría?"
+        ),
+        "cerrar": False,
+    },
+    {
+        "tipo": "dia_7",
+        "dias": 7,
+        "plantilla": (
+            "¿El propietario ha pensado en usar el inmueble como respaldo "
+            "para conseguir liquidez rápida? Podemos tenerlo listo "
+            "en menos de 2 semanas."
+        ),
+        "cerrar": False,
+    },
+    {
+        "tipo": "dia_15",
+        "dias": 15,
+        "plantilla": (
+            "Voy a cerrar el caso por ahora. Si en algún momento "
+            "le interesa, aquí estaremos."
+        ),
+        "cerrar": True,
+    },
+]
 
 
 def ejecutar():
-    """Corre una ronda de remarketing. Llamado por APScheduler a las 9am."""
-    if not _puede_correr():
+    """Punto de entrada llamado por el scheduler."""
+    hoy = date.today()
+
+    # Ley 2300: no enviar domingos ni festivos colombianos.
+    if hoy.weekday() == 6:  # domingo
+        log.info("[Remarketing] Domingo — se omite.")
+        return
+    if hoy in _CO_HOLIDAYS:
+        log.info("[Remarketing] Festivo (%s) — se omite.", hoy)
         return
 
-    # ── Segmento 1: no contestaron ──────────────────────────────────────────
-    for tipo, dias in [
-        ("no_responde_d3",  3),
-        ("no_responde_d7",  7),
-        ("no_responde_d15", 15),
-    ]:
-        contactos = db.contactos_sin_respuesta(dias=dias, tipo_remarketing=tipo)
-        for c in contactos:
-            _enviar(c["telefono"], tipo, c)
-            if tipo == "no_responde_d15":
-                db.cerrar_contacto(c["telefono"], "remarketing_agotado")
+    for etapa in SECUENCIA:
+        _procesar_etapa(etapa)
 
-    # ── Segmento 2: paz y salvos pendiente ──────────────────────────────────
-    for tipo, dias in [
-        ("paz_salvo_d15", 15),
-        ("paz_salvo_d30", 30),
-    ]:
-        contactos = db.contactos_paz_salvo_pendiente(dias=dias, tipo_remarketing=tipo)
-        for c in contactos:
-            _enviar(c["telefono"], tipo, c)
-            if tipo == "paz_salvo_d30":
-                db.cerrar_contacto(c["telefono"], "paz_salvo_sin_respuesta")
+    _procesar_paz_salvos()
+
+
+# ---------------------------------------------------------------------------
+
+def _procesar_etapa(etapa: dict):
+    tipo = etapa["tipo"]
+    dias = etapa["dias"]
+    contactos = db.contactos_sin_respuesta(dias, tipo)
+    if not contactos:
+        return
+
+    log.info("[Remarketing] %s: %d contactos elegibles.", tipo, len(contactos))
+    for c in contactos:
+        try:
+            _enviar(c, etapa)
+        except Exception:
+            log.exception("[Remarketing] Error enviando %s a %s", tipo, c.get("telefono"))
+
+
+def _enviar(c: dict, etapa: dict):
+    telefono = c["telefono"]
+    nombre_raw = (c.get("nombre") or "").strip()
+    nombre = nombre_raw.split()[0] if nombre_raw else "propietario"
+    direccion = (c.get("direccion") or "").strip() or "tu inmueble"
+    precio = c.get("precio_publicado")
+    monto = _monto(precio)
+
+    plantilla = etapa.get("plantilla", "")
+    if "{monto}" in plantilla and not monto:
+        # Usar plantilla alternativa sin monto si no hay precio disponible
+        plantilla = etapa.get("plantilla_sin_monto", plantilla)
+
+    if monto:
+        mensaje = plantilla.format(nombre=nombre, direccion=direccion, monto=monto)
+    else:
+        mensaje = plantilla.format(nombre=nombre, direccion=direccion)
+
+    whatsapp.send_text(telefono, mensaje)
+    db.registrar_remarketing_envio(telefono, etapa["tipo"], mensaje)
+    log.info("[Remarketing] %s enviado a %s.", etapa["tipo"], telefono)
+
+    if etapa.get("cerrar"):
+        db.cerrar_contacto(telefono)
+        log.info("[Remarketing] Contacto %s cerrado (día 15).", telefono)
+
+
+# ---------------------------------------------------------------------------
+# Paz y salvos
+
+_PAZ_SALVO_DIAS = [15, 30]
+
+
+def _procesar_paz_salvos():
+    for dias in _PAZ_SALVO_DIAS:
+        leads = db.leads_paz_salvo_por_contactar(dias)
+        if not leads:
+            continue
+        log.info("[Remarketing] paz_salvo_dia_%d: %d leads elegibles.", dias, len(leads))
+        for lead in leads:
+            try:
+                telefono = lead["telefono"]
+                nombre_raw = (lead.get("nombre") or "").strip()
+                nombre_corto = nombre_raw.split()[0] if nombre_raw else ""
+                whatsapp.send_paz_salvo_recordatorio(telefono, nombre_corto, dias)
+                tipo = f"paz_salvo_dia_{dias}"
+                db.registrar_remarketing_envio(telefono, tipo, f"paz_salvo_dia_{dias}")
+                log.info("[Remarketing] %s enviado a %s.", tipo, telefono)
+            except Exception:
+                log.exception("[Remarketing] Error paz_salvo_dia_%d a %s", dias, lead.get("telefono"))

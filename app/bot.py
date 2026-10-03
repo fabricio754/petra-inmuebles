@@ -8,6 +8,8 @@ Flujo (docs/PLAN.md, Hito 6):
 Con los Flows configurados (META_FLOW_REQUISITOS_ID y META_FLOW_DATOS_ID) las
 preguntas van en dos formularios de WhatsApp; si no, se hacen por chat.
 """
+import re
+
 from app import state, whatsapp
 
 # Palabras que en cualquier momento significan "no quiero más mensajes".
@@ -23,6 +25,13 @@ PASOS = [
     "DATOS_CEDULA",
     "DATOS_CORREO",
     "DATOS_DIRECCION",
+    # Campos adicionales requeridos por Sureti:
+    "DATOS_TIPO",       # lista interactiva
+    "DATOS_ESTRATO",    # texto: número 1-6
+    "DATOS_ES_PH",      # botón sí/no
+    "DATOS_OBJETIVO",   # lista interactiva
+    "DATOS_VALOR",      # texto: monto en millones
+    "DATOS_EDAD_PROP",  # texto: edad del propietario
 ]
 
 PREGUNTAS_DESCARTE = {
@@ -47,6 +56,9 @@ PREGUNTAS_DATOS = {
     "DATOS_CEDULA": "¿Cuál es el número de cédula del propietario? (solo números)",
     "DATOS_CORREO": "¿Cuál es tu correo electrónico?",
     "DATOS_DIRECCION": "¿Cuál es la dirección del inmueble? (calle, número, barrio y ciudad)",
+    "DATOS_ESTRATO": "¿Cuál es el estrato del inmueble? (escribe un número del 1 al 6)",
+    "DATOS_VALOR": "¿Cuánto necesitas? Escribe el monto en millones (ejemplo: 80 para $80 millones)",
+    "DATOS_EDAD_PROP": "¿Cuántos años tiene el propietario del inmueble?",
 }
 
 CAMPO_DATO = {
@@ -54,6 +66,26 @@ CAMPO_DATO = {
     "DATOS_CEDULA": "cedula",
     "DATOS_CORREO": "email",
     "DATOS_DIRECCION": "direccion_inmueble",
+    "DATOS_ESTRATO": "estrato",
+    "DATOS_VALOR": "valor_solicitado",
+    "DATOS_EDAD_PROP": "edad",
+}
+
+OPCIONES_TIPO = {
+    "TIPO_CASA": "casa",
+    "TIPO_APTO": "apartamento",
+    "TIPO_LOCAL": "local",
+    "TIPO_OFICINA": "oficina",
+    "TIPO_LOTE": "lote",
+    "TIPO_BODEGA": "bodega",
+}
+
+OPCIONES_OBJETIVO = {
+    "OBJ_CAPITAL": "capital de trabajo",
+    "OBJ_DEUDAS": "pagar deudas",
+    "OBJ_INVERSION": "inversión",
+    "OBJ_GASTOS": "gastos personales",
+    "OBJ_OTRO": "otro",
 }
 
 # IDs de la lista de ciudades del formulario de datos (flows/credito_datos.json).
@@ -67,8 +99,8 @@ NO = {"NO", "N", "NO ACEPTO", "BOTON_NO"}
 
 
 def _respuesta(event):
-    """Texto normalizado de un mensaje o de un botón."""
-    if event["type"] == "button_reply":
+    """Texto normalizado de un mensaje, botón o selección de lista."""
+    if event["type"] in ("button_reply", "list_reply"):
         return event["id"].strip().upper()
     if event["type"] in ("text", "template_button"):
         return event["text"].strip().upper().rstrip(".!")
@@ -92,6 +124,12 @@ def _guardar(phone, data, estado):
         "email": data.get("email"),
         "direccion_inmueble": data.get("direccion_inmueble"),
         "ciudad": data.get("ciudad"),
+        "tipo_inmueble": data.get("tipo_inmueble"),
+        "estrato": data.get("estrato"),
+        "es_ph": data.get("es_ph"),
+        "objetivo_prestamo": data.get("objetivo_prestamo"),
+        "valor_solicitado": data.get("valor_solicitado"),
+        "edad": data.get("edad"),
         "requiere_paz_salvo": data.get("requiere_paz_salvo", False),
         "autorizacion_datos_en": data.get("autorizacion_en"),
         "estado": estado,
@@ -141,32 +179,30 @@ def _completar(phone, data):
     nombre = (data.get("nombre") or "").split()
     whatsapp.send_confirmacion_pipeline(phone, nombre[0] if nombre else "")
 
-    # Iniciar obtención automática de documentos en segundo plano
-    import threading
-    def _docs_bg():
-        try:
-            from app import docs_auto, db
-            res = docs_auto.obtener_docs_automaticos(
-                telefono=phone,
-                direccion=data.get("direccion_inmueble", ""),
-                cedula=data.get("cedula", ""),
-                ciudad=data.get("ciudad", "Bogotá"),
-            )
-            if res.get("chip"):
-                db.update_chip(phone, res["chip"])
-            # Registrar docs obtenidos automáticamente
-            for tipo_doc, ruta in [("cert_tradicion", res.get("ctl")), ("predial", res.get("predial"))]:
-                if ruta:
-                    db.registrar_documento({
-                        "telefono": phone, "tipo": tipo_doc,
-                        "media_id": None, "url_storage": ruta,
-                        "obtenido_automaticamente": True,
-                    })
-        except Exception as e:
-            import logging
-            logging.getLogger("petra").warning("[Bot] Error en docs_bg: %s", e)
+    # Consulta CHIP catastral (solo Bogotá; para el resto continúa sin él).
+    try:
+        from app import docs_auto, db as _db
+        direccion = data.get("direccion_inmueble") or ""
+        ciudad    = data.get("ciudad") or ""
+        chip = docs_auto.obtener_chip(direccion, ciudad)
+        if chip:
+            _db.update_chip(phone, chip)
+    except Exception:
+        import logging
+        logging.getLogger("petra").exception("[CHIP] Error en _completar, se ignora.")
 
-    threading.Thread(target=_docs_bg, daemon=True).start()
+    # Solicitud del CTL (todos los casos, independiente del CHIP).
+    return whatsapp.send_solicitud_ctl(phone)
+
+
+def _enviar_paso_inicial(phone, paso):
+    """Envía el mensaje de apertura de un paso interactivo (lista o sí/no)."""
+    if paso == "DATOS_TIPO":
+        return whatsapp.send_tipo_inmueble(phone)
+    if paso == "DATOS_ES_PH":
+        return whatsapp.send_pregunta_si_no(phone, "¿El inmueble está en propiedad horizontal? (conjunto, edificio, etc.)")
+    if paso == "DATOS_OBJETIVO":
+        return whatsapp.send_objetivo_prestamo(phone)
     return None
 
 
@@ -224,7 +260,8 @@ def _procesar(phone, session, event):
         )
         if r.get("direccion"):  # versión anterior del formulario de datos
             data.update(_ubicacion(r))
-        return _completar(phone, data)
+        state.set_session(phone, flow_step="DATOS_TIPO", flow_data=data)
+        return whatsapp.send_tipo_inmueble(phone)
 
     # --- Preguntas de descarte (por chat, si no hay formularios) ---------
     if step in PREGUNTAS_DESCARTE:
@@ -246,7 +283,7 @@ def _procesar(phone, session, event):
         state.set_session(phone, flow_step=siguiente, flow_data=data)
         return whatsapp.send_pregunta_si_no(phone, PREGUNTAS_DESCARTE[siguiente])
 
-    # --- Datos básicos ---------------------------------------------------
+    # --- Datos básicos (texto libre) ------------------------------------
     if step in PREGUNTAS_DATOS:
         if event["type"] != "text" or not event["text"].strip():
             return whatsapp.send_text(phone, PREGUNTAS_DATOS[step])
@@ -266,32 +303,105 @@ def _procesar(phone, session, event):
                     phone, "Eso no parece un correo válido. " + PREGUNTAS_DATOS[step]
                 )
 
-        data[CAMPO_DATO[step]] = valor
-        siguiente = PASOS[PASOS.index(step) + 1] if step != PASOS[-1] else None
-        if siguiente:
-            state.set_session(phone, flow_step=siguiente, flow_data=data)
-            return whatsapp.send_text(phone, PREGUNTAS_DATOS[siguiente])
+        if step == "DATOS_ESTRATO":
+            digitos = re.sub(r"\D", "", valor)
+            try:
+                estrato = int(digitos)
+                assert 1 <= estrato <= 6
+                valor = estrato
+            except (ValueError, AssertionError):
+                return whatsapp.send_text(
+                    phone, "Escribe un número del 1 al 6. " + PREGUNTAS_DATOS[step]
+                )
 
-        return _completar(phone, data)
+        if step == "DATOS_VALOR":
+            digitos = re.sub(r"\D", "", valor)
+            if not digitos:
+                return whatsapp.send_text(
+                    phone, "Escribe el monto en millones, ejemplo: 80. " + PREGUNTAS_DATOS[step]
+                )
+            monto = int(digitos)
+            if monto <= 2000:
+                monto *= 1_000_000
+            if monto < 20_000_000:
+                return whatsapp.send_text(
+                    phone, "El mínimo de Sureti es $20 millones. " + PREGUNTAS_DATOS[step]
+                )
+            valor = monto
+
+        if step == "DATOS_EDAD_PROP":
+            digitos = re.sub(r"\D", "", valor)
+            try:
+                edad = int(digitos)
+                assert 18 <= edad <= 99
+                valor = edad
+            except (ValueError, AssertionError):
+                return whatsapp.send_text(
+                    phone, "Escribe la edad en años (entre 18 y 99). " + PREGUNTAS_DATOS[step]
+                )
+
+        data[CAMPO_DATO[step]] = valor
+        idx = PASOS.index(step)
+        siguiente = PASOS[idx + 1] if idx + 1 < len(PASOS) else None
+
+        if siguiente is None:
+            return _completar(phone, data)
+
+        state.set_session(phone, flow_step=siguiente, flow_data=data)
+        if siguiente in PREGUNTAS_DATOS:
+            return whatsapp.send_text(phone, PREGUNTAS_DATOS[siguiente])
+        return _enviar_paso_inicial(phone, siguiente)
+
+    # --- Pasos interactivos (Sureti: tipo, PH, objetivo) ----------------
+    if step == "DATOS_TIPO":
+        tipo = OPCIONES_TIPO.get(resp) if event["type"] == "list_reply" else None
+        if not tipo:
+            return whatsapp.send_tipo_inmueble(phone)
+        data["tipo_inmueble"] = tipo
+        state.set_session(phone, flow_step="DATOS_ESTRATO", flow_data=data)
+        return whatsapp.send_text(phone, PREGUNTAS_DATOS["DATOS_ESTRATO"])
+
+    if step == "DATOS_ES_PH":
+        if resp not in SI and resp not in NO:
+            return whatsapp.send_pregunta_si_no(
+                phone, "¿El inmueble está en propiedad horizontal? (conjunto, edificio, etc.)"
+            )
+        data["es_ph"] = resp in SI
+        state.set_session(phone, flow_step="DATOS_OBJETIVO", flow_data=data)
+        return whatsapp.send_objetivo_prestamo(phone)
+
+    if step == "DATOS_OBJETIVO":
+        objetivo = OPCIONES_OBJETIVO.get(resp) if event["type"] == "list_reply" else None
+        if not objetivo:
+            return whatsapp.send_objetivo_prestamo(phone)
+        data["objetivo_prestamo"] = objetivo
+        state.set_session(phone, flow_step="DATOS_VALOR", flow_data=data)
+        return whatsapp.send_text(phone, PREGUNTAS_DATOS["DATOS_VALOR"])
 
     # Paso desconocido (sesión vieja): empezar de nuevo.
     return _iniciar(phone)
 
 
 def _procesar_media(phone, event):
-    """Descarga y parsea un archivo enviado por el vendedor."""
-    from app import db, media, parser, whatsapp as wa
-    media_id = event["media_id"]
-    mime = event["mime_type"]
+    """Descarga el documento, lo parsea como predial y responde al cliente."""
+    from app import parser as _parser, db as _db
+    ruta = event.get("ruta_local")
+    mime = event.get("mime_type", "")
+    avaluo = direccion = matricula = None
 
-    ruta = media.download_and_save(phone, media_id, mime)
-    media.registrar(phone, media_id, mime, ruta, tipo_doc="predial")
+    if ruta:
+        try:
+            datos = _parser.parsear_predial(ruta, mime)
+            avaluo = datos.get("avaluo")
+            direccion = datos.get("direccion", "")
+            matricula = datos.get("matricula", "")
+            if avaluo:
+                _db.update_avaluo(phone, avaluo, direccion, matricula)
+        except Exception:
+            import logging
+            logging.getLogger("petra").exception("[Media] Error parseando predial.")
 
-    if ruta and ruta.endswith(".pdf") or mime.startswith("image/"):
-        resultado = parser.parsear_predial(ruta or "")
-        if resultado.get("avaluo"):
-            db.update_avaluo(phone, resultado["avaluo"])
-    wa.send_doc_recibido(phone)
+    return whatsapp.send_doc_recibido(phone, avaluo=avaluo, direccion=direccion, matricula=matricula)
 
 
 def handle_incoming(phone, event):
@@ -315,6 +425,10 @@ def handle_incoming(phone, event):
     session = state.get_session(phone)
     en_flujo = session.get("flow") == "SURETI"
     resp = _respuesta(event)
+
+    # Documentos recibidos (imagen o PDF).
+    if event["type"] == "media":
+        return [_procesar_media(phone, event)]
 
     # Botones de la plantilla de apertura (Hito 7).
     if event["type"] == "template_button":

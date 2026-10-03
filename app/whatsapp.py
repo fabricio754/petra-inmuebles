@@ -179,6 +179,57 @@ def send_pregunta_si_no(to, pregunta):
     return _botones(to, pregunta, [("BOTON_SI", "Sí"), ("BOTON_NO", "No")], f"[SÍ/NO] {pregunta[:60]}")
 
 
+def _lista(to, cuerpo, filas, boton, resumen):
+    """Mensaje de lista interactiva (una sección, hasta 10 filas)."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": cuerpo},
+            "action": {
+                "sections": [{"title": "Opciones", "rows": filas}],
+                "button": boton,
+            },
+        },
+    }
+    return _dispatch(payload, resumen)
+
+
+def send_tipo_inmueble(to):
+    return _lista(
+        to,
+        "¿Qué tipo de inmueble es la garantía?",
+        [
+            {"id": "TIPO_CASA", "title": "Casa"},
+            {"id": "TIPO_APTO", "title": "Apartamento"},
+            {"id": "TIPO_LOCAL", "title": "Local comercial"},
+            {"id": "TIPO_OFICINA", "title": "Oficina"},
+            {"id": "TIPO_LOTE", "title": "Lote"},
+            {"id": "TIPO_BODEGA", "title": "Bodega"},
+        ],
+        "Ver tipos",
+        "[TIPO INMUEBLE]",
+    )
+
+
+def send_objetivo_prestamo(to):
+    return _lista(
+        to,
+        "¿Para qué necesitas el préstamo?",
+        [
+            {"id": "OBJ_CAPITAL", "title": "Capital de trabajo"},
+            {"id": "OBJ_DEUDAS", "title": "Pagar deudas"},
+            {"id": "OBJ_INVERSION", "title": "Inversión"},
+            {"id": "OBJ_GASTOS", "title": "Gastos personales"},
+            {"id": "OBJ_OTRO", "title": "Otro"},
+        ],
+        "Ver opciones",
+        "[OBJETIVO PRÉSTAMO]",
+    )
+
+
 def send_no_contactar(to):
     return send_text(
         to,
@@ -230,6 +281,103 @@ def send_confirmacion_pipeline(to, nombre_corto):
 
 
 # --- Captación (Hito 7) ------------------------------------------------------
+
+def send_doc_recibido(to, avaluo=None, direccion="", matricula=""):
+    """Confirma recepción de un documento y muestra lo que se extrajo."""
+    if avaluo:
+        avaluo_fmt = f"${avaluo:,}".replace(",", ".")
+        detalle = (
+            f"✅ Recibí tu recibo de predial.\n\n"
+            f"• Avalúo catastral: *{avaluo_fmt}*\n"
+            + (f"• Dirección: {direccion}\n" if direccion else "")
+            + (f"• Matrícula: {matricula}\n" if matricula else "")
+            + "\nListo, ya tengo esta información para tu solicitud."
+        )
+    else:
+        detalle = (
+            "✅ Recibí el documento. No pude leer el avalúo catastral "
+            "automáticamente — nuestro equipo lo revisará."
+        )
+    return send_text(to, detalle)
+
+
+def send_tipo_doc_invalido(to):
+    return send_text(
+        to,
+        "Solo acepto fotos (JPEG/PNG) o archivos PDF. "
+        "Por favor envía el documento en uno de esos formatos.",
+    )
+
+
+def send_solicitud_ctl(to):
+    """Pide al cliente el Certificado de Tradición y Libertad del inmueble."""
+    return send_text(
+        to,
+        "📄 *Siguiente paso: Certificado de Tradición y Libertad*\n\n"
+        "Para continuar con el estudio necesito que nos envíes el *Certificado "
+        "de Tradición y Libertad* del inmueble.\n\n"
+        "Puedes descargarlo en línea (sin costo) en:\n"
+        "🔗 https://certificados.supernotariado.gov.co\n\n"
+        "Búscalo con el número de matrícula inmobiliaria y envíalo aquí como PDF "
+        "o foto. Si no lo tienes a la mano, puedes enviarlo después.",
+    )
+
+
+def send_credito_aprobado(to, nombre_corto, monto):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    monto_fmt = f"${monto:,}".replace(",", ".") if monto else ""
+    cuerpo = (
+        f"🎉 ¡Buenas noticias{sufijo}!\n\n"
+        "Tu solicitud de crédito con *Sureti* fue *aprobada*."
+        + (f" El monto aprobado es de *{monto_fmt} millones*." if monto_fmt else "")
+        + "\n\nNuestro equipo te contactará pronto para coordinar los siguientes pasos. "
+        "Gracias por confiar en Massi. 🙌"
+    )
+    return send_text(to, cuerpo)
+
+
+def send_credito_rechazado(to, razon=None):
+    detalle = f"\n\nMotivo: _{razon}_" if razon else ""
+    return send_text(
+        to,
+        "Hola. Lamentamos informarte que tu solicitud de crédito con *Sureti* "
+        f"no fue aprobada en esta ocasión.{detalle}\n\n"
+        "Si tu situación cambia o tienes preguntas, escríbenos y con gusto te ayudamos.",
+    )
+
+
+def send_credito_desembolsado(to, nombre_corto, monto, comision):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    monto_fmt = f"${monto:,}".replace(",", ".") if monto else ""
+    comision_fmt = f"${comision:,}".replace(",", ".") if comision else ""
+    cuerpo = (
+        f"🎊 ¡Excelente noticia{sufijo}!\n\n"
+        "Tu crédito con *Sureti* fue *desembolsado*."
+        + (f" Monto: *{monto_fmt}*." if monto_fmt else "")
+        + (f"\n\nComisión Massi: *{comision_fmt}* (se cobra en 4 cuotas)." if comision_fmt else "")
+        + "\n\nNuestro equipo te contactará pronto para coordinar los siguientes pasos. "
+        "Muchas gracias por confiar en Massi. 🙌"
+    )
+    return send_text(to, cuerpo)
+
+
+def send_paz_salvo_recordatorio(to, nombre_corto, dia):
+    sufijo = f", {nombre_corto}" if nombre_corto else ""
+    if dia == 15:
+        cuerpo = (
+            f"Hola{sufijo} 👋 Hace 15 días hablamos sobre tu crédito con garantía hipotecaria.\n\n"
+            "¿Pudiste ponerte al día con predial, servicios y administración? "
+            "Si es así, aquí estamos para ayudarte a avanzar con tu solicitud. "
+            "Solo escríbenos."
+        )
+    else:
+        cuerpo = (
+            f"Hola{sufijo}. Te hacemos un último recordatorio: cuando puedas ponerte "
+            "al día con el inmueble, escríbenos y retomamos tu solicitud de crédito. 🏡\n\n"
+            "Escribe *SALIR* si prefieres no recibir más mensajes."
+        )
+    return send_text(to, cuerpo)
+
 
 def send_plantilla_apertura(to, tipo, portal, monto_hasta):
     payload = {

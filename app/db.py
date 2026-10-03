@@ -131,16 +131,23 @@ def save_pipeline(data):
     with _conexion() as conn:
         conn.execute(
             "INSERT INTO pipeline "
-            "(telefono, nombre, cedula, email, direccion_inmueble, ciudad, "
+            "(telefono, nombre, cedula, edad, email, direccion_inmueble, ciudad, "
+            "tipo_inmueble, estrato, es_ph, objetivo_prestamo, valor_solicitado, "
             "requiere_paz_salvo, autorizacion_datos_en, estado) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 data.get("telefono"),
                 data.get("nombre"),
                 data.get("cedula"),
+                data.get("edad"),
                 data.get("email"),
                 data.get("direccion_inmueble"),
                 data.get("ciudad"),
+                data.get("tipo_inmueble"),
+                data.get("estrato"),
+                data.get("es_ph"),
+                data.get("objetivo_prestamo"),
+                data.get("valor_solicitado"),
                 bool(data.get("requiere_paz_salvo", False)),
                 data.get("autorizacion_datos_en"),
                 data.get("estado", "NUEVO"),
@@ -216,146 +223,121 @@ def marcar_respuesta(telefono, resultado):
         )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Pipeline — funciones nuevas para el flujo de crédito completo
-# ─────────────────────────────────────────────────────────────────────────────
+# === Pipeline / Sureti (Hito 8) =============================================
 
-def update_chip(telefono: str, chip: str):
-    """Actualiza el CHIP catastral en la tabla pipeline."""
+def leads_nuevos():
+    """Leads en estado NUEVO sin sureti_lead_id (pendientes de registrar)."""
     with _conexion() as conn:
-        conn.execute(
-            "UPDATE pipeline SET chip = %s WHERE telefono = %s",
-            (chip, telefono),
-        )
-
-
-def registrar_documento(doc: dict):
-    """Inserta un documento en la tabla documentos."""
-    with _conexion() as conn:
-        conn.execute(
-            """
-            INSERT INTO documentos (telefono, tipo, media_id, url_storage, obtenido_automaticamente)
-            VALUES (%(telefono)s, %(tipo)s, %(media_id)s, %(url_storage)s,
-                    %(obtenido_automaticamente)s)
-            ON CONFLICT DO NOTHING
-            """,
-            doc,
-        )
-
-
-def update_avaluo(telefono: str, avaluo: int):
-    """Actualiza el avalúo catastral en pipeline."""
-    with _conexion() as conn:
-        conn.execute(
-            "UPDATE pipeline SET avaluo_catastral = %s WHERE telefono = %s",
-            (avaluo, telefono),
-        )
-
-
-def leads_nuevos() -> list[dict]:
-    """Leads en estado NUEVO listos para enviar a Sureti (tienen docs mínimos)."""
-    with _conexion() as conn:
-        rows = conn.execute(
-            "SELECT * FROM pipeline WHERE estado = 'nuevo' ORDER BY fecha_ingreso"
+        filas = conn.execute(
+            "SELECT id, telefono, nombre, cedula, edad, email, direccion_inmueble, ciudad, "
+            "tipo_inmueble, estrato, es_ph, objetivo_prestamo, valor_solicitado, "
+            "requiere_paz_salvo "
+            "FROM pipeline WHERE (estado = 'NUEVO' OR estado IS NULL) "
+            "AND sureti_lead_id IS NULL",
         ).fetchall()
-        return [dict(r) for r in rows]
+    cols = ("id", "telefono", "nombre", "cedula", "edad", "email", "direccion_inmueble",
+            "ciudad", "tipo_inmueble", "estrato", "es_ph", "objetivo_prestamo",
+            "valor_solicitado", "requiere_paz_salvo")
+    return [dict(zip(cols, f)) for f in filas]
 
 
-def leads_en_seguimiento() -> list[dict]:
-    """Leads activos en Sureti: registrado, en_estudio o aprobado (esperando desembolso)."""
+def leads_en_seguimiento():
+    """Leads registrados en Sureti con estado REGISTRADO, EN_ESTUDIO o APROBADO."""
     with _conexion() as conn:
-        rows = conn.execute(
-            "SELECT * FROM pipeline WHERE estado IN ('registrado', 'en_estudio', 'aprobado')"
+        filas = conn.execute(
+            "SELECT id, telefono, nombre, sureti_lead_id, estado "
+            "FROM pipeline WHERE estado IN ('REGISTRADO', 'EN_ESTUDIO', 'APROBADO') "
+            "AND sureti_lead_id IS NOT NULL",
         ).fetchall()
-        return [dict(r) for r in rows]
+    return [dict(zip(("id", "telefono", "nombre", "sureti_lead_id", "estado"), f))
+            for f in filas]
 
 
-def marcar_registrado_sureti(telefono: str, sureti_lead_id: str):
+def marcar_registrado_sureti(pipeline_id, sureti_lead_id):
     with _conexion() as conn:
         conn.execute(
-            "UPDATE pipeline SET sureti_lead_id = %s, estado = 'registrado' WHERE telefono = %s",
-            (sureti_lead_id, telefono),
+            "UPDATE pipeline SET sureti_lead_id = %s, estado = 'REGISTRADO' WHERE id = %s",
+            (sureti_lead_id, pipeline_id),
         )
 
 
-def actualizar_estado_lead(telefono: str, estado: str, resultado: dict):
+def actualizar_estado_lead(pipeline_id, estado, monto=None, razon=None):
     with _conexion() as conn:
         conn.execute(
-            """UPDATE pipeline SET estado = %s,
-               monto_aprobado = %(monto)s,
-               razon_no_aprobado = %(razon)s,
-               fecha_aprobacion = CASE WHEN %s = 'aprobado' THEN NOW() ELSE fecha_aprobacion END
-               WHERE telefono = %s""",
-            (estado, resultado.get("monto_aprobado"), resultado.get("razon"), estado, telefono),
+            "UPDATE pipeline SET estado = %s, monto_aprobado = COALESCE(%s, monto_aprobado), "
+            "razon_no_aprobado = COALESCE(%s, razon_no_aprobado), "
+            "fecha_aprobacion = CASE WHEN %s = 'APROBADO' THEN NOW() ELSE fecha_aprobacion END "
+            "WHERE id = %s",
+            (estado, monto, razon, estado, pipeline_id),
         )
 
 
-def documentos_de(telefono: str) -> list[dict]:
-    """Retorna todos los documentos de un contacto."""
+def documentos_de(telefono):
+    """Devuelve los documentos disponibles para un teléfono."""
     with _conexion() as conn:
-        rows = conn.execute(
-            "SELECT * FROM documentos WHERE telefono = %s",
+        filas = conn.execute(
+            "SELECT tipo, media_id, url_storage FROM documentos WHERE telefono = %s",
             (telefono,),
         ).fetchall()
-        return [dict(r) for r in rows]
+    return [dict(zip(("tipo", "media_id", "url_storage"), f)) for f in filas]
 
+
+def update_chip(telefono, chip):
+    """Guarda el CHIP catastral en el registro de pipeline más reciente."""
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET chip = %s WHERE telefono = %s AND id = ("
+            "  SELECT id FROM pipeline WHERE telefono = %s ORDER BY fecha_ingreso DESC LIMIT 1"
+            ")",
+            (chip, telefono, telefono),
+        )
+
+
+def registrar_documento(telefono, tipo, media_id, url_storage):
+    with _conexion() as conn:
+        conn.execute(
+            "INSERT INTO documentos (telefono, tipo, media_id, url_storage) "
+            "VALUES (%s, %s, %s, %s)",
+            (telefono, tipo, media_id, url_storage),
+        )
+
+
+def update_avaluo(telefono, avaluo, direccion=None, matricula=None):
+    """Actualiza el avalúo catastral y opcionalmente la dirección/matrícula en pipeline."""
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET avaluo_catastral = %s, "
+            "matricula_numero = COALESCE(%s, matricula_numero) "
+            "WHERE telefono = %s AND id = ("
+            "  SELECT id FROM pipeline WHERE telefono = %s ORDER BY fecha_ingreso DESC LIMIT 1"
+            ")",
+            (avaluo, matricula, telefono, telefono),
+        )
+
+
+# === Remarketing (Hito 8 — Paso 5) ==========================================
 
 def contactos_sin_respuesta(dias: int, tipo_remarketing: str) -> list[dict]:
-    """
-    Contactos que no han respondido después de N días del primer contacto,
-    y a los que aún no se les envió el tipo de remarketing indicado.
-    """
+    """Contactos con resultado 'no_responde' cuya fecha_contacto fue hace N días
+    y que aún no recibieron el tipo de remarketing indicado."""
     with _conexion() as conn:
-        rows = conn.execute(
-            """
-            SELECT c.telefono, c.nombre, c.direccion, c.precio_publicado
-            FROM contactos c
-            WHERE c.contactado = TRUE
-              AND c.resultado_contacto IN ('plantilla_enviada', 'no_responde')
-              AND c.fecha_contacto <= NOW() - INTERVAL '%(dias)s days'
-              AND c.no_contactar = FALSE
-              AND NOT EXISTS (
-                SELECT 1 FROM remarketing r
-                WHERE r.telefono = c.telefono AND r.tipo = %(tipo)s
-              )
-            AT TIME ZONE 'America/Bogota'
-            ORDER BY c.fecha_contacto
-            LIMIT 100
-            """,
-            {"dias": dias, "tipo": tipo_remarketing},
+        filas = conn.execute(
+            "SELECT telefono, nombre, direccion, precio_publicado FROM contactos "
+            "WHERE resultado_contacto = 'no_responde' "
+            "AND NOT COALESCE(no_contactar, FALSE) "
+            "AND fecha_contacto IS NOT NULL "
+            "AND (fecha_contacto AT TIME ZONE 'America/Bogota')::date = "
+            "    (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date - %s "
+            "AND telefono NOT IN ("
+            "    SELECT telefono FROM remarketing WHERE tipo = %s"
+            ")",
+            (dias, tipo_remarketing),
         ).fetchall()
-        return [dict(r) for r in rows]
+    return [dict(zip(("telefono", "nombre", "direccion", "precio_publicado"), f))
+            for f in filas]
 
 
-def contactos_paz_salvo_pendiente(dias: int, tipo_remarketing: str) -> list[dict]:
-    """
-    Leads que respondieron 'Sí' a ponerse al día con paz y salvos,
-    pero no han avanzado después de N días.
-    """
-    with _conexion() as conn:
-        rows = conn.execute(
-            """
-            SELECT p.telefono, p.nombre, p.direccion_inmueble AS direccion,
-                   c.precio_publicado
-            FROM pipeline p
-            LEFT JOIN contactos c ON c.telefono = p.telefono
-            WHERE p.requiere_paz_salvo = TRUE
-              AND p.estado NOT IN ('enviado_sureti', 'registrado', 'en_estudio',
-                                   'aprobado', 'cerrado')
-              AND p.fecha_ingreso <= NOW() - INTERVAL '%(dias)s days'
-              AND NOT EXISTS (
-                SELECT 1 FROM remarketing r
-                WHERE r.telefono = p.telefono AND r.tipo = %(tipo)s
-              )
-            ORDER BY p.fecha_ingreso
-            LIMIT 50
-            """,
-            {"dias": dias, "tipo": tipo_remarketing},
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def registrar_remarketing_envio(telefono: str, tipo: str, mensaje: str):
+def registrar_remarketing_envio(telefono: str, tipo: str, mensaje: str) -> None:
     with _conexion() as conn:
         conn.execute(
             "INSERT INTO remarketing (telefono, tipo, mensaje_enviado, fecha_envio) "
@@ -364,56 +346,64 @@ def registrar_remarketing_envio(telefono: str, tipo: str, mensaje: str):
         )
 
 
-def calcular_comision(monto_aprobado: int) -> int:
-    """
-    Comisión de Massi sobre el monto desembolsado (en COP):
-      3.5% para $15M–$99M
-      3.0% para $100M–$399M
-      2.5% para $400M+
-    Devuelve la comisión en COP (entero).
-    """
-    if monto_aprobado <= 0:
-        return 0
-    m = monto_aprobado / 1_000_000
-    if m < 100:
-        tasa = 0.035
-    elif m < 400:
-        tasa = 0.030
-    else:
-        tasa = 0.025
-    return round(monto_aprobado * tasa)
-
-
-def registrar_desembolso(telefono: str, monto_aprobado: int, comision: int):
-    """Marca el lead como desembolsado y registra comisión y fecha."""
+def cerrar_contacto(telefono: str) -> None:
     with _conexion() as conn:
         conn.execute(
-            """UPDATE pipeline
-               SET estado = 'desembolsado',
-                   fecha_desembolso = NOW(),
-                   monto_aprobado = COALESCE(%s, monto_aprobado),
-                   comision = %s,
-                   comision_cobrada = FALSE
-               WHERE telefono = %s""",
-            (monto_aprobado or None, comision, telefono),
-        )
-
-
-def marcar_comision_cobrada(telefono: str):
-    with _conexion() as conn:
-        conn.execute(
-            "UPDATE pipeline SET comision_cobrada = TRUE WHERE telefono = %s",
+            "UPDATE contactos SET resultado_contacto = 'cerrado' WHERE telefono = %s",
             (telefono,),
         )
 
 
-def cerrar_contacto(telefono: str, razon: str = "cerrado"):
+# === Comisión y desembolso (Hito 10) =========================================
+
+def calcular_comision(monto_aprobado: int) -> int | None:
+    """Escala: 3.5 % ($15M–$99M), 3 % ($100M–$399M), 2.5 % ($400M+)."""
+    if not monto_aprobado or monto_aprobado <= 0:
+        return None
+    if monto_aprobado < 100_000_000:
+        return round(monto_aprobado * 0.035)
+    if monto_aprobado < 400_000_000:
+        return round(monto_aprobado * 0.030)
+    return round(monto_aprobado * 0.025)
+
+
+def registrar_desembolso(pipeline_id: int, monto: int, fecha=None) -> int | None:
+    """Marca el lead como DESEMBOLSADO y guarda la comisión calculada."""
+    comision = calcular_comision(monto)
     with _conexion() as conn:
         conn.execute(
-            "UPDATE contactos SET resultado_contacto = %s WHERE telefono = %s",
-            (razon, telefono),
+            "UPDATE pipeline SET estado = 'DESEMBOLSADO', "
+            "fecha_desembolso = COALESCE(%s::timestamptz, NOW()), "
+            "comision = %s "
+            "WHERE id = %s",
+            (fecha, comision, pipeline_id),
         )
+    return comision
+
+
+def marcar_comision_cobrada(pipeline_id: int) -> None:
+    with _conexion() as conn:
         conn.execute(
-            "UPDATE pipeline SET estado = 'cerrado' WHERE telefono = %s",
-            (telefono,),
+            "UPDATE pipeline SET comision_cobrada = TRUE WHERE id = %s",
+            (pipeline_id,),
         )
+
+
+# === Remarketing paz y salvos (Hito 10) =====================================
+
+def leads_paz_salvo_por_contactar(dias: int) -> list[dict]:
+    """Leads en 'pausado_paz_salvo' cuya fecha_ingreso fue hace exactamente N días
+    y que aún no recibieron el recordatorio correspondiente."""
+    tipo = f"paz_salvo_dia_{dias}"
+    with _conexion() as conn:
+        filas = conn.execute(
+            "SELECT id, telefono, nombre FROM pipeline "
+            "WHERE estado = 'pausado_paz_salvo' "
+            "AND NOT COALESCE((SELECT no_contactar FROM contactos "
+            "                  WHERE contactos.telefono = pipeline.telefono LIMIT 1), FALSE) "
+            "AND (fecha_ingreso AT TIME ZONE 'America/Bogota')::date = "
+            "    (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date - %s "
+            "AND telefono NOT IN (SELECT telefono FROM remarketing WHERE tipo = %s)",
+            (dias, tipo),
+        ).fetchall()
+    return [dict(zip(("id", "telefono", "nombre"), f)) for f in filas]

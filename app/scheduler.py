@@ -1,157 +1,113 @@
-"""APScheduler: tareas periódicas de Massi.
+"""Verificación periódica del estado de leads en Sureti.
 
-Jobs:
-  - Scraper:       cada 2h → correr_todos()
-  - Sureti check:  cada 2h → revisar leads en_estudio/registrado
-  - Remarketing:   9am hora Colombia (L-V, no festivos)
+Cada 2 horas:
+  1. registrar_nuevos() — toma leads en estado 'NUEVO' sin sureti_lead_id y
+     los registra en el portal (si DATABASE_URL y SURETI_EMAIL están activos).
+  2. revisar_leads()    — consulta el estado de leads en 'REGISTRADO' o
+     'EN_ESTUDIO' y, si cambió, actualiza la BD y avisa al cliente por WA.
 
-Se inicia desde server.py al arrancar la app (iniciar()).
-Usa BackgroundScheduler (hilo separado en el mismo proceso).
+APScheduler se usa en modo Background (no bloquea Gunicorn).
 """
 import logging
 import os
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
-
-from app import db, whatsapp
 
 log = logging.getLogger("petra")
 
-ZONA = ZoneInfo("America/Bogota")
 _scheduler = None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Jobs
-# ─────────────────────────────────────────────────────────────────────────────
+def iniciar():
+    global _scheduler
+    db_url   = os.environ.get("DATABASE_URL", "").strip()
+    email    = os.environ.get("SURETI_EMAIL", "").strip()
 
-def _job_scraper():
-    """Corre todos los scrapers."""
+    if not db_url:
+        log.info("[Scheduler] Sin DATABASE_URL — no se inicia.")
+        return
+    if not email:
+        log.info("[Scheduler] Sin SURETI_EMAIL — scheduler en modo dry-run.")
+
+    from apscheduler.schedulers.background import BackgroundScheduler
+    _scheduler = BackgroundScheduler(timezone="America/Bogota")
+    _scheduler.add_job(revisar_leads,    "interval", hours=2, id="revisar_leads",
+                       max_instances=1, coalesce=True)
+    _scheduler.add_job(registrar_nuevos, "interval", hours=2, id="registrar_nuevos",
+                       max_instances=1, coalesce=True,
+                       start_date="2000-01-01 00:05:00")  # 5 min desfase inicial
+    _scheduler.add_job(_remarketing_job, "cron", hour=9, minute=0,
+                       id="remarketing", max_instances=1, coalesce=True)
+    _scheduler.add_job(_export_job, "cron", hour=6, minute=0,
+                       id="export_sheets", max_instances=1, coalesce=True)
+    _scheduler.start()
+    log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá.")
+
+
+# ---------------------------------------------------------------------------
+
+def registrar_nuevos():
+    """Registra en Sureti los leads que aún no tienen sureti_lead_id."""
+    from app import db, sureti
+    leads = db.leads_nuevos()
+    if not leads:
+        return
+    log.info("[Scheduler] %d leads nuevos por registrar.", len(leads))
+    for lead in leads:
+        try:
+            docs = db.documentos_de(lead["telefono"])
+            lead_id = sureti.registrar_lead(lead, docs)
+            db.marcar_registrado_sureti(lead["id"], lead_id)
+            log.info("[Scheduler] Lead %s registrado en Sureti → %s", lead["id"], lead_id)
+        except Exception:
+            log.exception("[Scheduler] Error registrando lead %s", lead.get("id"))
+
+
+def _remarketing_job():
+    from app import remarketing
     try:
-        from app.scraper import correr_todos
-        correr_todos()
-    except Exception:
-        log.exception("[Scheduler] Error en scraper.")
-
-
-def _job_remarketing():
-    """Ronda de remarketing."""
-    try:
-        from app import remarketing
         remarketing.ejecutar()
     except Exception:
         log.exception("[Scheduler] Error en remarketing.")
 
 
-def _job_revisar_leads():
-    """Consulta estado de leads en Sureti y notifica al vendedor."""
+def _export_job():
+    from app import export
     try:
-        from app import sureti
-        leads = db.leads_en_seguimiento()
-        for lead in leads:
-            if not lead.get("sureti_lead_id"):
-                continue
-            resultado = sureti.consultar_estado(lead["sureti_lead_id"])
-            estado = resultado.get("estado")
-            if estado == lead.get("estado"):
-                continue  # Sin cambio
-
-            telefono = lead["telefono"]
-            db.actualizar_estado_lead(telefono, estado, resultado)
-
-            if estado == "desembolsado":
-                monto = resultado.get("monto_aprobado", 0) or 0
-                comision = db.calcular_comision(monto)
-                db.registrar_desembolso(telefono, monto, comision)
-                monto_m = round(monto / 1_000_000)
-                whatsapp.send_credito_desembolsado(telefono, monto_m)
-                log.info(
-                    "[Scheduler] Desembolso: %s — $%dM — comisión $%s COP",
-                    telefono, monto_m, f"{comision:,}",
-                )
-
-            elif estado == "aprobado":
-                monto = resultado.get("monto_aprobado", 0) or 0
-                monto_m = round(monto / 1_000_000)
-                whatsapp.send_credito_aprobado(telefono, monto_m)
-                log.info("[Scheduler] Lead aprobado: %s — $%dM", telefono, monto_m)
-
-            elif estado == "no_aprobado":
-                razon = resultado.get("razon", "")
-                whatsapp.send_credito_rechazado(telefono, razon)
-                log.info("[Scheduler] Lead rechazado: %s — %s", telefono, razon)
-
+        export.ejecutar()
     except Exception:
-        log.exception("[Scheduler] Error revisando leads.")
+        log.exception("[Scheduler] Error en export sheets.")
 
 
-def _job_registrar_nuevos():
-    """Registra leads nuevos (estado=NUEVO) en Sureti."""
-    try:
-        from app import sureti
-        leads = db.leads_nuevos()
-        for lead in leads:
-            docs = {d["tipo"]: d["url_storage"] for d in db.documentos_de(lead["telefono"])}
-            lead_id = sureti.registrar_lead(lead, docs)
-            if lead_id:
-                db.marcar_registrado_sureti(lead["telefono"], lead_id)
-                whatsapp.send_solicitud_enviada(lead["telefono"])
-                log.info("[Scheduler] Lead registrado en Sureti: %s → %s", lead["telefono"], lead_id)
-    except Exception:
-        log.exception("[Scheduler] Error registrando nuevos leads.")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Inicialización
-# ─────────────────────────────────────────────────────────────────────────────
-
-def iniciar():
-    global _scheduler
-    if _scheduler is not None:
+def revisar_leads():
+    """Consulta el estado de leads en seguimiento y avisa al cliente si cambió."""
+    from app import db, sureti, whatsapp
+    leads = db.leads_en_seguimiento()
+    if not leads:
         return
+    log.info("[Scheduler] Revisando %d leads en Sureti.", len(leads))
+    for lead in leads:
+        try:
+            resultado = sureti.consultar_estado(lead["sureti_lead_id"])
+            nuevo_estado = resultado.get("estado", "").upper()
+            if not nuevo_estado or nuevo_estado == lead["estado"].upper():
+                continue  # sin cambio
 
-    _scheduler = BackgroundScheduler(timezone="America/Bogota")
+            monto = resultado.get("monto_aprobado")
+            razon = resultado.get("razon")
+            fecha_desembolso = resultado.get("fecha_desembolso")
+            telefono = lead["telefono"]
+            nombre   = lead.get("nombre") or ""
+            nombre_corto = nombre.split()[0] if nombre else ""
 
-    # Scraper cada 2h
-    if os.environ.get("SCRAPER_ENABLED", "false").lower() == "true":
-        _scheduler.add_job(
-            _job_scraper,
-            trigger=IntervalTrigger(hours=2),
-            id="scraper",
-            replace_existing=True,
-        )
-        log.info("[Scheduler] Scraper registrado (cada 2h).")
-
-    # Revisar leads en Sureti cada 2h
-    _scheduler.add_job(
-        _job_revisar_leads,
-        trigger=IntervalTrigger(hours=2),
-        id="revisar_leads",
-        replace_existing=True,
-    )
-
-    # Registrar leads nuevos cada 30 min
-    _scheduler.add_job(
-        _job_registrar_nuevos,
-        trigger=IntervalTrigger(minutes=30),
-        id="registrar_nuevos",
-        replace_existing=True,
-    )
-
-    # Remarketing: 9am Colombia L-V
-    _scheduler.add_job(
-        _job_remarketing,
-        trigger=CronTrigger(
-            hour=9, minute=0, day_of_week="mon-fri",
-            timezone="America/Bogota",
-        ),
-        id="remarketing",
-        replace_existing=True,
-    )
-
-    _scheduler.start()
-    log.info("[Scheduler] APScheduler iniciado.")
+            if nuevo_estado == "DESEMBOLSADO":
+                comision = db.registrar_desembolso(lead["id"], monto, fecha_desembolso)
+                log.info("[Scheduler] Lead %s desembolsado — comisión: %s", lead["id"], comision)
+                whatsapp.send_credito_desembolsado(telefono, nombre_corto, monto, comision)
+            else:
+                db.actualizar_estado_lead(lead["id"], nuevo_estado, monto=monto, razon=razon)
+                log.info("[Scheduler] Lead %s: %s → %s", lead["id"], lead["estado"], nuevo_estado)
+                if nuevo_estado == "APROBADO":
+                    whatsapp.send_credito_aprobado(telefono, nombre_corto, monto)
+                elif nuevo_estado == "RECHAZADO":
+                    whatsapp.send_credito_rechazado(telefono, razon)
+        except Exception:
+            log.exception("[Scheduler] Error revisando lead %s", lead.get("id"))

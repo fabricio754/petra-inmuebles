@@ -1,256 +1,148 @@
-"""Obtención automática de documentos sin pedirle nada al vendedor.
+"""Obtención automática de datos catastrales.
 
-Flujo por inmueble:
-  1. obtener_chip(direccion, ciudad)   → CHIP catastral (solo Bogotá por ahora)
-  2. descargar_ctl(chip)               → PDF de Certificado de Tradición y Libertad (SNR)
-  3. descargar_predial(dir, ced, city) → PDF/imagen del recibo de predial
+obtener_chip(direccion, ciudad)
+  → str  si ciudad es Bogotá y ArcGIS responde con un candidato válido
+  → None para cualquier otra ciudad (no existe equivalente público) o si falla
 
-El CHIP de Bogotá viene de la API pública de catastro (ArcGIS IDECA).
-El CTL viene de certificados.supernotariado.gov.co (Playwright + CAPTCHA matemático simple).
-El predial de Bogotá viene de shd.gov.co (Playwright).
-Otras ciudades: TODO a medida que se expanda cobertura.
+El CHIP (Código Homologado de Inmueble y Predio) se consulta al geocodificador
+público de Catastro Bogotá (IDECA). No requiere API key.
 """
 import logging
-import os
 import re
-import unicodedata
-from pathlib import Path
 
 import requests
 
 log = logging.getLogger("petra")
 
-MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", "/var/data/media"))
-
-# === ArcGIS IDECA — catastro Bogotá =========================================
-
-_ARCGIS_URL = (
-    "https://serviciosgis.catastrobogota.gov.co"
-    "/arcgis/rest/services/catastro/lote/MapServer/3/query"
+# Geocodificador de Catastro Bogotá (IDECA) — público, sin auth.
+_GEOCODER_URL = (
+    "https://geocodificador.catastrobogota.gov.co/arcgis/rest/services"
+    "/Geocodificador/GeocodeServer/findAddressCandidates"
 )
+# Fallback: consulta directa a la capa de predios por dirección normalizada.
+_PREDIOS_URL = (
+    "https://serviciosgis.catastrobogota.gov.co/arcgis/rest/services"
+    "/catastro/predios/FeatureServer/0/query"
+)
+_TIMEOUT = 12
+_SCORE_MIN = 70  # confianza mínima del geocodificador (0-100)
 
+# Todos los aliases que el bot usa para "Bogotá".
+_BOGOTA = {"bogota", "bogotá", "santa fe de bogotá", "dc", "distrito capital", "bogota dc"}
 
-def _normalizar_dir(d: str) -> str:
-    """
-    Convierte "Calle 100 # 15-20" → "CL 100 15 20" (formato catastral).
-    Solo aplica a Bogotá; otras ciudades devuelven tal cual.
-    """
-    d = unicodedata.normalize("NFD", d.lower())
-    d = "".join(c for c in d if unicodedata.category(c) != "Mn")
-    d = re.sub(r"[#\-]", " ", d)
-    replacements = [
-        (r"\bcalle\b", "CL"), (r"\bcarrera\b", "CR"), (r"\bavenida calle\b", "AC"),
-        (r"\bavenida carrera\b", "AK"), (r"\bdiagonal\b", "DG"), (r"\btransversal\b", "TV"),
-        (r"\bcl\b", "CL"), (r"\bcr\b", "CR"), (r"\bkr\b", "CR"),
-    ]
-    d = d.upper()
-    for pat, rep in replacements:
-        d = re.sub(pat, rep, d, flags=re.I)
-    d = re.sub(r"\s+", " ", d).strip()
-    return d
+# Abreviaciones del catastro bogotano.
+_ABREVS = [
+    (r"\b(calle|cl\.?)\s*", "CL "),
+    (r"\b(carrera|cra?\.?|kr\.?)\s*", "KR "),
+    (r"\b(diagonal|dg\.?)\s*", "DG "),
+    (r"\b(transversal|tv\.?)\s*", "TV "),
+    (r"\b(avenida|av\.?)\s+calle\b", "AC "),
+    (r"\b(avenida|av\.?)\s+carrera\b", "AK "),
+    (r"\b(avenida|av\.?)\s*", "AV "),
+    (r"\s*#\s*", " "),       # elimina el símbolo #
+    (r"\s+", " "),           # colapsa espacios
+]
 
 
 def obtener_chip(direccion: str, ciudad: str) -> str | None:
+    """Devuelve el CHIP catastral o None.
+
+    Para ciudades distintas a Bogotá retorna None de inmediato: no hay
+    equivalente ArcGIS público para Medellín, Barranquilla, etc.
     """
-    Busca el CHIP catastral por dirección.
-    Solo implementado para Bogotá. Otras ciudades devuelven None.
-    Retorna el CHIP (str) o None si no se encuentra.
-    """
-    if "bogot" not in ciudad.lower():
+    if ciudad.strip().lower() not in _BOGOTA:
+        log.info("[CHIP] Ciudad '%s' — sin consulta ArcGIS disponible; continúa sin CHIP.", ciudad)
         return None
+    return _chip_bogota(direccion)
 
-    dir_norm = _normalizar_dir(direccion)
 
-    def _consultar(where_clause):
-        try:
-            r = requests.get(
-                _ARCGIS_URL,
-                params={
-                    "where": where_clause,
-                    "outFields": "PRECHIP,PREDIRECC,PRENUPRE",
-                    "f": "json",
-                    "returnGeometry": "false",
-                },
-                timeout=15,
-            )
-            r.raise_for_status()
-            features = r.json().get("features", [])
-            if not features:
-                return None
-            # Tomar el primer resultado con score suficiente
-            attr = features[0]["attributes"]
-            return attr.get("PRECHIP") or attr.get("PRENUPRE")
-        except Exception as e:
-            log.warning("[DocsAuto] ArcGIS error: %s", e)
-            return None
+# ---------------------------------------------------------------------------
+# Internos
+# ---------------------------------------------------------------------------
 
-    # Intento 1: LIKE exacto normalizado
-    chip = _consultar(f"PREDIRECC LIKE '%{dir_norm}%'")
+def _normalizar(direccion: str) -> str:
+    """Convierte abreviaciones al formato que espera el geocodificador."""
+    d = direccion.upper().strip()
+    for patron, reemplazo in _ABREVS:
+        d = re.sub(patron, reemplazo, d, flags=re.IGNORECASE)
+    return d.strip()
+
+
+def _extraer_chip(atributos: dict) -> str | None:
+    """Busca el campo CHIP en las claves que puede devolver ArcGIS."""
+    for campo in ("CHIP_PREDIO", "CHIP", "Chip", "chip", "NUMERO_CHIP", "numero_chip"):
+        val = atributos.get(campo)
+        if val and str(val).strip() not in ("", "None", "null"):
+            return str(val).strip()
+    return None
+
+
+def _chip_bogota(direccion: str) -> str | None:
+    """Primer intento: geocodificador. Segundo: FeatureServer."""
+    chip = _geocoder(direccion)
     if chip:
         return chip
-
-    # Intento 2: solo el segmento de vía (primeras palabras)
-    partes = dir_norm.split()[:3]
-    if len(partes) >= 2:
-        chip = _consultar(f"PREDIRECC LIKE '%{' '.join(partes)}%'")
-
-    return chip
+    return _feature_server(direccion)
 
 
-# === SNR — Certificado de Tradición y Libertad ==============================
-
-_SNR_URL = "https://certificados.supernotariado.gov.co"
-
-
-def descargar_ctl(chip: str, destino_dir: Path) -> str | None:
-    """
-    Descarga el CTL desde el SNR usando Playwright.
-    Requiere SURETI_EMAIL / SURETI_PASSWORD o SNR_USER / SNR_PASSWORD.
-
-    ⚠️  Los selectores son estimados — verificar en primera ejecución real.
-
-    Retorna la ruta del PDF descargado, o None si falla.
-    """
+def _geocoder(direccion: str) -> str | None:
+    normalizada = _normalizar(direccion)
     try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log.error("[DocsAuto] playwright no instalado.")
-        return None
-
-    snr_user = os.environ.get("SNR_USER", "")
-    snr_pass = os.environ.get("SNR_PASS", "")
-    if not snr_user or not snr_pass:
-        log.warning("[DocsAuto] SNR_USER / SNR_PASS no configurados — omitiendo CTL.")
-        return None
-
-    destino_dir.mkdir(parents=True, exist_ok=True)
-    ruta_pdf = destino_dir / f"ctl_{chip}.pdf"
-    if ruta_pdf.exists():
-        return str(ruta_pdf)
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        resp = requests.get(
+            _GEOCODER_URL,
+            params={
+                "SingleLine": normalizada,
+                "outFields": "CHIP_PREDIO,CHIP,NUMERO_CHIP",
+                "returnGeometry": "false",
+                "maxLocations": 1,
+                "f": "json",
+            },
+            timeout=_TIMEOUT,
         )
-        page = browser.new_page()
-        try:
-            page.goto(f"{_SNR_URL}/certificados/", timeout=30_000)
-            page.wait_for_load_state("networkidle")
-
-            # ⚠️ Selectores estimados — verificar con producción
-            page.fill("#usuario", snr_user)
-            page.fill("#contrasena", snr_pass)
-
-            # CAPTCHA matemático simple: "¿Cuánto es 3 + 5?"
-            cap_text = page.inner_text(".captcha-pregunta, #captcha-text, .question").strip()
-            m = re.search(r"(\d+)\s*\+\s*(\d+)", cap_text)
-            if m:
-                page.fill("#captcha-respuesta, #captchaAnswer", str(int(m.group(1)) + int(m.group(2))))
-
-            page.click("button[type='submit'], #btnIngresar, input[value='Ingresar']")
-            page.wait_for_load_state("networkidle")
-
-            # Buscar por CHIP/número predial
-            page.fill("#chipInput, #numeroPredial, [name='chip']", chip)
-            page.click("#btnBuscar, button:has-text('Buscar'), [value='Buscar']")
-            page.wait_for_load_state("networkidle")
-
-            # Descargar PDF
-            with page.expect_download() as dl:
-                page.click(".descargar-ctl, a:has-text('Descargar'), button:has-text('PDF')")
-            download = dl.value
-            download.save_as(str(ruta_pdf))
-            log.info("[DocsAuto] CTL descargado → %s", ruta_pdf)
-            return str(ruta_pdf)
-
-        except Exception as e:
-            log.error("[DocsAuto] Error descargando CTL para CHIP %s: %s", chip, e)
+        resp.raise_for_status()
+        candidates = resp.json().get("candidates", [])
+        if not candidates:
             return None
-        finally:
-            browser.close()
-
-
-# === Predial Bogotá — SHD ===================================================
-
-def descargar_predial(direccion: str, cedula: str, ciudad: str, destino_dir: Path) -> str | None:
-    """
-    Descarga el recibo de predial desde el portal municipal.
-    Actualmente solo implementado para Bogotá (shd.gov.co).
-
-    ⚠️  Los selectores son estimados — verificar en primera ejecución real.
-
-    Retorna la ruta del archivo descargado, o None si falla.
-    """
-    if "bogot" not in ciudad.lower():
-        log.info("[DocsAuto] Predial solo para Bogotá por ahora (ciudad: %s).", ciudad)
+        top = candidates[0]
+        if top.get("score", 0) < _SCORE_MIN:
+            log.info("[CHIP] Geocoder: score bajo (%.0f) para '%s'.", top.get("score", 0), normalizada)
+            return None
+        chip = _extraer_chip(top.get("attributes", {}))
+        if chip:
+            log.info("[CHIP] Geocoder OK: %s → %s", normalizada, chip)
+        return chip
+    except Exception:
+        log.exception("[CHIP] Error consultando geocodificador para '%s'.", direccion)
         return None
 
+
+def _feature_server(direccion: str) -> str | None:
+    normalizada = _normalizar(direccion)
     try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log.error("[DocsAuto] playwright no instalado.")
+        resp = requests.get(
+            _PREDIOS_URL,
+            params={
+                "where": f"UPPER(DIRECCION) LIKE UPPER('%{_like_safe(normalizada)}%')",
+                "outFields": "CHIP_PREDIO,CHIP,DIRECCION",
+                "returnGeometry": "false",
+                "resultRecordCount": 1,
+                "f": "json",
+            },
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+        features = resp.json().get("features", [])
+        if not features:
+            return None
+        chip = _extraer_chip(features[0].get("attributes", {}))
+        if chip:
+            log.info("[CHIP] FeatureServer OK: %s → %s", normalizada, chip)
+        return chip
+    except Exception:
+        log.exception("[CHIP] Error consultando FeatureServer para '%s'.", direccion)
         return None
 
-    destino_dir.mkdir(parents=True, exist_ok=True)
-    ruta = destino_dir / f"predial_{cedula}.pdf"
-    if ruta.exists():
-        return str(ruta)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
-        page = browser.new_page()
-        try:
-            # Portal SHD Bogotá
-            page.goto("https://shd.gov.co/predial", timeout=30_000)
-            page.wait_for_load_state("networkidle")
-
-            # ⚠️ Selectores estimados — verificar
-            page.fill("[name='cedula'], #cedula, #identificacion", cedula)
-            page.fill("[name='direccion'], #direccion", direccion[:80])
-            page.click("button[type='submit'], #btnConsultar, button:has-text('Consultar')")
-            page.wait_for_load_state("networkidle")
-
-            # Intentar descargar recibo
-            with page.expect_download(timeout=30_000) as dl:
-                page.click(".btn-predial, a:has-text('Recibo'), button:has-text('Descargar')")
-            download = dl.value
-            download.save_as(str(ruta))
-            log.info("[DocsAuto] Predial descargado → %s", ruta)
-            return str(ruta)
-
-        except Exception as e:
-            log.error("[DocsAuto] Error descargando predial (cedula %s): %s", cedula, e)
-            return None
-        finally:
-            browser.close()
-
-
-def obtener_docs_automaticos(telefono: str, direccion: str, cedula: str, ciudad: str) -> dict:
-    """
-    Función principal: obtiene CHIP + CTL + predial para un lead.
-    Retorna dict con rutas (puede tener None en campos que no se consiguieron).
-    """
-    from app import db
-
-    destino = MEDIA_DIR / telefono
-
-    chip = obtener_chip(direccion, ciudad)
-    if chip:
-        db.update_chip(telefono, chip)
-        log.info("[DocsAuto] CHIP para %s: %s", telefono, chip)
-
-    ctl = None
-    if chip:
-        ctl = descargar_ctl(chip, destino)
-
-    predial = descargar_predial(direccion, cedula, ciudad, destino)
-
-    return {
-        "chip": chip,
-        "ctl": ctl,
-        "predial": predial,
-    }
+def _like_safe(s: str) -> str:
+    """Escapa % y _ para evitar inyección en cláusula LIKE."""
+    return s.replace("%", r"\%").replace("_", r"\_")
