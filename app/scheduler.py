@@ -32,9 +32,12 @@ def iniciar():
     _scheduler.add_job(revisar_leads,    "interval", hours=2, id="revisar_leads",
                        max_instances=1, coalesce=True)
     _scheduler.add_job(registrar_nuevos, "interval", hours=2, id="registrar_nuevos",
-                       max_instances=1, coalesce=True, minutes=5)  # 5 min desfase
+                       max_instances=1, coalesce=True,
+                       start_date="2000-01-01 00:05:00")  # 5 min desfase inicial
+    _scheduler.add_job(_remarketing_job, "cron", hour=9, minute=0,
+                       id="remarketing", max_instances=1, coalesce=True)
     _scheduler.start()
-    log.info("[Scheduler] Iniciado — revisión Sureti cada 2 horas.")
+    log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing diario 9am Bogotá.")
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +57,14 @@ def registrar_nuevos():
             log.info("[Scheduler] Lead %s registrado en Sureti → %s", lead["id"], lead_id)
         except Exception:
             log.exception("[Scheduler] Error registrando lead %s", lead.get("id"))
+
+
+def _remarketing_job():
+    from app import remarketing
+    try:
+        remarketing.ejecutar()
+    except Exception:
+        log.exception("[Scheduler] Error en remarketing.")
 
 
 def revisar_leads():

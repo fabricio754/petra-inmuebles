@@ -313,3 +313,42 @@ def update_avaluo(telefono, avaluo, direccion=None, matricula=None):
             ")",
             (avaluo, matricula, telefono, telefono),
         )
+
+
+# === Remarketing (Hito 8 — Paso 5) ==========================================
+
+def contactos_sin_respuesta(dias: int, tipo_remarketing: str) -> list[dict]:
+    """Contactos con resultado 'no_responde' cuya fecha_contacto fue hace N días
+    y que aún no recibieron el tipo de remarketing indicado."""
+    with _conexion() as conn:
+        filas = conn.execute(
+            "SELECT telefono, nombre, direccion, precio_publicado FROM contactos "
+            "WHERE resultado_contacto = 'no_responde' "
+            "AND NOT COALESCE(no_contactar, FALSE) "
+            "AND fecha_contacto IS NOT NULL "
+            "AND (fecha_contacto AT TIME ZONE 'America/Bogota')::date = "
+            "    (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date - %s "
+            "AND telefono NOT IN ("
+            "    SELECT telefono FROM remarketing WHERE tipo = %s"
+            ")",
+            (dias, tipo_remarketing),
+        ).fetchall()
+    return [dict(zip(("telefono", "nombre", "direccion", "precio_publicado"), f))
+            for f in filas]
+
+
+def registrar_remarketing_envio(telefono: str, tipo: str, mensaje: str) -> None:
+    with _conexion() as conn:
+        conn.execute(
+            "INSERT INTO remarketing (telefono, tipo, mensaje_enviado, fecha_envio) "
+            "VALUES (%s, %s, %s, NOW())",
+            (telefono, tipo, mensaje),
+        )
+
+
+def cerrar_contacto(telefono: str) -> None:
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE contactos SET resultado_contacto = 'cerrado' WHERE telefono = %s",
+            (telefono,),
+        )
