@@ -914,7 +914,25 @@ def correr_todos():
     Orden: PropDirecto → Metrocuadrado → Finca Raíz → Ciencuadras."""
     log.info("[Scraper] Iniciando ronda.")
     chromium_path = os.environ.get("PLAYWRIGHT_CHROMIUM_PATH", "")
-    launch_kwargs: dict = {"headless": True, "args": ["--no-sandbox", "--disable-dev-shm-usage"]}
+    launch_kwargs: dict = {
+        "headless": True,
+        "args": [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--no-zygote",
+            "--single-process",
+            "--disable-extensions",
+            "--disable-background-networking",
+            "--disable-default-apps",
+            "--disable-sync",
+            "--hide-scrollbars",
+            "--mute-audio",
+            "--no-first-run",
+            "--disable-setuid-sandbox",
+            "--disable-software-rasterizer",
+        ],
+    }
     if chromium_path:
         launch_kwargs["executable_path"] = chromium_path
 
