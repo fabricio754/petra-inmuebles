@@ -7,7 +7,7 @@ ver `docs/TRASPASO.md`.
 Reglas: se trabaja en la rama `claude/busy-albattani-etg12j`; nada entra a `main` sin
 autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el chat.
 
-## Hito 5 — Infraestructura (≈ USD 13/mes) — HECHO (2 oct 2026), falta la copia diaria a la Sheet
+## Hito 5 — Infraestructura (≈ USD 13/mes) — HECHO (3 oct 2026)
 - Usuario: Render plan Starter (USD 7) + Postgres Basic-256mb (USD 6), guiado.
 - Claude: tablas `contactos`, `sesiones`, `pipeline`, `documentos`, `remarketing`;
   `state.py` a Postgres sin cambiar sus funciones; migrar datos de la Sheet;
@@ -16,7 +16,8 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
 - Estado: Render plan 0.5c-512mb, Postgres `massi-db` (0.1c-256mb, PG 18, Virginia),
   `DATABASE_URL` en Render, Start Command
   `gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app`.
-  Importó de la Sheet: 6 inmuebles, 2 sesiones, 5 contactos. Pendiente: copia diaria a la Sheet.
+  Importó de la Sheet: 6 inmuebles, 2 sesiones, 5 contactos.
+  Exportación diaria 6am → Sheet (pestañas Pipeline + Captacion): `app/export.py`, job en scheduler.
 - MCP de Render: EN PAUSA. El conector oficial queda "Connected" pero toda llamada devuelve
   `unauthorized` (probado en 3 sesiones). Se sigue con capturas; reintentar más adelante.
 
@@ -76,12 +77,13 @@ Solución acordada:
 - Si el acceso falla dos veces: aviso al usuario por WhatsApp.
 - Listo: 1 lead registrado y su estado actualizado sin intervención.
 
-## Hito 10 — Seguimiento y comisión
-- Remarketing paz y salvos (días 15 y 30) y un solo recordatorio a quien no respondió,
-  respetando Ley 2300.
-- Comisión: 3,5 % ($15M–$99M), 3 % ($100M–$399M), 2,5 % ($400M+), en 4 cuotas
-  (desembolso + 3 primeros pagos). Aviso al usuario al desembolso.
-- Listo: una comisión de prueba registrada.
+## Hito 10 — Seguimiento y comisión — HECHO (3 oct 2026)
+- Remarketing no-respondedores (días 3, 7, 15) en `app/remarketing.py`.
+- Remarketing paz y salvos (días 15, 30) en `app/remarketing.py` (`_procesar_paz_salvos`).
+- Comisión: 3,5 % ($15M–$99M), 3 % ($100M–$399M), 2,5 % ($400M+). `db.calcular_comision()`,
+  `db.registrar_desembolso()`, `db.marcar_comision_cobrada()`.
+- `scheduler.revisar_leads()` detecta DESEMBOLSADO y notifica al cliente + registra comisión.
+- Pendiente: cobro real en 4 cuotas (manual, post-piloto).
 
 ## Hito 11 — Piloto (500 contactos Bogotá)
 - Medir respuesta, calificación, envíos a Sureti, aprobaciones y calidad del número.

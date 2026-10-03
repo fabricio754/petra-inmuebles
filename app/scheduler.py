@@ -36,8 +36,10 @@ def iniciar():
                        start_date="2000-01-01 00:05:00")  # 5 min desfase inicial
     _scheduler.add_job(_remarketing_job, "cron", hour=9, minute=0,
                        id="remarketing", max_instances=1, coalesce=True)
+    _scheduler.add_job(_export_job, "cron", hour=6, minute=0,
+                       id="export_sheets", max_instances=1, coalesce=True)
     _scheduler.start()
-    log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing diario 9am Bogotá.")
+    log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá.")
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +67,14 @@ def _remarketing_job():
         remarketing.ejecutar()
     except Exception:
         log.exception("[Scheduler] Error en remarketing.")
+
+
+def _export_job():
+    from app import export
+    try:
+        export.ejecutar()
+    except Exception:
+        log.exception("[Scheduler] Error en export sheets.")
 
 
 def revisar_leads():
