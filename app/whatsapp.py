@@ -398,3 +398,79 @@ def send_plantilla_apertura(to, tipo, portal, monto_hasta):
         },
     }
     return _dispatch(payload, f"[PLANTILLA {PLANTILLA_APERTURA}] {tipo} en {portal}, hasta ${monto_hasta}M")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mensajes del flujo de crédito
+# ─────────────────────────────────────────────────────────────────────────────
+
+def send_solicitud_enviada(to: str):
+    """Confirma al vendedor que la solicitud fue enviada a Sureti."""
+    return send_text(
+        to,
+        "✅ Listo, ya tenemos todo para enviar la solicitud a nuestro aliado financiero.\n\n"
+        "Sureti hará su propio estudio del inmueble y te diremos el monto exacto que pueden "
+        "prestarte. Te avisamos en cuanto haya respuesta (aproximadamente 1 día hábil).",
+    )
+
+
+def send_credito_aprobado(to: str, monto_m: int):
+    """Notifica al vendedor que el crédito fue aprobado."""
+    return send_text(
+        to,
+        f"🎉 *¡Excelentes noticias!*\n\n"
+        f"Tu solicitud fue *aprobada* por Sureti por un monto de *${monto_m:,}M* COP.\n\n"
+        "Ahora necesitamos unos documentos adicionales para continuar. "
+        "¿Tienes las *escrituras de tradición* del inmueble?",
+    )
+
+
+def send_credito_rechazado(to: str, razon: str = ""):
+    """Notifica al vendedor que el crédito no fue aprobado."""
+    msg = (
+        "😔 Lo sentimos, en este momento Sureti no pudo aprobar la solicitud"
+        + (f" por el siguiente motivo:\n_{razon}_" if razon else ".")
+        + "\n\nEstaremos pendientes por si la situación cambia."
+    )
+    return send_text(to, msg)
+
+
+def send_solicitud_ctl(to: str):
+    """Le pide al vendedor el CTL si no lo pudimos conseguir automáticamente."""
+    return send_text(
+        to,
+        "Para completar tu solicitud necesitamos el *Certificado de Tradición y "
+        "Libertad* del inmueble.\n\n"
+        "Puedes descargarlo gratis en:\n"
+        "https://certificados.supernotariado.gov.co\n\n"
+        "Busca por el número de matrícula inmobiliaria y envíanos el PDF aquí.",
+    )
+
+
+def send_doc_recibido(to: str, tipo_doc: str = ""):
+    """Confirma recepción de un documento."""
+    return send_text(
+        to,
+        f"✅ Documento recibido{(' (' + tipo_doc + ')') if tipo_doc else ''}. "
+        "Continuamos procesando tu solicitud.",
+    )
+
+
+def send_credito_desembolsado(to: str, monto_m: int):
+    """Notifica al vendedor que el crédito fue desembolsado."""
+    return send_text(
+        to,
+        f"🏦 *¡El crédito fue desembolsado!*\n\n"
+        f"Sureti ha confirmado el desembolso de *${monto_m:,}M* COP. "
+        "El proceso está completo.\n\n"
+        "Gracias por confiar en Massi. 🙌",
+    )
+
+
+def send_tipo_doc_invalido(to: str):
+    """Avisa que el archivo enviado no es un formato soportado."""
+    return send_text(
+        to,
+        "❌ El archivo que enviaste no es compatible. Por favor envía una *imagen (JPG/PNG)* "
+        "o un *PDF*.",
+    )

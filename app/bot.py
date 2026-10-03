@@ -410,7 +410,18 @@ def handle_incoming(phone, event):
              | {"type": "template_button", "text": str}
              | {"type": "list_reply", "id": str}
              | {"type": "flow_reply", "response": dict}
+             | {"type": "media", "media_id": str, "mime_type": str}
+             | {"type": "media_invalido"}
     Devuelve la lista de respuestas enviadas (para logging/pruebas)."""
+    # Archivo con formato inválido
+    if event["type"] == "media_invalido":
+        return [whatsapp.send_tipo_doc_invalido(phone)]
+
+    # Documento enviado por el vendedor
+    if event["type"] == "media":
+        _procesar_media(phone, event)
+        return []
+
     session = state.get_session(phone)
     en_flujo = session.get("flow") == "SURETI"
     resp = _respuesta(event)

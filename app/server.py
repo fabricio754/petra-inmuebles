@@ -18,10 +18,20 @@ log = logging.getLogger("petra")
 
 VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "petra-verify-token")
 
+# MIMEs soportados para documentos enviados por el vendedor
+MIME_SOPORTADOS = {"image/jpeg", "image/png", "application/pdf"}
+
 app = Flask(__name__)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
+
+# APScheduler (scraper, Sureti check, remarketing)
+try:
+    from app import scheduler as _sched
+    _sched.iniciar()
+except Exception as _e:
+    log.warning("[Server] No se pudo iniciar scheduler: %s", _e)
 
 
 @app.get("/")
