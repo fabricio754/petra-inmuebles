@@ -179,6 +179,57 @@ def send_pregunta_si_no(to, pregunta):
     return _botones(to, pregunta, [("BOTON_SI", "Sí"), ("BOTON_NO", "No")], f"[SÍ/NO] {pregunta[:60]}")
 
 
+def _lista(to, cuerpo, filas, boton, resumen):
+    """Mensaje de lista interactiva (una sección, hasta 10 filas)."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": cuerpo},
+            "action": {
+                "sections": [{"title": "Opciones", "rows": filas}],
+                "button": boton,
+            },
+        },
+    }
+    return _dispatch(payload, resumen)
+
+
+def send_tipo_inmueble(to):
+    return _lista(
+        to,
+        "¿Qué tipo de inmueble es la garantía?",
+        [
+            {"id": "TIPO_CASA", "title": "Casa"},
+            {"id": "TIPO_APTO", "title": "Apartamento"},
+            {"id": "TIPO_LOCAL", "title": "Local comercial"},
+            {"id": "TIPO_OFICINA", "title": "Oficina"},
+            {"id": "TIPO_LOTE", "title": "Lote"},
+            {"id": "TIPO_BODEGA", "title": "Bodega"},
+        ],
+        "Ver tipos",
+        "[TIPO INMUEBLE]",
+    )
+
+
+def send_objetivo_prestamo(to):
+    return _lista(
+        to,
+        "¿Para qué necesitas el préstamo?",
+        [
+            {"id": "OBJ_CAPITAL", "title": "Capital de trabajo"},
+            {"id": "OBJ_DEUDAS", "title": "Pagar deudas"},
+            {"id": "OBJ_INVERSION", "title": "Inversión"},
+            {"id": "OBJ_GASTOS", "title": "Gastos personales"},
+            {"id": "OBJ_OTRO", "title": "Otro"},
+        ],
+        "Ver opciones",
+        "[OBJETIVO PRÉSTAMO]",
+    )
+
+
 def send_no_contactar(to):
     return send_text(
         to,
