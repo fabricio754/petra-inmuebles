@@ -41,7 +41,7 @@ def health():
 
 @app.post("/captura")
 def captura():
-    """Recibe un anuncio desde la extensión de Chrome \"Enviar a Massi\"."""
+    """Recibe un anuncio desde la extensión de Chrome "Enviar a Massi"."""
     token = os.environ.get("CAPTURA_TOKEN", "")
     if not token or request.headers.get("X-Massi-Token") != token:
         return jsonify({"resultado": "no_autorizado"}), 401
@@ -109,6 +109,9 @@ def pilot():
     except Exception as exc:
         error_scrape = str(exc)
         log.warning("[Pilot] Error scrapeando %s: %s", url, exc)
+
+    # Liberar memoria de Playwright antes de abrir conexión a DB (evita OOM en 512MB)
+    import gc; gc.collect()
 
     # Usar teléfono provisto o el que se scrapeó
     if not telefono_raw and telefono_scrapeado:
