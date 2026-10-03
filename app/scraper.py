@@ -608,6 +608,7 @@ def scrape_propdirecto(browser: Browser) -> int:
     PropDirecto expone los teléfonos de la fuente original (Finca Raíz,
     Metrocuadrado, etc.). Los duplicados los maneja la DB con ON CONFLICT.
     """
+    log.info("[PD] Iniciando.")
     guardados = total = 0
     page_n = 1
 
@@ -697,6 +698,7 @@ def _mq_extraer_datos(page: Page, url: str) -> Optional[dict]:
 
 
 def scrape_metrocuadrado(browser: Browser) -> int:
+    log.info("[MQ] Iniciando.")
     guardados = total = 0
     page_n = 1
 
@@ -774,6 +776,7 @@ def _fr_extraer_datos(page: Page, url: str) -> Optional[dict]:
 
 
 def scrape_fincaraiz(browser: Browser) -> int:
+    log.info("[FR] Iniciando.")
     guardados = total = 0
     page_n = 1
 
@@ -848,6 +851,7 @@ def _cc_extraer_datos(page: Page, url: str) -> Optional[dict]:
 
 
 def scrape_ciencuadras(browser: Browser) -> int:
+    log.info("[CC] Iniciando.")
     guardados = total = 0
     page_n = 1
 
@@ -921,7 +925,6 @@ def correr_todos():
             "--disable-dev-shm-usage",
             "--disable-gpu",
             "--no-zygote",
-            "--single-process",
             "--disable-extensions",
             "--disable-background-networking",
             "--disable-default-apps",
@@ -938,6 +941,7 @@ def correr_todos():
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(**launch_kwargs)
+        log.info("[Scraper] Chromium lanzado OK.")
         try:
             for nombre, fn in [
                 ("propdirecto",  scrape_propdirecto),
