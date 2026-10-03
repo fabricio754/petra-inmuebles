@@ -134,6 +134,7 @@ def _nueva_pagina(browser: Browser, url: str) -> Page:
     """)
     page = ctx.new_page()
     page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+    page.wait_for_timeout(4_000)  # wait for React hydration before any DOM queries
     return page
 
 
@@ -324,6 +325,14 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     except Exception:
         pass
 
+    # ── 0b. Log all buttons for diagnosis ───────────────────────────────────
+    try:
+        all_btns = page.query_selector_all("button, a[role='button']")
+        btn_texts = [b.inner_text()[:50].strip() for b in all_btns[:20]]
+        log.info("[Scraper] Botones en página: %s", btn_texts)
+    except Exception:
+        pass
+
     # ── 1. Click en botón de "Ver teléfono" ──────────────────────────────────
     btn = page.query_selector(
         "button:has-text('Ver teléfono'), "
@@ -348,8 +357,14 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     wa_btn = page.query_selector(
         "button:has-text('Contactar'), "
         "a:has-text('Contactar'), "
+        "button:has-text('WhatsApp'), "
+        "a:has-text('WhatsApp'), "
         "button[aria-label*='WhatsApp'], "
-        "a[aria-label*='WhatsApp']"
+        "a[aria-label*='WhatsApp'], "
+        "[class*='whatsapp' i] button, "
+        "[class*='contact' i] button, "
+        "button[class*='whatsapp' i], "
+        "button[class*='contact' i]"
     )
     log.info("[Scraper] Botón Contactar encontrado: %s", wa_btn is not None)
     if wa_btn:
@@ -397,8 +412,7 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     for num in tel_numbers:
         if re.match(r"^(57)?3\d{9}$", num):
             return num if num.startswith("57") else "57" + num
-    if tel_numbers:
-        return tel_numbers[0]
+    # Don't return landline as fallback — let step 6 search full HTML
 
     # ── 4. Buscar contenedor con número por clase CSS ─────────────────────────
     for sel in (
