@@ -13,6 +13,7 @@ from app import db
 CIUDADES = {
     "bogota": "Bogotá", "medellin": "Medellín", "barranquilla": "Barranquilla",
     "cartagena": "Cartagena", "santa marta": "Santa Marta", "cucuta": "Cúcuta",
+    "chia": "Chía",
 }
 # Zonas de Bogotá que Sureti no cubre.
 ZONAS_EXCLUIDAS = ("san cristobal", "ciudad bolivar")
