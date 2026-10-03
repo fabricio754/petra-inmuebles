@@ -74,12 +74,13 @@ class SuretiSession:
 
     def _login(self):
         page = self._page
-        page.goto(f"{SURETI_URL}/login", wait_until="networkidle", timeout=30_000)
-        page.fill("input[type='email'], input[name='email']", SURETI_EMAIL)
-        page.fill("input[type='password'], input[name='password']", SURETI_PASSWORD)
-        page.click("button[type='submit'], input[type='submit']")
+        page.goto(f"{SURETI_URL}/auth", wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_selector("input[name='email']", timeout=15_000)
+        page.fill("input[name='email']", SURETI_EMAIL)
+        page.fill("input[type='password']", SURETI_PASSWORD)
+        page.click("button[type='submit']")
         page.wait_for_load_state("networkidle", timeout=20_000)
-        if "/login" in page.url:
+        if "/auth" in page.url:
             raise RuntimeError("Login en Sureti falló — verifica SURETI_EMAIL y SURETI_PASSWORD.")
         log.info("[Sureti] Sesión iniciada.")
 
