@@ -282,6 +282,33 @@ def send_confirmacion_pipeline(to, nombre_corto):
 
 # --- Captación (Hito 7) ------------------------------------------------------
 
+def send_doc_recibido(to, avaluo=None, direccion="", matricula=""):
+    """Confirma recepción de un documento y muestra lo que se extrajo."""
+    if avaluo:
+        avaluo_fmt = f"${avaluo:,}".replace(",", ".")
+        detalle = (
+            f"✅ Recibí tu recibo de predial.\n\n"
+            f"• Avalúo catastral: *{avaluo_fmt}*\n"
+            + (f"• Dirección: {direccion}\n" if direccion else "")
+            + (f"• Matrícula: {matricula}\n" if matricula else "")
+            + "\nListo, ya tengo esta información para tu solicitud."
+        )
+    else:
+        detalle = (
+            "✅ Recibí el documento. No pude leer el avalúo catastral "
+            "automáticamente — nuestro equipo lo revisará."
+        )
+    return send_text(to, detalle)
+
+
+def send_tipo_doc_invalido(to):
+    return send_text(
+        to,
+        "Solo acepto fotos (JPEG/PNG) o archivos PDF. "
+        "Por favor envía el documento en uno de esos formatos.",
+    )
+
+
 def send_solicitud_ctl(to):
     """Pide al cliente el Certificado de Tradición y Libertad del inmueble."""
     return send_text(

@@ -291,3 +291,25 @@ def update_chip(telefono, chip):
             ")",
             (chip, telefono, telefono),
         )
+
+
+def registrar_documento(telefono, tipo, media_id, url_storage):
+    with _conexion() as conn:
+        conn.execute(
+            "INSERT INTO documentos (telefono, tipo, media_id, url_storage) "
+            "VALUES (%s, %s, %s, %s)",
+            (telefono, tipo, media_id, url_storage),
+        )
+
+
+def update_avaluo(telefono, avaluo, direccion=None, matricula=None):
+    """Actualiza el avalúo catastral y opcionalmente la dirección/matrícula en pipeline."""
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET avaluo_catastral = %s, "
+            "matricula_numero = COALESCE(%s, matricula_numero) "
+            "WHERE telefono = %s AND id = ("
+            "  SELECT id FROM pipeline WHERE telefono = %s ORDER BY fecha_ingreso DESC LIMIT 1"
+            ")",
+            (avaluo, matricula, telefono, telefono),
+        )

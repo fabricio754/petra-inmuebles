@@ -382,6 +382,28 @@ def _procesar(phone, session, event):
     return _iniciar(phone)
 
 
+def _procesar_media(phone, event):
+    """Descarga el documento, lo parsea como predial y responde al cliente."""
+    from app import parser as _parser, db as _db
+    ruta = event.get("ruta_local")
+    mime = event.get("mime_type", "")
+    avaluo = direccion = matricula = None
+
+    if ruta:
+        try:
+            datos = _parser.parsear_predial(ruta, mime)
+            avaluo = datos.get("avaluo")
+            direccion = datos.get("direccion", "")
+            matricula = datos.get("matricula", "")
+            if avaluo:
+                _db.update_avaluo(phone, avaluo, direccion, matricula)
+        except Exception:
+            import logging
+            logging.getLogger("petra").exception("[Media] Error parseando predial.")
+
+    return whatsapp.send_doc_recibido(phone, avaluo=avaluo, direccion=direccion, matricula=matricula)
+
+
 def handle_incoming(phone, event):
     """event: {"type": "text", "text": str}
              | {"type": "button_reply", "id": str}
@@ -392,6 +414,10 @@ def handle_incoming(phone, event):
     session = state.get_session(phone)
     en_flujo = session.get("flow") == "SURETI"
     resp = _respuesta(event)
+
+    # Documentos recibidos (imagen o PDF).
+    if event["type"] == "media":
+        return [_procesar_media(phone, event)]
 
     # Botones de la plantilla de apertura (Hito 7).
     if event["type"] == "template_button":

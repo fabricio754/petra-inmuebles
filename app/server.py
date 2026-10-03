@@ -88,6 +88,18 @@ def receive_webhook():
         phone = message.get("from") or message["from_user_id"]
         event = _to_event(message)
         log.info("Mensaje entrante de %s: %s", phone, event)
+
+        if event["type"] == "media":
+            from app import media as media_mod
+            mime = event["mime_type"]
+            if mime not in media_mod.MIME_SOPORTADOS:
+                from app import whatsapp as wa
+                wa.send_tipo_doc_invalido(phone)
+                return jsonify({"status": "received"}), 200
+            ruta = media_mod.download_and_save(phone, event["media_id"], mime)
+            media_mod.registrar(phone, event["media_id"], mime, ruta)
+            event["ruta_local"] = ruta
+
         bot.handle_incoming(phone, event)
     except Exception:
         log.exception("Error procesando webhook. Payload: %s", payload)
@@ -110,12 +122,27 @@ def _to_event(message):
             return {"type": "button_reply", "id": interactive["button_reply"]["id"]}
         if interactive["type"] == "nfm_reply":
             # WHATSAPP FLOW -- respuesta del formulario nativo
-            # "Publicar mi inmueble". response_json llega como string.
             return {
                 "type": "flow_reply",
                 "response": json.loads(interactive["nfm_reply"]["response_json"]),
             }
-    # Tipo no manejado (imagen, audio, ubicación...) -> se trata como texto vacío.
+    if msg_type == "image":
+        img = message.get("image", {})
+        return {
+            "type": "media",
+            "media_id": img.get("id", ""),
+            "mime_type": img.get("mime_type", "image/jpeg"),
+            "filename": "",
+        }
+    if msg_type == "document":
+        doc = message.get("document", {})
+        return {
+            "type": "media",
+            "media_id": doc.get("id", ""),
+            "mime_type": doc.get("mime_type", "application/pdf"),
+            "filename": doc.get("filename", ""),
+        }
+    # Tipo no manejado (audio, ubicación...) → texto vacío.
     return {"type": "text", "text": ""}
 
 
