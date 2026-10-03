@@ -1,0 +1,58 @@
+name: Enviar plantilla apertura (test)
+on:
+  workflow_dispatch:
+    inputs:
+      telefono:
+        description: 'Teléfono destino (sin +, ej. 573181716257)'
+        required: true
+        default: '573181716257'
+      tipo:
+        description: 'Tipo de inmueble (ej. oficina, apartamento)'
+        required: true
+        default: 'oficina'
+      portal:
+        description: 'Portal (ej. metrocuadrado)'
+        required: true
+        default: 'metrocuadrado'
+      monto_hasta:
+        description: 'Monto hasta en millones (ej. 90)'
+        required: true
+        default: '90'
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar plantilla massi_apertura_a
+        run: |
+          MONTO=$(python3 -c "n=int('${{ github.event.inputs.monto_hasta }}'); print(f'{n:,}'.replace(',','.'))")
+          RESP=$(curl -sf -X POST \
+            "https://graph.facebook.com/v20.0/${{ secrets.META_PHONE_NUMBER_ID }}/messages" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.META_ACCESS_TOKEN }}" \
+            -d "{
+              \"messaging_product\": \"whatsapp\",
+              \"to\": \"${{ github.event.inputs.telefono }}\",
+              \"type\": \"template\",
+              \"template\": {
+                \"name\": \"massi_apertura_a\",
+                \"language\": {\"code\": \"es_CO\"},
+                \"components\": [{
+                  \"type\": \"body\",
+                  \"parameters\": [
+                    {\"type\": \"text\", \"text\": \"${{ github.event.inputs.tipo }}\"},
+                    {\"type\": \"text\", \"text\": \"${{ github.event.inputs.portal }}\"},
+                    {\"type\": \"text\", \"text\": \"$MONTO\"}
+                  ]
+                }]
+              }
+            }")
+          echo "$RESP" | python3 -m json.tool
+          echo "$RESP" | python3 -c "
+          import sys, json
+          r = json.load(sys.stdin)
+          if 'messages' in r:
+              print('✅ Enviado — message ID:', r['messages'][0]['id'])
+          else:
+              print('❌ Error:', r)
+              sys.exit(1)
+          "
