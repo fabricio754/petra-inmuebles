@@ -231,6 +231,14 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     if tel_link:
         return re.sub(r"\D", "", tel_link.get_attribute("href") or "")
 
+    # 3b. Buscar enlace wa.me (WhatsApp)
+    wa_link = page.query_selector("a[href*='wa.me/']")
+    if wa_link:
+        href = wa_link.get_attribute("href") or ""
+        m = re.search(r"wa\.me/\+?(\d+)", href)
+        if m:
+            return m.group(1)
+
     # 4. Buscar contenedor con número por clase
     for sel in (
         "[class*='phone-number']",
