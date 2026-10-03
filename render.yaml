@@ -45,7 +45,7 @@ services:
       - key: CAPTURA_TOKEN
         sync: false
       - key: ENVIO_AUTOMATICO
-        value: "false"       # Cambiar a "true" cuando se apruebe la plantilla
+        value: "true"
       - key: ENVIO_LIMITE_DIARIO
         value: "20"
       - key: ENVIO_DESDE
