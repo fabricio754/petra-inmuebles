@@ -351,10 +351,11 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
         "button[aria-label*='WhatsApp'], "
         "a[aria-label*='WhatsApp']"
     )
+    log.info("[Scraper] Botón Contactar encontrado: %s", wa_btn is not None)
     if wa_btn:
         try:
             wa_btn.click()
-            page.wait_for_timeout(3_000)  # tiempo extra para respuesta XHR
+            page.wait_for_timeout(3_000)  # tiempo extra para modal/XHR
         except Exception:
             pass
 
@@ -389,10 +390,15 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
             if m:
                 return m.group(1)
 
-    # ── 3b. Buscar enlace tel: (puede ser fijo/landline) ─────────────────────
-    tel_link = page.query_selector("a[href^='tel:']")
-    if tel_link:
-        return re.sub(r"\D", "", tel_link.get_attribute("href") or "")
+    # ── 3b. Buscar todos los enlaces tel: y priorizar móvil colombiano ─────────
+    tel_links = page.query_selector_all("a[href^='tel:']")
+    tel_numbers = [re.sub(r"\D", "", el.get_attribute("href") or "") for el in tel_links]
+    log.info("[Scraper] tel: links encontrados: %s", tel_numbers)
+    for num in tel_numbers:
+        if re.match(r"^(57)?3\d{9}$", num):
+            return num if num.startswith("57") else "57" + num
+    if tel_numbers:
+        return tel_numbers[0]
 
     # ── 4. Buscar contenedor con número por clase CSS ─────────────────────────
     for sel in (
@@ -424,11 +430,11 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
         html = page.content()
         blob = re.sub(r"[\s\-]", "", html)
         matches = re.findall(r"(?:57)?3\d{9}", blob)
+        log.info("[Scraper] Números móviles en HTML: %s", list(set(matches)))
         if matches:
             from collections import Counter
-            top, count = Counter(matches).most_common(1)[0]
-            if count >= 2:
-                return top if top.startswith("57") else "57" + top
+            top, _ = Counter(matches).most_common(1)[0]
+            return top if top.startswith("57") else "57" + top
     except Exception:
         pass
 
