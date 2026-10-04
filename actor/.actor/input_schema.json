@@ -1,0 +1,40 @@
+{
+  "title": "Petra Scraper Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "portals": {
+      "title": "Portales a scrapear",
+      "type": "array",
+      "description": "Lista de portales: metrocuadrado, fincaraiz, ciencuadras, propdirecto",
+      "default": ["metrocuadrado", "fincaraiz", "ciencuadras", "propdirecto"],
+      "editor": "stringList"
+    },
+    "max_per_portal": {
+      "title": "Máximo de contactos por portal",
+      "type": "integer",
+      "default": 300
+    },
+    "ingest_url": {
+      "title": "URL del endpoint de ingesta",
+      "type": "string",
+      "description": "URL completa del endpoint /scraper/ingest del bot Petra",
+      "editor": "textfield"
+    },
+    "ingest_token": {
+      "title": "Token de autenticación del endpoint",
+      "type": "string",
+      "description": "Valor de X-Ingest-Token",
+      "isSecret": true,
+      "editor": "textfield"
+    },
+    "proxy_config": {
+      "title": "Configuración de proxy",
+      "type": "object",
+      "description": "Configuración de proxy de Apify (usar proxyUrls o groups)",
+      "editor": "proxy",
+      "default": { "useApifyProxy": true, "apifyProxyGroups": ["RESIDENTIAL"] }
+    }
+  },
+  "required": ["ingest_url", "ingest_token"]
+}

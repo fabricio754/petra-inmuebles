@@ -195,6 +195,41 @@ def pilot():
     })
 
 
+INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
+
+
+@app.post("/scraper/ingest")
+def scraper_ingest():
+    """Recibe contactos crudos del actor Apify y los procesa con _guardar.
+
+    Acepta un objeto JSON o array de objetos con campos:
+      portal, telefono, precio_raw, tipo_raw, ciudad_raw, direccion,
+      barrio, nombre, estrato_raw, foto, url, anunciante.
+    Retorna { saved, total }.
+    """
+    token = request.headers.get("X-Ingest-Token", "")
+    if not INGEST_TOKEN or token != INGEST_TOKEN:
+        return jsonify({"error": "no_autorizado"}), 401
+
+    data = request.get_json(force=True, silent=True)
+    if not data:
+        return jsonify({"error": "payload_vacío"}), 400
+
+    items = data if isinstance(data, list) else [data]
+    saved = 0
+    for item in items:
+        try:
+            portal = item.pop("portal", "unknown")
+            telefono = item.pop("telefono", "")
+            if scraper._guardar(portal, telefono, **item):
+                saved += 1
+        except Exception as exc:
+            log.warning("[Ingest] Error procesando item: %s", exc)
+
+    log.info("[Ingest] %d/%d contactos guardados.", saved, len(items))
+    return jsonify({"saved": saved, "total": len(items)})
+
+
 @app.get("/privacidad")
 def privacidad():
     """Política de tratamiento de datos (Ley 1581), enlazada desde el bot."""

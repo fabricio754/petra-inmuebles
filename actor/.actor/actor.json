@@ -1,0 +1,14 @@
+{
+  "actorSpecification": 1,
+  "name": "petra-scraper",
+  "title": "Petra Inmuebles Scraper",
+  "description": "Scraper de portales inmobiliarios colombianos (Metrocuadrado, FincaRaíz, Ciencuadras, PropDirecto) para captación de propietarios.",
+  "version": "0.1",
+  "buildTag": "latest",
+  "environmentVariables": [],
+  "defaultRunOptions": {
+    "build": "latest",
+    "timeoutSecs": 3600,
+    "memoryMbytes": 2048
+  }
+}
