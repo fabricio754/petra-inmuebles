@@ -32,13 +32,6 @@ envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
 
-# APScheduler (scraper, Sureti check, remarketing)
-try:
-    from app import scheduler as _sched
-    _sched.iniciar()
-except Exception as _e:
-    log.warning("[Server] No se pudo iniciar scheduler: %s", _e)
-
 
 @app.get("/")
 def health():
