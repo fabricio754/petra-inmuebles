@@ -566,20 +566,27 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
 # _PD_LISTING_SEL y _pd_extraer_datos() si los selectores no coinciden.
 
 _PD_HOST = "https://propdirecto.com"
-_PD_BASE = "https://propdirecto.com/propiedades.php?pagina={page}"
-# Selector de enlaces a fichas individuales. PropDirecto puede usar
-# /inmueble/, /propiedad/ o /aviso/ — se prueban los tres.
+_PD_CIUDADES_SLUGS = {
+    "bogota": "Bogota",
+    "medellin": "Medellin",
+    "barranquilla": "Barranquilla",
+    "cartagena": "Cartagena",
+    "santa marta": "Santa+Marta",
+    "cucuta": "Cucuta",
+    "chia": "Chia",
+}
+_PD_BASE = "https://propdirecto.com/propiedades.php?ciudad={ciudad}&pagina={page}"
+# Selector de enlaces a fichas individuales. PropDirecto usa /detalle.php?id=
 _PD_LISTING_SEL = (
+    "a[href*='detalle.php'], "
     "a[href*='/inmueble/'], "
     "a[href*='/propiedad/'], "
-    "a[href*='/aviso/'], "
-    "[class*='listing'] a, "
-    "[class*='property-card'] a, "
-    "[class*='card'] a[href*='/']"
+    "[class*='listing'] a[href*='detalle'], "
+    "[class*='property-card'] a[href*='detalle']"
 )
 
 
-def _pd_extraer_datos(page: Page, url: str) -> Optional[dict]:
+def _pd_extraer_datos(page: Page, url: str, ciudad_hint: str = "") -> Optional[dict]:
     try:
         page.wait_for_selector("h1, [class*='price'], [class*='precio'], main", timeout=8_000)
     except PWTimeout:
@@ -589,16 +596,18 @@ def _pd_extraer_datos(page: Page, url: str) -> Optional[dict]:
     titulo_pagina = page.title() or ""
     ciudad_raw = (
         _texto(page, "[class*='ciudad'], [class*='city'], [class*='location'], [data-testid='location']")
+        or ciudad_hint   # slug from listing URL, e.g. "bogota"
         or titulo_pagina
         or url
     )
     tipo_raw = (
         _texto(page, "[class*='tipo'], [class*='property-type'], [class*='tipoInmueble'], [data-testid='property-type']")
+        or titulo_pagina  # title often has "Apartamento en venta..."
         or nombre
         or url
     )
 
-    log.info("[PD] url=%s nombre=%r titulo=%r ciudad_raw=%r", url[-60:], nombre, titulo_pagina[:80], ciudad_raw[:80])
+    log.info("[PD] url=%s hint=%r titulo=%r ciudad_raw=%r", url[-60:], ciudad_hint, titulo_pagina[:60], ciudad_raw[:60])
 
     precio_raw = _texto(page, "[class*='price'], [class*='precio'], [class*='valor'], [data-testid='price'], [data-testid='precio']")
     if not precio_raw:
@@ -631,6 +640,11 @@ def _pd_extraer_datos(page: Page, url: str) -> Optional[dict]:
     }
 
 
+def _pd_redirigido(url: str) -> bool:
+    """True si PropDirecto nos redirigió a un muro de login/registro."""
+    return any(p in url for p in ("/login", "/registro", "/registro.php"))
+
+
 def scrape_propdirecto(browser: Browser) -> int:
     """Scraper para PropDirecto (propietarios directos, sin agentes).
 
@@ -639,58 +653,68 @@ def scrape_propdirecto(browser: Browser) -> int:
     """
     log.info("[PD] Iniciando.")
     guardados = total = 0
-    page_n = 1
 
-    while guardados < MAX_POR_PORTAL:
-        url = _PD_BASE.format(page=page_n)
-        try:
-            lp = _nueva_pagina(browser, url)
-        except Exception as exc:
-            log.warning("[PD] Página %d inaccesible: %s", page_n, exc)
+    for ciudad_key, ciudad_slug in _PD_CIUDADES_SLUGS.items():
+        if guardados >= MAX_POR_PORTAL:
             break
+        log.info("[PD] Ciudad: %s (%s)", ciudad_key, ciudad_slug)
+        page_n = 1
 
-        # Si redirige a la home o a /login, el portal cambió estructura.
-        if "/login" in lp.url or (page_n > 1 and lp.url.rstrip("/") == _PD_HOST):
-            lp.context.close()
-            log.warning("[PD] Redirigido a %s — revisar _PD_BASE.", lp.url)
-            break
-
-        try:
-            lp.wait_for_selector(_PD_LISTING_SEL, timeout=15_000)
-        except PWTimeout:
-            log.warning("[PD] Timeout pág %d. url_final=%s title=%r html=%r",
-                        page_n, lp.url, lp.title(), lp.content()[:2000])
-            lp.context.close()
-            break
-
-        links = _links_de_pagina(lp, _PD_LISTING_SEL, _PD_HOST)
-        # Filtrar links que apunten fuera del dominio si el portal redirige al origen
-        links = [l for l in links if "propdirecto.com" in l or l.startswith("/")]
-        lp.context.close()
-        if not links:
-            break
-
-        log.debug("[PD] Página %d: %d links encontrados.", page_n, len(links))
-
-        for href in links:
-            if guardados >= MAX_POR_PORTAL:
-                break
-            total += 1
+        while guardados < MAX_POR_PORTAL:
+            url = _PD_BASE.format(ciudad=ciudad_slug, page=page_n)
             try:
-                dp = _nueva_pagina(browser, href)
-                try:
-                    datos = _pd_extraer_datos(dp, href)
-                    if datos:
-                        tel = _extraer_tel_comun(dp)
-                        if tel and _guardar("propdirecto", tel, **datos):
-                            guardados += 1
-                finally:
-                    dp.context.close()
+                lp = _nueva_pagina(browser, url)
             except Exception as exc:
-                log.debug("[PD] Error %s: %s", href, exc)
-            _pausa()
+                log.warning("[PD] Página %d inaccesible: %s", page_n, exc)
+                break
 
-        page_n += 1
+            # Muro de login/registro — salir de este portal completamente.
+            if _pd_redirigido(lp.url) or (page_n > 1 and lp.url.rstrip("/") == _PD_HOST):
+                lp.context.close()
+                log.warning("[PD] Muro de registro en página %d (%s) — abortando PD.", page_n, lp.url)
+                return guardados
+
+            try:
+                lp.wait_for_selector(_PD_LISTING_SEL, timeout=15_000)
+            except PWTimeout:
+                log.warning("[PD] Timeout pág %d. url_final=%s title=%r html=%r",
+                            page_n, lp.url, lp.title(), lp.content()[:2000])
+                lp.context.close()
+                break
+
+            links = _links_de_pagina(lp, _PD_LISTING_SEL, _PD_HOST)
+            links = [l for l in links if "propdirecto.com" in l]
+            lp.context.close()
+            if not links:
+                break
+
+            log.debug("[PD] Ciudad=%s pág %d: %d links.", ciudad_key, page_n, len(links))
+
+            for href in links:
+                if guardados >= MAX_POR_PORTAL:
+                    break
+                total += 1
+                try:
+                    dp = _nueva_pagina(browser, href)
+                    # Skip if redirected to login/registro wall
+                    if _pd_redirigido(dp.url):
+                        dp.context.close()
+                        log.warning("[PD] Detalle redirigió a registro — abortando PD.")
+                        log.info("[PD] %d visitados, %d guardados.", total, guardados)
+                        return guardados
+                    try:
+                        datos = _pd_extraer_datos(dp, href, ciudad_hint=ciudad_key)
+                        if datos:
+                            tel = _extraer_tel_comun(dp)
+                            if tel and _guardar("propdirecto", tel, **datos):
+                                guardados += 1
+                    finally:
+                        dp.context.close()
+                except Exception as exc:
+                    log.debug("[PD] Error %s: %s", href, exc)
+                _pausa()
+
+            page_n += 1
 
     log.info("[PD] %d visitados, %d guardados.", total, guardados)
     return guardados
