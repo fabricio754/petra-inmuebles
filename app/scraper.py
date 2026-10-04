@@ -848,79 +848,117 @@ def scrape_metrocuadrado(browser: Browser) -> int:
 
 # ── Finca Raíz ────────────────────────────────────────────────────────────────
 
+_FR_CIUDADES_SLUGS = {
+    "bogota": "bogota",
+    "medellin": "medellin",
+    "barranquilla": "barranquilla",
+    "cartagena": "cartagena",
+    "santa marta": "santa-marta",
+    "cucuta": "cucuta",
+    "chia": "chia",
+}
 _FR_BASE = (
-    "https://www.fincaraiz.com.co/venta/inmuebles/"
+    "https://www.fincaraiz.com.co/venta/inmuebles/{ciudad}/"
     "?tipoAnunciante=particular&pagina={page}"
 )
 _FR_HOST = "https://www.fincaraiz.com.co"
-_FR_LISTING_SEL = "a[href*='/inmueble/']"
+_FR_LISTING_SEL = "a[href*='/inmueble/'], a[href*='.htm']"
 
 
 def _fr_extraer_datos(page: Page, url: str) -> Optional[dict]:
     try:
-        page.wait_for_selector("h1, [class*='price'], [class*='precio']", timeout=8_000)
+        page.wait_for_selector("h1, main", timeout=10_000)
     except PWTimeout:
         return None
 
+    nd = _mq_next_data(page)  # FR is also Next.js
+    log.debug("[FR] __NEXT_DATA__ keys: %s", list(nd.keys())[:15])
+
+    precio_raw = str(nd.get("price") or nd.get("precio") or nd.get("valorVenta") or "")
+    tipo_raw = str(nd.get("propertyType") or nd.get("tipoInmueble") or nd.get("tipo") or "")
+    estrato_raw = str(nd.get("stratum") or nd.get("estrato") or "")
+    nombre = str(nd.get("title") or nd.get("titulo") or "") or None
+    loc = nd.get("location") or nd.get("ubicacion") or {}
+    ciudad_raw = str(loc.get("city") or loc.get("ciudad") or "") if isinstance(loc, dict) else ""
+    barrio = str(loc.get("neighborhood") or loc.get("barrio") or loc.get("sector") or "") if isinstance(loc, dict) else None
+    direccion = str(loc.get("address") or loc.get("direccion") or "") if isinstance(loc, dict) else None
+
+    # Fallbacks to CSS / URL
+    if not ciudad_raw:
+        ciudad_raw = url
+    if not precio_raw:
+        precio_raw = _texto(page, "[data-testid='price'], [class*='price']:not([class*='anterior']), [class*='precio']")
+    if not nombre:
+        nombre = _texto(page, "h1") or None
+    if not tipo_raw:
+        tipo_raw = _texto(page, "[data-testid='property-type'], [class*='tipoInmueble'], [class*='tipo']") or url
+    if not estrato_raw:
+        estrato_raw = _texto(page, "[class*='estrato'], :text-matches('Estrato [0-9]')")
+    if not barrio:
+        barrio = _texto(page, "[class*='neighborhood'], [class*='barrio'], [class*='sector']") or None
+    if not direccion:
+        direccion = _texto(page, "[class*='address'], [class*='direccion']") or None
+
+    log.info("[FR] precio_raw=%r tipo_raw=%r ciudad_raw=%r", precio_raw, tipo_raw, ciudad_raw[:60])
     return {
-        "nombre": _texto(page, "h1") or None,
-        "precio_raw": _texto(page, "[class*='price'], [class*='precio']"),
-        "estrato_raw": _texto(page, ":text-matches('Estrato [0-9]'), [class*='estrato']"),
-        "tipo_raw": _texto(page, "[class*='property-type'], [class*='tipoInmueble'], [class*='tipo']") or url,
-        "ciudad_raw": _texto(page, "[class*='city'], [class*='ciudad']") or url,
-        "direccion": _texto(page, "[class*='address'], [class*='direccion']") or None,
-        "barrio": _texto(page, "[class*='neighborhood'], [class*='barrio'], [class*='sector']") or None,
+        "nombre": nombre, "precio_raw": precio_raw, "estrato_raw": estrato_raw,
+        "tipo_raw": tipo_raw, "ciudad_raw": ciudad_raw, "direccion": direccion,
+        "barrio": barrio,
         "foto": _src_img(page, "img[class*='gallery'], img[class*='principal'], img[class*='foto']"),
-        "anunciante": _anunciante_info(page),
-        "url": url,
+        "anunciante": _anunciante_info(page), "url": url,
     }
 
 
 def scrape_fincaraiz(browser: Browser) -> int:
     log.info("[FR] Iniciando.")
     guardados = total = 0
-    page_n = 1
 
-    while guardados < MAX_POR_PORTAL:
-        url = _FR_BASE.format(page=page_n)
-        try:
-            lp = _nueva_pagina(browser, url)
-        except Exception as exc:
-            log.warning("[FR] Página %d inaccesible: %s", page_n, exc)
+    for ciudad_key, ciudad_slug in _FR_CIUDADES_SLUGS.items():
+        if guardados >= MAX_POR_PORTAL:
             break
+        log.info("[FR] Ciudad: %s (%s)", ciudad_key, ciudad_slug)
+        page_n = 1
 
-        try:
-            lp.wait_for_selector(_FR_LISTING_SEL, timeout=15_000)
-        except PWTimeout:
-            log.warning("[FR] Timeout pág %d. url_final=%s title=%r html=%r",
-                        page_n, lp.url, lp.title(), lp.content()[:2000])
-            lp.context.close()
-            break
-
-        links = _links_de_pagina(lp, _FR_LISTING_SEL, _FR_HOST)
-        lp.context.close()
-        if not links:
-            break
-
-        for href in links:
-            if guardados >= MAX_POR_PORTAL:
-                break
-            total += 1
+        while guardados < MAX_POR_PORTAL:
+            url = _FR_BASE.format(ciudad=ciudad_slug, page=page_n)
             try:
-                dp = _nueva_pagina(browser, href)
-                try:
-                    datos = _fr_extraer_datos(dp, href)
-                    if datos:
-                        tel = _extraer_tel_comun(dp)
-                        if tel and _guardar("fincaraiz", tel, **datos):
-                            guardados += 1
-                finally:
-                    dp.context.close()
+                lp = _nueva_pagina(browser, url)
             except Exception as exc:
-                log.debug("[FR] Error %s: %s", href, exc)
-            _pausa()
+                log.warning("[FR] Página %d inaccesible: %s", page_n, exc)
+                break
 
-        page_n += 1
+            try:
+                lp.wait_for_selector(_FR_LISTING_SEL, timeout=15_000)
+            except PWTimeout:
+                log.warning("[FR] Timeout pág %d. url_final=%s title=%r html=%r",
+                            page_n, lp.url, lp.title(), lp.content()[:2000])
+                lp.context.close()
+                break
+
+            links = _links_de_pagina(lp, _FR_LISTING_SEL, _FR_HOST)
+            lp.context.close()
+            if not links:
+                break
+
+            for href in links:
+                if guardados >= MAX_POR_PORTAL:
+                    break
+                total += 1
+                try:
+                    dp = _nueva_pagina(browser, href)
+                    try:
+                        datos = _fr_extraer_datos(dp, href)
+                        if datos:
+                            tel = _extraer_tel_comun(dp)
+                            if tel and _guardar("fincaraiz", tel, **datos):
+                                guardados += 1
+                    finally:
+                        dp.context.close()
+                except Exception as exc:
+                    log.debug("[FR] Error %s: %s", href, exc)
+                _pausa()
+
+            page_n += 1
 
     log.info("[FR] %d visitados, %d guardados.", total, guardados)
     return guardados
@@ -928,76 +966,117 @@ def scrape_fincaraiz(browser: Browser) -> int:
 
 # ── Ciencuadras ───────────────────────────────────────────────────────────────
 
-_CC_BASE = "https://www.ciencuadras.com/venta?pagina={page}"
+_CC_CIUDADES_SLUGS = {
+    "bogota": "bogota",
+    "medellin": "medellin",
+    "barranquilla": "barranquilla",
+    "cartagena": "cartagena",
+    "santa marta": "santa-marta",
+    "cucuta": "cucuta",
+    "chia": "chia",
+}
+_CC_BASE = (
+    "https://www.ciencuadras.com/venta/{ciudad}"
+    "?tipoAnunciante=particular&pagina={page}"
+)
 _CC_HOST = "https://www.ciencuadras.com"
-_CC_LISTING_SEL = "a[href*='/inmueble/']"
+_CC_LISTING_SEL = "a[href*='/inmueble/'], a[href*='/propiedad/']"
 
 
 def _cc_extraer_datos(page: Page, url: str) -> Optional[dict]:
     try:
-        page.wait_for_selector("h1, [class*='price'], [class*='precio'], [class*='valor']", timeout=8_000)
+        page.wait_for_selector("h1, main", timeout=10_000)
     except PWTimeout:
         return None
 
+    nd = _mq_next_data(page)  # CC is also a Next.js / React app
+    log.debug("[CC] __NEXT_DATA__ keys: %s", list(nd.keys())[:15])
+
+    precio_raw = str(nd.get("price") or nd.get("precio") or nd.get("valorVenta") or "")
+    tipo_raw = str(nd.get("propertyType") or nd.get("tipoInmueble") or nd.get("tipo") or "")
+    estrato_raw = str(nd.get("stratum") or nd.get("estrato") or "")
+    nombre = str(nd.get("title") or nd.get("titulo") or "") or None
+    loc = nd.get("location") or nd.get("ubicacion") or {}
+    ciudad_raw = str(loc.get("city") or loc.get("ciudad") or "") if isinstance(loc, dict) else ""
+    barrio = str(loc.get("neighborhood") or loc.get("barrio") or loc.get("sector") or "") if isinstance(loc, dict) else None
+    direccion = str(loc.get("address") or loc.get("direccion") or "") if isinstance(loc, dict) else None
+
+    # Fallbacks to CSS / URL
+    if not ciudad_raw:
+        ciudad_raw = url
+    if not precio_raw:
+        precio_raw = _texto(page, "[data-testid='price'], [class*='price'], [class*='precio'], [class*='valor']")
+    if not nombre:
+        nombre = _texto(page, "h1") or None
+    if not tipo_raw:
+        tipo_raw = _texto(page, "[class*='tipo'], [class*='property-type']") or url
+    if not estrato_raw:
+        estrato_raw = _texto(page, "[class*='estrato'], :text-matches('Estrato [0-9]')")
+    if not barrio:
+        barrio = _texto(page, "[class*='barrio'], [class*='sector'], [class*='neighborhood']") or None
+    if not direccion:
+        direccion = _texto(page, "[class*='direccion'], [class*='address']") or None
+
+    log.info("[CC] precio_raw=%r tipo_raw=%r ciudad_raw=%r", precio_raw, tipo_raw, ciudad_raw[:60])
     return {
-        "nombre": _texto(page, "h1") or None,
-        "precio_raw": _texto(page, "[class*='price'], [class*='precio'], [class*='valor']"),
-        "estrato_raw": _texto(page, "[class*='estrato'], :text-matches('Estrato [0-9]')"),
-        "tipo_raw": _texto(page, "[class*='tipo'], [class*='property-type']") or url,
-        "ciudad_raw": _texto(page, "[class*='ciudad'], [class*='city'], [class*='location']") or url,
-        "direccion": _texto(page, "[class*='direccion'], [class*='address']") or None,
-        "barrio": _texto(page, "[class*='barrio'], [class*='sector'], [class*='neighborhood']") or None,
+        "nombre": nombre, "precio_raw": precio_raw, "estrato_raw": estrato_raw,
+        "tipo_raw": tipo_raw, "ciudad_raw": ciudad_raw, "direccion": direccion,
+        "barrio": barrio,
         "foto": _src_img(page, "img[class*='gallery'], img[class*='principal'], img[class*='foto']"),
-        "anunciante": _anunciante_info(page),
-        "url": url,
+        "anunciante": _anunciante_info(page), "url": url,
     }
 
 
 def scrape_ciencuadras(browser: Browser) -> int:
     log.info("[CC] Iniciando.")
     guardados = total = 0
-    page_n = 1
 
-    while guardados < MAX_POR_PORTAL:
-        url = _CC_BASE.format(page=page_n)
-        try:
-            lp = _nueva_pagina(browser, url)
-        except Exception as exc:
-            log.warning("[CC] Página %d inaccesible: %s", page_n, exc)
+    for ciudad_key, ciudad_slug in _CC_CIUDADES_SLUGS.items():
+        if guardados >= MAX_POR_PORTAL:
             break
+        log.info("[CC] Ciudad: %s (%s)", ciudad_key, ciudad_slug)
+        page_n = 1
 
-        try:
-            lp.wait_for_selector(_CC_LISTING_SEL, timeout=15_000)
-        except PWTimeout:
-            log.warning("[CC] Timeout pág %d. url_final=%s title=%r html=%r",
-                        page_n, lp.url, lp.title(), lp.content()[:2000])
-            lp.context.close()
-            break
-
-        links = _links_de_pagina(lp, _CC_LISTING_SEL, _CC_HOST)
-        lp.context.close()
-        if not links:
-            break
-
-        for href in links:
-            if guardados >= MAX_POR_PORTAL:
-                break
-            total += 1
+        while guardados < MAX_POR_PORTAL:
+            url = _CC_BASE.format(ciudad=ciudad_slug, page=page_n)
             try:
-                dp = _nueva_pagina(browser, href)
-                try:
-                    datos = _cc_extraer_datos(dp, href)
-                    if datos:
-                        tel = _extraer_tel_comun(dp)
-                        if tel and _guardar("ciencuadras", tel, **datos):
-                            guardados += 1
-                finally:
-                    dp.context.close()
+                lp = _nueva_pagina(browser, url)
             except Exception as exc:
-                log.debug("[CC] Error %s: %s", href, exc)
-            _pausa()
+                log.warning("[CC] Página %d inaccesible: %s", page_n, exc)
+                break
 
-        page_n += 1
+            try:
+                lp.wait_for_selector(_CC_LISTING_SEL, timeout=15_000)
+            except PWTimeout:
+                log.warning("[CC] Timeout pág %d. url_final=%s title=%r html=%r",
+                            page_n, lp.url, lp.title(), lp.content()[:2000])
+                lp.context.close()
+                break
+
+            links = _links_de_pagina(lp, _CC_LISTING_SEL, _CC_HOST)
+            lp.context.close()
+            if not links:
+                break
+
+            for href in links:
+                if guardados >= MAX_POR_PORTAL:
+                    break
+                total += 1
+                try:
+                    dp = _nueva_pagina(browser, href)
+                    try:
+                        datos = _cc_extraer_datos(dp, href)
+                        if datos:
+                            tel = _extraer_tel_comun(dp)
+                            if tel and _guardar("ciencuadras", tel, **datos):
+                                guardados += 1
+                    finally:
+                        dp.context.close()
+                except Exception as exc:
+                    log.debug("[CC] Error %s: %s", href, exc)
+                _pausa()
+
+            page_n += 1
 
     log.info("[CC] %d visitados, %d guardados.", total, guardados)
     return guardados
