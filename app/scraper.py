@@ -13,6 +13,7 @@ Requisitos de entorno:
 En Render, agregar al build command:
   pip install -r requirements.txt && playwright install chromium
 """
+import json
 import logging
 import os
 import random
@@ -672,30 +673,93 @@ def scrape_propdirecto(browser: Browser) -> int:
 
 # ── Metrocuadrado ─────────────────────────────────────────────────────────────
 
+# City slugs as they appear in MQ URLs, mapped from captacion.CIUDADES keys.
+_MQ_CIUDADES_SLUGS = {
+    "bogota": "bogota",
+    "medellin": "medellin",
+    "barranquilla": "barranquilla",
+    "cartagena": "cartagena",
+    "santa marta": "santa-marta",
+    "cucuta": "cucuta",
+    "chia": "chia",
+}
 _MQ_BASE = (
-    "https://www.metrocuadrado.com/inmuebles/venta/"
-    "?search=form&propertyType=Apartamento,Casa,Local,Oficina,Lote"
-    "&tipoAnunciante=particular&page={page}"
+    "https://www.metrocuadrado.com/inmuebles/venta/{ciudad}/"
+    "?search=form&tipoAnunciante=particular&page={page}"
 )
 _MQ_HOST = "https://www.metrocuadrado.com"
-_MQ_LISTING_SEL = "a[href*='/inmueble/'], a[href*='/apartamento-'], a[href*='/casa-'], a[href*='metrocuadrado.com/']"
+_MQ_LISTING_SEL = "a[href*='/inmueble/']"
+
+
+def _mq_next_data(page: Page) -> dict:
+    """Extract window.__NEXT_DATA__ from a MQ property page."""
+    try:
+        raw = page.evaluate("() => JSON.stringify(window.__NEXT_DATA__ || null)")
+        if not raw:
+            return {}
+        data = json.loads(raw)
+        pp = data.get("props", {}).get("pageProps", {})
+        # MQ nests the listing under different keys depending on page type.
+        for key in ("realEstate", "listing", "inmueble", "property"):
+            if key in pp and isinstance(pp[key], dict):
+                return pp[key]
+        # Last resort: find the first dict with a price-like key
+        for v in pp.values():
+            if isinstance(v, dict) and any(k in v for k in ("price", "precio", "valorVenta", "canonicalUrl")):
+                return v
+    except Exception as exc:
+        log.debug("[MQ] __NEXT_DATA__ error: %s", exc)
+    return {}
 
 
 def _mq_extraer_datos(page: Page, url: str) -> Optional[dict]:
     try:
-        page.wait_for_selector("h1, [class*='price'], [class*='title']", timeout=8_000)
+        page.wait_for_selector("h1, main", timeout=10_000)
     except PWTimeout:
         return None
 
+    nd = _mq_next_data(page)
+    log.debug("[MQ] __NEXT_DATA__ keys: %s", list(nd.keys())[:15])
+
+    precio_raw = str(nd.get("price") or nd.get("precio") or nd.get("valorVenta") or "")
+    tipo_raw = str(nd.get("propertyType") or nd.get("tipoInmueble") or nd.get("tipo") or "")
+    estrato_raw = str(nd.get("stratum") or nd.get("estrato") or "")
+    nombre = str(nd.get("title") or nd.get("titulo") or "") or None
+
+    loc = nd.get("location") or nd.get("ubicacion") or {}
+    ciudad_raw = str(loc.get("city") or loc.get("ciudad") or "") if isinstance(loc, dict) else ""
+    barrio = str(loc.get("neighborhood") or loc.get("barrio") or loc.get("sector") or "") if isinstance(loc, dict) else None
+    direccion = str(loc.get("address") or loc.get("direccion") or "") if isinstance(loc, dict) else None
+
+    # Always fall back to URL for city so _buscar can parse the slug
+    if not ciudad_raw:
+        ciudad_raw = url
+
+    # CSS fallbacks for fields __NEXT_DATA__ didn't provide
+    if not precio_raw:
+        precio_raw = _texto(page, "[data-testid='price'], [class*='price']:not([class*='anterior'])")
+    if not nombre:
+        nombre = _texto(page, "h1") or None
+    if not tipo_raw:
+        tipo_raw = _texto(page, "[data-testid='property-type']") or url
+    if not estrato_raw:
+        estrato_raw = _texto(page, "[class*='estrato']")
+    if not barrio:
+        barrio = _texto(page, "[class*='neighborhood'], [class*='barrio'], [class*='sector']") or None
+    if not direccion:
+        direccion = _texto(page, "[class*='address'], [class*='direccion']") or None
+
+    log.info("[MQ] precio_raw=%r tipo_raw=%r ciudad_raw=%r", precio_raw, tipo_raw, ciudad_raw[:60])
+
     return {
-        "nombre": _texto(page, "h1") or None,
-        "precio_raw": _texto(page, "[class*='price']:not([class*='anterior']), [data-testid='price']"),
-        "estrato_raw": _texto(page, "[class*='estrato'], :text-matches('Estrato [0-9]')"),
-        "tipo_raw": _texto(page, "[class*='tipo-inmueble'], [data-testid='property-type']") or url,
-        "ciudad_raw": _texto(page, "[class*='city'], [class*='ciudad'], [class*='location']") or url,
-        "direccion": _texto(page, "[class*='address'], [class*='direccion']") or None,
-        "barrio": _texto(page, "[class*='neighborhood'], [class*='barrio'], [class*='sector']") or None,
-        "foto": (page.query_selector("img[class*='gallery'], img[class*='slider'], img[class*='photo']") or _primer_img(page)) and _src_img(page, "img[class*='gallery'], img[class*='slider'], img[class*='photo']"),
+        "nombre": nombre,
+        "precio_raw": precio_raw,
+        "estrato_raw": estrato_raw,
+        "tipo_raw": tipo_raw,
+        "ciudad_raw": ciudad_raw,
+        "direccion": direccion,
+        "barrio": barrio,
+        "foto": _src_img(page, "img[class*='gallery'], img[class*='slider'], img[class*='photo']"),
         "anunciante": _anunciante_info(page),
         "url": url,
     }
@@ -704,48 +768,54 @@ def _mq_extraer_datos(page: Page, url: str) -> Optional[dict]:
 def scrape_metrocuadrado(browser: Browser) -> int:
     log.info("[MQ] Iniciando.")
     guardados = total = 0
-    page_n = 1
 
-    while guardados < MAX_POR_PORTAL:
-        url = _MQ_BASE.format(page=page_n)
-        try:
-            lp = _nueva_pagina(browser, url)
-        except Exception as exc:
-            log.warning("[MQ] Página %d inaccesible: %s", page_n, exc)
+    for ciudad_key, ciudad_slug in _MQ_CIUDADES_SLUGS.items():
+        if guardados >= MAX_POR_PORTAL:
             break
+        log.info("[MQ] Ciudad: %s (%s)", ciudad_key, ciudad_slug)
+        page_n = 1
 
-        try:
-            lp.wait_for_selector(_MQ_LISTING_SEL, timeout=15_000)
-        except PWTimeout:
-            log.warning("[MQ] Timeout pág %d. url_final=%s title=%r html=%r",
-                        page_n, lp.url, lp.title(), lp.content()[:2000])
-            lp.context.close()
-            break
-
-        links = _links_de_pagina(lp, _MQ_LISTING_SEL, _MQ_HOST)
-        lp.context.close()
-        if not links:
-            break
-
-        for href in links:
-            if guardados >= MAX_POR_PORTAL:
-                break
-            total += 1
+        while guardados < MAX_POR_PORTAL:
+            url = _MQ_BASE.format(ciudad=ciudad_slug, page=page_n)
             try:
-                dp = _nueva_pagina(browser, href)
-                try:
-                    datos = _mq_extraer_datos(dp, href)
-                    if datos:
-                        tel = _extraer_tel_comun(dp)
-                        if tel and _guardar("metrocuadrado", tel, **datos):
-                            guardados += 1
-                finally:
-                    dp.context.close()
+                lp = _nueva_pagina(browser, url)
             except Exception as exc:
-                log.debug("[MQ] Error %s: %s", href, exc)
-            _pausa()
+                log.warning("[MQ] %s pág %d inaccesible: %s", ciudad_slug, page_n, exc)
+                break
 
-        page_n += 1
+            try:
+                lp.wait_for_selector(_MQ_LISTING_SEL, timeout=15_000)
+            except PWTimeout:
+                log.warning("[MQ] Timeout %s pág %d. url_final=%s title=%r html=%r",
+                            ciudad_slug, page_n, lp.url, lp.title(), lp.content()[:2000])
+                lp.context.close()
+                break
+
+            links = _links_de_pagina(lp, _MQ_LISTING_SEL, _MQ_HOST)
+            lp.context.close()
+            if not links:
+                log.info("[MQ] %s pág %d sin links, siguiente ciudad.", ciudad_slug, page_n)
+                break
+
+            for href in links:
+                if guardados >= MAX_POR_PORTAL:
+                    break
+                total += 1
+                try:
+                    dp = _nueva_pagina(browser, href)
+                    try:
+                        datos = _mq_extraer_datos(dp, href)
+                        if datos:
+                            tel = _extraer_tel_comun(dp)
+                            if tel and _guardar("metrocuadrado", tel, **datos):
+                                guardados += 1
+                    finally:
+                        dp.context.close()
+                except Exception as exc:
+                    log.debug("[MQ] Error %s: %s", href, exc)
+                _pausa()
+
+            page_n += 1
 
     log.info("[MQ] %d visitados, %d guardados.", total, guardados)
     return guardados
