@@ -602,14 +602,25 @@ def _pd_extraer_datos(page: Page, url: str, ciudad_hint: str = "") -> Optional[d
         or titulo_pagina
         or url
     )
+    # Limpiar título: quitar sufijo "| PropDirecto" y emojis para uso en tipo_raw
+    titulo_limpio = re.sub(r'\s*\|\s*PropDirecto.*', '', titulo_pagina, flags=re.I).strip()
+    titulo_limpio = re.sub(r'[\U00010000-\U0010ffff]', '', titulo_limpio).strip()  # strip emojis
+
     tipo_raw = (
         _texto(page, "[class*='tipo'], [class*='property-type'], [class*='tipoInmueble'], [data-testid='property-type']")
-        or titulo_pagina  # title often has "Apartamento en venta..."
+        or titulo_limpio
         or nombre
         or url
     )
+    # Si el título limpio tampoco tiene tipo reconocible, buscar en body
+    if tipo_raw and not _buscar(TIPOS, tipo_raw):
+        try:
+            body_tipo = page.inner_text("body")[:3000]
+        except Exception:
+            body_tipo = ""
+        tipo_raw = tipo_raw + " " + body_tipo
 
-    log.info("[PD] url=%s hint=%r titulo=%r ciudad_raw=%r", url[-60:], ciudad_hint, titulo_pagina[:60], ciudad_raw[:60])
+    log.info("[PD] url=%s hint=%r titulo=%r ciudad_raw=%r tipo_raw=%r", url[-60:], ciudad_hint, titulo_pagina[:60], ciudad_raw[:60], tipo_raw[:80])
 
     precio_raw = _texto(page, "[class*='price'], [class*='precio'], [class*='valor'], [data-testid='price'], [data-testid='precio']")
     if not precio_raw:
@@ -667,12 +678,7 @@ def _pd_redirigido(url: str) -> bool:
 
 
 def _pd_login(browser: Browser) -> Optional[dict]:
-    """Inicia sesión en PropDirecto y devuelve el storage_state con cookies.
-
-    Devuelve None si las credenciales no están configuradas o el login falla.
-    El storage_state se puede pasar a browser.new_context(storage_state=...) para
-    reutilizar la sesión en todas las páginas PD sin tener que volver a loguearse.
-    """
+    """Inicia sesión en PropDirecto y devuelve el storage_state con cookies."""
     if not PD_EMAIL or not PD_PASSWORD:
         log.warning("[PD] PD_EMAIL/PD_PASSWORD no configurados — se omitirá el login.")
         return None
@@ -688,41 +694,134 @@ def _pd_login(browser: Browser) -> Optional[dict]:
     )
     try:
         page = ctx.new_page()
+        # PropDirecto puede usar /login.php o /login — intentar ambos
         page.goto("https://propdirecto.com/login.php", timeout=30_000)
-
-        # Esperar el formulario de login
         try:
-            page.wait_for_selector("input[type='email'], input[name='email'], input[name='usuario']", timeout=10_000)
+            page.wait_for_load_state("domcontentloaded", timeout=10_000)
         except PWTimeout:
-            log.warning("[PD] No se encontró el formulario de login en %s", page.url)
+            pass
+
+        # Si redirigió a /login (sin .php), quedamos igual
+        log.info("[PD] Login page URL: %s title: %r", page.url, page.title()[:80])
+
+        # Loguear todos los inputs visibles para diagnóstico
+        inputs = page.query_selector_all("input")
+        for inp in inputs:
+            itype = inp.get_attribute("type") or ""
+            iname = inp.get_attribute("name") or ""
+            iid = inp.get_attribute("id") or ""
+            log.info("[PD] input type=%r name=%r id=%r", itype, iname, iid)
+
+        # Intentar llenar email — probar varios selectores en orden
+        email_filled = False
+        for sel in [
+            "input[name='email']",
+            "input[type='email']",
+            "input[name='usuario']",
+            "input[name='correo']",
+            "input[id='email']",
+            "input[placeholder*='correo' i]",
+            "input[placeholder*='email' i]",
+        ]:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0:
+                    loc.click()
+                    loc.fill(PD_EMAIL)
+                    log.info("[PD] Email llenado con selector %r", sel)
+                    email_filled = True
+                    break
+            except Exception:
+                continue
+
+        if not email_filled:
+            log.warning("[PD] No se pudo llenar el campo email. HTML: %s", page.content()[:3000])
             return None
 
-        # Rellenar email
-        email_sel = "input[type='email'], input[name='email'], input[name='usuario']"
-        page.fill(email_sel, PD_EMAIL)
+        time.sleep(0.5)
 
-        # Rellenar contraseña
-        pass_sel = "input[type='password'], input[name='password'], input[name='contrasena'], input[name='clave']"
-        page.fill(pass_sel, PD_PASSWORD)
+        # Intentar llenar contraseña
+        pass_filled = False
+        for sel in [
+            "input[type='password']",
+            "input[name='password']",
+            "input[name='contrasena']",
+            "input[name='clave']",
+            "input[name='pass']",
+        ]:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0:
+                    loc.click()
+                    loc.fill(PD_PASSWORD)
+                    log.info("[PD] Password llenado con selector %r", sel)
+                    pass_filled = True
+                    break
+            except Exception:
+                continue
 
-        # Submit
-        submit_sel = "button[type='submit'], input[type='submit'], button:has-text('Ingresar'), button:has-text('Iniciar')"
-        page.click(submit_sel)
+        if not pass_filled:
+            log.warning("[PD] No se pudo llenar el campo password.")
+            return None
 
-        # Esperar navegación post-login
+        time.sleep(0.3)
+
+        # Submit — intentar varios
+        submitted = False
+        for sel in [
+            "button[type='submit']",
+            "input[type='submit']",
+            "button:has-text('Ingresar')",
+            "button:has-text('Iniciar')",
+            "button:has-text('Login')",
+            "button:has-text('Entrar')",
+            "form button",
+        ]:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0:
+                    loc.click()
+                    log.info("[PD] Submit con selector %r", sel)
+                    submitted = True
+                    break
+            except Exception:
+                continue
+
+        if not submitted:
+            # Último recurso: Enter en el campo password
+            try:
+                page.locator("input[type='password']").first.press("Enter")
+                submitted = True
+                log.info("[PD] Submit via Enter en password")
+            except Exception:
+                log.warning("[PD] No se pudo hacer submit del formulario.")
+                return None
+
+        # Esperar navegación post-submit
         try:
             page.wait_for_load_state("networkidle", timeout=15_000)
         except PWTimeout:
             pass
 
         final_url = page.url
-        if _pd_redirigido(final_url):
-            log.warning("[PD] Login falló — redirigió de vuelta a %s", final_url)
+        log.info("[PD] URL post-submit: %s", final_url)
+
+        if "login" in final_url or "registro" in final_url:
+            # Buscar mensaje de error en la página
+            err_text = ""
+            for err_sel in [".error", ".alert", "[class*='error']", "[class*='alert']", "p.red", ".mensaje"]:
+                try:
+                    el = page.query_selector(err_sel)
+                    if el:
+                        err_text = el.inner_text().strip()[:200]
+                        break
+                except Exception:
+                    pass
+            log.warning("[PD] Login falló. URL=%s error_msg=%r", final_url, err_text)
             return None
 
-        log.info("[PD] Login exitoso. URL final: %s", final_url)
-        state = ctx.storage_state()
-        return state
+        log.info("[PD] Login exitoso.")
+        return ctx.storage_state()
     except Exception as exc:
         log.warning("[PD] Error durante login: %s", exc)
         return None
