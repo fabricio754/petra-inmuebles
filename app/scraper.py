@@ -521,12 +521,17 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
     # ── 5. Buscar patrón colombiano en texto visible ──────────────────────────
     try:
         body_text = page.locator("body").inner_text(timeout=3_000)
-        m = re.search(
-            r"\b(57\s*3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4}|3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4})\b",
-            body_text,
+        hits = re.findall(
+            r"(?:57)?3\d{9}",
+            re.sub(r"[\s\-]", "", body_text),
         )
-        if m:
-            return re.sub(r"\D", "", m.group(0))
+        if hits:
+            from collections import Counter
+            cnt = Counter(hits)
+            # Prefer the least frequent number: platform numbers repeat in
+            # nav/footer, while owner numbers appear once per listing.
+            least = min(cnt, key=lambda k: (cnt[k], k))
+            return least if least.startswith("57") else "57" + least
     except Exception:
         pass
 
@@ -538,8 +543,11 @@ def _extraer_tel_comun(page: Page) -> Optional[str]:
         log.info("[Scraper] Números móviles en HTML: %s", list(set(matches)))
         if matches:
             from collections import Counter
-            top, _ = Counter(matches).most_common(1)[0]
-            return top if top.startswith("57") else "57" + top
+            cnt = Counter(matches)
+            # Same logic: the platform's number repeats in every page element;
+            # the owner's number appears once.
+            least = min(cnt, key=lambda k: (cnt[k], k))
+            return least if least.startswith("57") else "57" + least
     except Exception:
         pass
 
@@ -592,13 +600,22 @@ def _pd_extraer_datos(page: Page, url: str) -> Optional[dict]:
 
     log.info("[PD] url=%s nombre=%r titulo=%r ciudad_raw=%r", url[-60:], nombre, titulo_pagina[:80], ciudad_raw[:80])
 
+    precio_raw = _texto(page, "[class*='price'], [class*='precio'], [class*='valor'], [data-testid='price'], [data-testid='precio']")
+    if not precio_raw:
+        # Try to extract price from page title: "$185 millones", "$148.000.000"
+        texto_precio = titulo_pagina + " " + (nombre or "")
+        m_mill = re.search(r'\$\s*([\d.,]+)\s*millones?', texto_precio, re.I)
+        if m_mill:
+            digits = re.sub(r"[.,\s]", "", m_mill.group(1))
+            precio_raw = str(int(digits) * 1_000_000) if digits.isdigit() else ""
+        else:
+            m_num = re.search(r'\$\s*([\d.,]{6,})', texto_precio)
+            if m_num:
+                precio_raw = re.sub(r"[.,]", "", m_num.group(1))
+
     return {
         "nombre": nombre,
-        "precio_raw": _texto(
-            page,
-            "[class*='price'], [class*='precio'], [class*='valor'], "
-            "[data-testid='price'], [data-testid='precio']",
-        ),
+        "precio_raw": precio_raw,
         "estrato_raw": _texto(page, "[class*='estrato'], :text-matches('Estrato [0-9]')"),
         "tipo_raw": tipo_raw,
         "ciudad_raw": ciudad_raw,
