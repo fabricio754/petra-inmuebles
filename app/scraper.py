@@ -45,6 +45,8 @@ log = logging.getLogger("petra")
 
 TWOCAPTCHA_KEY = os.environ.get("TWOCAPTCHA_API_KEY", "")
 SCRAPER_ENABLED = os.environ.get("SCRAPER_ENABLED", "false").lower() == "true"
+PD_EMAIL = os.environ.get("PD_EMAIL", "")
+PD_PASSWORD = os.environ.get("PD_PASSWORD", "")
 MAX_POR_PORTAL = 300
 PAUSA_MIN, PAUSA_MAX = 3, 5
 
@@ -611,7 +613,7 @@ def _pd_extraer_datos(page: Page, url: str, ciudad_hint: str = "") -> Optional[d
 
     precio_raw = _texto(page, "[class*='price'], [class*='precio'], [class*='valor'], [data-testid='price'], [data-testid='precio']")
     if not precio_raw:
-        # Try to extract price from page title: "$185 millones", "$148.000.000"
+        # Try title first: "$185 millones", "$148.000.000"
         texto_precio = titulo_pagina + " " + (nombre or "")
         m_mill = re.search(r'\$\s*([\d.,]+)\s*millones?', texto_precio, re.I)
         if m_mill:
@@ -621,6 +623,25 @@ def _pd_extraer_datos(page: Page, url: str, ciudad_hint: str = "") -> Optional[d
             m_num = re.search(r'\$\s*([\d.,]{6,})', texto_precio)
             if m_num:
                 precio_raw = re.sub(r"[.,]", "", m_num.group(1))
+    if not precio_raw:
+        # Last resort: scan full body text for price patterns
+        try:
+            body = page.inner_text("body")
+        except Exception:
+            body = ""
+        m_mill = re.search(r'\$\s*([\d.,]+)\s*millones?', body, re.I)
+        if m_mill:
+            digits = re.sub(r"[.,\s]", "", m_mill.group(1))
+            precio_raw = str(int(digits) * 1_000_000) if digits.isdigit() else ""
+        else:
+            m_num = re.search(r'\$\s*([\d.,]{6,})', body)
+            if m_num:
+                precio_raw = re.sub(r"[.,]", "", m_num.group(1))
+            else:
+                # Numbers like "185.000.000" or "185,000,000" without "$"
+                m_bare = re.search(r'\b(1\d{2}|[2-9]\d{2}|\d{4})[.,](\d{3})[.,](\d{3})\b', body)
+                if m_bare:
+                    precio_raw = m_bare.group(1) + m_bare.group(2) + m_bare.group(3)
 
     return {
         "nombre": nombre,
@@ -645,6 +666,97 @@ def _pd_redirigido(url: str) -> bool:
     return any(p in url for p in ("/login", "/registro", "/registro.php"))
 
 
+def _pd_login(browser: Browser) -> Optional[dict]:
+    """Inicia sesión en PropDirecto y devuelve el storage_state con cookies.
+
+    Devuelve None si las credenciales no están configuradas o el login falla.
+    El storage_state se puede pasar a browser.new_context(storage_state=...) para
+    reutilizar la sesión en todas las páginas PD sin tener que volver a loguearse.
+    """
+    if not PD_EMAIL or not PD_PASSWORD:
+        log.warning("[PD] PD_EMAIL/PD_PASSWORD no configurados — se omitirá el login.")
+        return None
+
+    log.info("[PD] Iniciando sesión como %s …", PD_EMAIL)
+    ctx = browser.new_context(
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        locale="es-CO",
+    )
+    try:
+        page = ctx.new_page()
+        page.goto("https://propdirecto.com/login.php", timeout=30_000)
+
+        # Esperar el formulario de login
+        try:
+            page.wait_for_selector("input[type='email'], input[name='email'], input[name='usuario']", timeout=10_000)
+        except PWTimeout:
+            log.warning("[PD] No se encontró el formulario de login en %s", page.url)
+            return None
+
+        # Rellenar email
+        email_sel = "input[type='email'], input[name='email'], input[name='usuario']"
+        page.fill(email_sel, PD_EMAIL)
+
+        # Rellenar contraseña
+        pass_sel = "input[type='password'], input[name='password'], input[name='contrasena'], input[name='clave']"
+        page.fill(pass_sel, PD_PASSWORD)
+
+        # Submit
+        submit_sel = "button[type='submit'], input[type='submit'], button:has-text('Ingresar'), button:has-text('Iniciar')"
+        page.click(submit_sel)
+
+        # Esperar navegación post-login
+        try:
+            page.wait_for_load_state("networkidle", timeout=15_000)
+        except PWTimeout:
+            pass
+
+        final_url = page.url
+        if _pd_redirigido(final_url):
+            log.warning("[PD] Login falló — redirigió de vuelta a %s", final_url)
+            return None
+
+        log.info("[PD] Login exitoso. URL final: %s", final_url)
+        state = ctx.storage_state()
+        return state
+    except Exception as exc:
+        log.warning("[PD] Error durante login: %s", exc)
+        return None
+    finally:
+        ctx.close()
+
+
+def _pd_nueva_pagina(browser: Browser, url: str, storage_state: Optional[dict] = None) -> Page:
+    """Crea una nueva página PD reutilizando la sesión autenticada si está disponible."""
+    ctx_kwargs: dict = {
+        "user_agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "viewport": {"width": 1366, "height": 768},
+        "locale": "es-CO",
+    }
+    if storage_state:
+        ctx_kwargs["storage_state"] = storage_state
+    ctx = browser.new_context(**ctx_kwargs)
+    ctx.add_init_script("""
+        window.__massiBotUris = [];
+        const _origOpen = window.open;
+        window.open = function(url, ...a) {
+            if (url) window.__massiBotUris.push(String(url));
+            try { return _origOpen && _origOpen.apply(this, [url, ...a]); } catch(e){}
+        };
+    """)
+    page = ctx.new_page()
+    page.goto(url, timeout=30_000, wait_until="domcontentloaded")
+    return page
+
+
 def scrape_propdirecto(browser: Browser) -> int:
     """Scraper para PropDirecto (propietarios directos, sin agentes).
 
@@ -653,6 +765,11 @@ def scrape_propdirecto(browser: Browser) -> int:
     """
     log.info("[PD] Iniciando.")
     guardados = total = 0
+
+    # Login para superar el muro de registro
+    pd_session = _pd_login(browser)
+    if not pd_session:
+        log.warning("[PD] Sin sesión autenticada — muchas fichas requerirán login. Continuando sin sesión.")
 
     for ciudad_key, ciudad_slug in _PD_CIUDADES_SLUGS.items():
         if guardados >= MAX_POR_PORTAL:
@@ -663,16 +780,34 @@ def scrape_propdirecto(browser: Browser) -> int:
         while guardados < MAX_POR_PORTAL:
             url = _PD_BASE.format(ciudad=ciudad_slug, page=page_n)
             try:
-                lp = _nueva_pagina(browser, url)
+                lp = _pd_nueva_pagina(browser, url, storage_state=pd_session)
             except Exception as exc:
                 log.warning("[PD] Página %d inaccesible: %s", page_n, exc)
                 break
 
-            # Muro de login/registro — salir de este portal completamente.
-            if _pd_redirigido(lp.url) or (page_n > 1 and lp.url.rstrip("/") == _PD_HOST):
+            # Si aun con sesión nos redirige a login, las cookies caducaron
+            if _pd_redirigido(lp.url):
                 lp.context.close()
-                log.warning("[PD] Muro de registro en página %d (%s) — abortando PD.", page_n, lp.url)
-                return guardados
+                log.warning("[PD] Sesión expirada o inválida en pág %d (%s) — re-intentando login.", page_n, lp.url)
+                pd_session = _pd_login(browser)
+                if not pd_session:
+                    log.warning("[PD] Re-login falló — abortando PD.")
+                    return guardados
+                # Retry this page with fresh session
+                try:
+                    lp = _pd_nueva_pagina(browser, url, storage_state=pd_session)
+                except Exception as exc:
+                    log.warning("[PD] Página %d inaccesible tras re-login: %s", page_n, exc)
+                    break
+                if _pd_redirigido(lp.url):
+                    lp.context.close()
+                    log.warning("[PD] Muro de registro persiste tras re-login — abortando PD.")
+                    return guardados
+
+            if page_n > 1 and lp.url.rstrip("/") == _PD_HOST:
+                lp.context.close()
+                log.warning("[PD] Redirigido a home en pág %d — fin de resultados.", page_n)
+                break
 
             try:
                 lp.wait_for_selector(_PD_LISTING_SEL, timeout=15_000)
@@ -695,13 +830,25 @@ def scrape_propdirecto(browser: Browser) -> int:
                     break
                 total += 1
                 try:
-                    dp = _nueva_pagina(browser, href)
-                    # Skip if redirected to login/registro wall
+                    dp = _pd_nueva_pagina(browser, href, storage_state=pd_session)
                     if _pd_redirigido(dp.url):
                         dp.context.close()
-                        log.warning("[PD] Detalle redirigió a registro — abortando PD.")
-                        log.info("[PD] %d visitados, %d guardados.", total, guardados)
-                        return guardados
+                        # Session may have expired mid-scrape; try re-login once
+                        log.warning("[PD] Detalle redirigió a registro — re-intentando login.")
+                        pd_session = _pd_login(browser)
+                        if not pd_session:
+                            log.warning("[PD] Re-login falló — abortando PD.")
+                            log.info("[PD] %d visitados, %d guardados.", total, guardados)
+                            return guardados
+                        try:
+                            dp = _pd_nueva_pagina(browser, href, storage_state=pd_session)
+                        except Exception as exc:
+                            log.debug("[PD] Error tras re-login %s: %s", href, exc)
+                            continue
+                        if _pd_redirigido(dp.url):
+                            dp.context.close()
+                            log.warning("[PD] Muro persiste tras re-login — abortando PD.")
+                            return guardados
                     try:
                         datos = _pd_extraer_datos(dp, href, ciudad_hint=ciudad_key)
                         if datos:
