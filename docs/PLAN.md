@@ -95,15 +95,23 @@ Pasos de configuración previos al piloto:
      Start command: `gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app`
      Disco persistente: montar en `/var/data/media`.
   2. Variables de entorno: completar todas las marcadas con `sync: false` en `render.yaml`.
-     En especial: `SURETI_EMAIL`, `SURETI_PASSWORD`, `ANTHROPIC_API_KEY`, `CAPTURA_TOKEN`.
+     En especial: `SURETI_EMAIL`, `SURETI_PASSWORD`, `ANTHROPIC_API_KEY`, `CAPTURA_TOKEN`,
+     `INGEST_TOKEN` (token que usará el actor Apify para POST /scraper/ingest).
   3. Secret File: subir `google-credentials.json` en Settings → Secret Files de Render.
   4. ⚠️ Verificar selectores de Sureti: abrir agentes.sureti.co con F12 abierto,
      ir al formulario de registro de lead y confirmar que los selectores en
      `app/sureti.py` (`_fill`, `_select_or_fill`, `_check_radio`) coincidan.
   5. Plantilla Meta `massi_apertura_a`: confirmar aprobación en WhatsApp Manager.
      Activar `ENVIO_AUTOMATICO=true` solo una vez aprobada.
-  6. Activar scraper: `SCRAPER_ENABLED=true` + `TWOCAPTCHA_API_KEY` cuando todo lo
-     anterior esté verificado.
+  6. Actor Apify: el código está en `actor/` (rama actual). Para desplegarlo:
+     Opción A (recomendada): hacer el repo público temporalmente en GitHub Settings,
+     cambiar el source del actor (apify.com/actors/c5Dx4kjZENfbeKYi1/source) a
+     "Git repository" → `fabricio754/petra-inmuebles`, directorio `actor`.
+     Opción B: ir al Web IDE del actor y pegar los 5 archivos de `actor/` manualmente.
+     Una vez construido: configurar input `ingest_url` + `ingest_token` y activar
+     un schedule cada 2 h.
+  7. Activar scraper local (opcional, solo si Apify no cubre): `SCRAPER_ENABLED=true`
+     + `TWOCAPTCHA_API_KEY`.
 
 ## Hito 12 — Seguridad
 - HECHO (2 oct 2026): Render API keys viejas revocadas; no queda ninguna.
