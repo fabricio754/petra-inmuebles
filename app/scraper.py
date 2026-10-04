@@ -290,8 +290,9 @@ def _guardar(portal: str, telefono_raw: str, **campos) -> bool:
     tipo_raw = campos.get("tipo_raw", "")
     direccion = campos.get("direccion") or ""
     barrio = campos.get("barrio") or ""
+    nombre = campos.get("nombre") or ""
 
-    ciudad = _buscar(CIUDADES, ciudad_raw, url, direccion, barrio)
+    ciudad = _buscar(CIUDADES, ciudad_raw, url, direccion, barrio, nombre)
     if not ciudad:
         log.info("[Guardar] ciudad no encontrada: ciudad_raw=%r url=%r", ciudad_raw, url[:80])
         return False
@@ -572,28 +573,35 @@ _PD_LISTING_SEL = (
 
 def _pd_extraer_datos(page: Page, url: str) -> Optional[dict]:
     try:
-        page.wait_for_selector("h1, [class*='price'], [class*='precio']", timeout=8_000)
+        page.wait_for_selector("h1, [class*='price'], [class*='precio'], main", timeout=8_000)
     except PWTimeout:
         return None
 
+    nombre = _texto(page, "h1") or None
+    titulo_pagina = page.title() or ""
+    ciudad_raw = (
+        _texto(page, "[class*='ciudad'], [class*='city'], [class*='location'], [data-testid='location']")
+        or titulo_pagina
+        or url
+    )
+    tipo_raw = (
+        _texto(page, "[class*='tipo'], [class*='property-type'], [class*='tipoInmueble'], [data-testid='property-type']")
+        or nombre
+        or url
+    )
+
+    log.info("[PD] url=%s nombre=%r titulo=%r ciudad_raw=%r", url[-60:], nombre, titulo_pagina[:80], ciudad_raw[:80])
+
     return {
-        "nombre": _texto(page, "h1") or None,
+        "nombre": nombre,
         "precio_raw": _texto(
             page,
             "[class*='price'], [class*='precio'], [class*='valor'], "
             "[data-testid='price'], [data-testid='precio']",
         ),
         "estrato_raw": _texto(page, "[class*='estrato'], :text-matches('Estrato [0-9]')"),
-        "tipo_raw": _texto(
-            page,
-            "[class*='tipo'], [class*='property-type'], [class*='tipoInmueble'], "
-            "[data-testid='property-type']",
-        ) or url,
-        "ciudad_raw": _texto(
-            page,
-            "[class*='ciudad'], [class*='city'], [class*='location'], "
-            "[data-testid='location']",
-        ) or url,
+        "tipo_raw": tipo_raw,
+        "ciudad_raw": ciudad_raw,
         "direccion": _texto(page, "[class*='address'], [class*='direccion']") or None,
         "barrio": _texto(page, "[class*='barrio'], [class*='sector'], [class*='neighborhood']") or None,
         "foto": _src_img(
