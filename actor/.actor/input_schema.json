@@ -13,6 +13,7 @@
     "max_per_portal": {
       "title": "Máximo de contactos por portal",
       "type": "integer",
+      "description": "Número máximo de contactos a extraer por portal en cada ejecución",
       "default": 300
     },
     "ingest_url": {
