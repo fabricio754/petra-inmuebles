@@ -5,7 +5,7 @@
   "description": "Scraper de portales inmobiliarios colombianos (Metrocuadrado, FincaRaíz, Ciencuadras, PropDirecto) para captación de propietarios.",
   "version": "0.1",
   "buildTag": "latest",
-  "environmentVariables": [],
+  "environmentVariables": {},
   "defaultRunOptions": {
     "build": "latest",
     "timeoutSecs": 3600,
