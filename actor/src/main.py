@@ -4,6 +4,7 @@ Lee el input desde ACTOR_INPUT_BODY (inyectado por Apify) o un archivo JSON.
 Envía contactos al endpoint /scraper/ingest del bot Petra.
 """
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -53,6 +54,37 @@ _UA = (
 )
 
 
+def _decrypt_apify_secret(encrypted: str) -> Optional[str]:
+    """Desencripta un campo ENCRYPTED_VALUE:base64data:base64key usando la clave privada del actor."""
+    private_key_pem = os.environ.get("APIFY_ACTOR_PRIVATE_KEY", "")
+    if not private_key_pem or not encrypted.startswith("ENCRYPTED_VALUE:"):
+        return None
+    try:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding as apadding
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+        parts = encrypted.split(":")
+        if len(parts) < 3:
+            return None
+        enc_data = base64.b64decode(parts[1])
+        enc_key = base64.b64decode(parts[2])
+
+        priv = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+        aes_key = priv.decrypt(enc_key, apadding.OAEP(
+            mgf=apadding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(), label=None,
+        ))
+        iv, ciphertext = enc_data[:16], enc_data[16:]
+        decryptor = Cipher(algorithms.AES(aes_key), modes.CBC(iv)).decryptor()
+        raw = decryptor.update(ciphertext) + decryptor.finalize()
+        pad = raw[-1]
+        return raw[:-pad].decode("utf-8")
+    except Exception as e:
+        log.warning("No se pudo desencriptar campo secret: %s", e)
+        return None
+
+
 def _leer_input() -> dict:
     """Lee el input del actor desde el key-value store de Apify (cloud) o archivo (local)."""
     # 1. apify-client: forma canónica en cloud runs
@@ -65,7 +97,16 @@ def _leer_input() -> dict:
                 os.environ.get("APIFY_INPUT_KEY", "INPUT")
             )
             if record and isinstance(record.get("value"), dict):
-                return record["value"]
+                data = record["value"]
+                # Desencriptar campos ENCRYPTED_VALUE si el build los cifró
+                for k, v in list(data.items()):
+                    if isinstance(v, str) and v.startswith("ENCRYPTED_VALUE:"):
+                        decrypted = _decrypt_apify_secret(v)
+                        if decrypted is not None:
+                            data[k] = decrypted
+                        else:
+                            log.warning("Campo '%s' cifrado pero no se pudo desencriptar.", k)
+                return data
         except Exception as e:
             log.warning("No se pudo leer input via apify-client: %s", e)
 
