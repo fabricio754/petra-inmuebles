@@ -12,20 +12,10 @@ jobs:
       - name: Leer INGEST_TOKEN de Render
         id: token
         run: |
-          VARS=$(curl -sf \
+          TOKEN=$(curl -sf \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars")
-
-          TOKEN=$(echo "$VARS" | python3 << 'PYEOF'
-import sys, json
-items = json.loads(sys.stdin.read())
-for item in items:
-    ev = item.get('envVar', item)
-    if ev.get('key') == 'INGEST_TOKEN':
-        print(ev.get('value', ''))
-        break
-PYEOF
-)
+            "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars" \
+            | jq -r '.[] | select(.envVar.key == "INGEST_TOKEN") | .envVar.value // empty')
           if [ -z "$TOKEN" ]; then
             echo "No se encontro INGEST_TOKEN en Render"
             exit 1
@@ -39,13 +29,13 @@ PYEOF
             "https://petra-inmuebles.onrender.com/scraper/ingest" \
             -H "Content-Type: application/json" \
             -H "X-Ingest-Token: ${{ steps.token.outputs.value }}" \
-            -d '{"contactos":[{"telefono":"3001234567","precio":500000000,"ciudad":"Bogota","estrato":4,"tipo":"apartamento","portal":"fincaraiz","url":"https://www.fincaraiz.com.co/inmueble/test-e2e","nombre_anunciante":"Test E2E"}]}')
+            -d '{"contactos":[{"telefono":"3001234567","precio":500000000,"ciudad":"Bogota","estrato":4,"tipo":"apartamento","portal":"fincaraiz","url":"https://fincaraiz.com.co/test-e2e","nombre_anunciante":"Test E2E"}]}')
 
           BODY=$(echo "$RESP" | sed -n '1,/HTTP_STATUS/p' | head -n -1)
           STATUS=$(echo "$RESP" | grep "HTTP_STATUS" | cut -d: -f2)
 
           echo "HTTP Status: $STATUS"
-          echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
 
           if [ "$STATUS" = "200" ]; then
             echo "OK - Paso 1 verificado"
