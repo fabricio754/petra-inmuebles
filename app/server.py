@@ -18,6 +18,7 @@ load_dotenv()  # debe cargar antes de importar app.bot -> app.whatsapp (lee env 
 from flask import Flask, request, jsonify, render_template
 
 from app import bot, envios, scraper, scheduler
+from app.panel import panel as panel_bp
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("petra")
@@ -28,6 +29,7 @@ VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "petra-verify-token")
 MIME_SOPORTADOS = {"image/jpeg", "image/png", "application/pdf"}
 
 app = Flask(__name__)
+app.register_blueprint(panel_bp)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
@@ -313,9 +315,22 @@ def receive_webhook():
     try:
         entry = payload["entry"][0]
         change = entry["changes"][0]["value"]
+
+        # Opt-out de marketing (botón "Stop" en la tarjeta de la plantilla).
+        # Meta notifica el cambio en user_preferences; lo tratamos igual que
+        # STOP/BAJA/PARA/SALIR por texto: upsert a no_contactar.
+        for pref in change.get("user_preferences") or []:
+            if (pref.get("category") == "marketing_messages"
+                    and str(pref.get("value", "")).lower() == "stop"):
+                wa_id = pref.get("wa_id")
+                if wa_id:
+                    from app import state
+                    state.set_no_contactar(wa_id, True)
+                    log.info("Opt-out de marketing recibido de %s (botón Stop).", wa_id)
+
         messages = change.get("messages")
         if not messages:
-            # Eventos de status (entregado/leído), los ignoramos en el MVP.
+            # Eventos de status (entregado/leído) y preferencias puras: ya tratados.
             return jsonify({"status": "ignored"}), 200
 
         message = messages[0]
@@ -324,6 +339,19 @@ def receive_webhook():
         phone = message.get("from") or message["from_user_id"]
         event = _to_event(message)
         log.info("Mensaje entrante de %s: %s", phone, event)
+
+        # Bitácora de entrada (sobrevive al ciclo de sesión; el panel lo lee).
+        try:
+            from app import db as _db
+            _resumen_in = (event.get("text")
+                           or event.get("id")
+                           or event.get("media_id")
+                           or event.get("response")
+                           or "")
+            _db.log_mensaje(phone, "in", event.get("type", "unknown"),
+                            str(_resumen_in)[:4000], message)
+        except Exception:
+            log.exception("No se pudo registrar mensaje entrante.")
 
         if event["type"] == "media":
             from app import media as media_mod

@@ -59,8 +59,10 @@ def _dispatch(payload, human_summary):
         # Meta no acepta un BSUID en "to": va en "recipient".
         payload = {k: v for k, v in payload.items() if k != "to"}
         payload["recipient"] = dest
+    tipo = payload.get("type", "text")
     if DRY_RUN:
         log.info("[DRY-RUN → %s] %s", dest, human_summary)
+        _log_out(dest, tipo, human_summary, payload, "dry-run")
         return {"status": "dry-run", "summary": human_summary}
 
     headers = {
@@ -72,7 +74,18 @@ def _dispatch(payload, human_summary):
         log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
     else:
         log.info("[OK WhatsApp API] %s → %s: %s", resp.status_code, dest, human_summary)
+    _log_out(dest, tipo, human_summary, payload, resp.status_code)
     return {"status": resp.status_code, "summary": human_summary, "body": resp.text}
+
+
+def _log_out(dest, tipo, resumen, payload, estado):
+    """Persiste el mensaje de salida en la tabla mensajes. Nunca propaga errores."""
+    try:
+        from app import db as _db
+        _db.log_mensaje(dest, "out", tipo, resumen,
+                        {"status": estado, "payload": payload})
+    except Exception:
+        pass
 
 
 def send_text(to, body):

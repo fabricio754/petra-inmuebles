@@ -76,6 +76,8 @@ services:
         sync: false
       - key: INGEST_TOKEN
         sync: false          # Token secreto para POST /scraper/ingest (actor Apify)
+      - key: PANEL_TOKEN
+        sync: false          # Token para abrir /panel y /panel/<telefono> (dashboard de leads)
 
       # === Política de datos ===
       - key: PUBLIC_BASE_URL

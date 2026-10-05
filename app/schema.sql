@@ -123,3 +123,20 @@ CREATE TABLE IF NOT EXISTS meta (
   valor TEXT,
   actualizado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Bitácora de mensajes del bot (entrada y salida), para auditoría y panel.
+-- "direccion": 'in' (del contacto hacia el bot) o 'out' (del bot hacia el contacto).
+-- "tipo": text, button_reply, list_reply, flow_reply, template, interactive, media, ...
+-- "resumen": texto plano legible por una persona (lo que llegó o se envió).
+-- "payload": JSONB con el objeto completo original (opcional, para debug).
+CREATE TABLE IF NOT EXISTS mensajes (
+  id BIGSERIAL PRIMARY KEY,
+  telefono VARCHAR(150) NOT NULL,
+  direccion VARCHAR(4) NOT NULL,
+  tipo VARCHAR(40),
+  resumen TEXT,
+  payload JSONB,
+  fecha TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS mensajes_telefono_fecha_idx
+  ON mensajes (telefono, fecha DESC);

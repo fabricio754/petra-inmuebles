@@ -197,6 +197,22 @@ def set_no_contactar(phone, valor):
         )
 
 
+def log_mensaje(telefono, direccion, tipo, resumen, payload=None):
+    """Inserta una fila en `mensajes`. Nunca lanza excepción al caller."""
+    import json as _json
+    try:
+        payload_json = _json.dumps(payload) if payload is not None else None
+        with _conexion() as conn:
+            conn.execute(
+                "INSERT INTO mensajes (telefono, direccion, tipo, resumen, payload) "
+                "VALUES (%s, %s, %s, %s, %s::jsonb)",
+                (str(telefono)[:150], direccion[:4], (tipo or "")[:40],
+                 (resumen or "")[:4000], payload_json),
+            )
+    except Exception as exc:
+        log.warning("[log_mensaje] no se pudo guardar (%s): %s", direccion, exc)
+
+
 # === Captación (Hito 7) ======================================================
 
 def guardar_contacto(c):
