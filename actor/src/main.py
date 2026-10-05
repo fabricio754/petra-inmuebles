@@ -1,18 +1,17 @@
-"""Actor Apify — Petra Inmuebles Scraper.
+"""Actor Apify — Petra Inmuebles Scraper (sin SDK apify).
 
-Scraper de propietarios directos en 4 portales colombianos.
-Usa proxies residenciales de Apify para evadir bloqueos.
-Los contactos crudos se envían al endpoint /scraper/ingest del bot Petra,
-que aplica los filtros de calidad (ciudad, tipo, precio, estrato) y guarda en DB.
+Lee el input desde ACTOR_INPUT_BODY (inyectado por Apify) o un archivo JSON.
+Envía contactos al endpoint /scraper/ingest del bot Petra.
 """
 import asyncio
 import json
+import logging
+import os
 import re
 import unicodedata
 from typing import Optional
 
 import httpx
-from apify import Actor
 from playwright.async_api import (
     Browser,
     BrowserContext,
@@ -20,6 +19,9 @@ from playwright.async_api import (
     TimeoutError as PWTimeout,
     async_playwright,
 )
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("petra-actor")
 
 # ── Ciudades y slugs por portal ───────────────────────────────────────────────
 
@@ -50,6 +52,27 @@ _UA = (
     "Chrome/120.0.0.0 Safari/537.36"
 )
 
+
+def _leer_input() -> dict:
+    """Lee el input del actor desde env var o archivo."""
+    # Apify inyecta el input como variable de entorno para inputs pequeños
+    raw = os.environ.get("ACTOR_INPUT_BODY", "")
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception:
+            pass
+
+    # Alternativa: archivo en el key-value store local
+    storage_dir = os.environ.get("APIFY_LOCAL_STORAGE_DIR", "/root/apify_storage")
+    input_path = os.path.join(storage_dir, "key_value_stores", "default", "INPUT.json")
+    if os.path.exists(input_path):
+        with open(input_path) as f:
+            return json.load(f)
+
+    return {}
+
+
 # ── Utilidades ────────────────────────────────────────────────────────────────
 
 def _sin_tildes(texto: str) -> str:
@@ -59,7 +82,6 @@ def _sin_tildes(texto: str) -> str:
 
 
 def _extraer_tel(texto: str) -> Optional[str]:
-    """Extrae primer número celular colombiano del texto."""
     blob = re.sub(r"[\s\-]", "", texto)
     for m in re.finditer(r"(?:57)?3\d{9}", blob):
         return m.group(0) if m.group(0).startswith("57") else "57" + m.group(0)
@@ -81,7 +103,6 @@ async def _nueva_pagina(ctx: BrowserContext, url: str) -> Page:
 
 
 def _next_data(raw_json: str) -> dict:
-    """Extrae el primer objeto relevante de window.__NEXT_DATA__."""
     try:
         data = json.loads(raw_json)
         pp = data.get("props", {}).get("pageProps", {})
@@ -99,22 +120,7 @@ def _next_data(raw_json: str) -> dict:
 
 
 async def _extraer_telefono(page: Page) -> Optional[str]:
-    """Intenta obtener teléfono del propietario por múltiples estrategias."""
-    phones_xhr: list[str] = []
-
-    def _on_response(response):
-        try:
-            if response.status not in (200, 201):
-                return
-            ct = response.headers.get("content-type", "")
-            if "json" not in ct and "text" not in ct:
-                return
-        except Exception:
-            pass
-
-    page.on("response", _on_response)
-
-    # 0. __NEXT_DATA__ — teléfono en SSR
+    # 0. __NEXT_DATA__
     try:
         raw = await page.evaluate("() => JSON.stringify(window.__NEXT_DATA__ || null)")
         if raw and raw != "null":
@@ -174,7 +180,7 @@ async def _extraer_telefono(page: Page) -> Optional[str]:
         except Exception:
             pass
 
-    # 4. URIs capturadas por window.open (wa.me, whatsapp://)
+    # 4. URIs capturadas por window.open
     try:
         uris = await page.evaluate("() => window.__massiBotUris || []")
         for uri in uris:
@@ -237,8 +243,6 @@ async def _anunciante(page: Page) -> dict:
     return {"nombre": nombre, "num_publicaciones": num_pub}
 
 
-# ── Extractor genérico Next.js (MQ / FR / CC) ────────────────────────────────
-
 async def _extraer_nextjs(page: Page, url: str, ciudad_hint: str) -> Optional[dict]:
     try:
         await page.wait_for_selector("h1, main", timeout=10_000)
@@ -265,7 +269,6 @@ async def _extraer_nextjs(page: Page, url: str, ciudad_hint: str) -> Optional[di
     barrio = str(loc.get("neighborhood") or loc.get("barrio") or "") or None
     direccion = str(loc.get("address") or loc.get("direccion") or "") or None
 
-    # CSS fallbacks
     if not precio_raw:
         for sel in ["[data-testid='price']", "[class*='price']", "[class*='precio']"]:
             try:
@@ -291,8 +294,6 @@ async def _extraer_nextjs(page: Page, url: str, ciudad_hint: str) -> Optional[di
         "direccion": direccion, "barrio": barrio, "url": url,
     }
 
-
-# ── Extractor PropDirecto ─────────────────────────────────────────────────────
 
 async def _extraer_pd(page: Page, url: str, ciudad_hint: str) -> Optional[dict]:
     try:
@@ -323,17 +324,6 @@ async def _extraer_pd(page: Page, url: str, ciudad_hint: str) -> Optional[dict]:
             pass
 
     if not precio_raw:
-        texto = titulo_limpio + " " + (nombre or "")
-        m = re.search(r'\$\s*([\d.,]+)\s*millones?', texto, re.I)
-        if m:
-            d = re.sub(r"[.,\s]", "", m.group(1))
-            precio_raw = str(int(d) * 1_000_000) if d.isdigit() else ""
-        else:
-            m = re.search(r'\$\s*([\d.,]{6,})', texto)
-            if m:
-                precio_raw = re.sub(r"[.,]", "", m.group(1))
-
-    if not precio_raw:
         try:
             body = await page.inner_text("body")
             m = re.search(r'\$\s*([\d.,]+)\s*millones?', body, re.I)
@@ -344,23 +334,10 @@ async def _extraer_pd(page: Page, url: str, ciudad_hint: str) -> Optional[dict]:
                 m = re.search(r'\$\s*([\d.,]{6,})', body)
                 if m:
                     precio_raw = re.sub(r"[.,]", "", m.group(1))
-                else:
-                    m = re.search(r'\b(1\d{2}|[2-9]\d{2}|\d{4})[.,](\d{3})[.,](\d{3})\b', body)
-                    if m:
-                        precio_raw = m.group(1) + m.group(2) + m.group(3)
         except Exception:
             pass
 
     tipo_raw = titulo_limpio or nombre or url
-    if not tipo_raw or not any(
-        kw in _sin_tildes(tipo_raw)
-        for kw in ("apartamento", "apto", "casa", "oficina", "bodega", "local", "lote", "finca")
-    ):
-        try:
-            body_snippet = await page.inner_text("body")
-            tipo_raw = tipo_raw + " " + body_snippet[:3000]
-        except Exception:
-            pass
 
     return {
         "nombre": nombre, "precio_raw": precio_raw, "estrato_raw": "",
@@ -369,7 +346,7 @@ async def _extraer_pd(page: Page, url: str, ciudad_hint: str) -> Optional[dict]:
     }
 
 
-# ── Scraper genérico con paginación ──────────────────────────────────────────
+# ── Scraper genérico ──────────────────────────────────────────────────────────
 
 async def _scrape_portal(
     browser: Browser,
@@ -397,7 +374,7 @@ async def _scrape_portal(
     for ciudad_key, ciudad_slug in ciudades.items():
         if saved >= max_results:
             break
-        Actor.log.info("[%s] Ciudad: %s", portal, ciudad_key)
+        log.info("[%s] Ciudad: %s", portal, ciudad_key)
         page_n = 1
 
         while saved < max_results:
@@ -405,9 +382,8 @@ async def _scrape_portal(
             ctx = await browser.new_context(**ctx_kwargs)
             try:
                 lp = await _nueva_pagina(ctx, url)
-                # Detect login/registration wall
                 if any(p in lp.url for p in ("/login", "/registro")):
-                    Actor.log.warning("[%s] Muro de login en pág %d — siguiente ciudad.", portal, page_n)
+                    log.warning("[%s] Muro de login en pág %d — siguiente ciudad.", portal, page_n)
                     await ctx.close()
                     break
                 if page_n > 1 and lp.url.rstrip("/") in (host, host + "/"):
@@ -417,7 +393,7 @@ async def _scrape_portal(
                 try:
                     await lp.wait_for_selector(listing_sel, timeout=15_000)
                 except PWTimeout:
-                    Actor.log.warning("[%s] Timeout pág %d — %s", portal, page_n, lp.url)
+                    log.warning("[%s] Timeout pág %d — %s", portal, page_n, lp.url)
                     await ctx.close()
                     break
 
@@ -435,7 +411,7 @@ async def _scrape_portal(
                 if not links:
                     break
 
-                Actor.log.info("[%s] Ciudad=%s pág %d: %d links", portal, ciudad_key, page_n, len(links))
+                log.info("[%s] Ciudad=%s pág %d: %d links", portal, ciudad_key, page_n, len(links))
 
                 for href in links:
                     if saved >= max_results:
@@ -446,7 +422,7 @@ async def _scrape_portal(
                         dp = await _nueva_pagina(detail_ctx, href)
                         if any(p in dp.url for p in ("/login", "/registro")):
                             await detail_ctx.close()
-                            Actor.log.warning("[%s] Detalle redirigió a login — saltando.", portal)
+                            log.warning("[%s] Detalle redirigió a login — saltando.", portal)
                             continue
 
                         datos = await extractor(dp, href, ciudad_key)
@@ -469,110 +445,106 @@ async def _scrape_portal(
                                     )
                                     if r.status_code == 200 and r.json().get("saved"):
                                         saved += 1
-                                        Actor.log.info("[%s] Guardado #%d: %s", portal, saved, href[-60:])
+                                        log.info("[%s] Guardado #%d: %s", portal, saved, href[-60:])
+                                    else:
+                                        log.info("[%s] Ingest status=%d: %s", portal, r.status_code, r.text[:100])
                                 except Exception as exc:
-                                    Actor.log.warning("[%s] Ingest error: %s", portal, exc)
+                                    log.warning("[%s] Ingest error: %s", portal, exc)
                     except Exception as exc:
-                        Actor.log.debug("[%s] Error %s: %s", portal, href, exc)
+                        log.debug("[%s] Error %s: %s", portal, href, exc)
                     finally:
                         await detail_ctx.close()
                     await asyncio.sleep(2)
 
                 page_n += 1
             except Exception as exc:
-                Actor.log.warning("[%s] Error pág %d: %s", portal, page_n, exc)
+                log.warning("[%s] Error pág %d: %s", portal, page_n, exc)
                 try:
                     await ctx.close()
                 except Exception:
                     pass
                 break
 
-    Actor.log.info("[%s] %d visitados, %d guardados.", portal, total, saved)
+    log.info("[%s] %d visitados, %d guardados.", portal, total, saved)
     return saved
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def main():
-    async with Actor:
-        inp = await Actor.get_input() or {}
+    inp = _leer_input()
+    log.info("Input recibido: %s", {k: v for k, v in inp.items() if k != "ingest_token"})
 
-        portals: list = inp.get("portals", ["metrocuadrado", "fincaraiz", "ciencuadras", "propdirecto"])
-        max_per: int = int(inp.get("max_per_portal", 300))
-        ingest_url: str = inp["ingest_url"]
-        ingest_token: str = inp["ingest_token"]
-        proxy_cfg: dict = inp.get("proxy_config", {"useApifyProxy": True, "apifyProxyGroups": ["RESIDENTIAL"]})
+    portals: list = inp.get("portals", ["metrocuadrado", "fincaraiz", "ciencuadras", "propdirecto"])
+    max_per: int = int(inp.get("max_per_portal", 300))
+    ingest_url: str = inp.get("ingest_url", "")
+    ingest_token: str = inp.get("ingest_token", "")
 
-        # Resolver proxy URL de Apify
-        proxy_url: Optional[str] = None
-        if proxy_cfg.get("useApifyProxy"):
-            proxy_url = Actor.create_proxy_configuration(
-                groups=proxy_cfg.get("apifyProxyGroups", []),
-                country_code=proxy_cfg.get("apifyProxyCountry"),
-            )
-            if proxy_url:
-                proxy_url = await proxy_url.new_url()
-        elif proxy_cfg.get("proxyUrls"):
-            proxy_url = proxy_cfg["proxyUrls"][0]
+    if not ingest_url or not ingest_token:
+        log.error("Faltan ingest_url o ingest_token en el input.")
+        return
 
-        Actor.log.info("Portales: %s | max/portal: %d | proxy: %s", portals, max_per, bool(proxy_url))
+    # Proxy: usar variable de entorno APIFY_PROXY_URL si existe
+    proxy_url: Optional[str] = os.environ.get("APIFY_PROXY_URL") or None
 
-        portal_config = {
-            "metrocuadrado": {
-                "base_url": "https://www.metrocuadrado.com/inmuebles/venta/{ciudad}/?tipoAnunciante=particular&page={page}",
-                "ciudades": _CIUDADES_MQ,
-                "listing_sel": "a[href*='/inmueble/']",
-                "host": "https://www.metrocuadrado.com",
-                "extractor": _extraer_nextjs,
-            },
-            "fincaraiz": {
-                "base_url": "https://www.fincaraiz.com.co/venta/inmuebles/{ciudad}/?tipoAnunciante=particular&pagina={page}",
-                "ciudades": _CIUDADES_FR,
-                "listing_sel": "a[href*='/inmueble/'], a[href*='.htm']",
-                "host": "https://www.fincaraiz.com.co",
-                "extractor": _extraer_nextjs,
-            },
-            "ciencuadras": {
-                "base_url": "https://www.ciencuadras.com/venta/{ciudad}?tipoAnunciante=particular&pagina={page}",
-                "ciudades": _CIUDADES_CC,
-                "listing_sel": "a[href*='/inmueble/'], a[href*='/propiedad/']",
-                "host": "https://www.ciencuadras.com",
-                "extractor": _extraer_nextjs,
-            },
-            "propdirecto": {
-                "base_url": "https://propdirecto.com/propiedades.php?ciudad={ciudad}&pagina={page}",
-                "ciudades": _CIUDADES_PD,
-                "listing_sel": "a[href*='detalle.php'], a[href*='/inmueble/']",
-                "host": "https://propdirecto.com",
-                "extractor": _extraer_pd,
-            },
-        }
+    log.info("Portales: %s | max/portal: %d | proxy: %s", portals, max_per, bool(proxy_url))
 
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
-            async with httpx.AsyncClient() as http:
-                for portal in portals:
-                    cfg = portal_config.get(portal)
-                    if not cfg:
-                        Actor.log.warning("Portal desconocido: %s", portal)
-                        continue
-                    await _scrape_portal(
-                        browser=browser,
-                        portal=portal,
-                        base_url=cfg["base_url"],
-                        ciudades=cfg["ciudades"],
-                        listing_sel=cfg["listing_sel"],
-                        host=cfg["host"],
-                        extractor=cfg["extractor"],
-                        max_results=max_per,
-                        proxy_url=proxy_url,
-                        ingest_url=ingest_url,
-                        ingest_token=ingest_token,
-                        http=http,
-                    )
-            await browser.close()
+    portal_config = {
+        "metrocuadrado": {
+            "base_url": "https://www.metrocuadrado.com/inmuebles/venta/{ciudad}/?tipoAnunciante=particular&page={page}",
+            "ciudades": _CIUDADES_MQ,
+            "listing_sel": "a[href*='/inmueble/']",
+            "host": "https://www.metrocuadrado.com",
+            "extractor": _extraer_nextjs,
+        },
+        "fincaraiz": {
+            "base_url": "https://www.fincaraiz.com.co/venta/inmuebles/{ciudad}/?tipoAnunciante=particular&pagina={page}",
+            "ciudades": _CIUDADES_FR,
+            "listing_sel": "a[href*='/inmueble/'], a[href*='.htm']",
+            "host": "https://www.fincaraiz.com.co",
+            "extractor": _extraer_nextjs,
+        },
+        "ciencuadras": {
+            "base_url": "https://www.ciencuadras.com/venta/{ciudad}?tipoAnunciante=particular&pagina={page}",
+            "ciudades": _CIUDADES_CC,
+            "listing_sel": "a[href*='/inmueble/'], a[href*='/propiedad/']",
+            "host": "https://www.ciencuadras.com",
+            "extractor": _extraer_nextjs,
+        },
+        "propdirecto": {
+            "base_url": "https://propdirecto.com/propiedades.php?ciudad={ciudad}&pagina={page}",
+            "ciudades": _CIUDADES_PD,
+            "listing_sel": "a[href*='detalle.php'], a[href*='/inmueble/']",
+            "host": "https://propdirecto.com",
+            "extractor": _extraer_pd,
+        },
+    }
 
-    Actor.log.info("Actor finalizado.")
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(headless=True)
+        async with httpx.AsyncClient() as http:
+            for portal in portals:
+                cfg = portal_config.get(portal)
+                if not cfg:
+                    log.warning("Portal desconocido: %s", portal)
+                    continue
+                await _scrape_portal(
+                    browser=browser,
+                    portal=portal,
+                    base_url=cfg["base_url"],
+                    ciudades=cfg["ciudades"],
+                    listing_sel=cfg["listing_sel"],
+                    host=cfg["host"],
+                    extractor=cfg["extractor"],
+                    max_results=max_per,
+                    proxy_url=proxy_url,
+                    ingest_url=ingest_url,
+                    ingest_token=ingest_token,
+                    http=http,
+                )
+        await browser.close()
+
+    log.info("Actor finalizado.")
 
 
 if __name__ == "__main__":
