@@ -451,7 +451,7 @@ async def _scrape_portal(
                     break
 
                 try:
-                    await lp.wait_for_selector(listing_sel, timeout=15_000)
+                    await lp.wait_for_selector(listing_sel, timeout=30_000)
                 except PWTimeout:
                     log.warning("[%s] Timeout pág %d — %s", portal, page_n, lp.url)
                     await ctx.close()
