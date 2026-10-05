@@ -149,6 +149,37 @@ def _extraer_tel(texto: str) -> Optional[str]:
     return None
 
 
+def _buscar_tel_json(obj, depth: int = 0) -> Optional[str]:
+    """Búsqueda recursiva de teléfonos colombianos en un objeto JSON."""
+    if depth > 12:
+        return None
+    if isinstance(obj, str):
+        d = re.sub(r"\D", "", obj)
+        if len(d) == 10 and d.startswith("3"):
+            return "57" + d
+        if len(d) == 12 and d.startswith("573"):
+            return d
+    elif isinstance(obj, dict):
+        # Claves prioritarias relacionadas con teléfono
+        for key in ("phone", "telefono", "celular", "movil", "mobile", "whatsapp",
+                    "contactPhone", "phoneNumber", "phoneNumbers", "phones",
+                    "cellphone", "phone1", "phone2", "advertiserPhone", "contacto"):
+            if key in obj:
+                result = _buscar_tel_json(obj[key], depth + 1)
+                if result:
+                    return result
+        for v in obj.values():
+            result = _buscar_tel_json(v, depth + 1)
+            if result:
+                return result
+    elif isinstance(obj, list):
+        for item in obj:
+            result = _buscar_tel_json(item, depth + 1)
+            if result:
+                return result
+    return None
+
+
 async def _nueva_pagina(ctx: BrowserContext, url: str) -> Page:
     page = await ctx.new_page()
     await page.add_init_script("""
@@ -181,19 +212,18 @@ def _next_data(raw_json: str) -> dict:
 
 
 async def _extraer_telefono(page: Page) -> Optional[str]:
-    # 0. __NEXT_DATA__
+    # 0. __NEXT_DATA__ — búsqueda recursiva en el objeto completo
     try:
         raw = await page.evaluate("() => JSON.stringify(window.__NEXT_DATA__ || null)")
         if raw and raw != "null":
-            for m in re.finditer(
-                r'"(?:phone|telefono|celular|movil|mobile|whatsapp|contactPhone)[^"]*"\s*:\s*"([^"){8,16}"',
-                raw, re.IGNORECASE,
-            ):
-                d = re.sub(r"\D", "", m.group(1))
-                if len(d) == 10 and d.startswith("3"):
-                    return "57" + d
-                if len(d) == 12 and d.startswith("573"):
-                    return d
+            try:
+                nd_obj = json.loads(raw)
+                tel = _buscar_tel_json(nd_obj)
+                if tel:
+                    return tel
+            except Exception:
+                pass
+            # Fallback: regex directo en texto plano
             tel = _extraer_tel(raw)
             if tel:
                 return tel
@@ -499,6 +529,10 @@ async def _scrape_portal(
                 for href in links:
                     if saved >= max_results:
                         break
+                    # Saltar proyectos de constructora (sin teléfono directo)
+                    if any(p in href for p in ("/proyecto", "/vivienda-nueva", "/proyectos-vivienda")):
+                        log.info("[%s] Saltando proyecto: %s", portal, href[-60:])
+                        continue
                     total += 1
                     log.info("[%s] Detalle %d: %s", portal, total, href[-70:])
                     detail_ctx = await browser.new_context(**ctx_kwargs)
@@ -515,7 +549,10 @@ async def _scrape_portal(
                         else:
                             tel = await _extraer_telefono(dp)
                             anunc = await _anunciante(dp)
-                            log.info("[%s] datos OK tel=%s url=%s", portal, tel, href[-60:])
+                            if tel:
+                                log.info("[%s] datos OK tel=%s url=%s", portal, tel, href[-60:])
+                            else:
+                                log.warning("[%s] tel=None url=%s", portal, href[-60:])
                             if tel:
                                 payload = {
                                     "portal": portal,
@@ -541,7 +578,7 @@ async def _scrape_portal(
                         log.warning("[%s] Error detalle %s: %s", portal, href[-60:], exc)
                     finally:
                         await detail_ctx.close()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
 
                 page_n += 1
             except Exception as exc:
