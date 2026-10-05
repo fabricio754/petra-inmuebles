@@ -54,8 +54,22 @@ _UA = (
 
 
 def _leer_input() -> dict:
-    """Lee el input del actor desde env var o archivo."""
-    # Apify inyecta el input como variable de entorno para inputs pequeños
+    """Lee el input del actor desde el key-value store de Apify (cloud) o archivo (local)."""
+    # 1. apify-client: forma canónica en cloud runs
+    token = os.environ.get("APIFY_TOKEN")
+    kv_id = os.environ.get("APIFY_DEFAULT_KEY_VALUE_STORE_ID")
+    if token and kv_id:
+        try:
+            from apify_client import ApifyClient
+            record = ApifyClient(token).key_value_store(kv_id).get_record(
+                os.environ.get("APIFY_INPUT_KEY", "INPUT")
+            )
+            if record and isinstance(record.get("value"), dict):
+                return record["value"]
+        except Exception as e:
+            log.warning("No se pudo leer input via apify-client: %s", e)
+
+    # 2. ACTOR_INPUT_BODY (algunos runtimes locales lo inyectan)
     raw = os.environ.get("ACTOR_INPUT_BODY", "")
     if raw:
         try:
@@ -63,7 +77,7 @@ def _leer_input() -> dict:
         except Exception:
             pass
 
-    # Alternativa: archivo en el key-value store local
+    # 3. archivo INPUT.json en storage local
     storage_dir = os.environ.get("APIFY_LOCAL_STORAGE_DIR", "/root/apify_storage")
     input_path = os.path.join(storage_dir, "key_value_stores", "default", "INPUT.json")
     if os.path.exists(input_path):
