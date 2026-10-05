@@ -1,0 +1,86 @@
+name: Run Actor (produccion o test)
+on:
+  push:
+    branches:
+      - trigger/run-actor
+      - trigger/run-actor-test
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Configurar modo
+        id: config
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          if [ "$BRANCH" = "trigger/run-actor-test" ]; then
+            echo "max_per_portal=3" >> $GITHUB_OUTPUT
+            echo "timeout=300" >> $GITHUB_OUTPUT
+            echo "modo=TEST (3 por portal)" >> $GITHUB_OUTPUT
+          else
+            echo "max_per_portal=300" >> $GITHUB_OUTPUT
+            echo "timeout=3600" >> $GITHUB_OUTPUT
+            echo "modo=PRODUCCION (300 por portal)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Disparar Apify Task (sin ingest_token — ya está en la task)
+        id: run
+        run: |
+          echo "Modo: ${{ steps.config.outputs.modo }}"
+          RUN=$(curl -sf -X POST \
+            "https://api.apify.com/v2/actor-tasks/petra-secondaries~petra-scraper-produccion/runs" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"max_per_portal\": ${{ steps.config.outputs.max_per_portal }}
+            }")
+          RUN_ID=$(echo "$RUN" | jq -r '.data.id')
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "Actor run iniciado: $RUN_ID"
+
+      - name: Esperar resultado
+        id: result
+        run: |
+          RUN_ID="${{ steps.run.outputs.run_id }}"
+          MAX_POLLS=120
+          for i in $(seq 1 $MAX_POLLS); do
+            sleep 30
+            STATUS=$(curl -sf \
+              "https://api.apify.com/v2/actor-runs/$RUN_ID" \
+              -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+              | jq -r '.data.status')
+            echo "[$i/$MAX_POLLS] Status: $STATUS"
+            if [ "$STATUS" = "SUCCEEDED" ] || [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "TIMED-OUT" ]; then
+              echo "status=$STATUS" >> $GITHUB_OUTPUT
+              break
+            fi
+          done
+
+      - name: Ver resultados por portal
+        run: |
+          RUN_ID="${{ steps.run.outputs.run_id }}"
+          DATASET_ID=$(curl -sf \
+            "https://api.apify.com/v2/actor-runs/$RUN_ID" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            | jq -r '.data.defaultDatasetId')
+
+          ITEM_COUNT=$(curl -sf \
+            "https://api.apify.com/v2/datasets/$DATASET_ID" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            | jq -r '.data.itemCount')
+
+          echo "=== RESULTADOS ==="
+          echo "Total contactos: $ITEM_COUNT"
+          echo ""
+
+          curl -sf \
+            "https://api.apify.com/v2/datasets/$DATASET_ID/items?clean=true&format=json&limit=200" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            | jq -r 'group_by(.portal) | .[] | "Portal: \(.[0].portal) — \(length) contactos\n" + (.[0:3] | map("  tel=\(.telefono) ciudad=\(.ciudad) tipo=\(.tipo) precio=\(.precio)") | join("\n"))'
+
+          echo ""
+          echo "Status final: ${{ steps.result.outputs.status }}"
+          if [ "${{ steps.result.outputs.status }}" != "SUCCEEDED" ]; then
+            exit 1
+          fi

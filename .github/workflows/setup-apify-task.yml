@@ -1,0 +1,86 @@
+name: Setup Apify Task (ejecutar una vez)
+on:
+  push:
+    branches:
+      - trigger/setup-apify-task
+
+jobs:
+  setup-task:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Leer INGEST_TOKEN de Render
+        id: token
+        run: |
+          TOKEN=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars" \
+            | jq -r '.[] | select(.envVar.key == "INGEST_TOKEN") | .envVar.value // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "No se encontro INGEST_TOKEN en Render"
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "value=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Crear o actualizar Apify Task
+        id: task
+        run: |
+          # Intentar actualizar si existe (ID guardado); si no, crear nueva
+          TASK_ID="petra-secondaries~petra-scraper-produccion"
+
+          RESULT=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+            "https://api.apify.com/v2/actor-tasks/$TASK_ID" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"actId\": \"c5Dx4kjZENfbeKYi1\",
+              \"name\": \"petra-scraper-produccion\",
+              \"options\": {
+                \"build\": \"0.0.12\",
+                \"timeoutSecs\": 3600,
+                \"memoryMbytes\": 1024
+              },
+              \"input\": {
+                \"portals\": [\"fincaraiz\", \"metrocuadrado\", \"ciencuadras\", \"propdirecto\"],
+                \"max_per_portal\": 300,
+                \"ingest_url\": \"https://petra-inmuebles.onrender.com\",
+                \"ingest_token\": \"${{ steps.token.outputs.value }}\"
+              }
+            }")
+
+          if [ "$RESULT" = "200" ] || [ "$RESULT" = "201" ]; then
+            echo "Task actualizada/creada: $TASK_ID"
+            echo "task_id=$TASK_ID" >> $GITHUB_OUTPUT
+          else
+            echo "Fallo HTTP $RESULT — creando task nueva"
+            NEW=$(curl -sf -X POST \
+              "https://api.apify.com/v2/actor-tasks" \
+              -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"actId\": \"c5Dx4kjZENfbeKYi1\",
+                \"name\": \"petra-scraper-produccion\",
+                \"options\": {
+                  \"build\": \"0.0.12\",
+                  \"timeoutSecs\": 3600,
+                  \"memoryMbytes\": 1024
+                },
+                \"input\": {
+                  \"portals\": [\"fincaraiz\", \"metrocuadrado\", \"ciencuadras\", \"propdirecto\"],
+                  \"max_per_portal\": 300,
+                  \"ingest_url\": \"https://petra-inmuebles.onrender.com\",
+                  \"ingest_token\": \"${{ steps.token.outputs.value }}\"
+                }
+              }")
+            NEW_ID=$(echo "$NEW" | jq -r '.data.id')
+            echo "Task creada con ID: $NEW_ID"
+            echo "task_id=$NEW_ID" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Confirmar task
+        run: |
+          echo "=== APIFY TASK LISTA ==="
+          echo "Task ID: ${{ steps.task.outputs.task_id }}"
+          echo "Para disparar: POST https://api.apify.com/v2/actor-tasks/${{ steps.task.outputs.task_id }}/runs"
+          echo "Sin necesitar ingest_token en el body."
