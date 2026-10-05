@@ -119,7 +119,7 @@ jobs:
               \"input\": {
                 \"portals\": [\"fincaraiz\", \"metrocuadrado\", \"ciencuadras\", \"propdirecto\"],
                 \"max_per_portal\": 300,
-                \"ingest_url\": \"https://petra-inmuebles.onrender.com\",
+                \"ingest_url\": \"https://petra-inmuebles.onrender.com/scraper/ingest\",
                 \"ingest_token\": \"$TOKEN\"
               }
             }" > /dev/null
