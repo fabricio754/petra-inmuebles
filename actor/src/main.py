@@ -461,9 +461,15 @@ async def _scrape_portal(
                         n_any = await lp.eval_on_selector_all(
                             "a[href]", "els => els.length"
                         )
+                        sample = await lp.evaluate(
+                            """() => Array.from(document.querySelectorAll('a[href]'))
+                                .map(a => a.getAttribute('href'))
+                                .filter(h => h && !h.startsWith('#') && !h.startsWith('mailto') && !h.startsWith('tel') && h.length > 5)
+                                .slice(0, 15)"""
+                        )
                         log.warning(
-                            "[%s] Timeout pág %d | title=%r | links_match=%d | links_any=%d | url=%s",
-                            portal, page_n, title, n_match, n_any, lp.url,
+                            "[%s] Timeout pág %d | title=%r | links_match=%d | links_any=%d | url=%s | sample=%s",
+                            portal, page_n, title, n_match, n_any, lp.url, sample,
                         )
                     except Exception:
                         log.warning("[%s] Timeout pág %d — %s", portal, page_n, lp.url)
