@@ -24,7 +24,9 @@ jobs:
         run: pip install -r actor/requirements.txt
 
       - name: Instalar Playwright (Chromium)
-        run: playwright install chromium --with-deps
+        run: |
+          pip install playwright
+          playwright install chromium --with-deps
 
       - name: Leer INGEST_TOKEN de Render
         id: token
