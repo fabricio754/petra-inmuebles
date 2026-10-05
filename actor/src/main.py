@@ -517,6 +517,9 @@ async def _scrape_portal(
                         continue
                     if not href.startswith("http"):
                         href = host.rstrip("/") + "/" + href.lstrip("/")
+                    # Saltar links que son redirect-traps al listado (contienen URL codificada del listado)
+                    if "%2Finmuebles%2F" in href or "%2Fventa%2F" in href or "tipoAnunciante" in href:
+                        continue
                     if host.split("//")[1].split("/")[0] in href and href not in links:
                         links.append(href)
 
@@ -541,6 +544,11 @@ async def _scrape_portal(
                         if any(p in dp.url for p in ("/login", "/registro")):
                             await detail_ctx.close()
                             log.warning("[%s] Detalle redirigió a login — saltando.", portal)
+                            continue
+                        # Saltar si redirigió de vuelta a un listado
+                        if "/inmuebles/" in dp.url or "tipoAnunciante" in dp.url or ("/venta/" in dp.url and "pagina=" in dp.url):
+                            await detail_ctx.close()
+                            log.info("[%s] Detalle redirigió a listado — saltando.", portal)
                             continue
 
                         datos = await extractor(dp, href, ciudad_key)
