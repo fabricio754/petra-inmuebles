@@ -191,15 +191,18 @@ def pilot():
 INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
 
 
+ADMIN_RESET_TOKEN = os.environ.get("ADMIN_RESET_TOKEN", "")
+
+
 @app.post("/admin/reset-sesion")
 def admin_reset_sesion():
     """Elimina la sesión activa de un teléfono y reenvía la plantilla de apertura.
 
     Body JSON: { "telefono": "573..." }
-    Auth: header X-Ingest-Token (mismo INGEST_TOKEN del scraper).
+    Auth: header X-Admin-Token.
     """
-    token = request.headers.get("X-Ingest-Token", "")
-    if not INGEST_TOKEN or token != INGEST_TOKEN:
+    token = request.headers.get("X-Admin-Token", "")
+    if not ADMIN_RESET_TOKEN or token != ADMIN_RESET_TOKEN:
         return jsonify({"error": "no_autorizado"}), 401
 
     body = request.get_json(silent=True) or {}
