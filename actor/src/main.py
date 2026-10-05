@@ -106,7 +106,8 @@ def _leer_input() -> dict:
                         if decrypted is not None:
                             data[k] = decrypted
                         else:
-                            log.warning("Campo '%s' cifrado pero no se pudo desencriptar.", k)
+                            log.warning("Campo '%s' cifrado pero no se pudo desencriptar. Quita isSecret del input schema.", k)
+                            del data[k]
                 return data
         except Exception as e:
             log.warning("No se pudo leer input via apify-client: %s", e)
@@ -540,8 +541,17 @@ async def main():
         log.error("Faltan ingest_url o ingest_token en el input.")
         return
 
-    # Proxy: usar variable de entorno APIFY_PROXY_URL si existe
+    # Proxy: construir URL desde proxy_config del input o desde APIFY_PROXY_URL legacy
     proxy_url: Optional[str] = os.environ.get("APIFY_PROXY_URL") or None
+    proxy_cfg = inp.get("proxy_config", {})
+    if not proxy_url and proxy_cfg.get("useApifyProxy"):
+        pwd = os.environ.get("APIFY_PROXY_PASSWORD", "")
+        host = os.environ.get("APIFY_PROXY_HOSTNAME", "proxy.apify.com")
+        port = os.environ.get("APIFY_PROXY_PORT", "8000")
+        if pwd:
+            groups = proxy_cfg.get("apifyProxyGroups", [])
+            group_str = "groups-" + "+".join(groups) if groups else "auto"
+            proxy_url = f"http://{group_str}:{pwd}@{host}:{port}"
 
     log.info("Portales: %s | max/portal: %d | proxy: %s", portals, max_per, bool(proxy_url))
 
