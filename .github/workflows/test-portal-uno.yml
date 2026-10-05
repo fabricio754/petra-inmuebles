@@ -1,14 +1,21 @@
-name: Test Portales Apify
+name: Test Portal Individual
 on:
   push:
     branches:
-      - trigger/test-portales
+      - trigger/test-portal-*
 
 jobs:
-  test-portales:
+  test-portal:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
+      - name: Extraer nombre del portal del branch
+        id: portal
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/trigger/test-portal-}"
+          echo "name=$BRANCH" >> $GITHUB_OUTPUT
+          echo "Probando portal: $BRANCH"
+
       - name: Leer INGEST_TOKEN de Render
         id: token
         run: |
@@ -23,41 +30,41 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "value=$TOKEN" >> $GITHUB_OUTPUT
 
-      - name: Disparar actor Apify con los 4 portales
+      - name: Disparar actor Apify (1 portal)
         id: run
         run: |
           RUN=$(curl -sf -X POST \
-            "https://api.apify.com/v2/actors/c5Dx4kjZENfbeKYi1/runs?build=0.0.12&timeout=600&memory=1024" \
+            "https://api.apify.com/v2/actors/c5Dx4kjZENfbeKYi1/runs?build=0.0.12&timeout=300&memory=1024" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d '{
-              "portals": ["fincaraiz", "metrocuadrado", "ciencuadras", "propdirecto"],
-              "max_per_portal": 3,
-              "ingest_url": "https://petra-inmuebles.onrender.com",
-              "ingest_token": "${{ steps.token.outputs.value }}"
-            }')
+            -d "{
+              \"portals\": [\"${{ steps.portal.outputs.name }}\"],
+              \"max_per_portal\": 5,
+              \"ingest_url\": \"https://petra-inmuebles.onrender.com\",
+              \"ingest_token\": \"${{ steps.token.outputs.value }}\"
+            }")
           RUN_ID=$(echo "$RUN" | jq -r '.data.id')
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
           echo "Actor run iniciado: $RUN_ID"
 
-      - name: Esperar resultado (max 10 min)
+      - name: Esperar resultado (max 8 min)
         id: result
         run: |
           RUN_ID="${{ steps.run.outputs.run_id }}"
-          for i in $(seq 1 20); do
+          for i in $(seq 1 16); do
             sleep 30
             STATUS=$(curl -sf \
               "https://api.apify.com/v2/actor-runs/$RUN_ID" \
               -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
               | jq -r '.data.status')
-            echo "[$i/20] Status: $STATUS"
+            echo "[$i/16] Status: $STATUS"
             if [ "$STATUS" = "SUCCEEDED" ] || [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "TIMED-OUT" ]; then
               echo "status=$STATUS" >> $GITHUB_OUTPUT
               break
             fi
           done
 
-      - name: Ver resultados del dataset
+      - name: Ver resultados del portal
         run: |
           RUN_ID="${{ steps.run.outputs.run_id }}"
           DATASET_ID=$(curl -sf \
@@ -65,15 +72,24 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
             | jq -r '.data.defaultDatasetId')
 
-          echo "=== RESULTADO POR PORTAL ==="
+          ITEM_COUNT=$(curl -sf \
+            "https://api.apify.com/v2/datasets/$DATASET_ID" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            | jq -r '.data.itemCount')
+
+          echo "=== PORTAL: ${{ steps.portal.outputs.name }} ==="
+          echo "Contactos encontrados: $ITEM_COUNT"
+
           curl -sf \
             "https://api.apify.com/v2/datasets/$DATASET_ID/items?clean=true&format=json" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
-            | jq -r 'group_by(.portal) | .[] | "Portal: \(.[0].portal) — \(length) contactos\n" + (.[0:2] | map("  tel=\(.telefono) ciudad=\(.ciudad) tipo=\(.tipo) precio=\(.precio)") | join("\n"))'
+            | jq -r '.[] | "  tel=\(.telefono) ciudad=\(.ciudad) tipo=\(.tipo) precio=\(.precio)"'
 
-          echo ""
           echo "Status final: ${{ steps.result.outputs.status }}"
           if [ "${{ steps.result.outputs.status }}" != "SUCCEEDED" ]; then
             echo "FALLO: actor no terminó exitosamente"
             exit 1
+          fi
+          if [ "$ITEM_COUNT" = "0" ]; then
+            echo "ADVERTENCIA: 0 contactos encontrados"
           fi
