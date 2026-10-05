@@ -155,7 +155,7 @@ async def _nueva_pagina(ctx: BrowserContext, url: str) -> Page:
             try { return _orig && _orig.apply(this, [u, ...a]); } catch(e){}
         };
     """)
-    await page.goto(url, timeout=30_000, wait_until="domcontentloaded")
+    await page.goto(url, timeout=60_000, wait_until="domcontentloaded")
     return page
 
 
@@ -418,6 +418,7 @@ async def _scrape_portal(
     ingest_url: str,
     ingest_token: str,
     http: httpx.AsyncClient,
+    proxy_pw_cfg: Optional[dict] = None,
 ) -> int:
     saved = total = 0
     ctx_kwargs = {
@@ -425,7 +426,9 @@ async def _scrape_portal(
         "viewport": {"width": 1366, "height": 768},
         "locale": "es-CO",
     }
-    if proxy_url:
+    if proxy_pw_cfg:
+        ctx_kwargs["proxy"] = proxy_pw_cfg
+    elif proxy_url:
         ctx_kwargs["proxy"] = {"server": proxy_url}
 
     for ciudad_key, ciudad_slug in ciudades.items():
@@ -541,8 +544,9 @@ async def main():
         log.error("Faltan ingest_url o ingest_token en el input.")
         return
 
-    # Proxy: construir URL desde proxy_config del input o desde APIFY_PROXY_URL legacy
+    # Proxy: construir config desde proxy_config del input o desde APIFY_PROXY_URL legacy
     proxy_url: Optional[str] = os.environ.get("APIFY_PROXY_URL") or None
+    proxy_pw_cfg: Optional[dict] = None  # formato Playwright {server, username, password}
     proxy_cfg = inp.get("proxy_config", {})
     if not proxy_url and proxy_cfg.get("useApifyProxy"):
         pwd = os.environ.get("APIFY_PROXY_PASSWORD", "")
@@ -552,6 +556,18 @@ async def main():
             groups = proxy_cfg.get("apifyProxyGroups", [])
             group_str = "groups-" + "+".join(groups) if groups else "auto"
             proxy_url = f"http://{group_str}:{pwd}@{host}:{port}"
+            # Playwright prefiere server + username + password separados
+            proxy_pw_cfg = {
+                "server": f"http://{host}:{port}",
+                "username": group_str,
+                "password": pwd,
+            }
+            log.info("Proxy: server=http://%s:%s username=%s", host, port, group_str)
+    elif proxy_url:
+        log.info("Proxy: %s", proxy_url.split("@")[-1] if "@" in proxy_url else proxy_url)
+
+    if not proxy_url:
+        log.warning("Sin proxy — los portales probablemente bloquearán requests directos")
 
     log.info("Portales: %s | max/portal: %d | proxy: %s", portals, max_per, bool(proxy_url))
 
@@ -607,6 +623,7 @@ async def main():
                     ingest_url=ingest_url,
                     ingest_token=ingest_token,
                     http=http,
+                    proxy_pw_cfg=proxy_pw_cfg,
                 )
         await browser.close()
 
