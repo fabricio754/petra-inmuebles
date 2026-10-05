@@ -61,6 +61,15 @@ def _estado_lead(c, s, p):
     return "sin_contacto"
 
 
+@panel.get("/panel/ping")
+def panel_ping():
+    """Endpoint de diagnóstico: valida el token y responde texto plano,
+    sin tocar la DB ni renderizar HTML. Si /panel cuelga pero /panel/ping
+    responde, el problema no es el token ni la red."""
+    _check_token()
+    return "pong", 200, {"Content-Type": "text/plain"}
+
+
 @panel.get("/panel")
 def panel_lista():
     _check_token()
