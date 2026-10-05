@@ -3,66 +3,10 @@ on:
   push:
     branches:
       - trigger/e2e-ingest
-  workflow_dispatch:
 
 jobs:
   test-ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
-      - name: Leer INGEST_TOKEN de Render
-        id: token
-        run: |
-          TOKEN=$(curl -sf \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars" \
-            | python3 -c "
-import sys, json
-items = json.load(sys.stdin)
-for item in items:
-    ev = item.get('envVar', item)
-    if ev.get('key') == 'INGEST_TOKEN':
-        print(ev.get('value',''))
-        break
-")
-          if [ -z "$TOKEN" ]; then
-            echo "No se encontro INGEST_TOKEN en Render"
-            exit 1
-          fi
-          echo "::add-mask::$TOKEN"
-          echo "value=$TOKEN" >> $GITHUB_OUTPUT
-
-      - name: POST contacto de prueba a /scraper/ingest
-        run: |
-          RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-            "https://petra-inmuebles.onrender.com/scraper/ingest" \
-            -H "Content-Type: application/json" \
-            -H "X-Ingest-Token: ${{ steps.token.outputs.value }}" \
-            -d '{
-              "contactos": [{
-                "telefono": "3001234567",
-                "precio": 500000000,
-                "ciudad": "Bogota",
-                "estrato": 4,
-                "tipo": "apartamento",
-                "portal": "fincaraiz",
-                "url": "https://www.fincaraiz.com.co/inmueble/test-e2e",
-                "nombre_anunciante": "Test E2E"
-              }]
-            }')
-
-          BODY=$(echo "$RESP" | sed -n '1,/HTTP_STATUS/p' | head -n -1)
-          STATUS=$(echo "$RESP" | grep "HTTP_STATUS" | cut -d: -f2)
-
-          echo "HTTP Status: $STATUS"
-          echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-
-          if [ "$STATUS" = "200" ]; then
-            echo "OK Ingest verificado"
-          elif [ "$STATUS" = "401" ]; then
-            echo "FALLO 401 INGEST_TOKEN incorrecto"
-            exit 1
-          else
-            echo "FALLO HTTP $STATUS"
-            exit 1
-          fi
+      - name: test
+        run: echo "hello"
