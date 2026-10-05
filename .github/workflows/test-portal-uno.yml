@@ -34,13 +34,13 @@ jobs:
         id: run
         run: |
           RUN=$(curl -sf -X POST \
-            "https://api.apify.com/v2/actors/c5Dx4kjZENfbeKYi1/runs?build=latest&timeout=300&memory=1024" \
+            "https://api.apify.com/v2/actors/c5Dx4kjZENfbeKYi1/runs?build=latest&timeout=600&memory=1024" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{
               \"portals\": [\"${{ steps.portal.outputs.name }}\"],
               \"max_per_portal\": 5,
-              \"ingest_url\": \"https://petra-inmuebles.onrender.com\",
+              \"ingest_url\": \"https://petra-inmuebles.onrender.com/scraper/ingest\",
               \"ingest_token\": \"${{ steps.token.outputs.value }}\"
             }")
           RUN_ID=$(echo "$RUN" | jq -r '.data.id')
