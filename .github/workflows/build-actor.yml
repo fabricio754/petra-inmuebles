@@ -1,0 +1,84 @@
+name: Build Actor Apify + Re-setup Task
+on:
+  push:
+    branches:
+      - trigger/build-actor
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Disparar build del actor
+        id: build
+        run: |
+          RESP=$(curl -sf -X POST \
+            "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/builds?useCache=false&betaPackages=false" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}")
+          BUILD_ID=$(echo "$RESP" | jq -r '.data.id')
+          echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
+          echo "Build iniciado: $BUILD_ID"
+
+      - name: Esperar que termine el build (max 10 min)
+        id: result
+        run: |
+          BUILD_ID="${{ steps.build.outputs.build_id }}"
+          for i in $(seq 1 20); do
+            sleep 30
+            STATUS=$(curl -sf \
+              "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/builds/$BUILD_ID" \
+              -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+              | jq -r '.data.status')
+            echo "[$i/20] Build status: $STATUS"
+            if [ "$STATUS" = "SUCCEEDED" ] || [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "TIMED-OUT" ]; then
+              echo "status=$STATUS" >> $GITHUB_OUTPUT
+              BUILD_TAG=$(curl -sf \
+                "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/builds/$BUILD_ID" \
+                -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+                | jq -r '.data.buildNumber')
+              echo "build_tag=$BUILD_TAG" >> $GITHUB_OUTPUT
+              echo "Build $STATUS — versión: $BUILD_TAG"
+              break
+            fi
+          done
+
+      - name: Verificar build exitoso
+        run: |
+          if [ "${{ steps.result.outputs.status }}" != "SUCCEEDED" ]; then
+            echo "Build FALLÓ: ${{ steps.result.outputs.status }}"
+            exit 1
+          fi
+          echo "Build OK: ${{ steps.result.outputs.build_tag }}"
+
+      - name: Re-setup Task con nuevo build
+        run: |
+          TOKEN=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars" \
+            | jq -r '.[] | select(.envVar.key == "INGEST_TOKEN") | .envVar.value // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "No se encontro INGEST_TOKEN en Render"
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+
+          curl -sf -X PUT \
+            "https://api.apify.com/v2/actor-tasks/MjJ6kqVOBFbrM9Z7s" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"actId\": \"c5Dx4kjZENfbeKYi1\",
+              \"options\": {
+                \"build\": \"${{ steps.result.outputs.build_tag }}\",
+                \"timeoutSecs\": 3600,
+                \"memoryMbytes\": 1024
+              },
+              \"input\": {
+                \"portals\": [\"fincaraiz\", \"metrocuadrado\", \"ciencuadras\", \"propdirecto\"],
+                \"max_per_portal\": 300,
+                \"ingest_url\": \"https://petra-inmuebles.onrender.com\",
+                \"ingest_token\": \"$TOKEN\"
+              }
+            }" > /dev/null
+
+          echo "Task MjJ6kqVOBFbrM9Z7s actualizada con build ${{ steps.result.outputs.build_tag }}"
