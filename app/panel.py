@@ -3,16 +3,20 @@
 Vista web protegida por token (`PANEL_TOKEN`) que permite ver, por lead:
 captación, sesión activa, pipeline, documentos recibidos y remarketing.
 
-Monta dos rutas en el server principal:
-  GET /panel           → lista de leads con estado actual
-  GET /panel/<tel>     → línea de tiempo completa del lead
+Monta tres rutas en el server principal:
+  GET  /panel                    → lista de leads con filtros
+  GET  /panel/<tel>              → línea de tiempo completa del lead
+  POST /panel/<tel>/responder    → envía un mensaje de texto manual al lead
 """
+import logging
 import os
+from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, abort, render_template, request
+from flask import Blueprint, abort, redirect, render_template, request, url_for
 
 from app import db
 
+log = logging.getLogger("petra")
 panel = Blueprint("panel", __name__)
 
 
@@ -61,6 +65,11 @@ def _estado_lead(c, s, p):
 def panel_lista():
     _check_token()
     token = request.args.get("token", "")
+    f_estado = (request.args.get("estado") or "").strip()
+    f_ciudad = (request.args.get("ciudad") or "").strip()
+    f_portal = (request.args.get("portal") or "").strip()
+    q = (request.args.get("q") or "").strip()
+
     with db._conexion() as conn:
         contactos = _rows(conn, """
             SELECT telefono, nombre, ciudad, tipo_inmueble, portal,
@@ -68,7 +77,7 @@ def panel_lista():
                    no_contactar, contactado, fecha_contacto, fecha_scraping
             FROM contactos
             ORDER BY COALESCE(fecha_contacto, fecha_scraping) DESC NULLS LAST
-            LIMIT 500
+            LIMIT 2000
         """)
         sesiones = {r["telefono"]: r for r in _rows(conn, """
             SELECT telefono, estado, ultima_actividad FROM sesiones
@@ -80,11 +89,11 @@ def panel_lista():
             ORDER BY fecha_ingreso DESC
         """)}
 
-    filas = []
+    filas_all = []
     for c in contactos:
         s = sesiones.get(c["telefono"])
         p = pipelines.get(c["telefono"])
-        filas.append({
+        filas_all.append({
             **c,
             "estado": _estado_lead(c, s, p),
             "ultima_actividad": (s or {}).get("ultima_actividad")
@@ -92,15 +101,42 @@ def panel_lista():
                                 or c.get("fecha_scraping"),
         })
 
-    # Agregados simples arriba.
+    # Agregados sobre TODO el conjunto (chips siempre reflejan el universo).
     por_estado = {}
-    for f in filas:
+    ciudades_set = set()
+    portales_set = set()
+    for f in filas_all:
         por_estado[f["estado"]] = por_estado.get(f["estado"], 0) + 1
+        if f.get("ciudad"):
+            ciudades_set.add(f["ciudad"])
+        if f.get("portal"):
+            portales_set.add(f["portal"])
+
+    # Aplicar filtros.
+    def _match(f):
+        if f_estado and not f["estado"].startswith(f_estado):
+            return False
+        if f_ciudad and (f.get("ciudad") or "") != f_ciudad:
+            return False
+        if f_portal and (f.get("portal") or "") != f_portal:
+            return False
+        if q:
+            hay = " ".join([
+                str(f.get("telefono") or ""),
+                str(f.get("nombre") or ""),
+            ]).lower()
+            if q.lower() not in hay:
+                return False
+        return True
+
+    filas = [f for f in filas_all if _match(f)][:500]
 
     return render_template(
         "panel_lista.html",
         filas=filas, por_estado=sorted(por_estado.items()), token=token,
-        total=len(filas),
+        total=len(filas), total_sin_filtro=len(filas_all),
+        ciudades=sorted(ciudades_set), portales=sorted(portales_set),
+        f_estado=f_estado, f_ciudad=f_ciudad, f_portal=f_portal, q=q,
     )
 
 
@@ -204,10 +240,57 @@ def panel_detalle(telefono):
 
     estado = _estado_lead(contacto, sesion, pipeline)
 
+    # Ventana de servicio 24h de WhatsApp: solo se puede enviar texto libre si
+    # el cliente escribió en las últimas 24h. Fuera de eso, Meta solo acepta
+    # plantillas aprobadas.
+    ultimo_inbound = None
+    for m in mensajes:
+        if m["direccion"] == "in" and m.get("fecha"):
+            ultimo_inbound = m["fecha"]
+            break
+    puede_responder = False
+    if ultimo_inbound:
+        delta = datetime.now(timezone.utc) - ultimo_inbound
+        puede_responder = delta < timedelta(hours=24)
+
+    flash = request.args.get("flash", "")
     return render_template(
         "panel_detalle.html",
         telefono=telefono, estado=estado, token=token,
         contacto=contacto, sesion=sesion, pipeline=pipeline,
         documentos=documentos, remarketing=remarketing,
         eventos=eventos, mensajes=mensajes,
+        puede_responder=puede_responder, ultimo_inbound=ultimo_inbound,
+        flash=flash,
     )
+
+
+@panel.post("/panel/<telefono>/responder")
+def panel_responder(telefono):
+    _check_token()
+    token = request.args.get("token", "")
+    texto = (request.form.get("texto") or "").strip()
+    if not texto:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="vacio"))
+
+    # Chequeo de ventana 24h antes de llamar a Meta.
+    with db._conexion() as conn:
+        cur = conn.execute(
+            "SELECT MAX(fecha) FROM mensajes WHERE telefono=%s AND direccion='in'",
+            (telefono,))
+        ultimo = cur.fetchone()[0]
+    if not ultimo or (datetime.now(timezone.utc) - ultimo) >= timedelta(hours=24):
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="fuera_24h"))
+
+    from app import whatsapp as wa
+    try:
+        wa.send_text(telefono, texto)
+    except Exception as exc:
+        log.exception("[Panel] Falló envío manual a %s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash=f"error:{exc}"[:120]))
+
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="enviado"))
