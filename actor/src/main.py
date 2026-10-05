@@ -32,9 +32,13 @@ _CIUDADES_MQ = {
     "cucuta": "cucuta", "chia": "chia",
 }
 _CIUDADES_FR = {
-    "bogota": "bogota-dc", "medellin": "medellin", "barranquilla": "barranquilla",
-    "cartagena": "cartagena", "santa marta": "santa-marta",
-    "cucuta": "cucuta", "chia": "chia",
+    "bogota": "bogota-dc",
+    "medellin": "medellin/antioquia",
+    "barranquilla": "barranquilla/atlantico",
+    "cartagena": "cartagena/bolivar",
+    "santa marta": "santa-marta/magdalena",
+    "cucuta": "cucuta/norte-de-santander",
+    "chia": "chia/cundinamarca",
 }
 _CIUDADES_CC = {
     "bogota": "bogota", "medellin": "medellin", "barranquilla": "barranquilla",
@@ -599,9 +603,9 @@ async def main():
             "extractor": _extraer_nextjs,
         },
         "fincaraiz": {
-            "base_url": "https://www.fincaraiz.com.co/venta/inmuebles/{ciudad}/?tipoAnunciante=particular&pagina={page}",
+            "base_url": "https://www.fincaraiz.com.co/venta/{ciudad}/?tipoAnunciante=particular&pagina={page}",
             "ciudades": _CIUDADES_FR,
-            "listing_sel": "a[href*='-en-venta/']",
+            "listing_sel": "a[href*='-en-venta-en-']",
             "host": "https://www.fincaraiz.com.co",
             "extractor": _extraer_nextjs,
         },
