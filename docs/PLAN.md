@@ -10,6 +10,26 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
 **Estado al 5 oct 2026** — Hito 7 EN PRUEBA. Siguiente acción: E2E test del actor Apify.
 Ver sección de Hito 7 para instrucciones exactas.
 
+## Entorno de Claude al iniciar la conversación
+
+- **Todas las APIs y MCPs están conectados** y listos para usar: GitHub, Render,
+  Apify, Google Drive, Gmail, Google Sheets (vía Service Account), Claude Docs,
+  Attio, Apollo.io, Gamma, entre otros. No hace falta pedir credenciales ni
+  tokens al usuario: ya están cargados en el entorno (Render, GitHub secrets,
+  variables de sesión).
+- **Al iniciar cada conversación, Claude debe leer la documentación completa
+  del tech stack** antes de proponer cambios o ejecutar acciones. Esto incluye:
+  - `docs/PLAN.md` (este archivo) y `docs/TRASPASO.md`.
+  - `README.md`, `render.yaml`, `requirements.txt`, `.env.example`.
+  - El código bajo `app/` (bot, server, parser, scheduler, captacion,
+    scraper, docs_auto, sureti, remarketing, envios, state, db, export,
+    schema.sql).
+  - `actor/` (código del actor Apify) y `extension/LEEME.md` (extensión Chrome).
+  - `flows/` (JSON de los WhatsApp Flows publicados).
+  - `.github/workflows/` (jobs de GitHub Actions, incl. `import-sheets.yml`).
+  Objetivo: evitar reinventar lo que ya existe y mantener coherencia entre
+  canales de captación, pipeline y automatizaciones.
+
 ## Hito 5 — Infraestructura (≈ USD 13/mes) — HECHO (3 oct 2026)
 - Usuario: Render plan Starter (USD 7) + Postgres Basic-256mb (USD 6), guiado.
 - Claude: tablas `contactos`, `sesiones`, `pipeline`, `documentos`, `remarketing`;
@@ -48,21 +68,43 @@ Ver sección de Hito 7 para instrucciones exactas.
   `requiere_paz_salvo`. Descartes quedan en pipeline como `descartado_<motivo>`.
   `set_no_contactar` hace upsert en `contactos` (teléfono hasta 150 caracteres por BSUID).
 
-## Hito 7 — Captación vía Apify — EN PRUEBA (5 oct 2026)
+## Hito 7 — Captación multicanal — EN PRUEBA (5 oct 2026)
 
-### Diseño actual
-- Actor Apify `c5Dx4kjZENfbeKYi1` scrapea Finca Raíz y Metrocuadrado con Playwright.
-- Envía contactos por POST a `https://petra-inmuebles.onrender.com/scraper/ingest`
-  con header `X-Ingest-Token`.
-- El bot filtra (ciudad, estrato, tipo, duplicados, no_contactar), guarda en `contactos`
-  y envía la plantilla desde el número oficial (API) solo L–V 7:00–19:00 y sáb 8:00–15:00
-  (Ley 2300), con límite diario que sube poco a poco.
-- Plantilla `massi_apertura_a` (Marketing, 3 variables: tipo, portal, monto "hasta" en
-  millones) con botones "Quiero saber más" / "No me interesa". En revisión de Meta.
+### Canales de captación (los 4 convergen en la tabla `contactos`)
+
+1. **Actor Apify** (`actor/`, cloud, cada 2 h) — scrapea Finca Raíz y Metrocuadrado
+   con Playwright y hace POST a `/scraper/ingest`. Es el canal del Hito 7 en prueba.
+2. **Extensión Chrome "Enviar a Massi"** (`extension/`, manual) — la persona navega
+   el portal, llena el formulario del anuncio y la extensión captura lo que el
+   portal ya muestra (teléfono revelado por el usuario). Entra por `/captacion` y
+   usa `app/captacion.py:procesar()`.
+3. **Scraper local** (`app/scraper.py`, flag `SCRAPER_ENABLED=true`) — Playwright
+   headless + 2captcha para PropDirecto, Metrocuadrado, Finca Raíz, Ciencuadras.
+   Pensado como respaldo si Apify no cubre.
+4. **Google Sheet** (`.github/workflows/import-sheets.yml`, disparo manual) — lee
+   filas (Tipo, Ciudad, Operación, Zona/Conjunto, Teléfono, Torre, Piso, Metros,
+   Parqueadero) de un Sheet (default `1NDG1YAW1f9eD1Jp2lP0yQ57zNcI8PJkfRWihYC9_2Wk`),
+   normaliza el teléfono colombiano y hace POST a `/scraper/ingest` como
+   `portal=manual_sheet`. Autenticación por Service Account; fallback a API key.
+
+### Filtros compartidos
+- Ciudad cubierta por Sureti (Bogotá, Medellín, Barranquilla, Cartagena,
+  Santa Marta, Cúcuta, Chía).
+- Zonas excluidas de Bogotá: San Cristóbal, Ciudad Bolívar.
+- Tipos aceptados: apartamento, casa, local, oficina, bodega, lote.
+- Estrato ≠ 1, precio ≥ $50M, monto resultante entre $20M–$800M.
+- Dedup por teléfono y respeto a `no_contactar`.
+
+### Envío a Meta
+- Plantilla `massi_apertura_a` (Marketing, 3 variables: tipo, portal, monto "hasta"
+  en millones) con botones "Quiero saber más" / "No me interesa". En revisión de Meta.
+- Horario Ley 2300: L–V 7:00–19:00 y sáb 8:00–15:00, con límite diario escalonado.
 - Monto "hasta": 40 % del precio publicado si es residencial (apartamento, casa),
   30 % si es comercial (local, oficina, bodega, lote).
-- Costo actor Apify: ≈ USD 0,25–0,50 por run de 5 contactos de prueba.
-- Costo mensaje marketing: ≈ USD 0,013 por mensaje (Colombia).
+
+### Costos
+- Actor Apify: ≈ USD 0,25–0,50 por run de 5 contactos de prueba.
+- Mensaje marketing: ≈ USD 0,013 por mensaje (Colombia).
 
 ### Estado técnico
 - Build `0.0.12` SUCCEEDED en Apify (commit `3f6548c` en `main`).
