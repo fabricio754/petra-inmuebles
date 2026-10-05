@@ -1,0 +1,42 @@
+name: Reset sesion DB (one-shot)
+on:
+  workflow_dispatch:
+    inputs:
+      telefono:
+        description: 'Telefono a resetear'
+        required: true
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener DATABASE_URL de Render
+        id: dburl
+        run: |
+          DB_URL=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars" \
+            | jq -r '.[] | select(.envVar.key == "DATABASE_URL") | .envVar.value // empty')
+          if [ -z "$DB_URL" ]; then
+            # Intentar con el nombre alternativo
+            DB_URL=$(curl -sf \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars" \
+              | jq -r '.[] | select(.envVar.key | test("DATABASE|POSTGRES|DB_URL")) | "\(.envVar.key)=\(.envVar.value)"')
+            echo "Env vars con DB: $DB_URL"
+            exit 1
+          fi
+          echo "::add-mask::$DB_URL"
+          echo "url=$DB_URL" >> $GITHUB_OUTPUT
+      - name: Ejecutar DELETE
+        run: |
+          pip install psycopg2-binary -q
+          python3 -c "
+          import psycopg2
+          conn = psycopg2.connect('${{ steps.dburl.outputs.url }}')
+          cur = conn.cursor()
+          cur.execute(\"DELETE FROM sesiones WHERE telefono = '${{ inputs.telefono }}'\")
+          print(f'Filas eliminadas: {cur.rowcount}')
+          conn.commit()
+          cur.close()
+          conn.close()
+          "
