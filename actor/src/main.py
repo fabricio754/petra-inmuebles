@@ -437,6 +437,65 @@ async def _extraer_pd(page: Page, url: str, ciudad_hint: str) -> Optional[dict]:
     }
 
 
+# ── Solver 2captcha ───────────────────────────────────────────────────────────
+
+async def _solve_recaptcha(page: Page, api_key: str) -> bool:
+    """Detecta reCAPTCHA v2 en la página y lo resuelve con 2captcha. Retorna True si resolvió."""
+    try:
+        sitekey = await page.evaluate("""() => {
+            const el = document.querySelector('.g-recaptcha[data-sitekey], [data-sitekey]');
+            return el ? el.getAttribute('data-sitekey') : null;
+        }""")
+        if not sitekey:
+            return False
+
+        page_url = page.url
+        log.info("reCAPTCHA detectado, resolviendo con 2captcha... (url=%s)", page_url[-60:])
+
+        async with httpx.AsyncClient(timeout=30) as c:
+            # Enviar captcha
+            r = await c.post("https://2captcha.com/in.php", data={
+                "key": api_key, "method": "userrecaptcha",
+                "googlekey": sitekey, "pageurl": page_url, "json": "1",
+            })
+            data = r.json()
+            if data.get("status") != 1:
+                log.warning("2captcha submit error: %s", data)
+                return False
+            captcha_id = data["request"]
+
+            # Esperar solución (máx 90s)
+            for _ in range(18):
+                await asyncio.sleep(5)
+                r2 = await c.get("https://2captcha.com/res.php", params={
+                    "key": api_key, "action": "get", "id": captcha_id, "json": "1",
+                })
+                d2 = r2.json()
+                if d2.get("status") == 1:
+                    token = d2["request"]
+                    # Inyectar token
+                    await page.evaluate(f"""(token) => {{
+                        const ta = document.querySelector('#g-recaptcha-response');
+                        if (ta) ta.value = token;
+                        if (typeof ___grecaptcha_cfg !== 'undefined') {{
+                            const clients = ___grecaptcha_cfg.clients || {{}};
+                            Object.values(clients).forEach(c => {{
+                                const cb = (c[''] || {{}}).callback;
+                                if (cb) cb(token);
+                            }});
+                        }}
+                    }}""", token)
+                    await page.wait_for_timeout(1500)
+                    log.info("reCAPTCHA resuelto.")
+                    return True
+                if d2.get("request") != "CAPCHA_NOT_READY":
+                    log.warning("2captcha error: %s", d2)
+                    return False
+    except Exception as e:
+        log.warning("Error 2captcha: %s", e)
+    return False
+
+
 # ── Scraper genérico ──────────────────────────────────────────────────────────
 
 async def _scrape_portal(
@@ -453,6 +512,7 @@ async def _scrape_portal(
     ingest_token: str,
     http: httpx.AsyncClient,
     proxy_pw_cfg: Optional[dict] = None,
+    twocaptcha_key: Optional[str] = None,
 ) -> int:
     saved = total = 0
     ctx_kwargs = {
@@ -550,6 +610,9 @@ async def _scrape_portal(
                             await detail_ctx.close()
                             log.info("[%s] Detalle redirigió a listado — saltando.", portal)
                             continue
+                        # Resolver captcha si hay key disponible
+                        if twocaptcha_key:
+                            await _solve_recaptcha(dp, twocaptcha_key)
 
                         datos = await extractor(dp, href, ciudad_key)
                         if not datos:
@@ -611,6 +674,7 @@ async def main():
     max_per: int = int(inp.get("max_per_portal", 300))
     ingest_url: str = inp.get("ingest_url", "")
     ingest_token: str = inp.get("ingest_token", "")
+    twocaptcha_key: str = inp.get("twocaptcha_api_key", "") or os.environ.get("TWOCAPTCHA_API_KEY", "")
 
     if not ingest_url or not ingest_token:
         log.error("Faltan ingest_url o ingest_token en el input.")
@@ -641,7 +705,8 @@ async def main():
     if not proxy_url:
         log.warning("Sin proxy — los portales probablemente bloquearán requests directos")
 
-    log.info("Portales: %s | max/portal: %d | proxy: %s", portals, max_per, bool(proxy_url))
+    log.info("Portales: %s | max/portal: %d | proxy: %s | 2captcha: %s",
+             portals, max_per, bool(proxy_url), bool(twocaptcha_key))
 
     portal_config = {
         "metrocuadrado": {
@@ -696,6 +761,7 @@ async def main():
                     ingest_token=ingest_token,
                     http=http,
                     proxy_pw_cfg=proxy_pw_cfg,
+                    twocaptcha_key=twocaptcha_key or None,
                 )
         await browser.close()
 

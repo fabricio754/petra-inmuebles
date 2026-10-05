@@ -108,6 +108,7 @@ jobs:
           jq -n \
             --arg build "${{ steps.result.outputs.build_number }}" \
             --arg token "$TOKEN" \
+            --arg captcha "${{ secrets.TWOCAPTCHA_API_KEY }}" \
             '{
               actId: "c5Dx4kjZENfbeKYi1",
               options: {build: $build, timeoutSecs: 3600, memoryMbytes: 1024},
@@ -115,7 +116,8 @@ jobs:
                 portals: ["fincaraiz","metrocuadrado","ciencuadras","propdirecto"],
                 max_per_portal: 300,
                 ingest_url: "https://petra-inmuebles.onrender.com/scraper/ingest",
-                ingest_token: $token
+                ingest_token: $token,
+                twocaptcha_api_key: $captcha
               }
             }' > /tmp/task_update.json
 
