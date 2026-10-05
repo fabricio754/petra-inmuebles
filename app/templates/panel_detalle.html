@@ -35,6 +35,14 @@
   .chat .bubble { padding: 8px 12px; border-radius: 12px; background: #eef2f6; font-size: .9rem; line-height: 1.4; }
   .chat li.out .bubble { background: #dcf8c6; }
   .chat .meta { display: block; font-size: .72rem; color: #8c959f; margin-top: 2px; font-family: ui-monospace, monospace; }
+  .responder { display: flex; gap: 8px; margin-top: 12px; }
+  .responder textarea { flex: 1; min-height: 60px; font: inherit; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; resize: vertical; }
+  .responder button { padding: 8px 18px; cursor: pointer; background: #0969da; color: #fff; border: 0; border-radius: 6px; font-weight: 500; }
+  .responder button:disabled { background: #8c959f; cursor: not-allowed; }
+  .nota { font-size: .85rem; color: #8c959f; margin-top: 10px; padding: 8px 12px; background: #f6f8fa; border-left: 3px solid #d0d7de; border-radius: 3px; }
+  .nota.warn { border-color: #d4a72c; background: #fff8c5; color: #633c01; }
+  .nota.ok { border-color: #2da44e; background: #dafbe1; color: #1a7f37; }
+  .nota.err { border-color: #cf222e; background: #ffebe9; color: #82071e; }
   @media (prefers-color-scheme: dark) {
     body { background: #0d1117; color: #e6edf3; }
     section { background: #161b22; border-color: #30363d; }
@@ -45,6 +53,11 @@
     .chat .bubble { background: #262d36; }
     .chat li.out .bubble { background: #1f6e32; color: #e6edf3; }
     .chat .meta { color: #6e7681; }
+    .responder textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
+    .nota { background: #161b22; border-color: #30363d; color: #8b949e; }
+    .nota.warn { background: #341a00; border-color: #d4a72c; color: #e8c547; }
+    .nota.ok { background: #0a2d16; border-color: #2da44e; color: #7ee787; }
+    .nota.err { background: #3b0a0f; border-color: #cf222e; color: #ff7b72; }
   }
 </style>
 </head>
@@ -145,6 +158,30 @@
   </ul>
   {% else %}
   <p class="vacio">Sin mensajes registrados todavía. La bitácora empieza a llenarse cuando el bot envía o recibe el próximo mensaje.</p>
+  {% endif %}
+
+  {% if flash == 'enviado' %}
+    <p class="nota ok">Mensaje enviado. Puede tardar unos segundos en aparecer en la conversación.</p>
+  {% elif flash == 'fuera_24h' %}
+    <p class="nota err">No se puede enviar texto libre: el cliente no escribió en las últimas 24 h. Fuera de esa ventana, Meta solo acepta plantillas aprobadas.</p>
+  {% elif flash == 'vacio' %}
+    <p class="nota err">Mensaje vacío.</p>
+  {% elif flash.startswith('error') %}
+    <p class="nota err">Error al enviar: {{ flash[6:] }}</p>
+  {% endif %}
+
+  <form class="responder" method="post" action="/panel/{{ telefono }}/responder?token={{ token }}">
+    <textarea name="texto" placeholder="Responder como Massi…" maxlength="1500" {% if not puede_responder %}disabled{% endif %}></textarea>
+    <button type="submit" {% if not puede_responder %}disabled{% endif %}>Enviar</button>
+  </form>
+  {% if not puede_responder %}
+    <p class="nota warn">
+      {% if ultimo_inbound %}
+        Último mensaje del cliente: {{ ultimo_inbound.strftime('%Y-%m-%d %H:%M') }} UTC — fuera de la ventana de 24 h de WhatsApp. Para contactarlo ahora hay que enviar una plantilla aprobada.
+      {% else %}
+        Este contacto todavía no escribió al bot. Para iniciar la conversación hay que enviarle una plantilla aprobada.
+      {% endif %}
+    </p>
   {% endif %}
 </section>
 

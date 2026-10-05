@@ -9,8 +9,15 @@
   body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #f6f8fa; color: #1f2328; }
   h1 { font-size: 1.3rem; margin: 0 0 12px; }
   .totales { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-  .chip { background: #fff; border: 1px solid #d0d7de; border-radius: 999px; padding: 4px 10px; font-size: .85rem; }
+  .chip { background: #fff; border: 1px solid #d0d7de; border-radius: 999px; padding: 4px 10px; font-size: .85rem; text-decoration: none; color: inherit; }
   .chip strong { margin-left: 4px; }
+  .chip-link:hover { background: #eaeef2; }
+  .chip-active { background: #0969da; color: #fff; border-color: #0969da; }
+  .chip-reset { color: #cf222e; border-color: #ffebe9; }
+  .filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }
+  .filtros input, .filtros select, .filtros button { font: inherit; padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; }
+  .filtros input[type=search] { flex: 1; min-width: 180px; }
+  .filtros button { cursor: pointer; background: #0969da; color: #fff; border-color: #0969da; }
   table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; overflow: hidden; }
   th, td { padding: 8px 10px; text-align: left; font-size: .9rem; border-bottom: 1px solid #eaeef2; }
   th { background: #f6f8fa; font-weight: 600; position: sticky; top: 0; }
@@ -27,7 +34,9 @@
   .estado-pausado_paz_salvo { background: #fff1e5; color: #9a4b00; }
   @media (prefers-color-scheme: dark) {
     body { background: #0d1117; color: #e6edf3; }
-    .chip, table { background: #161b22; border-color: #30363d; }
+    .chip, table, .filtros input, .filtros select { background: #161b22; border-color: #30363d; color: #e6edf3; }
+    .chip-link:hover { background: #1c2128; }
+    .chip-reset { color: #ff7b72; border-color: #490202; }
     th { background: #0d1117; }
     th, td { border-color: #30363d; }
     tr:hover { background: #1c2128; }
@@ -36,12 +45,35 @@
 </style>
 </head>
 <body>
-<h1>Panel Massi · {{ total }} leads</h1>
+<h1>Panel Massi · {{ total }} de {{ total_sin_filtro }} leads</h1>
 <div class="totales">
   {% for estado, n in por_estado %}
-    <span class="chip">{{ estado }}<strong>{{ n }}</strong></span>
+    <a class="chip chip-link {% if f_estado == estado %}chip-active{% endif %}"
+       href="?token={{ token }}&estado={{ estado }}{% if f_ciudad %}&ciudad={{ f_ciudad }}{% endif %}{% if f_portal %}&portal={{ f_portal }}{% endif %}{% if q %}&q={{ q }}{% endif %}">{{ estado }}<strong>{{ n }}</strong></a>
   {% endfor %}
+  {% if f_estado or f_ciudad or f_portal or q %}
+    <a class="chip chip-reset" href="?token={{ token }}">× quitar filtros</a>
+  {% endif %}
 </div>
+
+<form class="filtros" method="get" action="/panel">
+  <input type="hidden" name="token" value="{{ token }}">
+  {% if f_estado %}<input type="hidden" name="estado" value="{{ f_estado }}">{% endif %}
+  <input type="search" name="q" value="{{ q }}" placeholder="Buscar por teléfono o nombre…">
+  <select name="ciudad">
+    <option value="">Todas las ciudades</option>
+    {% for c in ciudades %}
+      <option value="{{ c }}" {% if c == f_ciudad %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+  <select name="portal">
+    <option value="">Todos los portales</option>
+    {% for p in portales %}
+      <option value="{{ p }}" {% if p == f_portal %}selected{% endif %}>{{ p }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Filtrar</button>
+</form>
 <table>
   <thead>
     <tr>
