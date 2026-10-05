@@ -55,8 +55,9 @@ _UA = (
 
 
 def _decrypt_apify_secret(encrypted: str) -> Optional[str]:
-    """Desencripta un campo ENCRYPTED_VALUE:base64data:base64key usando la clave privada del actor."""
-    private_key_pem = os.environ.get("APIFY_ACTOR_PRIVATE_KEY", "")
+    """Desencripta ENCRYPTED_VALUE:base64(RSA_key):base64(IV+ciphertext) con la clave privada."""
+    # Apify inyecta la clave privada RSA bajo APIFY_ACTOR_INPUT_PRIVATE_KEY
+    private_key_pem = os.environ.get("APIFY_ACTOR_INPUT_PRIVATE_KEY", "")
     if not private_key_pem or not encrypted.startswith("ENCRYPTED_VALUE:"):
         return None
     try:
@@ -67,15 +68,17 @@ def _decrypt_apify_secret(encrypted: str) -> Optional[str]:
         parts = encrypted.split(":")
         if len(parts) < 3:
             return None
-        enc_data = base64.b64decode(parts[1])
-        enc_key = base64.b64decode(parts[2])
+        # parts[1] = RSA-encrypted AES key (256 bytes base64)
+        # parts[2] = AES-CBC encrypted value: IV (16) + ciphertext
+        enc_key_rsa = base64.b64decode(parts[1])
+        enc_value_aes = base64.b64decode(parts[2])
 
         priv = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
-        aes_key = priv.decrypt(enc_key, apadding.OAEP(
+        aes_key = priv.decrypt(enc_key_rsa, apadding.OAEP(
             mgf=apadding.MGF1(algorithm=hashes.SHA256()),
             algorithm=hashes.SHA256(), label=None,
         ))
-        iv, ciphertext = enc_data[:16], enc_data[16:]
+        iv, ciphertext = enc_value_aes[:16], enc_value_aes[16:]
         decryptor = Cipher(algorithms.AES(aes_key), modes.CBC(iv)).decryptor()
         raw = decryptor.update(ciphertext) + decryptor.finalize()
         pad = raw[-1]
