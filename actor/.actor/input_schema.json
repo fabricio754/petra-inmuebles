@@ -34,10 +34,7 @@
       "description": "Configuración de proxy de Apify (usar proxyUrls o groups)",
       "editor": "proxy",
       "default": { "useApifyProxy": true, "apifyProxyGroups": ["RESIDENTIAL"] }
-    }
-  },
-  "required": ["ingest_url", "ingest_token"],
-  "properties_extra": {
+    },
     "twocaptcha_api_key": {
       "title": "2captcha API key (opcional)",
       "type": "string",
@@ -45,5 +42,6 @@
       "editor": "textfield",
       "isSecret": true
     }
-  }
+  },
+  "required": ["ingest_url", "ingest_token"]
 }
