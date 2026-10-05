@@ -1,0 +1,22 @@
+name: Admin reset sesion (curl)
+
+on:
+  workflow_dispatch:
+    inputs:
+      telefono:
+        description: 'Telefono a resetear'
+        required: true
+        default: '573181716257'
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar endpoint admin reset
+        run: |
+          RESP=$(curl -sf -X POST https://petra-inmuebles.onrender.com/admin/reset-sesion \
+            -H 'Content-Type: application/json' \
+            -H 'X-Admin-Token: massi-admin-reset-petra' \
+            -d "{\"telefono\": \"${{ inputs.telefono }}\"}") \
+          && echo "Respuesta: $RESP" \
+          || echo "ERROR llamando al endpoint"
