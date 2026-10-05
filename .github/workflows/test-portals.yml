@@ -1,0 +1,75 @@
+name: Test Portales Apify
+on:
+  push:
+    branches:
+      - trigger/test-portales
+
+jobs:
+  test-portales:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Leer INGEST_TOKEN de Render
+        id: token
+        run: |
+          TOKEN=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars" \
+            | jq -r '.[] | select(.envVar.key == "INGEST_TOKEN") | .envVar.value // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "No se encontro INGEST_TOKEN en Render"
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "value=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Disparar actor Apify con los 4 portales
+        id: run
+        run: |
+          RUN=$(curl -sf -X POST \
+            "https://api.apify.com/v2/actors/c5Dx4kjZENfbeKYi1/runs?build=0.0.12" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "portals": ["fincaraiz", "metrocuadrado", "ciencuadras", "propdirecto"],
+              "max_per_portal": 3,
+              "ingest_url": "https://petra-inmuebles.onrender.com",
+              "ingest_token": "${{ steps.token.outputs.value }}"
+            }')
+          RUN_ID=$(echo "$RUN" | jq -r '.data.id')
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "Actor run iniciado: $RUN_ID"
+
+      - name: Esperar resultado (max 10 min)
+        id: result
+        run: |
+          RUN_ID="${{ steps.run.outputs.run_id }}"
+          for i in $(seq 1 20); do
+            sleep 30
+            STATUS=$(curl -sf \
+              "https://api.apify.com/v2/actor-runs/$RUN_ID" \
+              -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+              | jq -r '.data.status')
+            echo "[$i/20] Status: $STATUS"
+            if [ "$STATUS" = "SUCCEEDED" ] || [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "TIMED-OUT" ]; then
+              echo "status=$STATUS" >> $GITHUB_OUTPUT
+              break
+            fi
+          done
+
+      - name: Ver resultados del dataset
+        run: |
+          RUN_ID="${{ steps.run.outputs.run_id }}"
+          DATASET_ID=$(curl -sf \
+            "https://api.apify.com/v2/actor-runs/$RUN_ID" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            | jq -r '.data.defaultDatasetId')
+
+          echo "=== RESULTADO POR PORTAL ==="
+          curl -sf \
+            "https://api.apify.com/v2/datasets/$DATASET_ID/items?clean=true&format=json" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            | jq -r 'group_by(.portal) | .[] | "Portal: \(.[0].portal) — \(length) contactos\n" + (.[0:2] | map("  tel=\(.telefono) ciudad=\(.ciudad) tipo=\(.tipo) precio=\(.precio)") | join("\n"))'
+
+          echo ""
+          echo "Status final: ${{ steps.result.outputs.status }}"
