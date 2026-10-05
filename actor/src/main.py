@@ -55,7 +55,7 @@ _UA = (
 
 
 def _decrypt_apify_secret(encrypted: str) -> Optional[str]:
-    """Desencripta ENCRYPTED_VALUE:base64(RSA_key):base64(IV+ciphertext) con la clave privada."""
+    """Desencripta ENCRYPTED_VALUE:base64(RSA_key):base64(nonce+ciphertext+tag) con la clave privada."""
     # Apify inyecta la clave privada RSA bajo APIFY_ACTOR_INPUT_PRIVATE_KEY
     private_key_pem = os.environ.get("APIFY_ACTOR_INPUT_PRIVATE_KEY", "")
     if not private_key_pem or not encrypted.startswith("ENCRYPTED_VALUE:"):
@@ -63,13 +63,13 @@ def _decrypt_apify_secret(encrypted: str) -> Optional[str]:
     try:
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import padding as apadding
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
         parts = encrypted.split(":")
         if len(parts) < 3:
             return None
-        # parts[1] = RSA-encrypted AES key (256 bytes base64)
-        # parts[2] = AES-CBC encrypted value: IV (16) + ciphertext
+        # parts[1] = RSA-OAEP(SHA256) encrypted AES key
+        # parts[2] = AES-256-GCM: nonce(12) + ciphertext + tag(16)
         enc_key_rsa = base64.b64decode(parts[1])
         enc_value_aes = base64.b64decode(parts[2])
 
@@ -78,11 +78,9 @@ def _decrypt_apify_secret(encrypted: str) -> Optional[str]:
             mgf=apadding.MGF1(algorithm=hashes.SHA256()),
             algorithm=hashes.SHA256(), label=None,
         ))
-        iv, ciphertext = enc_value_aes[:16], enc_value_aes[16:]
-        decryptor = Cipher(algorithms.AES(aes_key), modes.CBC(iv)).decryptor()
-        raw = decryptor.update(ciphertext) + decryptor.finalize()
-        pad = raw[-1]
-        return raw[:-pad].decode("utf-8")
+        nonce = enc_value_aes[:12]
+        ciphertext_with_tag = enc_value_aes[12:]
+        return AESGCM(aes_key).decrypt(nonce, ciphertext_with_tag, None).decode("utf-8")
     except Exception as e:
         log.warning("No se pudo desencriptar campo secret: %s", e)
         return None
@@ -183,7 +181,7 @@ async def _extraer_telefono(page: Page) -> Optional[str]:
         raw = await page.evaluate("() => JSON.stringify(window.__NEXT_DATA__ || null)")
         if raw and raw != "null":
             for m in re.finditer(
-                r'"(?:phone|telefono|celular|movil|mobile|whatsapp|contactPhone)[^"]*"\s*:\s*"([^"]{8,16})"',
+                r'"(?:phone|telefono|celular|movil|mobile|whatsapp|contactPhone)[^"]*"\s*:\s*"([^"){8,16}"',
                 raw, re.IGNORECASE,
             ):
                 d = re.sub(r"\D", "", m.group(1))
