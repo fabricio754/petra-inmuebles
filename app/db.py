@@ -334,6 +334,40 @@ def update_chip(telefono, chip):
         )
 
 
+def update_datos_catastrales(telefono: str, datos: dict) -> None:
+    """Actualiza todos los campos catastrales en el pipeline más reciente.
+
+    datos: dict devuelto por docs_auto.obtener_datos_catastrales().
+    Solo actualiza los campos presentes (no pisa con NULL los que no vienen).
+    """
+    chip      = datos.get("chip")
+    avaluo    = datos.get("avaluo_catastral")
+    matricula = datos.get("matricula")
+    estrato   = datos.get("estrato")
+
+    # Separa matrícula "050C-XXXXXXXX" en oficina y número
+    mat_oficina = mat_numero = None
+    if matricula and "-" in matricula:
+        partes = matricula.split("-", 1)
+        mat_oficina, mat_numero = partes[0].strip(), partes[1].strip()
+    elif matricula:
+        mat_numero = matricula
+
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET "
+            "chip              = COALESCE(%s, chip), "
+            "avaluo_catastral  = COALESCE(%s, avaluo_catastral), "
+            "matricula_oficina = COALESCE(%s, matricula_oficina), "
+            "matricula_numero  = COALESCE(%s, matricula_numero), "
+            "estrato           = COALESCE(%s, estrato) "
+            "WHERE telefono = %s AND id = ("
+            "  SELECT id FROM pipeline WHERE telefono = %s ORDER BY fecha_ingreso DESC LIMIT 1"
+            ")",
+            (chip, avaluo, mat_oficina, mat_numero, estrato, telefono, telefono),
+        )
+
+
 def registrar_documento(telefono, tipo, media_id, url_storage):
     with _conexion() as conn:
         conn.execute(

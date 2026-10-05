@@ -1,11 +1,15 @@
-"""Obtención automática de datos catastrales.
+"""Obtención automática de datos catastrales (Bogotá, IDECA/ArcGIS).
 
-obtener_chip(direccion, ciudad)
-  → str  si ciudad es Bogotá y ArcGIS responde con un candidato válido
-  → None para cualquier otra ciudad (no existe equivalente público) o si falla
+Función principal:
+    obtener_datos_catastrales(direccion, ciudad)
+        → dict con chip, avaluo_catastral, matricula, area_construida,
+               area_terreno, estrato, direccion_catastral
+        → None si ciudad no es Bogotá o la consulta falla
 
-El CHIP (Código Homologado de Inmueble y Predio) se consulta al geocodificador
-público de Catastro Bogotá (IDECA). No requiere API key.
+Función de compatibilidad:
+    obtener_chip(direccion, ciudad) → str | None
+
+No requiere API key. Fuente: Catastro Bogotá (IDECA), uso público.
 """
 import logging
 import re
@@ -14,23 +18,19 @@ import requests
 
 log = logging.getLogger("petra")
 
-# Geocodificador de Catastro Bogotá (IDECA) — público, sin auth.
 _GEOCODER_URL = (
     "https://geocodificador.catastrobogota.gov.co/arcgis/rest/services"
     "/Geocodificador/GeocodeServer/findAddressCandidates"
 )
-# Fallback: consulta directa a la capa de predios por dirección normalizada.
 _PREDIOS_URL = (
     "https://serviciosgis.catastrobogota.gov.co/arcgis/rest/services"
     "/catastro/predios/FeatureServer/0/query"
 )
 _TIMEOUT = 12
-_SCORE_MIN = 70  # confianza mínima del geocodificador (0-100)
+_SCORE_MIN = 70
 
-# Todos los aliases que el bot usa para "Bogotá".
 _BOGOTA = {"bogota", "bogotá", "santa fe de bogotá", "dc", "distrito capital", "bogota dc"}
 
-# Abreviaciones del catastro bogotano.
 _ABREVS = [
     (r"\b(calle|cl\.?)\s*", "CL "),
     (r"\b(carrera|cra?\.?|kr\.?)\s*", "KR "),
@@ -39,21 +39,43 @@ _ABREVS = [
     (r"\b(avenida|av\.?)\s+calle\b", "AC "),
     (r"\b(avenida|av\.?)\s+carrera\b", "AK "),
     (r"\b(avenida|av\.?)\s*", "AV "),
-    (r"\s*#\s*", " "),       # elimina el símbolo #
-    (r"\s+", " "),           # colapsa espacios
+    (r"\s*#\s*", " "),
+    (r"\s+", " "),
 ]
+
+# Todos los campos que pedimos al FeatureServer de predios.
+_OUT_FIELDS = (
+    "CHIP_PREDIO,CHIP,NUMERO_CHIP,"
+    "MATRICULA_INMOBILIARIA,MATRICULA,"
+    "AVALUO_CATASTRAL,"
+    "AREA_CONSTRUIDA,AREA_TERRENO,"
+    "ESTRATO,ESTRATO_PREDIO,"
+    "DIRECCION"
+)
+
+
+# ---------------------------------------------------------------------------
+# API pública
+# ---------------------------------------------------------------------------
+
+def obtener_datos_catastrales(direccion: str, ciudad: str) -> dict | None:
+    """Consulta IDECA y devuelve todos los datos catastrales disponibles.
+
+    Claves del dict devuelto (pueden ser None si IDECA no las retorna):
+        chip, avaluo_catastral (int), matricula (str),
+        area_construida (float), area_terreno (float),
+        estrato (int), direccion_catastral (str)
+    """
+    if ciudad.strip().lower() not in _BOGOTA:
+        log.info("[Catastro] Ciudad '%s' — sin API pública disponible.", ciudad)
+        return None
+    return _datos_bogota(direccion)
 
 
 def obtener_chip(direccion: str, ciudad: str) -> str | None:
-    """Devuelve el CHIP catastral o None.
-
-    Para ciudades distintas a Bogotá retorna None de inmediato: no hay
-    equivalente ArcGIS público para Medellín, Barranquilla, etc.
-    """
-    if ciudad.strip().lower() not in _BOGOTA:
-        log.info("[CHIP] Ciudad '%s' — sin consulta ArcGIS disponible; continúa sin CHIP.", ciudad)
-        return None
-    return _chip_bogota(direccion)
+    """Compatibilidad hacia atrás: devuelve solo el CHIP."""
+    datos = obtener_datos_catastrales(direccion, ciudad)
+    return datos.get("chip") if datos else None
 
 
 # ---------------------------------------------------------------------------
@@ -61,31 +83,89 @@ def obtener_chip(direccion: str, ciudad: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _normalizar(direccion: str) -> str:
-    """Convierte abreviaciones al formato que espera el geocodificador."""
     d = direccion.upper().strip()
     for patron, reemplazo in _ABREVS:
         d = re.sub(patron, reemplazo, d, flags=re.IGNORECASE)
     return d.strip()
 
 
-def _extraer_chip(atributos: dict) -> str | None:
-    """Busca el campo CHIP en las claves que puede devolver ArcGIS."""
-    for campo in ("CHIP_PREDIO", "CHIP", "Chip", "chip", "NUMERO_CHIP", "numero_chip"):
+def _extraer_campos(atributos: dict) -> dict:
+    """Mapea los campos de ArcGIS a nuestro esquema interno."""
+    result: dict = {}
+
+    for campo in ("CHIP_PREDIO", "CHIP", "Chip", "chip", "NUMERO_CHIP"):
         val = atributos.get(campo)
         if val and str(val).strip() not in ("", "None", "null"):
-            return str(val).strip()
-    return None
+            result["chip"] = str(val).strip()
+            break
+
+    for campo in ("MATRICULA_INMOBILIARIA", "MATRICULA"):
+        val = atributos.get(campo)
+        if val and str(val).strip() not in ("", "None", "null"):
+            result["matricula"] = str(val).strip()
+            break
+
+    for campo in ("AVALUO_CATASTRAL",):
+        val = atributos.get(campo)
+        if val is not None:
+            try:
+                result["avaluo_catastral"] = int(val)
+            except (ValueError, TypeError):
+                pass
+            break
+
+    for campo in ("AREA_CONSTRUIDA",):
+        val = atributos.get(campo)
+        if val is not None:
+            try:
+                result["area_construida"] = float(val)
+            except (ValueError, TypeError):
+                pass
+
+    for campo in ("AREA_TERRENO",):
+        val = atributos.get(campo)
+        if val is not None:
+            try:
+                result["area_terreno"] = float(val)
+            except (ValueError, TypeError):
+                pass
+
+    for campo in ("ESTRATO", "ESTRATO_PREDIO"):
+        val = atributos.get(campo)
+        if val is not None:
+            try:
+                result["estrato"] = int(val)
+            except (ValueError, TypeError):
+                pass
+            break
+
+    for campo in ("DIRECCION", "direccion"):
+        val = atributos.get(campo)
+        if val and str(val).strip():
+            result["direccion_catastral"] = str(val).strip()
+            break
+
+    return result
 
 
-def _chip_bogota(direccion: str) -> str | None:
-    """Primer intento: geocodificador. Segundo: FeatureServer."""
-    chip = _geocoder(direccion)
+def _datos_bogota(direccion: str) -> dict | None:
+    """Estrategia: geocodificador → CHIP → FeatureServer por CHIP (todos los campos).
+    Fallback: FeatureServer por dirección directamente."""
+    chip = _geocoder_chip(direccion)
     if chip:
-        return chip
-    return _feature_server(direccion)
+        datos = _feature_server_por_chip(chip)
+        if datos:
+            log.info("[Catastro] Datos completos vía geocoder+FS: %s", datos)
+            return datos
+
+    datos = _feature_server_por_direccion(direccion)
+    if datos:
+        log.info("[Catastro] Datos completos vía FS por dirección: %s", datos)
+    return datos
 
 
-def _geocoder(direccion: str) -> str | None:
+def _geocoder_chip(direccion: str) -> str | None:
+    """Geocodificador rápido: devuelve solo el CHIP si el score es suficiente."""
     normalizada = _normalizar(direccion)
     try:
         resp = requests.get(
@@ -105,25 +185,23 @@ def _geocoder(direccion: str) -> str | None:
             return None
         top = candidates[0]
         if top.get("score", 0) < _SCORE_MIN:
-            log.info("[CHIP] Geocoder: score bajo (%.0f) para '%s'.", top.get("score", 0), normalizada)
+            log.info("[Catastro] Geocoder score bajo (%.0f) para '%s'.", top.get("score", 0), normalizada)
             return None
-        chip = _extraer_chip(top.get("attributes", {}))
-        if chip:
-            log.info("[CHIP] Geocoder OK: %s → %s", normalizada, chip)
-        return chip
+        campos = _extraer_campos(top.get("attributes", {}))
+        return campos.get("chip")
     except Exception:
-        log.exception("[CHIP] Error consultando geocodificador para '%s'.", direccion)
+        log.exception("[Catastro] Error en geocodificador para '%s'.", direccion)
         return None
 
 
-def _feature_server(direccion: str) -> str | None:
-    normalizada = _normalizar(direccion)
+def _feature_server_por_chip(chip: str) -> dict | None:
+    """Consulta todos los campos del predio dado su CHIP."""
     try:
         resp = requests.get(
             _PREDIOS_URL,
             params={
-                "where": f"UPPER(DIRECCION) LIKE UPPER('%{_like_safe(normalizada)}%')",
-                "outFields": "CHIP_PREDIO,CHIP,DIRECCION",
+                "where": f"CHIP_PREDIO='{_sql_safe(chip)}' OR CHIP='{_sql_safe(chip)}'",
+                "outFields": _OUT_FIELDS,
                 "returnGeometry": "false",
                 "resultRecordCount": 1,
                 "f": "json",
@@ -134,15 +212,40 @@ def _feature_server(direccion: str) -> str | None:
         features = resp.json().get("features", [])
         if not features:
             return None
-        chip = _extraer_chip(features[0].get("attributes", {}))
-        if chip:
-            log.info("[CHIP] FeatureServer OK: %s → %s", normalizada, chip)
-        return chip
+        return _extraer_campos(features[0].get("attributes", {})) or None
     except Exception:
-        log.exception("[CHIP] Error consultando FeatureServer para '%s'.", direccion)
+        log.exception("[Catastro] Error en FeatureServer por CHIP '%s'.", chip)
         return None
 
 
+def _feature_server_por_direccion(direccion: str) -> dict | None:
+    """Consulta todos los campos buscando por dirección (LIKE)."""
+    normalizada = _normalizar(direccion)
+    try:
+        resp = requests.get(
+            _PREDIOS_URL,
+            params={
+                "where": f"UPPER(DIRECCION) LIKE UPPER('%{_like_safe(normalizada)}%')",
+                "outFields": _OUT_FIELDS,
+                "returnGeometry": "false",
+                "resultRecordCount": 1,
+                "f": "json",
+            },
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+        features = resp.json().get("features", [])
+        if not features:
+            return None
+        return _extraer_campos(features[0].get("attributes", {})) or None
+    except Exception:
+        log.exception("[Catastro] Error en FeatureServer por dirección '%s'.", direccion)
+        return None
+
+
+def _sql_safe(s: str) -> str:
+    return s.replace("'", "''")
+
+
 def _like_safe(s: str) -> str:
-    """Escapa % y _ para evitar inyección en cláusula LIKE."""
     return s.replace("%", r"\%").replace("_", r"\_")

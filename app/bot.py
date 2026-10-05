@@ -187,17 +187,17 @@ def _completar(phone, data):
 
     _guardar(phone, data, "nuevo")
 
-    # Consulta CHIP catastral (solo Bogotá; para el resto continúa sin él).
+    # Consulta catastral automática (CHIP, avalúo, matrícula, estrato) — solo Bogotá.
     try:
         from app import docs_auto, db as _db2
         direccion = data.get("direccion_inmueble") or ""
         ciudad    = data.get("ciudad") or ""
-        chip = docs_auto.obtener_chip(direccion, ciudad)
-        if chip:
-            _db2.update_chip(phone, chip)
+        datos_cat = docs_auto.obtener_datos_catastrales(direccion, ciudad)
+        if datos_cat:
+            _db2.update_datos_catastrales(phone, datos_cat)
     except Exception:
         import logging
-        logging.getLogger("petra").exception("[CHIP] Error en _completar, se ignora.")
+        logging.getLogger("petra").exception("[Catastro] Error en _completar, se ignora.")
 
     nombre = (data.get("nombre") or "").split()
     state.set_session(phone, flow="SURETI", flow_step="DOCS_EXTRACTOS", flow_data=data)
