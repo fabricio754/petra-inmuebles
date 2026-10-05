@@ -1,0 +1,49 @@
+name: Correr scraper directo (sin Apify)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 11 * * 1-6'  # 6am Colombia (UTC-5) = 11am UTC, lun-sáb
+
+jobs:
+  run-scraper:
+    name: Correr scraper de portales
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias Python
+        run: pip install -r actor/requirements.txt
+
+      - name: Instalar Playwright (Chromium)
+        run: playwright install chromium --with-deps
+
+      - name: Leer INGEST_TOKEN de Render
+        id: token
+        run: |
+          TOKEN=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars" \
+            | jq -r '.[] | select(.envVar.key == "INGEST_TOKEN") | .envVar.value // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "ERROR: No se encontro INGEST_TOKEN en Render. Verifica que RENDER_API_KEY sea valido."
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "value=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Correr scraper
+        env:
+          INGEST_URL: ${{ secrets.INGEST_URL }}
+        run: |
+          TOKEN="${{ steps.token.outputs.value }}"
+          ACTOR_INPUT_BODY="{\"portals\":[\"metrocuadrado\",\"fincaraiz\",\"ciencuadras\",\"propdirecto\"],\"max_per_portal\":50,\"ingest_url\":\"$INGEST_URL\",\"ingest_token\":\"$TOKEN\"}" \
+          python actor/src/main.py
