@@ -159,7 +159,7 @@ async def _nueva_pagina(ctx: BrowserContext, url: str) -> Page:
             try { return _orig && _orig.apply(this, [u, ...a]); } catch(e){}
         };
     """)
-    await page.goto(url, timeout=60_000, wait_until="domcontentloaded")
+    await page.goto(url, timeout=30_000, wait_until="domcontentloaded")
     return page
 
 
@@ -500,6 +500,7 @@ async def _scrape_portal(
                     if saved >= max_results:
                         break
                     total += 1
+                    log.info("[%s] Detalle %d: %s", portal, total, href[-70:])
                     detail_ctx = await browser.new_context(**ctx_kwargs)
                     try:
                         dp = await _nueva_pagina(detail_ctx, href)
@@ -509,9 +510,12 @@ async def _scrape_portal(
                             continue
 
                         datos = await extractor(dp, href, ciudad_key)
-                        if datos:
+                        if not datos:
+                            log.warning("[%s] extractor=None url=%s title=%r", portal, href[-60:], await dp.title())
+                        else:
                             tel = await _extraer_telefono(dp)
                             anunc = await _anunciante(dp)
+                            log.info("[%s] datos OK tel=%s url=%s", portal, tel, href[-60:])
                             if tel:
                                 payload = {
                                     "portal": portal,
@@ -534,10 +538,10 @@ async def _scrape_portal(
                                 except Exception as exc:
                                     log.warning("[%s] Ingest error: %s", portal, exc)
                     except Exception as exc:
-                        log.debug("[%s] Error %s: %s", portal, href, exc)
+                        log.warning("[%s] Error detalle %s: %s", portal, href[-60:], exc)
                     finally:
                         await detail_ctx.close()
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1)
 
                 page_n += 1
             except Exception as exc:
