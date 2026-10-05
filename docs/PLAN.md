@@ -35,7 +35,12 @@ llaves por el chat.
 Los mensajes de Massi tienen que llegar con la ficha de negocio verificada
 —como la de "Viajes Éxito Ofertas"— para que el propietario abra el chat con
 confianza y las tasas de respuesta sean sanas. Esto es configuración de la
-cuenta en Meta, no código:
+cuenta en Meta, no código. Checklist operativo en
+[`docs/paso-0-marca-whatsapp.md`](paso-0-marca-whatsapp.md).
+
+Hecho en código: `app/server.py` ya recibe el webhook de Marketing opt-out
+(`user_preferences.category=marketing_messages, value=stop`) y lo trata
+igual que STOP/BAJA/PARA/SALIR.
 
 - **Cuenta oficial de WhatsApp Business** (API) ligada al número de producción.
 - **Verificación de Meta Business** (check azul): completar Meta Business

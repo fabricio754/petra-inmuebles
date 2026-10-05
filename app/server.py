@@ -313,9 +313,22 @@ def receive_webhook():
     try:
         entry = payload["entry"][0]
         change = entry["changes"][0]["value"]
+
+        # Opt-out de marketing (botón "Stop" en la tarjeta de la plantilla).
+        # Meta notifica el cambio en user_preferences; lo tratamos igual que
+        # STOP/BAJA/PARA/SALIR por texto: upsert a no_contactar.
+        for pref in change.get("user_preferences") or []:
+            if (pref.get("category") == "marketing_messages"
+                    and str(pref.get("value", "")).lower() == "stop"):
+                wa_id = pref.get("wa_id")
+                if wa_id:
+                    from app import state
+                    state.set_no_contactar(wa_id, True)
+                    log.info("Opt-out de marketing recibido de %s (botón Stop).", wa_id)
+
         messages = change.get("messages")
         if not messages:
-            # Eventos de status (entregado/leído), los ignoramos en el MVP.
+            # Eventos de status (entregado/leído) y preferencias puras: ya tratados.
             return jsonify({"status": "ignored"}), 200
 
         message = messages[0]
