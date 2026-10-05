@@ -36,5 +36,14 @@
       "default": { "useApifyProxy": true, "apifyProxyGroups": ["DATACENTER"] }
     }
   },
-  "required": ["ingest_url", "ingest_token"]
+  "required": ["ingest_url", "ingest_token"],
+  "properties_extra": {
+    "twocaptcha_api_key": {
+      "title": "2captcha API key (opcional)",
+      "type": "string",
+      "description": "Clave de 2captcha para resolver CAPTCHAs en fincaraiz",
+      "editor": "textfield",
+      "isSecret": true
+    }
+  }
 }
