@@ -34,7 +34,7 @@ jobs:
         id: run
         run: |
           RUN=$(curl -sf -X POST \
-            "https://api.apify.com/v2/actors/c5Dx4kjZENfbeKYi1/runs?build=latest&timeout=600&memory=1024" \
+            "https://api.apify.com/v2/actors/c5Dx4kjZENfbeKYi1/runs?build=latest&timeout=1200&memory=1024" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "$(jq -n \
@@ -50,7 +50,7 @@ jobs:
         id: result
         run: |
           RUN_ID="${{ steps.run.outputs.run_id }}"
-          for i in $(seq 1 20); do
+          for i in $(seq 1 24); do
             sleep 30
             STATUS=$(curl -sf \
               "https://api.apify.com/v2/actor-runs/$RUN_ID" \
