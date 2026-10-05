@@ -18,6 +18,7 @@ load_dotenv()  # debe cargar antes de importar app.bot -> app.whatsapp (lee env 
 from flask import Flask, request, jsonify, render_template
 
 from app import bot, envios, scraper, scheduler
+from app.panel import panel as panel_bp
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("petra")
@@ -28,6 +29,7 @@ VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "petra-verify-token")
 MIME_SOPORTADOS = {"image/jpeg", "image/png", "application/pdf"}
 
 app = Flask(__name__)
+app.register_blueprint(panel_bp)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()

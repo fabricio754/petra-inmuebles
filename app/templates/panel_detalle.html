@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel Massi — {{ telefono }}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; max-width: 980px; margin: 0 auto; background: #f6f8fa; color: #1f2328; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; font-family: ui-monospace, monospace; }
+  .back { font-size: .9rem; color: #0969da; text-decoration: none; }
+  .back:hover { text-decoration: underline; }
+  .estado { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: .85rem; font-weight: 500; margin-left: 8px; vertical-align: middle; }
+  .estado-nuevo, .estado-en_flujo { background: #ddf4ff; color: #0969da; }
+  .estado-contactado { background: #fff8c5; color: #7d4e00; }
+  .estado-en_pipeline, .estado-en_sureti { background: #dafbe1; color: #116329; }
+  .estado-desembolsado { background: #116329; color: #fff; }
+  .estado-no_contactar, .estado-descartado { background: #ffebe9; color: #cf222e; }
+  .estado-pausado_paz_salvo { background: #fff1e5; color: #9a4b00; }
+  section { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 12px 16px; margin-top: 12px; }
+  section h2 { font-size: 1rem; margin: 0 0 8px; color: #57606a; }
+  dl { display: grid; grid-template-columns: 160px 1fr; gap: 4px 12px; margin: 0; font-size: .9rem; }
+  dt { color: #57606a; }
+  dd { margin: 0; word-break: break-word; }
+  .timeline { list-style: none; padding: 0; margin: 0; }
+  .timeline li { padding: 8px 0; border-bottom: 1px solid #eaeef2; font-size: .9rem; }
+  .timeline li:last-child { border: 0; }
+  .timeline time { color: #57606a; font-family: ui-monospace, monospace; font-size: .82rem; margin-right: 8px; }
+  .timeline .tag { display: inline-block; background: #ddf4ff; color: #0969da; border-radius: 4px; padding: 1px 6px; font-size: .75rem; margin-right: 6px; font-weight: 500; }
+  .vacio { color: #8c959f; font-style: italic; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #e6edf3; }
+    section { background: #161b22; border-color: #30363d; }
+    section h2, dt, .timeline time { color: #8b949e; }
+    .timeline li { border-color: #30363d; }
+    .back { color: #58a6ff; }
+    .timeline .tag { background: #0c2d6b; color: #58a6ff; }
+  }
+</style>
+</head>
+<body>
+<p><a class="back" href="/panel?token={{ token }}">← volver al listado</a></p>
+<h1>{{ telefono }} <span class="estado estado-{{ estado.split(':')[0] }}">{{ estado }}</span></h1>
+
+<section>
+  <h2>Contacto</h2>
+  {% if contacto %}
+  <dl>
+    <dt>Nombre</dt><dd>{{ contacto.nombre or '—' }}</dd>
+    <dt>Ciudad</dt><dd>{{ contacto.ciudad or '—' }} / {{ contacto.barrio or '—' }}</dd>
+    <dt>Dirección</dt><dd>{{ contacto.direccion or '—' }}</dd>
+    <dt>Tipo</dt><dd>{{ contacto.tipo_inmueble or '—' }} · estrato {{ contacto.estrato or '—' }}</dd>
+    <dt>Precio publicado</dt><dd>{% if contacto.precio_publicado %}${{ '{:,}'.format(contacto.precio_publicado).replace(',', '.') }}{% else %}—{% endif %}</dd>
+    <dt>Monto hasta</dt><dd>${{ contacto.monto_hasta_millones or '—' }}M</dd>
+    <dt>Portal · URL</dt><dd>{{ contacto.portal or '—' }} {% if contacto.url_listing %}· <a href="{{ contacto.url_listing }}" target="_blank">anuncio</a>{% endif %}</dd>
+    <dt>No contactar</dt><dd>{{ 'sí' if contacto.no_contactar else 'no' }}</dd>
+    <dt>Captado</dt><dd>{{ contacto.fecha_scraping.strftime('%Y-%m-%d %H:%M') if contacto.fecha_scraping else '—' }}</dd>
+    <dt>Contactado</dt><dd>{{ contacto.fecha_contacto.strftime('%Y-%m-%d %H:%M') if contacto.fecha_contacto else '—' }}</dd>
+  </dl>
+  {% else %}
+  <p class="vacio">Sin registro de captación — este teléfono no está en la tabla `contactos`.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Sesión activa (bot)</h2>
+  {% if sesion %}
+  <dl>
+    <dt>Estado del flujo</dt><dd>{{ sesion.estado or '—' }}</dd>
+    <dt>Última actividad</dt><dd>{{ sesion.ultima_actividad.strftime('%Y-%m-%d %H:%M') if sesion.ultima_actividad else '—' }}</dd>
+    <dt>Datos</dt><dd><code style="white-space: pre-wrap;">{{ sesion.datos }}</code></dd>
+  </dl>
+  {% else %}
+  <p class="vacio">Sin sesión activa.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Pipeline (lead calificado)</h2>
+  {% if pipeline %}
+  <dl>
+    <dt>Estado</dt><dd>{{ pipeline.estado or '—' }}</dd>
+    <dt>Nombre · cédula</dt><dd>{{ pipeline.nombre or '—' }} · {{ pipeline.cedula or '—' }}</dd>
+    <dt>Email</dt><dd>{{ pipeline.email or '—' }}</dd>
+    <dt>Dirección inmueble</dt><dd>{{ pipeline.direccion_inmueble or '—' }}</dd>
+    <dt>CHIP · Matrícula</dt><dd>{{ pipeline.chip or '—' }} · {{ pipeline.matricula_numero or '—' }}</dd>
+    <dt>Avalúo catastral</dt><dd>{% if pipeline.avaluo_catastral %}${{ '{:,}'.format(pipeline.avaluo_catastral).replace(',','.') }}{% else %}—{% endif %}</dd>
+    <dt>Valor solicitado</dt><dd>{% if pipeline.valor_solicitado %}${{ '{:,}'.format(pipeline.valor_solicitado).replace(',','.') }}{% else %}—{% endif %}</dd>
+    <dt>Requiere paz y salvo</dt><dd>{{ 'sí' if pipeline.requiere_paz_salvo else 'no' }}</dd>
+    <dt>Autorización Ley 1581</dt><dd>{{ pipeline.autorizacion_datos_en.strftime('%Y-%m-%d %H:%M') if pipeline.autorizacion_datos_en else '—' }}</dd>
+    <dt>Sureti lead ID</dt><dd>{{ pipeline.sureti_lead_id or '—' }}</dd>
+    <dt>Monto aprobado</dt><dd>{% if pipeline.monto_aprobado %}${{ '{:,}'.format(pipeline.monto_aprobado).replace(',','.') }}{% else %}—{% endif %}</dd>
+    <dt>Desembolso</dt><dd>{{ pipeline.fecha_desembolso.strftime('%Y-%m-%d') if pipeline.fecha_desembolso else '—' }}</dd>
+    <dt>Comisión</dt><dd>{% if pipeline.comision %}${{ '{:,}'.format(pipeline.comision).replace(',','.') }}{% else %}—{% endif %} ({{ 'cobrada' if pipeline.comision_cobrada else 'por cobrar' }})</dd>
+  </dl>
+  {% else %}
+  <p class="vacio">Todavía no entró al pipeline.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Documentos ({{ documentos|length }})</h2>
+  {% if documentos %}
+  <ul class="timeline">
+    {% for d in documentos %}
+    <li>
+      <time>{{ d.fecha_recepcion.strftime('%Y-%m-%d %H:%M') if d.fecha_recepcion else '—' }}</time>
+      <span class="tag">{{ d.tipo or 'archivo' }}</span>
+      {{ d.url_storage or d.media_id }}
+      {% if d.obtenido_automaticamente %}· <em>automático</em>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="vacio">Sin documentos.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Línea de tiempo</h2>
+  {% if eventos %}
+  <ul class="timeline">
+    {% for e in eventos %}
+    <li>
+      <time>{{ e.cuando.strftime('%Y-%m-%d %H:%M') if e.cuando else '—' }}</time>
+      <span class="tag">{{ e.tipo }}</span>
+      {{ e.detalle }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="vacio">Sin eventos.</p>
+  {% endif %}
+</section>
+
+</body>
+</html>
