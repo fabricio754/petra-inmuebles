@@ -6,43 +6,63 @@ on:
         description: 'Teléfono destino (sin +, ej. 573181716257)'
         required: true
         default: '573181716257'
+      plantilla:
+        description: 'Nombre de la plantilla aprobada'
+        required: true
+        default: 'massi_apertura_b'
+      operacion:
+        description: 'Para massi_apertura_b: vendiendo | arrendando | publicando'
+        required: true
+        default: 'vendiendo'
       tipo:
-        description: 'Tipo de inmueble (ej. oficina, apartamento)'
-        required: true
-        default: 'oficina'
+        description: 'Para massi_apertura_a: tipo de inmueble (ignorado en _b)'
+        required: false
+        default: 'apartamento'
       portal:
-        description: 'Portal (ej. metrocuadrado)'
-        required: true
+        description: 'Para massi_apertura_a: portal (ignorado en _b)'
+        required: false
         default: 'metrocuadrado'
       monto_hasta:
-        description: 'Monto hasta en millones (ej. 90)'
-        required: true
+        description: 'Para massi_apertura_a: monto en millones (ignorado en _b)'
+        required: false
         default: '90'
 jobs:
   send:
     runs-on: ubuntu-latest
     steps:
-      - name: Enviar plantilla massi_apertura_a
+      - name: Enviar plantilla
         run: |
+          PLANTILLA="${{ github.event.inputs.plantilla }}"
+          TELEFONO="${{ github.event.inputs.telefono }}"
+          OPERACION="${{ github.event.inputs.operacion }}"
+          TIPO="${{ github.event.inputs.tipo }}"
+          PORTAL="${{ github.event.inputs.portal }}"
           MONTO=$(python3 -c "n=int('${{ github.event.inputs.monto_hasta }}'); print(f'{n:,}'.replace(',','.'))")
-          RESP=$(curl -sf -X POST \
+
+          # Construir parámetros según nombre de plantilla.
+          if [[ "$PLANTILLA" == *"_b"* ]]; then
+            PARAMS="[{\"type\":\"text\",\"text\":\"$OPERACION\"}]"
+            RESUMEN="plantilla=$PLANTILLA operacion=$OPERACION"
+          else
+            PARAMS="[{\"type\":\"text\",\"text\":\"$TIPO\"},{\"type\":\"text\",\"text\":\"$PORTAL\"},{\"type\":\"text\",\"text\":\"$MONTO\"}]"
+            RESUMEN="plantilla=$PLANTILLA tipo=$TIPO portal=$PORTAL monto=\$${MONTO}M"
+          fi
+          echo "→ $RESUMEN"
+
+          RESP=$(curl -s -X POST \
             "https://graph.facebook.com/v20.0/${{ secrets.META_PHONE_NUMBER_ID }}/messages" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.META_ACCESS_TOKEN }}" \
             -d "{
               \"messaging_product\": \"whatsapp\",
-              \"to\": \"${{ github.event.inputs.telefono }}\",
+              \"to\": \"$TELEFONO\",
               \"type\": \"template\",
               \"template\": {
-                \"name\": \"massi_apertura_a\",
+                \"name\": \"$PLANTILLA\",
                 \"language\": {\"code\": \"es_CO\"},
                 \"components\": [{
                   \"type\": \"body\",
-                  \"parameters\": [
-                    {\"type\": \"text\", \"text\": \"${{ github.event.inputs.tipo }}\"},
-                    {\"type\": \"text\", \"text\": \"${{ github.event.inputs.portal }}\"},
-                    {\"type\": \"text\", \"text\": \"$MONTO\"}
-                  ]
+                  \"parameters\": $PARAMS
                 }]
               }
             }")
