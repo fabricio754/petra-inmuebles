@@ -105,23 +105,29 @@ jobs:
           fi
           echo "::add-mask::$TOKEN"
 
-          curl -sf -X PUT \
+          jq -n \
+            --arg build "${{ steps.result.outputs.build_number }}" \
+            --arg token "$TOKEN" \
+            '{
+              actId: "c5Dx4kjZENfbeKYi1",
+              options: {build: $build, timeoutSecs: 3600, memoryMbytes: 1024},
+              input: {
+                portals: ["fincaraiz","metrocuadrado","ciencuadras","propdirecto"],
+                max_per_portal: 300,
+                ingest_url: "https://petra-inmuebles.onrender.com/scraper/ingest",
+                ingest_token: $token
+              }
+            }' > /tmp/task_update.json
+
+          HTTP_CODE=$(curl -s -o /tmp/resp_task.json -w "%{http_code}" -X PUT \
             "https://api.apify.com/v2/actor-tasks/MjJ6kqVOBFbrM9Z7s" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"actId\": \"c5Dx4kjZENfbeKYi1\",
-              \"options\": {
-                \"build\": \"${{ steps.result.outputs.build_number }}\",
-                \"timeoutSecs\": 3600,
-                \"memoryMbytes\": 1024
-              },
-              \"input\": {
-                \"portals\": [\"fincaraiz\", \"metrocuadrado\", \"ciencuadras\", \"propdirecto\"],
-                \"max_per_portal\": 300,
-                \"ingest_url\": \"https://petra-inmuebles.onrender.com/scraper/ingest\",
-                \"ingest_token\": \"$TOKEN\"
-              }
-            }" > /dev/null
-
-          echo "Task MjJ6kqVOBFbrM9Z7s actualizada con build ${{ steps.result.outputs.build_number }}"
+            -d @/tmp/task_update.json)
+          echo "PUT task → HTTP $HTTP_CODE"
+          cat /tmp/resp_task.json | jq -r '.data.id // .error // .' 2>/dev/null || cat /tmp/resp_task.json
+          if [[ "$HTTP_CODE" != 2* ]]; then
+            echo "ADVERTENCIA: No se pudo actualizar la task (HTTP $HTTP_CODE) — build ${{ steps.result.outputs.build_number }} sigue disponible como 'latest'"
+          else
+            echo "Task MjJ6kqVOBFbrM9Z7s actualizada con build ${{ steps.result.outputs.build_number }}"
+          fi
