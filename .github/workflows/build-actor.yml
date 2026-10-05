@@ -16,37 +16,43 @@ jobs:
         run: |
           # Construir JSON con jq (evita límites de tamaño de args del shell)
           jq -n \
-            --arg aj "$(base64 -w0 actor/.actor/actor.json)" \
-            --arg is "$(base64 -w0 actor/.actor/input_schema.json)" \
-            --arg df "$(base64 -w0 actor/Dockerfile)" \
-            --arg rq "$(base64 -w0 actor/requirements.txt)" \
-            --arg mp "$(base64 -w0 actor/src/main.py)" \
+            --arg aj  "$(base64 -w0 actor/.actor/actor.json)" \
+            --arg sch "$(base64 -w0 actor/.actor/input_schema.json)" \
+            --arg df  "$(base64 -w0 actor/Dockerfile)" \
+            --arg rq  "$(base64 -w0 actor/requirements.txt)" \
+            --arg mp  "$(base64 -w0 actor/src/main.py)" \
             '{
               versionNumber: "0.2",
               sourceType: "SOURCE_FILES",
               buildTag: "latest",
               sourceFiles: [
                 {name: ".actor/actor.json",        format: "BASE64", content: $aj},
-                {name: ".actor/input_schema.json", format: "BASE64", content: $is},
+                {name: ".actor/input_schema.json", format: "BASE64", content: $sch},
                 {name: "Dockerfile",               format: "BASE64", content: $df},
                 {name: "requirements.txt",         format: "BASE64", content: $rq},
                 {name: "src/main.py",              format: "BASE64", content: $mp}
               ]
             }' > /tmp/actor_source.json
+          echo "JSON generado: $(wc -c < /tmp/actor_source.json) bytes"
 
-          # Actualizar versión 0.2 con los archivos fuente
-          RESP=$(curl -sf -X PUT \
+          # Actualizar versión 0.2 — capturar body + HTTP status para diagnosticar
+          HTTP_CODE=$(curl -s -o /tmp/resp_put.json -w "%{http_code}" -X PUT \
             "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/versions/0.2" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d @/tmp/actor_source.json)
-          echo "Version actualizada: $(echo $RESP | jq -r '.data.versionNumber // .error')"
+          echo "PUT /versions/0.2 → HTTP $HTTP_CODE"
+          cat /tmp/resp_put.json | jq -r '.data.versionNumber // .error // .' 2>/dev/null || cat /tmp/resp_put.json
+          if [[ "$HTTP_CODE" != 2* ]]; then exit 1; fi
 
           # Disparar build
-          BUILD=$(curl -sf -X POST \
+          HTTP_BUILD=$(curl -s -o /tmp/resp_build.json -w "%{http_code}" -X POST \
             "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/builds?version=0.2&useCache=false" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}")
-          BUILD_ID=$(echo "$BUILD" | jq -r '.data.id')
+          echo "POST /builds → HTTP $HTTP_BUILD"
+          cat /tmp/resp_build.json | jq -r '.data.id // .error // .' 2>/dev/null || cat /tmp/resp_build.json
+          if [[ "$HTTP_BUILD" != 2* ]]; then exit 1; fi
+          BUILD_ID=$(cat /tmp/resp_build.json | jq -r '.data.id')
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
           echo "Build iniciado: $BUILD_ID"
 
