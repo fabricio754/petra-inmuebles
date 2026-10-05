@@ -8,10 +8,13 @@ Flujo (docs/PLAN.md, Hito 6):
 Con los Flows configurados (META_FLOW_REQUISITOS_ID y META_FLOW_DATOS_ID) las
 preguntas van en dos formularios de WhatsApp; si no, se hacen por chat.
 """
+import logging
 import re
 import unicodedata
 
 from app import state, whatsapp
+
+_log = logging.getLogger("petra")
 
 # Palabras que en cualquier momento significan "no quiero más mensajes".
 OPT_OUT_KEYWORDS = {"STOP", "BAJA", "SALIR", "PARA"}
@@ -274,14 +277,22 @@ def _procesar(phone, session, event):
 
     # --- Autorización de datos ------------------------------------------
     if step == "AUTORIZACION":
+        _log.info("[Bot] AUTORIZACION phone=%s resp=%r", phone, resp)
         if resp in SI:
-            data["autorizacion_en"] = state.now_iso()
-            state.set_no_contactar(phone, False)
-            if whatsapp.USE_FLOWS:
-                state.set_session(phone, flow_step="FORM_REQUISITOS", flow_data=data)
-                return whatsapp.send_form_requisitos(phone)
-            state.set_session(phone, flow_step="DESC_HIPOTECA", flow_data=data)
-            return whatsapp.send_pregunta_si_no(phone, PREGUNTAS_DESCARTE["DESC_HIPOTECA"])
+            try:
+                data["autorizacion_en"] = state.now_iso()
+                _log.info("[Bot] AUTORIZACION SI — guardando no_contactar=False")
+                state.set_no_contactar(phone, False)
+                if whatsapp.USE_FLOWS:
+                    _log.info("[Bot] USE_FLOWS=True — enviando FORM_REQUISITOS")
+                    state.set_session(phone, flow_step="FORM_REQUISITOS", flow_data=data)
+                    return whatsapp.send_form_requisitos(phone)
+                _log.info("[Bot] USE_FLOWS=False — enviando DESC_HIPOTECA")
+                state.set_session(phone, flow_step="DESC_HIPOTECA", flow_data=data)
+                return whatsapp.send_pregunta_si_no(phone, PREGUNTAS_DESCARTE["DESC_HIPOTECA"])
+            except Exception:
+                _log.exception("[Bot] ERROR en AUTORIZACION SI para %s", phone)
+                raise
         if resp in NO:
             state.set_no_contactar(phone, True)
             _terminar(phone)
@@ -534,6 +545,7 @@ def handle_incoming(phone, event):
                 logging.getLogger("petra").exception("[HUMANO] Error marcando requiere_humano.")
             return [whatsapp.send_human_handoff(phone)]
 
+    _log.info("[Bot] handle_incoming phone=%s type=%s en_flujo=%s flow_step=%s", phone, event.get("type"), en_flujo, session.get("flow_step"))
     if en_flujo:
         return [_procesar(phone, session, event)]
 
