@@ -32,7 +32,7 @@ _CIUDADES_MQ = {
     "cucuta": "cucuta", "chia": "chia",
 }
 _CIUDADES_FR = {
-    "bogota": "bogota", "medellin": "medellin", "barranquilla": "barranquilla",
+    "bogota": "bogota-dc", "medellin": "medellin", "barranquilla": "barranquilla",
     "cartagena": "cartagena", "santa marta": "santa-marta",
     "cucuta": "cucuta", "chia": "chia",
 }
@@ -455,16 +455,15 @@ async def _scrape_portal(
                 except PWTimeout:
                     try:
                         title = await lp.title()
-                        # Contar links .htm para diagnosticar si hay contenido
-                        n_htm = await lp.eval_on_selector_all(
-                            "a[href*='.htm']", "els => els.length"
+                        n_match = await lp.eval_on_selector_all(
+                            listing_sel, "els => els.length"
                         )
                         n_any = await lp.eval_on_selector_all(
                             "a[href]", "els => els.length"
                         )
                         log.warning(
-                            "[%s] Timeout pág %d | title=%r | links_htm=%d | links_any=%d | url=%s",
-                            portal, page_n, title, n_htm, n_any, lp.url,
+                            "[%s] Timeout pág %d | title=%r | links_match=%d | links_any=%d | url=%s",
+                            portal, page_n, title, n_match, n_any, lp.url,
                         )
                     except Exception:
                         log.warning("[%s] Timeout pág %d — %s", portal, page_n, lp.url)
@@ -596,7 +595,7 @@ async def main():
         "fincaraiz": {
             "base_url": "https://www.fincaraiz.com.co/venta/inmuebles/{ciudad}/?tipoAnunciante=particular&pagina={page}",
             "ciudades": _CIUDADES_FR,
-            "listing_sel": "a[href*='/inmueble/'], a[href*='.htm']",
+            "listing_sel": "a[href*='-en-venta/']",
             "host": "https://www.fincaraiz.com.co",
             "extractor": _extraer_nextjs,
         },
