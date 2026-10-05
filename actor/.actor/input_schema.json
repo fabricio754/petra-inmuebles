@@ -26,7 +26,8 @@
       "title": "Token de autenticación del endpoint",
       "type": "string",
       "description": "Valor de X-Ingest-Token",
-      "editor": "textfield"
+      "editor": "textfield",
+      "isSecret": true
     },
     "proxy_config": {
       "title": "Configuración de proxy",

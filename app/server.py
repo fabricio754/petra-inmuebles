@@ -189,7 +189,6 @@ def pilot():
 
 
 INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
-log.info("[Ingest] TOKEN_SET=%s LEN=%d", bool(INGEST_TOKEN), len(INGEST_TOKEN))
 
 
 @app.post("/scraper/ingest")
