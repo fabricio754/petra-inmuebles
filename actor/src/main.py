@@ -32,9 +32,13 @@ _CIUDADES_MQ = {
     "cucuta": "cucuta", "chia": "chia",
 }
 _CIUDADES_FR = {
-    "bogota": "bogota", "medellin": "medellin", "barranquilla": "barranquilla",
-    "cartagena": "cartagena", "santa marta": "santa-marta",
-    "cucuta": "cucuta", "chia": "chia",
+    "bogota": "bogota-dc",
+    "medellin": "medellin/antioquia",
+    "barranquilla": "barranquilla/atlantico",
+    "cartagena": "cartagena/bolivar",
+    "santa marta": "santa-marta/magdalena",
+    "cucuta": "cucuta/norte-de-santander",
+    "chia": "chia/cundinamarca",
 }
 _CIUDADES_CC = {
     "bogota": "bogota", "medellin": "medellin", "barranquilla": "barranquilla",
@@ -106,7 +110,8 @@ def _leer_input() -> dict:
                         if decrypted is not None:
                             data[k] = decrypted
                         else:
-                            log.warning("Campo '%s' cifrado pero no se pudo desencriptar.", k)
+                            log.warning("Campo '%s' cifrado pero no se pudo desencriptar. Quita isSecret del input schema.", k)
+                            del data[k]
                 return data
         except Exception as e:
             log.warning("No se pudo leer input via apify-client: %s", e)
@@ -144,6 +149,37 @@ def _extraer_tel(texto: str) -> Optional[str]:
     return None
 
 
+def _buscar_tel_json(obj, depth: int = 0) -> Optional[str]:
+    """Búsqueda recursiva de teléfonos colombianos en un objeto JSON."""
+    if depth > 12:
+        return None
+    if isinstance(obj, str):
+        d = re.sub(r"\D", "", obj)
+        if len(d) == 10 and d.startswith("3"):
+            return "57" + d
+        if len(d) == 12 and d.startswith("573"):
+            return d
+    elif isinstance(obj, dict):
+        # Claves prioritarias relacionadas con teléfono
+        for key in ("phone", "telefono", "celular", "movil", "mobile", "whatsapp",
+                    "contactPhone", "phoneNumber", "phoneNumbers", "phones",
+                    "cellphone", "phone1", "phone2", "advertiserPhone", "contacto"):
+            if key in obj:
+                result = _buscar_tel_json(obj[key], depth + 1)
+                if result:
+                    return result
+        for v in obj.values():
+            result = _buscar_tel_json(v, depth + 1)
+            if result:
+                return result
+    elif isinstance(obj, list):
+        for item in obj:
+            result = _buscar_tel_json(item, depth + 1)
+            if result:
+                return result
+    return None
+
+
 async def _nueva_pagina(ctx: BrowserContext, url: str) -> Page:
     page = await ctx.new_page()
     await page.add_init_script("""
@@ -176,19 +212,18 @@ def _next_data(raw_json: str) -> dict:
 
 
 async def _extraer_telefono(page: Page) -> Optional[str]:
-    # 0. __NEXT_DATA__
+    # 0. __NEXT_DATA__ — búsqueda recursiva en el objeto completo
     try:
         raw = await page.evaluate("() => JSON.stringify(window.__NEXT_DATA__ || null)")
         if raw and raw != "null":
-            for m in re.finditer(
-                r'"(?:phone|telefono|celular|movil|mobile|whatsapp|contactPhone)[^"]*"\s*:\s*"([^"){8,16}"',
-                raw, re.IGNORECASE,
-            ):
-                d = re.sub(r"\D", "", m.group(1))
-                if len(d) == 10 and d.startswith("3"):
-                    return "57" + d
-                if len(d) == 12 and d.startswith("573"):
-                    return d
+            try:
+                nd_obj = json.loads(raw)
+                tel = _buscar_tel_json(nd_obj)
+                if tel:
+                    return tel
+            except Exception:
+                pass
+            # Fallback: regex directo en texto plano
             tel = _extraer_tel(raw)
             if tel:
                 return tel
@@ -417,6 +452,7 @@ async def _scrape_portal(
     ingest_url: str,
     ingest_token: str,
     http: httpx.AsyncClient,
+    proxy_pw_cfg: Optional[dict] = None,
 ) -> int:
     saved = total = 0
     ctx_kwargs = {
@@ -424,7 +460,9 @@ async def _scrape_portal(
         "viewport": {"width": 1366, "height": 768},
         "locale": "es-CO",
     }
-    if proxy_url:
+    if proxy_pw_cfg:
+        ctx_kwargs["proxy"] = proxy_pw_cfg
+    elif proxy_url:
         ctx_kwargs["proxy"] = {"server": proxy_url}
 
     for ciudad_key, ciudad_slug in ciudades.items():
@@ -447,9 +485,28 @@ async def _scrape_portal(
                     break
 
                 try:
-                    await lp.wait_for_selector(listing_sel, timeout=15_000)
+                    await lp.wait_for_selector(listing_sel, timeout=30_000)
                 except PWTimeout:
-                    log.warning("[%s] Timeout pág %d — %s", portal, page_n, lp.url)
+                    try:
+                        title = await lp.title()
+                        n_match = await lp.eval_on_selector_all(
+                            listing_sel, "els => els.length"
+                        )
+                        n_any = await lp.eval_on_selector_all(
+                            "a[href]", "els => els.length"
+                        )
+                        sample = await lp.evaluate(
+                            """() => Array.from(document.querySelectorAll('a[href]'))
+                                .map(a => a.getAttribute('href'))
+                                .filter(h => h && !h.startsWith('#') && !h.startsWith('mailto') && !h.startsWith('tel') && h.length > 5)
+                                .slice(0, 15)"""
+                        )
+                        log.warning(
+                            "[%s] Timeout pág %d | title=%r | links_match=%d | links_any=%d | url=%s | sample=%s",
+                            portal, page_n, title, n_match, n_any, lp.url, sample,
+                        )
+                    except Exception:
+                        log.warning("[%s] Timeout pág %d — %s", portal, page_n, lp.url)
                     await ctx.close()
                     break
 
@@ -460,6 +517,9 @@ async def _scrape_portal(
                         continue
                     if not href.startswith("http"):
                         href = host.rstrip("/") + "/" + href.lstrip("/")
+                    # Saltar links que son redirect-traps al listado (contienen URL codificada del listado)
+                    if "%2Finmuebles%2F" in href or "%2Fventa%2F" in href or "tipoAnunciante" in href:
+                        continue
                     if host.split("//")[1].split("/")[0] in href and href not in links:
                         links.append(href)
 
@@ -472,7 +532,12 @@ async def _scrape_portal(
                 for href in links:
                     if saved >= max_results:
                         break
+                    # Saltar proyectos de constructora (sin teléfono directo)
+                    if any(p in href for p in ("/proyecto", "/vivienda-nueva", "/proyectos-vivienda")):
+                        log.info("[%s] Saltando proyecto: %s", portal, href[-60:])
+                        continue
                     total += 1
+                    log.info("[%s] Detalle %d: %s", portal, total, href[-70:])
                     detail_ctx = await browser.new_context(**ctx_kwargs)
                     try:
                         dp = await _nueva_pagina(detail_ctx, href)
@@ -480,11 +545,22 @@ async def _scrape_portal(
                             await detail_ctx.close()
                             log.warning("[%s] Detalle redirigió a login — saltando.", portal)
                             continue
+                        # Saltar si redirigió de vuelta a un listado
+                        if "/inmuebles/" in dp.url or "tipoAnunciante" in dp.url or ("/venta/" in dp.url and "pagina=" in dp.url):
+                            await detail_ctx.close()
+                            log.info("[%s] Detalle redirigió a listado — saltando.", portal)
+                            continue
 
                         datos = await extractor(dp, href, ciudad_key)
-                        if datos:
+                        if not datos:
+                            log.warning("[%s] extractor=None url=%s title=%r", portal, href[-60:], await dp.title())
+                        else:
                             tel = await _extraer_telefono(dp)
                             anunc = await _anunciante(dp)
+                            if tel:
+                                log.info("[%s] datos OK tel=%s url=%s", portal, tel, href[-60:])
+                            else:
+                                log.warning("[%s] tel=None url=%s", portal, href[-60:])
                             if tel:
                                 payload = {
                                     "portal": portal,
@@ -507,10 +583,10 @@ async def _scrape_portal(
                                 except Exception as exc:
                                     log.warning("[%s] Ingest error: %s", portal, exc)
                     except Exception as exc:
-                        log.debug("[%s] Error %s: %s", portal, href, exc)
+                        log.warning("[%s] Error detalle %s: %s", portal, href[-60:], exc)
                     finally:
                         await detail_ctx.close()
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(0.5)
 
                 page_n += 1
             except Exception as exc:
@@ -540,8 +616,30 @@ async def main():
         log.error("Faltan ingest_url o ingest_token en el input.")
         return
 
-    # Proxy: usar variable de entorno APIFY_PROXY_URL si existe
+    # Proxy: APIFY_PROXY_URL (legacy) > proxy_config del input > APIFY_PROXY_PASSWORD auto
     proxy_url: Optional[str] = os.environ.get("APIFY_PROXY_URL") or None
+    proxy_pw_cfg: Optional[dict] = None  # formato Playwright {server, username, password}
+
+    if not proxy_url:
+        pwd = os.environ.get("APIFY_PROXY_PASSWORD", "")
+        host_px = os.environ.get("APIFY_PROXY_HOSTNAME", "proxy.apify.com")
+        port_px = os.environ.get("APIFY_PROXY_PORT", "8000")
+        if pwd:
+            proxy_cfg = inp.get("proxy_config", {})
+            groups = proxy_cfg.get("apifyProxyGroups", []) if proxy_cfg.get("useApifyProxy") else []
+            group_str = "groups-" + "+".join(groups) if groups else "auto"
+            proxy_url = f"http://{group_str}:{pwd}@{host_px}:{port_px}"
+            proxy_pw_cfg = {
+                "server": f"http://{host_px}:{port_px}",
+                "username": group_str,
+                "password": pwd,
+            }
+            log.info("Proxy: server=http://%s:%s username=%s", host_px, port_px, group_str)
+    else:
+        log.info("Proxy: %s", proxy_url.split("@")[-1] if "@" in proxy_url else proxy_url)
+
+    if not proxy_url:
+        log.warning("Sin proxy — los portales probablemente bloquearán requests directos")
 
     log.info("Portales: %s | max/portal: %d | proxy: %s", portals, max_per, bool(proxy_url))
 
@@ -554,9 +652,9 @@ async def main():
             "extractor": _extraer_nextjs,
         },
         "fincaraiz": {
-            "base_url": "https://www.fincaraiz.com.co/venta/inmuebles/{ciudad}/?tipoAnunciante=particular&pagina={page}",
+            "base_url": "https://www.fincaraiz.com.co/venta/{ciudad}/?tipoAnunciante=particular&pagina={page}",
             "ciudades": _CIUDADES_FR,
-            "listing_sel": "a[href*='/inmueble/'], a[href*='.htm']",
+            "listing_sel": "a[href*='-en-venta-en-']",
             "host": "https://www.fincaraiz.com.co",
             "extractor": _extraer_nextjs,
         },
@@ -597,6 +695,7 @@ async def main():
                     ingest_url=ingest_url,
                     ingest_token=ingest_token,
                     http=http,
+                    proxy_pw_cfg=proxy_pw_cfg,
                 )
         await browser.close()
 

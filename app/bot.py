@@ -9,11 +9,23 @@ Con los Flows configurados (META_FLOW_REQUISITOS_ID y META_FLOW_DATOS_ID) las
 preguntas van en dos formularios de WhatsApp; si no, se hacen por chat.
 """
 import re
+import unicodedata
 
 from app import state, whatsapp
 
 # Palabras que en cualquier momento significan "no quiero más mensajes".
 OPT_OUT_KEYWORDS = {"STOP", "BAJA", "SALIR", "PARA"}
+
+# Palabras que indican solicitud de atención humana (se buscan sin tildes).
+PALABRAS_HUMANO = {"asesor", "humano", "persona real", "hablar con alguien"}
+
+
+def _sin_tildes(s):
+    """Convierte a minúsculas y elimina diacríticos para comparar sin tildes."""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s)
+        if unicodedata.category(c) != "Mn"
+    )
 
 PASOS = [
     "AUTORIZACION",     # Ley 1581: tratamiento y envío a Sureti
@@ -224,9 +236,26 @@ def _procesar_extracto(phone, session, event):
     state.set_session(phone, flow_step="DOCS_EXTRACTOS", flow_data=data)
 
     if count >= 3:
-        _terminar(phone)
-        return whatsapp.send_extractos_completos(phone)
+        whatsapp.send_extractos_completos(phone)
+        state.set_session(phone, flow_step="DOCS_CTL", flow_data=data)
+        return whatsapp.send_solicitud_ctl(phone)
     return whatsapp.send_extracto_recibido(phone, count)
+
+
+def _procesar_ctl(phone, session, event):
+    """Guarda el CTL recibido y confirma que la solicitud está completa para Sureti."""
+    media_id = event.get("media_id", "")
+
+    if media_id:
+        try:
+            from app import db as _db
+            _db.registrar_documento(phone, "ctl", media_id, None)
+        except Exception:
+            import logging
+            logging.getLogger("petra").exception("[CTL] Error guardando documento.")
+
+    _terminar(phone)
+    return whatsapp.send_solicitud_enviada(phone)
 
 
 def _enviar_paso_inicial(phone, paso):
@@ -411,9 +440,15 @@ def _procesar(phone, session, event):
     # --- Recolección de extractos bancarios ---------------------------------
     if step == "DOCS_EXTRACTOS":
         if resp in {"LISTO", "YA", "ENVIADOS", "LISTO.", "YA.", "YA LOS ENVIE", "YA LOS ENVIÉ"}:
-            _terminar(phone)
-            return whatsapp.send_extractos_completos(phone)
+            whatsapp.send_extractos_completos(phone)
+            state.set_session(phone, flow_step="DOCS_CTL", flow_data=data)
+            return whatsapp.send_solicitud_ctl(phone)
         return whatsapp.send_pedir_extractos(phone, recordar=True)
+
+    # --- Espera del CTL del inmueble ----------------------------------------
+    if step == "DOCS_CTL":
+        # El usuario envió texto en lugar de un PDF: recordarle qué se espera.
+        return whatsapp.send_solicitud_ctl(phone)
 
     # Paso desconocido (sesión vieja): empezar de nuevo.
     return _iniciar(phone)
@@ -460,6 +495,10 @@ def handle_incoming(phone, event):
     if event["type"] == "media" and en_flujo and session.get("flow_step") == "DOCS_EXTRACTOS":
         return [_procesar_extracto(phone, session, event)]
 
+    # CTL del inmueble (paso DOCS_CTL del flujo Sureti).
+    if event["type"] == "media" and en_flujo and session.get("flow_step") == "DOCS_CTL":
+        return [_procesar_ctl(phone, session, event)]
+
     # Documento genérico (predial) enviado por el vendedor.
     if event["type"] == "media":
         _procesar_media(phone, event)
@@ -482,6 +521,18 @@ def handle_incoming(phone, event):
         state.set_no_contactar(phone, True)
         _terminar(phone)
         return [whatsapp.send_no_contactar(phone)]
+
+    # Solicitud de asesor humano (en cualquier estado).
+    if event["type"] == "text":
+        texto_norm = _sin_tildes(event["text"].lower())
+        if any(p in texto_norm for p in PALABRAS_HUMANO):
+            try:
+                from app import db as _db
+                _db.marcar_requiere_humano(phone)
+            except Exception:
+                import logging
+                logging.getLogger("petra").exception("[HUMANO] Error marcando requiere_humano.")
+            return [whatsapp.send_human_handoff(phone)]
 
     if en_flujo:
         return [_procesar(phone, session, event)]

@@ -9,6 +9,13 @@ y expone dos operaciones:
 Si no hay credenciales (SURETI_EMAIL / SURETI_PASSWORD), el módulo opera en
 modo DRY-RUN: registrar_lead devuelve un ID ficticio y consultar_estado
 siempre devuelve {"estado": "en_estudio"}.
+
+NOTA DE DEPLOY (Render): Se requieren las variables de entorno:
+  SURETI_EMAIL      — correo del agente registrado en agentes.sureti.co
+  SURETI_PASSWORD   — contraseña del agente
+  PLAYWRIGHT_CHROMIUM_PATH — (opcional) ruta al ejecutable de Chromium;
+      por defecto /opt/pw-browsers/chromium (preinstalado en Render via
+      `playwright install chromium` en el buildCommand).
 """
 import logging
 import os
@@ -20,6 +27,12 @@ log = logging.getLogger("petra")
 SURETI_URL  = "https://agentes.sureti.co"
 SURETI_EMAIL    = os.environ.get("SURETI_EMAIL", "")
 SURETI_PASSWORD = os.environ.get("SURETI_PASSWORD", "")
+
+# Ruta al ejecutable Chromium: variable de entorno o ruta default de Render
+_CHROMIUM_DEFAULT = "/opt/pw-browsers/chromium"
+_CHROMIUM_PATH    = os.environ.get("PLAYWRIGHT_CHROMIUM_PATH") or (
+    _CHROMIUM_DEFAULT if Path(_CHROMIUM_DEFAULT).exists() else None
+)
 
 DRY_RUN = not (SURETI_EMAIL and SURETI_PASSWORD)
 
@@ -53,7 +66,7 @@ class SuretiSession:
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(
             headless=True,
-            executable_path=os.environ.get("PLAYWRIGHT_CHROMIUM_PATH") or None,
+            executable_path=_CHROMIUM_PATH,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
         self._page = self._browser.new_page()
@@ -73,16 +86,107 @@ class SuretiSession:
             pass
 
     def _login(self):
+        """Inicia sesión en el portal. Prueba varias rutas de login comunes."""
         page = self._page
-        page.goto(f"{SURETI_URL}/auth", wait_until="domcontentloaded", timeout=30_000)
-        page.wait_for_selector("input[name='email']", timeout=15_000)
-        page.fill("input[name='email']", SURETI_EMAIL)
-        page.fill("input[type='password']", SURETI_PASSWORD)
-        page.click("button[type='submit']")
+
+        # Candidatos de URL de login ordenados por probabilidad
+        _LOGIN_PATHS = ["/auth", "/login", "/iniciar-sesion", "/signin", "/"]
+        _LANDED = False
+        for path in _LOGIN_PATHS:
+            try:
+                page.goto(f"{SURETI_URL}{path}", wait_until="domcontentloaded", timeout=20_000)
+                # Si ya estamos autenticados (redirección al dashboard) salimos
+                if "/auth" not in page.url and "/login" not in page.url and path != "/":
+                    log.info("[Sureti] Redirigido al dashboard en %s — sesión activa.", page.url)
+                    return
+                # Verificar que la página tiene formulario de login
+                if page.query_selector("input[type='password']"):
+                    _LANDED = True
+                    break
+            except Exception:
+                continue
+
+        if not _LANDED:
+            raise RuntimeError(f"No se encontró página de login en {SURETI_URL}.")
+
+        # --- Selector de email (múltiples fallbacks) ---
+        _EMAIL_SELS = [
+            "input[name='email']",
+            "input[type='email']",
+            "input[name='usuario']",
+            "input[name='username']",
+            "input[name='correo']",
+            "input[id*='email']",
+            "input[id*='usuario']",
+        ]
+        # --- Selector de contraseña ---
+        _PASS_SELS = [
+            "input[type='password']",
+            "input[name='password']",
+            "input[name='contrasena']",
+            "input[name='clave']",
+        ]
+        # --- Selector de botón submit ---
+        _SUBMIT_SELS = [
+            "button[type='submit']",
+            "input[type='submit']",
+            "button.btn-login",
+            "button.btn-primary",
+            "button:text('Ingresar')",
+            "button:text('Iniciar sesión')",
+            "button:text('Entrar')",
+        ]
+
+        filled_email = False
+        for sel in _EMAIL_SELS:
+            try:
+                el = page.query_selector(sel)
+                if el and el.is_visible():
+                    el.fill(SURETI_EMAIL)
+                    filled_email = True
+                    break
+            except Exception:
+                continue
+
+        filled_pass = False
+        for sel in _PASS_SELS:
+            try:
+                el = page.query_selector(sel)
+                if el and el.is_visible():
+                    el.fill(SURETI_PASSWORD)
+                    filled_pass = True
+                    break
+            except Exception:
+                continue
+
+        if not filled_email or not filled_pass:
+            raise RuntimeError(
+                f"No se encontraron campos de login (email={filled_email}, pass={filled_pass})."
+            )
+
+        clicked = False
+        for sel in _SUBMIT_SELS:
+            try:
+                el = page.query_selector(sel)
+                if el and el.is_visible():
+                    el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+        if not clicked:
+            # último recurso: Enter en el campo de contraseña
+            page.keyboard.press("Enter")
+
         page.wait_for_load_state("networkidle", timeout=20_000)
-        if "/auth" in page.url:
-            raise RuntimeError("Login en Sureti falló — verifica SURETI_EMAIL y SURETI_PASSWORD.")
-        log.info("[Sureti] Sesión iniciada.")
+        current = page.url
+        # Consideramos fallo si la URL todavía tiene una ruta de auth/login
+        if any(kw in current for kw in ("/auth", "/login", "/signin", "/iniciar-sesion")):
+            raise RuntimeError(
+                f"Login en Sureti falló (URL post-submit: {current}). "
+                "Verifica SURETI_EMAIL y SURETI_PASSWORD."
+            )
+        log.info("[Sureti] Sesión iniciada. URL=%s", current)
 
     # ------------------------------------------------------------------
     # Operaciones de negocio
@@ -91,19 +195,71 @@ class SuretiSession:
     def registrar_lead(self, data: dict, docs: list[dict] | None = None) -> str:
         """Llena el formulario 'Nuevo Lead' y devuelve el sureti_lead_id."""
         page = self._page
-        page.goto(f"{SURETI_URL}/nuevo-lead", wait_until="domcontentloaded", timeout=30_000)
-        page.wait_for_selector("input[name='name']", timeout=15_000)
+
+        # Intentar varias rutas del formulario de nuevo lead
+        _FORM_PATHS = ["/nuevo-lead", "/leads/nuevo", "/leads/new", "/lead/nuevo", "/agentes/lead"]
+        _FORM_LOADED = False
+        for path in _FORM_PATHS:
+            try:
+                page.goto(f"{SURETI_URL}{path}", wait_until="domcontentloaded", timeout=30_000)
+                # Esperar cualquier campo de texto visible — señal de que el form cargó
+                for anchor_sel in [
+                    "input[name='name']", "input[name='nombre']",
+                    "input[name='cedula']", "input[name='document']",
+                    "form input[type='text']",
+                ]:
+                    try:
+                        page.wait_for_selector(anchor_sel, timeout=5_000)
+                        _FORM_LOADED = True
+                        break
+                    except Exception:
+                        continue
+                if _FORM_LOADED:
+                    break
+            except Exception:
+                continue
+
+        if not _FORM_LOADED:
+            raise RuntimeError(
+                f"No se encontró el formulario de nuevo lead en {SURETI_URL}."
+            )
 
         # ---- Datos del cliente ----
-        _fill(page, "input[name='name']", data.get("nombre", ""))
-        _fill(page, "input[name='cedula']", str(data.get("cedula", "")))
-        _fill(page, "input[name='email']", data.get("email", ""))
-        telefono = str(data.get("telefono", "")).lstrip("+").lstrip("57")
-        _fill(page, "input[name='phone']", telefono)
+        # Nombre completo
+        _fill(page,
+              "input[name='name'], input[name='nombre'], input[name='nombres'], "
+              "input[name='full_name'], input[id*='name'], input[id*='nombre']",
+              data.get("nombre", ""))
+
+        # Cédula / documento
+        _fill(page,
+              "input[name='cedula'], input[name='document'], input[name='documento'], "
+              "input[name='num_doc'], input[id*='cedula'], input[id*='document']",
+              str(data.get("cedula", "")))
+
+        # Correo
+        _fill(page,
+              "input[name='email'], input[type='email'], input[name='correo'], input[id*='email']",
+              data.get("email", ""))
+
+        # Teléfono (quitar +57 si viene prefijado)
+        telefono = str(data.get("telefono", "")).lstrip("+")
+        if telefono.startswith("57") and len(telefono) > 10:
+            telefono = telefono[2:]
+        _fill(page,
+              "input[name='phone'], input[name='telefono'], input[name='celular'], "
+              "input[name='movil'], input[id*='phone'], input[id*='telefono']",
+              telefono)
 
         # ---- Inmueble ----
-        _fill(page, "input[name='city']", data.get("ciudad", ""))
-        _fill(page, "input[name='address']", data.get("direccion_inmueble", ""))
+        _fill(page,
+              "input[name='city'], input[name='ciudad'], input[id*='city'], input[id*='ciudad']",
+              data.get("ciudad", ""))
+
+        _fill(page,
+              "input[name='address'], input[name='direccion'], input[name='address_property'], "
+              "input[id*='address'], input[id*='direccion']",
+              data.get("direccion_inmueble", ""))
 
         # Matrícula inmobiliaria: SELECT de oficina + campo número (sin name attr)
         matricula = str(data.get("matricula_numero", ""))
@@ -113,35 +269,42 @@ class SuretiSession:
                 page.locator("select").first.select_option(label=prefijo.strip())
             except Exception:
                 pass
-            _fill(page, "input[placeholder='1234567']", numero.strip())
+            _fill(page,
+                  "input[placeholder='1234567'], input[name='matricula_numero'], "
+                  "input[name='registro'], input[id*='matricula']",
+                  numero.strip())
         elif matricula:
-            _fill(page, "input[placeholder='1234567']", matricula)
+            _fill(page,
+                  "input[placeholder='1234567'], input[name='matricula_numero'], "
+                  "input[name='registro'], input[id*='matricula']",
+                  matricula)
 
         # ---- Crédito ----
         valor = data.get("valor_solicitado")
         if valor:
-            _fill(page, "input[name='loan_amount']", str(valor))
+            _fill(page,
+                  "input[name='loan_amount'], input[name='monto'], input[name='valor'], "
+                  "input[name='monto_solicitado'], input[id*='monto'], input[id*='loan']",
+                  str(valor))
 
         objetivo = data.get("objetivo", "") or data.get("objetivo_prestamo", "")
         if objetivo:
-            _fill(page, "textarea[name='loan_objective']", objetivo)
+            _fill(page,
+                  "textarea[name='loan_objective'], textarea[name='objetivo'], "
+                  "textarea[name='objetivo_prestamo'], textarea[id*='objetivo'], "
+                  "textarea[id*='loan']",
+                  objetivo)
 
         # ---- Tipo de persona ----
         tipo_persona = str(data.get("tipo_persona", "NATURAL")).upper()
-        try:
-            if tipo_persona == "JURIDICA":
-                page.locator("#pt-juridica").check()
-            else:
-                page.locator("#pt-natural").check()
-        except Exception:
-            try:
-                label = "Persona Jurídica" if tipo_persona == "JURIDICA" else "Persona Natural"
-                page.locator(f"label:has-text('{label}')").first.click()
-            except Exception:
-                pass
+        _set_tipo_persona(page, tipo_persona)
+
+        # ---- Documentos adjuntos ----
+        if docs:
+            _subir_documentos(page, docs)
 
         # ---- Enviar ----
-        page.click("button[type='submit']")
+        _submit_form(page)
         page.wait_for_load_state("networkidle", timeout=20_000)
 
         lead_id = _extraer_lead_id(page)
@@ -315,6 +478,68 @@ def _subir_documentos(page, docs: list[dict]):
             except Exception:
                 pass
         time.sleep(0.5)
+
+
+def _set_tipo_persona(page, tipo_persona: str):
+    """Marca el radio/checkbox de tipo de persona (NATURAL o JURIDICA)."""
+    es_juridica = tipo_persona == "JURIDICA"
+    # Intentar por IDs específicos
+    for id_sel in (["#pt-juridica"] if es_juridica else ["#pt-natural"]):
+        try:
+            el = page.query_selector(id_sel)
+            if el:
+                el.check()
+                return
+        except Exception:
+            pass
+    # Intentar por value del radio
+    for val in (["juridica", "JURIDICA", "j"] if es_juridica else ["natural", "NATURAL", "n"]):
+        try:
+            el = page.query_selector(f"input[type='radio'][value='{val}']")
+            if el:
+                el.check()
+                return
+        except Exception:
+            pass
+    # Fallback: click en label con texto descriptivo
+    label_candidates = (
+        ["Persona Jurídica", "Jurídica", "Juridica", "Empresa"]
+        if es_juridica
+        else ["Persona Natural", "Natural", "Persona física", "Física"]
+    )
+    for label_text in label_candidates:
+        try:
+            loc = page.locator(f"label:has-text('{label_text}')")
+            if loc.count() > 0:
+                loc.first.click()
+                return
+        except Exception:
+            pass
+
+
+def _submit_form(page):
+    """Envía el formulario activo. Prueba varios selectores de botón submit."""
+    _SUBMIT_SELS = [
+        "button[type='submit']",
+        "input[type='submit']",
+        "button.btn-primary",
+        "button.btn-success",
+        "button:text('Guardar')",
+        "button:text('Registrar')",
+        "button:text('Enviar')",
+        "button:text('Crear lead')",
+        "button:text('Crear Lead')",
+    ]
+    for sel in _SUBMIT_SELS:
+        try:
+            el = page.query_selector(sel)
+            if el and el.is_visible():
+                el.click()
+                return
+        except Exception:
+            continue
+    # Último recurso: Enter
+    page.keyboard.press("Enter")
 
 
 def _extraer_lead_id(page) -> str:

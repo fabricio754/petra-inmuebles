@@ -430,6 +430,18 @@ def marcar_comision_cobrada(pipeline_id: int) -> None:
         )
 
 
+def marcar_requiere_humano(telefono: str) -> None:
+    """Marca que este contacto requiere atención de un asesor humano."""
+    with _conexion() as conn:
+        conn.execute(
+            "UPDATE pipeline SET requires_human = TRUE "
+            "WHERE telefono = %s AND id = ("
+            "  SELECT id FROM pipeline WHERE telefono = %s ORDER BY fecha_ingreso DESC LIMIT 1"
+            ")",
+            (telefono, telefono),
+        )
+
+
 # === Remarketing paz y salvos (Hito 10) =====================================
 
 def leads_paz_salvo_por_contactar(dias: int) -> list[dict]:

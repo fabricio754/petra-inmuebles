@@ -106,6 +106,8 @@ CREATE TABLE IF NOT EXISTS pipeline (
 );
 CREATE INDEX IF NOT EXISTS pipeline_telefono_idx ON pipeline (telefono);
 
+ALTER TABLE pipeline ADD COLUMN IF NOT EXISTS requires_human BOOLEAN DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS remarketing (
   id SERIAL PRIMARY KEY,
   telefono VARCHAR(100),
