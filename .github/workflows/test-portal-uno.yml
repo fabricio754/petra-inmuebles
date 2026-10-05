@@ -41,8 +41,7 @@ jobs:
               \"portals\": [\"${{ steps.portal.outputs.name }}\"],
               \"max_per_portal\": 5,
               \"ingest_url\": \"https://petra-inmuebles.onrender.com/scraper/ingest\",
-              \"ingest_token\": \"${{ steps.token.outputs.value }}\",
-              \"proxy_config\": {\"useApifyProxy\": true, \"apifyProxyGroups\": [\"DATACENTER\"]}
+              \"ingest_token\": \"${{ steps.token.outputs.value }}\"
             }")
           RUN_ID=$(echo "$RUN" | jq -r '.data.id')
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT

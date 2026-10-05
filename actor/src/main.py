@@ -608,26 +608,26 @@ async def main():
         log.error("Faltan ingest_url o ingest_token en el input.")
         return
 
-    # Proxy: construir config desde proxy_config del input o desde APIFY_PROXY_URL legacy
+    # Proxy: APIFY_PROXY_URL (legacy) > proxy_config del input > APIFY_PROXY_PASSWORD auto
     proxy_url: Optional[str] = os.environ.get("APIFY_PROXY_URL") or None
     proxy_pw_cfg: Optional[dict] = None  # formato Playwright {server, username, password}
-    proxy_cfg = inp.get("proxy_config", {})
-    if not proxy_url and proxy_cfg.get("useApifyProxy"):
+
+    if not proxy_url:
         pwd = os.environ.get("APIFY_PROXY_PASSWORD", "")
-        host = os.environ.get("APIFY_PROXY_HOSTNAME", "proxy.apify.com")
-        port = os.environ.get("APIFY_PROXY_PORT", "8000")
+        host_px = os.environ.get("APIFY_PROXY_HOSTNAME", "proxy.apify.com")
+        port_px = os.environ.get("APIFY_PROXY_PORT", "8000")
         if pwd:
-            groups = proxy_cfg.get("apifyProxyGroups", [])
+            proxy_cfg = inp.get("proxy_config", {})
+            groups = proxy_cfg.get("apifyProxyGroups", []) if proxy_cfg.get("useApifyProxy") else []
             group_str = "groups-" + "+".join(groups) if groups else "auto"
-            proxy_url = f"http://{group_str}:{pwd}@{host}:{port}"
-            # Playwright prefiere server + username + password separados
+            proxy_url = f"http://{group_str}:{pwd}@{host_px}:{port_px}"
             proxy_pw_cfg = {
-                "server": f"http://{host}:{port}",
+                "server": f"http://{host_px}:{port_px}",
                 "username": group_str,
                 "password": pwd,
             }
-            log.info("Proxy: server=http://%s:%s username=%s", host, port, group_str)
-    elif proxy_url:
+            log.info("Proxy: server=http://%s:%s username=%s", host_px, port_px, group_str)
+    else:
         log.info("Proxy: %s", proxy_url.split("@")[-1] if "@" in proxy_url else proxy_url)
 
     if not proxy_url:
