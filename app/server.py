@@ -340,6 +340,19 @@ def receive_webhook():
         event = _to_event(message)
         log.info("Mensaje entrante de %s: %s", phone, event)
 
+        # Bitácora de entrada (sobrevive al ciclo de sesión; el panel lo lee).
+        try:
+            from app import db as _db
+            _resumen_in = (event.get("text")
+                           or event.get("id")
+                           or event.get("media_id")
+                           or event.get("response")
+                           or "")
+            _db.log_mensaje(phone, "in", event.get("type", "unknown"),
+                            str(_resumen_in)[:4000], message)
+        except Exception:
+            log.exception("No se pudo registrar mensaje entrante.")
+
         if event["type"] == "media":
             from app import media as media_mod
             mime = event["mime_type"]

@@ -125,6 +125,9 @@ def panel_detalle(telefono):
         leads = _rows(conn,
             "SELECT fecha, operacion, datos FROM leads WHERE telefono = %s "
             "ORDER BY fecha DESC LIMIT 100", (telefono,))
+        mensajes = _rows(conn,
+            "SELECT fecha, direccion, tipo, resumen FROM mensajes "
+            "WHERE telefono = %s ORDER BY fecha DESC LIMIT 500", (telefono,))
 
     contacto = contactos[0] if contactos else None
     sesion = sesiones[0] if sesiones else None
@@ -206,5 +209,5 @@ def panel_detalle(telefono):
         telefono=telefono, estado=estado, token=token,
         contacto=contacto, sesion=sesion, pipeline=pipeline,
         documentos=documentos, remarketing=remarketing,
-        eventos=eventos,
+        eventos=eventos, mensajes=mensajes,
     )

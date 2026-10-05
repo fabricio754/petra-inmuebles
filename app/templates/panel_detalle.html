@@ -28,6 +28,13 @@
   .timeline time { color: #57606a; font-family: ui-monospace, monospace; font-size: .82rem; margin-right: 8px; }
   .timeline .tag { display: inline-block; background: #ddf4ff; color: #0969da; border-radius: 4px; padding: 1px 6px; font-size: .75rem; margin-right: 6px; font-weight: 500; }
   .vacio { color: #8c959f; font-style: italic; }
+  .chat { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  .chat li { display: flex; max-width: 85%; }
+  .chat li.in { align-self: flex-start; }
+  .chat li.out { align-self: flex-end; }
+  .chat .bubble { padding: 8px 12px; border-radius: 12px; background: #eef2f6; font-size: .9rem; line-height: 1.4; }
+  .chat li.out .bubble { background: #dcf8c6; }
+  .chat .meta { display: block; font-size: .72rem; color: #8c959f; margin-top: 2px; font-family: ui-monospace, monospace; }
   @media (prefers-color-scheme: dark) {
     body { background: #0d1117; color: #e6edf3; }
     section { background: #161b22; border-color: #30363d; }
@@ -35,6 +42,9 @@
     .timeline li { border-color: #30363d; }
     .back { color: #58a6ff; }
     .timeline .tag { background: #0c2d6b; color: #58a6ff; }
+    .chat .bubble { background: #262d36; }
+    .chat li.out .bubble { background: #1f6e32; color: #e6edf3; }
+    .chat .meta { color: #6e7681; }
   }
 </style>
 </head>
@@ -113,6 +123,28 @@
   </ul>
   {% else %}
   <p class="vacio">Sin documentos.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Conversación ({{ mensajes|length }})</h2>
+  {% if mensajes %}
+  <ul class="chat">
+    {% for m in mensajes|reverse %}
+    <li class="{{ m.direccion }}">
+      <div>
+        <div class="bubble">{{ m.resumen or '—' }}</div>
+        <span class="meta">
+          {{ 'cliente' if m.direccion == 'in' else 'bot' }} ·
+          {{ m.tipo or '—' }} ·
+          {{ m.fecha.strftime('%Y-%m-%d %H:%M') if m.fecha else '—' }}
+        </span>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="vacio">Sin mensajes registrados todavía. La bitácora empieza a llenarse cuando el bot envía o recibe el próximo mensaje.</p>
   {% endif %}
 </section>
 
