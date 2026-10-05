@@ -30,6 +30,37 @@ llaves por el chat.
 
 ## Flujo end-to-end
 
+### 0. Identidad de marca en WhatsApp (prerequisito del primer contacto)
+
+Los mensajes de Massi tienen que llegar con la ficha de negocio verificada
+—como la de "Viajes Éxito Ofertas"— para que el propietario abra el chat con
+confianza y las tasas de respuesta sean sanas. Esto es configuración de la
+cuenta en Meta, no código:
+
+- **Cuenta oficial de WhatsApp Business** (API) ligada al número de producción.
+- **Verificación de Meta Business** (check azul): completar Meta Business
+  Verification en Business Manager (documentos de la empresa).
+- **Perfil del negocio** con logo cuadrado de Massi, nombre comercial
+  ("Massi Crédito" o el acordado), categoría, descripción, correo, sitio web
+  y dirección.
+- **Páginas vinculadas** de Facebook e Instagram del mismo negocio para que
+  el seguidor count aparezca en la ficha (como los `208K` / `101K` del
+  ejemplo). Vincular desde Meta Business Suite → Settings → Business assets.
+- **Opt-in de marketing**: la primera plantilla llega con la tarjeta
+  "You are getting offers and announcements from this business" y los
+  botones **Stop** / **Profile**. Para habilitarlo, aceptar los términos de
+  Marketing Messages en WhatsApp Manager y usar categoría MARKETING en la
+  plantilla (`massi_apertura_a` ya está en Marketing).
+- **Tier y calidad**: empezar en Tier 250/día; subir de tier solo si la
+  calidad del número se mantiene en verde en WhatsApp Manager → Phone numbers.
+- **Botón "Stop"**: Meta ya lo pone solo en mensajes de marketing; cuando el
+  usuario lo toca, Meta deja de entregar marketing a ese número por 90 días
+  y manda un webhook que el bot debe tratar como `set_no_contactar`
+  (equivalente a STOP/BAJA/PARA/SALIR).
+
+Listo cuando: un número de prueba recibe la primera plantilla y ve la ficha
+con check azul, logo, seguidores de FB e IG, botón Stop y botón Profile.
+
 ### 1. Captación (los 4 canales convergen en la tabla `contactos`)
 
 1. **Actor Apify** (`actor/`, cloud, cada 2 h) — scrapea Finca Raíz y
