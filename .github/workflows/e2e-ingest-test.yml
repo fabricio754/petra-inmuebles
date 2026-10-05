@@ -1,8 +1,9 @@
 name: E2E Test Ingest Paso 1
 on:
+  push:
+    branches:
+      - trigger/e2e-ingest
   workflow_dispatch:
-  repository_dispatch:
-    types: [run-e2e-ingest]
 
 jobs:
   test-ingest:
