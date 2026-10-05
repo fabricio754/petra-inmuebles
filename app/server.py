@@ -191,6 +191,44 @@ def pilot():
 INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
 
 
+@app.post("/admin/reset-sesion")
+def admin_reset_sesion():
+    """Elimina la sesión activa de un teléfono y reenvía la plantilla de apertura.
+
+    Body JSON: { "telefono": "573..." }
+    Auth: header X-Ingest-Token (mismo INGEST_TOKEN del scraper).
+    """
+    token = request.headers.get("X-Ingest-Token", "")
+    if not INGEST_TOKEN or token != INGEST_TOKEN:
+        return jsonify({"error": "no_autorizado"}), 401
+
+    body = request.get_json(silent=True) or {}
+    telefono = str(body.get("telefono") or "").strip()
+    if not telefono:
+        return jsonify({"error": "falta telefono"}), 400
+
+    from app import db as _db, whatsapp as wa
+
+    # Limpiar sesión activa
+    with _db._conexion() as conn:
+        deleted = conn.execute(
+            "DELETE FROM sesiones WHERE telefono = %s", (telefono,)
+        ).rowcount
+
+    # Buscar datos del contacto para armar la plantilla
+    contacto = _db.get_contacto(telefono)
+    if contacto:
+        tipo = contacto["tipo_inmueble"] or "inmueble"
+        monto = contacto["monto_hasta"] or 100
+        portal = "metrocuadrado"
+    else:
+        tipo, monto, portal = "inmueble", 100, "metrocuadrado"
+
+    wa.send_plantilla_apertura(telefono, tipo, portal, monto)
+    log.info("[Admin] Reset sesion %s — %d fila(s) eliminadas, template enviado", telefono, deleted)
+    return jsonify({"sesion_eliminada": deleted, "template": "enviado", "tipo": tipo, "monto": monto})
+
+
 @app.post("/scraper/ingest")
 def scraper_ingest():
     """Recibe contactos crudos del actor Apify y los procesa con _guardar.
