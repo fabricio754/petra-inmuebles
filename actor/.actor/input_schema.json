@@ -33,7 +33,7 @@
       "type": "object",
       "description": "Configuración de proxy de Apify (usar proxyUrls o groups)",
       "editor": "proxy",
-      "default": { "useApifyProxy": true, "apifyProxyGroups": ["DATACENTER"] }
+      "default": { "useApifyProxy": true, "apifyProxyGroups": ["RESIDENTIAL"] }
     }
   },
   "required": ["ingest_url", "ingest_token"],
