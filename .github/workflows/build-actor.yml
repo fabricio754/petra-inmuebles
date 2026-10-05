@@ -35,14 +35,23 @@ jobs:
             }' > /tmp/actor_source.json
           echo "JSON generado: $(wc -c < /tmp/actor_source.json) bytes"
 
-          # Actualizar versión 0.2 — capturar body + HTTP status para diagnosticar
-          HTTP_CODE=$(curl -s -o /tmp/resp_put.json -w "%{http_code}" -X PUT \
+          # Intentar actualizar versión 0.2; si no existe, crearla
+          HTTP_CODE=$(curl -s -o /tmp/resp_ver.json -w "%{http_code}" -X PUT \
             "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/versions/0.2" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d @/tmp/actor_source.json)
           echo "PUT /versions/0.2 → HTTP $HTTP_CODE"
-          cat /tmp/resp_put.json | jq -r '.data.versionNumber // .error // .' 2>/dev/null || cat /tmp/resp_put.json
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "Version 0.2 no existe, creando con POST..."
+            HTTP_CODE=$(curl -s -o /tmp/resp_ver.json -w "%{http_code}" -X POST \
+              "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/versions" \
+              -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d @/tmp/actor_source.json)
+            echo "POST /versions → HTTP $HTTP_CODE"
+          fi
+          cat /tmp/resp_ver.json | jq -r '.data.versionNumber // .error // .' 2>/dev/null || cat /tmp/resp_ver.json
           if [[ "$HTTP_CODE" != 2* ]]; then exit 1; fi
 
           # Disparar build
