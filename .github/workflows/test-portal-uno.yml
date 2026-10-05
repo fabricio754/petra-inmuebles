@@ -41,7 +41,8 @@ jobs:
               \"portals\": [\"${{ steps.portal.outputs.name }}\"],
               \"max_per_portal\": 5,
               \"ingest_url\": \"https://petra-inmuebles.onrender.com/scraper/ingest\",
-              \"ingest_token\": \"${{ steps.token.outputs.value }}\"
+              \"ingest_token\": \"${{ steps.token.outputs.value }}\",
+              \"proxy_config\": {\"useApifyProxy\": true, \"apifyProxyGroups\": [\"DATACENTER\"]}
             }")
           RUN_ID=$(echo "$RUN" | jq -r '.data.id')
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
@@ -51,7 +52,7 @@ jobs:
         id: result
         run: |
           RUN_ID="${{ steps.run.outputs.run_id }}"
-          for i in $(seq 1 16); do
+          for i in $(seq 1 20); do
             sleep 30
             STATUS=$(curl -sf \
               "https://api.apify.com/v2/actor-runs/$RUN_ID" \
@@ -63,6 +64,8 @@ jobs:
               break
             fi
           done
+          # Si el loop agotó sin capturar estado terminal, guardar el último STATUS conocido
+          grep -q "^status=" "$GITHUB_OUTPUT" 2>/dev/null || echo "status=${STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
 
       - name: Ver resultados del portal
         run: |
