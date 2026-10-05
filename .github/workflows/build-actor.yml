@@ -9,13 +9,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Disparar build del actor
+      - uses: actions/checkout@v4
+
+      - name: Subir source al actor y disparar build
         id: build
         run: |
-          RESP=$(curl -sf -X POST \
-            "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/builds?useCache=false&betaPackages=false" \
+          # Codificar cada archivo en base64
+          ACTOR_JSON=$(base64 -w0 actor/.actor/actor.json)
+          INPUT_SCHEMA=$(base64 -w0 actor/.actor/input_schema.json)
+          DOCKERFILE=$(base64 -w0 actor/Dockerfile)
+          REQUIREMENTS=$(base64 -w0 actor/requirements.txt)
+          MAIN_PY=$(base64 -w0 actor/src/main.py)
+
+          # Actualizar versión 0.2 con los archivos fuente
+          RESP=$(curl -sf -X PUT \
+            "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/versions/0.2" \
+            -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"versionNumber\": \"0.2\",
+              \"sourceType\": \"SOURCE_FILES\",
+              \"buildTag\": \"latest\",
+              \"sourceFiles\": [
+                {\"name\": \".actor/actor.json\", \"format\": \"BASE64\", \"content\": \"$ACTOR_JSON\"},
+                {\"name\": \".actor/input_schema.json\", \"format\": \"BASE64\", \"content\": \"$INPUT_SCHEMA\"},
+                {\"name\": \"Dockerfile\", \"format\": \"BASE64\", \"content\": \"$DOCKERFILE\"},
+                {\"name\": \"requirements.txt\", \"format\": \"BASE64\", \"content\": \"$REQUIREMENTS\"},
+                {\"name\": \"src/main.py\", \"format\": \"BASE64\", \"content\": \"$MAIN_PY\"}
+              ]
+            }")
+          echo "Version actualizada: $(echo $RESP | jq -r '.data.versionNumber // .error')"
+
+          # Disparar build
+          BUILD=$(curl -sf -X POST \
+            "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/builds?version=0.2&useCache=false" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}")
-          BUILD_ID=$(echo "$RESP" | jq -r '.data.id')
+          BUILD_ID=$(echo "$BUILD" | jq -r '.data.id')
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
           echo "Build iniciado: $BUILD_ID"
 
@@ -25,19 +54,16 @@ jobs:
           BUILD_ID="${{ steps.build.outputs.build_id }}"
           for i in $(seq 1 20); do
             sleep 30
-            STATUS=$(curl -sf \
+            DATA=$(curl -sf \
               "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/builds/$BUILD_ID" \
-              -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
-              | jq -r '.data.status')
+              -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}")
+            STATUS=$(echo "$DATA" | jq -r '.data.status')
+            BUILD_NUM=$(echo "$DATA" | jq -r '.data.buildNumber')
             echo "[$i/20] Build status: $STATUS"
             if [ "$STATUS" = "SUCCEEDED" ] || [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "TIMED-OUT" ]; then
               echo "status=$STATUS" >> $GITHUB_OUTPUT
-              BUILD_TAG=$(curl -sf \
-                "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/builds/$BUILD_ID" \
-                -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
-                | jq -r '.data.buildNumber')
-              echo "build_tag=$BUILD_TAG" >> $GITHUB_OUTPUT
-              echo "Build $STATUS — versión: $BUILD_TAG"
+              echo "build_number=$BUILD_NUM" >> $GITHUB_OUTPUT
+              echo "Build $STATUS — número: $BUILD_NUM"
               break
             fi
           done
@@ -48,7 +74,7 @@ jobs:
             echo "Build FALLÓ: ${{ steps.result.outputs.status }}"
             exit 1
           fi
-          echo "Build OK: ${{ steps.result.outputs.build_tag }}"
+          echo "Build OK: ${{ steps.result.outputs.build_number }}"
 
       - name: Re-setup Task con nuevo build
         run: |
@@ -69,7 +95,7 @@ jobs:
             -d "{
               \"actId\": \"c5Dx4kjZENfbeKYi1\",
               \"options\": {
-                \"build\": \"${{ steps.result.outputs.build_tag }}\",
+                \"build\": \"${{ steps.result.outputs.build_number }}\",
                 \"timeoutSecs\": 3600,
                 \"memoryMbytes\": 1024
               },
@@ -81,4 +107,4 @@ jobs:
               }
             }" > /dev/null
 
-          echo "Task MjJ6kqVOBFbrM9Z7s actualizada con build ${{ steps.result.outputs.build_tag }}"
+          echo "Task MjJ6kqVOBFbrM9Z7s actualizada con build ${{ steps.result.outputs.build_number }}"
