@@ -4,8 +4,11 @@ Aprobado por el usuario el 2 oct 2026. Reemplaza el menú de Arrayanes por el fl
 con Sureti. Hitos 1–4 (bot en vivo, Google Sheets, número de producción, Flow) ya están hechos:
 ver `docs/TRASPASO.md`.
 
-Reglas: se trabaja en la rama `claude/busy-albattani-etg12j`; nada entra a `main` sin
+Reglas: se trabaja en la rama `claude/sharp-einstein-weou7g`; nada entra a `main` sin
 autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el chat.
+
+**Estado al 5 oct 2026** — Hito 7 EN PRUEBA. Siguiente acción: E2E test del actor Apify.
+Ver sección de Hito 7 para instrucciones exactas.
 
 ## Hito 5 — Infraestructura (≈ USD 13/mes) — HECHO (3 oct 2026)
 - Usuario: Render plan Starter (USD 7) + Postgres Basic-256mb (USD 6), guiado.
@@ -18,8 +21,8 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
   `gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app`.
   Importó de la Sheet: 6 inmuebles, 2 sesiones, 5 contactos.
   Exportación diaria 6am → Sheet (pestañas Pipeline + Captacion): `app/export.py`, job en scheduler.
-- MCP de Render: EN PAUSA. El conector oficial queda "Connected" pero toda llamada devuelve
-  `unauthorized` (probado en 3 sesiones). Se sigue con capturas; reintentar más adelante.
+- MCP de Render: FUNCIONA (5 oct 2026). Se usa `mcp__Render__*` para consultar servicios,
+  logs y env vars. No tiene `list_env_vars` — para leer secrets usar Render dashboard.
 
 ## Hito 6 — Bot de crédito (reemplaza Arrayanes) — HECHO (2 oct 2026, probado en vivo)
 - Autorización de tratamiento de datos (Ley 1581) como primer paso.
@@ -45,13 +48,12 @@ autorización del usuario. Nunca se piden contraseñas, tokens ni llaves por el 
   `requiere_paz_salvo`. Descartes quedan en pipeline como `descartado_<motivo>`.
   `set_no_contactar` hace upsert en `contactos` (teléfono hasta 150 caracteres por BSUID).
 
-## Hito 7 — Captación (rediseñado 3 oct 2026)
-Los portales (Metrocuadrado, Finca Raíz) solo muestran el teléfono tras un formulario
-(+ reCAPTCHA en Metrocuadrado): no se automatiza ese formulario ni un WhatsApp personal.
-Solución acordada:
-- Extensión de Chrome "Enviar a Massi": una persona navega el portal (formulario lleno una
-  vez) y con un clic por anuncio la extensión toma teléfono (enlace wa.me), precio, ciudad,
-  estrato, tipo, URL y foto, y los manda al bot (endpoint con clave secreta).
+## Hito 7 — Captación vía Apify — EN PRUEBA (5 oct 2026)
+
+### Diseño actual
+- Actor Apify `c5Dx4kjZENfbeKYi1` scrapea Finca Raíz y Metrocuadrado con Playwright.
+- Envía contactos por POST a `https://petra-inmuebles.onrender.com/scraper/ingest`
+  con header `X-Ingest-Token`.
 - El bot filtra (ciudad, estrato, tipo, duplicados, no_contactar), guarda en `contactos`
   y envía la plantilla desde el número oficial (API) solo L–V 7:00–19:00 y sáb 8:00–15:00
   (Ley 2300), con límite diario que sube poco a poco.
@@ -59,16 +61,46 @@ Solución acordada:
   millones) con botones "Quiero saber más" / "No me interesa". En revisión de Meta.
 - Monto "hasta": 40 % del precio publicado si es residencial (apartamento, casa),
   30 % si es comercial (local, oficina, bodega, lote).
-- Costo: ≈ USD 0,013 por mensaje de marketing (Colombia).
+- Costo actor Apify: ≈ USD 0,25–0,50 por run de 5 contactos de prueba.
+- Costo mensaje marketing: ≈ USD 0,013 por mensaje (Colombia).
 
-## Hito 8 — Documentos
-- CHIP por dirección con ArcGIS de Catastro Bogotá (servicio público).
+### Estado técnico
+- Build `0.0.12` SUCCEEDED en Apify (commit `3f6548c` en `main`).
+- Bug 401 resuelto: faltaba `"isSecret": true` en `actor/.actor/input_schema.json`.
+  Sin ese flag Apify no inyecta `APIFY_ACTOR_INPUT_PRIVATE_KEY` y la desencriptación falla.
+- `INGEST_TOKEN` ya está seteado en Render (Environment → `INGEST_TOKEN`).
+- `APIFY_TOKEN` disponible en el environment de Claude Code.
+
+### ⚠️ Próxima acción: E2E test
+
+**Prerequisito:** agregar `INGEST_TOKEN` al environment de Claude Code:
+  → Menú del entorno cloud (título de la sesión) → Edit → agregar variable `INGEST_TOKEN`
+  → Abrir sesión nueva para que quede disponible como `$INGEST_TOKEN`
+
+**Correr el actor** (tool `mcp__Apify__petra-secondaries--my-actor`, `waitSecs=0`):
+```
+portals: ["fincaraiz"]   # metrocuadrado puede bloquear IPs de Apify residential
+max_per_portal: 5
+ingest_url: https://petra-inmuebles.onrender.com
+ingest_token: <leer de $INGEST_TOKEN>
+```
+
+**Verificar éxito:** en Render logs debe aparecer:
+  `[Ingest] X/Y contactos guardados.`  (NO `no_autorizado`)
+
+Una vez confirmado el 200, activar `SCRAPER_ENABLED=true` en Render y configurar
+schedule en Apify (cada 2 h, `isExclusive: true`).
+
+## Hito 8 — Documentos — CÓDIGO LISTO, PENDIENTE ANTHROPIC_API_KEY
+- `app/docs_auto.py`: consulta CHIP por dirección con ArcGIS de Catastro Bogotá
+  (sin pedir predial al usuario). Ya en `main`.
 - Recepción de fotos/PDF por WhatsApp (media de Meta → disco → tabla `documentos`).
 - `app/parser.py`: predial con pdfplumber; imágenes con la API de Claude
-  (requiere `ANTHROPIC_API_KEY`).
+  (requiere `ANTHROPIC_API_KEY` en Render).
 - Certificado de tradición (CTL): el bot avisa al usuario con matrícula y enlace oficial;
   el usuario lo compra (COP 23.000, PSE) solo para leads calificados y lo reenvía al bot.
-- Listo: un lead real con CHIP, CTL, predial y fachada.
+- **Pendiente:** agregar `ANTHROPIC_API_KEY` en Render → Environment y activar el flujo.
+- Listo cuando: un lead real recibe CHIP automático sin pedirle nada.
 
 ## Hito 9 — Sureti (automatización autorizada por Sureti)
 - `app/sureti.py`: registrar lead + subir documentos, consultar estado cada 2 h
