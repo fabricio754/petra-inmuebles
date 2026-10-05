@@ -32,6 +32,20 @@ envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
 
+_reset_tel = os.environ.get("STARTUP_RESET_TELEFONO", "").strip()
+if _reset_tel:
+    from app import db as _db_reset, whatsapp as _wa_reset
+    with _db_reset._conexion() as _conn:
+        _rows = _conn.execute("DELETE FROM sesiones WHERE telefono = %s", (_reset_tel,)).rowcount
+    _c = _db_reset.get_contacto(_reset_tel)
+    _wa_reset.send_plantilla_apertura(
+        _reset_tel,
+        (_c or {}).get("tipo_inmueble") or "inmueble",
+        "metrocuadrado",
+        (_c or {}).get("monto_hasta") or 100,
+    )
+    log.info("[Startup] Reset sesion %s (%d filas), template enviado", _reset_tel, _rows)
+
 
 @app.get("/")
 def health():
