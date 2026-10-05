@@ -1,0 +1,309 @@
+name: Importar contactos desde Google Sheets
+
+on:
+  workflow_dispatch:
+    inputs:
+      sheet_id:
+        description: "ID del Google Sheet (parte de la URL entre /d/ y /edit)"
+        required: true
+        default: "1NDG1YAW1f9eD1Jp2lP0yQ57zNcI8PJkfRWihYC9_2Wk"
+      dry_run:
+        description: "Si 'true', solo loguea filas sin hacer POST al endpoint"
+        required: false
+        default: "false"
+
+jobs:
+  import-contacts:
+    name: Importar contactos de Google Sheets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Instalar dependencias Python
+        run: pip install --quiet gspread google-auth requests
+
+      - name: Leer INGEST_TOKEN de Render
+        id: token
+        run: |
+          TOKEN=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-daraa5ad0e5s73dvng6g/env-vars" \
+            | jq -r '.[] | select(.envVar.key == "INGEST_TOKEN") | .envVar.value // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "ERROR: No se encontro INGEST_TOKEN en Render. Verifica que RENDER_API_KEY sea valido."
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "value=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Importar contactos desde Google Sheets
+        env:
+          INGEST_TOKEN: ${{ steps.token.outputs.value }}
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SHEETS_API_KEY: ${{ secrets.GOOGLE_SHEETS_API_KEY }}
+          SHEET_ID: ${{ github.event.inputs.sheet_id }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          python3 << 'PYEOF'
+          import os, sys, re, json, requests
+
+          SHEET_ID   = os.environ["SHEET_ID"]
+          DRY_RUN    = os.environ.get("DRY_RUN", "false").strip().lower() == "true"
+          INGEST_URL = "https://petra-inmuebles.onrender.com/scraper/ingest"
+          INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
+
+          # ── Columnas esperadas del sheet (case-insensitive, se busca por coincidencia parcial)
+          COL_TIPO      = "tipo inmueble"
+          COL_CIUDAD    = "ciudad"
+          COL_OPERACION = "venta/arriendo"
+          COL_ZONA      = "zona/conjunto"
+          COL_TEL       = "teléfono"
+          COL_TORRE     = "torre"
+          COL_PISO      = "piso"
+          COL_METROS    = "metros"
+          COL_PARQ      = "parqueadero"
+
+          # ── Normalizar teléfono colombiano ──────────────────────────────────────────────
+          def normalizar_telefono(valor):
+              """10 dígitos que empiezan en 3  →  57XXXXXXXXXX"""
+              digitos = re.sub(r"\D", "", str(valor or ""))
+              if len(digitos) == 10 and digitos.startswith("3"):
+                  digitos = "57" + digitos
+              if len(digitos) == 12 and digitos.startswith("573"):
+                  return digitos
+              return ""
+
+          # ── Leer filas del sheet ────────────────────────────────────────────────────────
+          rows = []
+          headers = []
+          auth_method = "ninguno"
+
+          service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY", "").strip()
+          api_key               = os.environ.get("GOOGLE_SHEETS_API_KEY", "").strip()
+
+          if service_account_json:
+              # Autenticación con Service Account (acceso completo)
+              try:
+                  import gspread
+                  from google.oauth2.service_account import Credentials
+                  import tempfile, pathlib
+
+                  sa_data = json.loads(service_account_json)
+                  scopes  = [
+                      "https://www.googleapis.com/auth/spreadsheets.readonly",
+                      "https://www.googleapis.com/auth/drive.readonly",
+                  ]
+                  creds  = Credentials.from_service_account_info(sa_data, scopes=scopes)
+                  client = gspread.authorize(creds)
+                  sh     = client.open_by_key(SHEET_ID)
+                  ws     = sh.get_worksheet(0)
+                  all_values = ws.get_all_values()
+                  if all_values:
+                      headers = [h.strip().lower() for h in all_values[0]]
+                      rows    = all_values[1:]
+                  auth_method = "service_account"
+                  print(f"[Auth] Autenticado con Service Account. Sheet: {sh.title!r}")
+              except Exception as e:
+                  print(f"[Auth] ERROR con Service Account: {e}", file=sys.stderr)
+                  print("[Auth] Intentando fallback a API key publica...", file=sys.stderr)
+                  service_account_json = ""  # forzar fallback
+
+          if not service_account_json:
+              if api_key:
+                  # Fallback: API key pública (el sheet debe estar publicado)
+                  try:
+                      url = (
+                          f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
+                          f"/values/A1:Z10000?key={api_key}"
+                      )
+                      resp = requests.get(url, timeout=30)
+                      resp.raise_for_status()
+                      data = resp.json()
+                      all_values = data.get("values", [])
+                      if all_values:
+                          headers = [h.strip().lower() for h in all_values[0]]
+                          rows    = all_values[1:]
+                      auth_method = "api_key"
+                      print(f"[Auth] Autenticado con API key publica. Filas leidas: {len(rows)}")
+                  except Exception as e:
+                      print(f"[Auth] ERROR con API key: {e}", file=sys.stderr)
+              else:
+                  # Último intento: Sheets API sin auth (solo funciona si el sheet es público)
+                  try:
+                      url = (
+                          f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
+                          f"/values/A1:Z10000"
+                      )
+                      resp = requests.get(url, timeout=30)
+                      if resp.status_code == 200:
+                          data = resp.json()
+                          all_values = data.get("values", [])
+                          if all_values:
+                              headers = [h.strip().lower() for h in all_values[0]]
+                              rows    = all_values[1:]
+                          auth_method = "publico_sin_key"
+                      else:
+                          raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+                  except Exception as e:
+                      print("", file=sys.stderr)
+                      print("=" * 60, file=sys.stderr)
+                      print("BLOCKER: No se puede leer el Google Sheet.", file=sys.stderr)
+                      print("", file=sys.stderr)
+                      print("  No se encontro ninguna credencial valida:", file=sys.stderr)
+                      print("  - GOOGLE_SERVICE_ACCOUNT_KEY  (secret GitHub, JSON de service account)", file=sys.stderr)
+                      print("  - GOOGLE_SHEETS_API_KEY       (secret GitHub, API key de GCP)", file=sys.stderr)
+                      print("", file=sys.stderr)
+                      print("  Para configurarlo:", file=sys.stderr)
+                      print("  1. Ve a https://console.cloud.google.com y activa la Sheets API.", file=sys.stderr)
+                      print("  2. Crea una Service Account, descarga su JSON de credenciales.", file=sys.stderr)
+                      print("  3. Comparte el Google Sheet con el email de la service account.", file=sys.stderr)
+                      print("  4. Agrega el JSON completo como secret GOOGLE_SERVICE_ACCOUNT_KEY", file=sys.stderr)
+                      print("     en GitHub → Settings → Secrets and variables → Actions.", file=sys.stderr)
+                      print("", file=sys.stderr)
+                      print(f"  Error original: {e}", file=sys.stderr)
+                      print("=" * 60, file=sys.stderr)
+                      sys.exit(1)
+
+          if not headers:
+              print("ERROR: El sheet parece estar vacio o sin encabezados.", file=sys.stderr)
+              sys.exit(1)
+
+          # ── Mapear columnas por nombre (tolerante a variaciones) ────────────────────────
+          def find_col(keyword):
+              """Retorna el índice de la primera columna que contiene keyword (case-insensitive)."""
+              kw = keyword.lower()
+              for i, h in enumerate(headers):
+                  if kw in h or h in kw:
+                      return i
+              return None
+
+          idx_tipo      = find_col(COL_TIPO)
+          idx_ciudad    = find_col(COL_CIUDAD)
+          idx_operacion = find_col(COL_OPERACION)
+          idx_zona      = find_col(COL_ZONA)
+          idx_tel       = find_col(COL_TEL)
+          idx_torre     = find_col(COL_TORRE)
+          idx_piso      = find_col(COL_PISO)
+          idx_metros    = find_col(COL_METROS)
+          idx_parq      = find_col(COL_PARQ)
+
+          print(f"\n[Sheet] {len(rows)} filas encontradas | Auth: {auth_method}")
+          print(f"[Sheet] Encabezados: {headers}")
+          print(f"[Sheet] Columnas mapeadas: "
+                f"tipo={idx_tipo} ciudad={idx_ciudad} tel={idx_tel} "
+                f"zona={idx_zona} operacion={idx_operacion}")
+
+          if idx_tel is None:
+              print("ERROR: No se encontro columna de Teléfono en el sheet.", file=sys.stderr)
+              sys.exit(1)
+
+          def get_val(row, idx):
+              """Obtiene el valor de la fila en el índice dado, o '' si fuera de rango."""
+              if idx is None or idx >= len(row):
+                  return ""
+              return str(row[idx]).strip()
+
+          # ── Procesar filas ──────────────────────────────────────────────────────────────
+          n_importados  = 0
+          n_duplicados  = 0
+          n_errores     = 0
+          n_skip_tel    = 0
+
+          if DRY_RUN:
+              print("\n[DryRun] MODO PRUEBA — no se harán POSTs al endpoint\n")
+
+          for i, row in enumerate(rows, start=2):  # fila 2 = primera de datos (fila 1 = header)
+              tel_raw    = get_val(row, idx_tel)
+              telefono   = normalizar_telefono(tel_raw)
+
+              if not telefono:
+                  n_skip_tel += 1
+                  if tel_raw:
+                      print(f"  Fila {i}: teléfono inválido {tel_raw!r} — omitida")
+                  continue
+
+              tipo_raw      = get_val(row, idx_tipo)
+              ciudad_raw    = get_val(row, idx_ciudad)
+              operacion     = get_val(row, idx_operacion)
+              barrio        = get_val(row, idx_zona)
+              torre         = get_val(row, idx_torre)
+              piso          = get_val(row, idx_piso)
+              metros        = get_val(row, idx_metros)
+              parqueadero   = get_val(row, idx_parq)
+
+              # El sheet no tiene columna de precio; usamos 300M como placeholder conservador
+              # para que _guardar() no filtre el registro (requiere precio >= 50M).
+              precio_raw = "300000000"
+
+              meta = {}
+              if operacion:   meta["operacion"]   = operacion
+              if torre:       meta["torre"]        = torre
+              if piso:        meta["piso"]         = piso
+              if metros:      meta["metros_aprox"] = metros
+              if parqueadero: meta["parqueadero"]  = parqueadero
+
+              payload = {
+                  "portal":     "manual_sheet",
+                  "telefono":   telefono,
+                  "tipo_raw":   tipo_raw,
+                  "ciudad_raw": ciudad_raw,
+                  "precio_raw": precio_raw,
+                  "barrio":     barrio,
+                  "url":        f"sheet://{SHEET_ID}/fila/{i}",
+              }
+              if meta:
+                  payload["anunciante"] = meta  # campo libre no procesado por _guardar, sin efectos secundarios
+
+              if DRY_RUN:
+                  print(f"  [DryRun] Fila {i}: tel={telefono} tipo={tipo_raw!r} ciudad={ciudad_raw!r} barrio={barrio!r}")
+                  n_importados += 1
+                  continue
+
+              # POST al endpoint
+              try:
+                  resp = requests.post(
+                      INGEST_URL,
+                      json=payload,
+                      headers={
+                          "X-Ingest-Token": INGEST_TOKEN,
+                          "Content-Type":   "application/json",
+                      },
+                      timeout=30,
+                  )
+                  if resp.status_code == 200:
+                      result = resp.json()
+                      saved  = result.get("saved", 0)
+                      if saved:
+                          n_importados += 1
+                          print(f"  Fila {i} → guardado   (tel={telefono})")
+                      else:
+                          n_duplicados += 1
+                          print(f"  Fila {i} → duplicado  (tel={telefono})")
+                  elif resp.status_code == 401:
+                      print(f"  Fila {i} → ERROR 401 (token invalido)")
+                      n_errores += 1
+                  else:
+                      print(f"  Fila {i} → ERROR {resp.status_code}: {resp.text[:100]}")
+                      n_errores += 1
+              except Exception as exc:
+                  print(f"  Fila {i} → ERROR de red: {exc}")
+                  n_errores += 1
+
+          # ── Resumen final ───────────────────────────────────────────────────────────────
+          print()
+          print("=" * 50)
+          if DRY_RUN:
+              print(f"[DryRun] Filas validas encontradas : {n_importados}")
+              print(f"[DryRun] Filas sin telefono valido : {n_skip_tel}")
+              print(f"[DryRun] Total filas procesadas    : {len(rows)}")
+          else:
+              print(f"Importados (nuevos)  : {n_importados}")
+              print(f"Duplicados           : {n_duplicados}")
+              print(f"Errores              : {n_errores}")
+              print(f"Sin teléfono válido  : {n_skip_tel}")
+              print(f"Total filas          : {len(rows)}")
+          print("=" * 50)
+
+          if not DRY_RUN and n_errores > 0 and n_importados == 0 and n_duplicados == 0:
+              sys.exit(1)
+          PYEOF
