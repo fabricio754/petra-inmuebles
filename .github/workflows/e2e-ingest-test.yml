@@ -1,4 +1,4 @@
-name: E2E Test — Ingest (Paso 1)
+name: E2E Test Ingest Paso 1
 on:
   workflow_dispatch:
 
@@ -23,7 +23,7 @@ for item in items:
         break
 ")
           if [ -z "$TOKEN" ]; then
-            echo "❌ No se encontró INGEST_TOKEN en Render"
+            echo "No se encontro INGEST_TOKEN en Render"
             exit 1
           fi
           echo "::add-mask::$TOKEN"
@@ -39,7 +39,7 @@ for item in items:
               "contactos": [{
                 "telefono": "3001234567",
                 "precio": 500000000,
-                "ciudad": "Bogotá",
+                "ciudad": "Bogota",
                 "estrato": 4,
                 "tipo": "apartamento",
                 "portal": "fincaraiz",
@@ -52,15 +52,14 @@ for item in items:
           STATUS=$(echo "$RESP" | grep "HTTP_STATUS" | cut -d: -f2)
 
           echo "HTTP Status: $STATUS"
-          echo "Respuesta:"
           echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
 
           if [ "$STATUS" = "200" ]; then
-            echo "✅ Ingest OK — Paso 1 verificado"
+            echo "OK Ingest verificado"
           elif [ "$STATUS" = "401" ]; then
-            echo "❌ 401 no_autorizado — INGEST_TOKEN incorrecto"
+            echo "FALLO 401 INGEST_TOKEN incorrecto"
             exit 1
           else
-            echo "❌ Error inesperado: HTTP $STATUS"
+            echo "FALLO HTTP $STATUS"
             exit 1
           fi
