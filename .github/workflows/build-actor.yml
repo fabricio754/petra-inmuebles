@@ -14,30 +14,32 @@ jobs:
       - name: Subir source al actor y disparar build
         id: build
         run: |
-          # Codificar cada archivo en base64
-          ACTOR_JSON=$(base64 -w0 actor/.actor/actor.json)
-          INPUT_SCHEMA=$(base64 -w0 actor/.actor/input_schema.json)
-          DOCKERFILE=$(base64 -w0 actor/Dockerfile)
-          REQUIREMENTS=$(base64 -w0 actor/requirements.txt)
-          MAIN_PY=$(base64 -w0 actor/src/main.py)
+          # Construir JSON con jq (evita límites de tamaño de args del shell)
+          jq -n \
+            --arg aj "$(base64 -w0 actor/.actor/actor.json)" \
+            --arg is "$(base64 -w0 actor/.actor/input_schema.json)" \
+            --arg df "$(base64 -w0 actor/Dockerfile)" \
+            --arg rq "$(base64 -w0 actor/requirements.txt)" \
+            --arg mp "$(base64 -w0 actor/src/main.py)" \
+            '{
+              versionNumber: "0.2",
+              sourceType: "SOURCE_FILES",
+              buildTag: "latest",
+              sourceFiles: [
+                {name: ".actor/actor.json",        format: "BASE64", content: $aj},
+                {name: ".actor/input_schema.json", format: "BASE64", content: $is},
+                {name: "Dockerfile",               format: "BASE64", content: $df},
+                {name: "requirements.txt",         format: "BASE64", content: $rq},
+                {name: "src/main.py",              format: "BASE64", content: $mp}
+              ]
+            }' > /tmp/actor_source.json
 
           # Actualizar versión 0.2 con los archivos fuente
           RESP=$(curl -sf -X PUT \
             "https://api.apify.com/v2/acts/c5Dx4kjZENfbeKYi1/versions/0.2" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"versionNumber\": \"0.2\",
-              \"sourceType\": \"SOURCE_FILES\",
-              \"buildTag\": \"latest\",
-              \"sourceFiles\": [
-                {\"name\": \".actor/actor.json\", \"format\": \"BASE64\", \"content\": \"$ACTOR_JSON\"},
-                {\"name\": \".actor/input_schema.json\", \"format\": \"BASE64\", \"content\": \"$INPUT_SCHEMA\"},
-                {\"name\": \"Dockerfile\", \"format\": \"BASE64\", \"content\": \"$DOCKERFILE\"},
-                {\"name\": \"requirements.txt\", \"format\": \"BASE64\", \"content\": \"$REQUIREMENTS\"},
-                {\"name\": \"src/main.py\", \"format\": \"BASE64\", \"content\": \"$MAIN_PY\"}
-              ]
-            }")
+            -d @/tmp/actor_source.json)
           echo "Version actualizada: $(echo $RESP | jq -r '.data.versionNumber // .error')"
 
           # Disparar build
