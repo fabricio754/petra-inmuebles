@@ -27,7 +27,8 @@ jobs:
         id: run
         run: |
           RUN=$(curl -sf -X POST \
-            "https://api.apify.com/v2/actors/c5Dx4kjZENfbeKYi1/runs?build=0.0.12&timeout=600&memory=1024" \
+<<<<<<< HEAD
+            "https://api.apify.com/v2/actors/c5Dx4kjZENfbeKYi1/runs?build=latest&timeout=600&memory=1024" \
             -H "Authorization: Bearer ${{ secrets.APIFY_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
@@ -73,6 +74,7 @@ jobs:
 
           echo ""
           echo "Status final: ${{ steps.result.outputs.status }}"
+<<<<<<< HEAD
           if [ "${{ steps.result.outputs.status }}" != "SUCCEEDED" ]; then
             echo "FALLO: actor no terminó exitosamente"
             exit 1
