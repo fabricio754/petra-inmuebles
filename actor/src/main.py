@@ -453,7 +453,21 @@ async def _scrape_portal(
                 try:
                     await lp.wait_for_selector(listing_sel, timeout=30_000)
                 except PWTimeout:
-                    log.warning("[%s] Timeout pág %d — %s", portal, page_n, lp.url)
+                    try:
+                        title = await lp.title()
+                        # Contar links .htm para diagnosticar si hay contenido
+                        n_htm = await lp.eval_on_selector_all(
+                            "a[href*='.htm']", "els => els.length"
+                        )
+                        n_any = await lp.eval_on_selector_all(
+                            "a[href]", "els => els.length"
+                        )
+                        log.warning(
+                            "[%s] Timeout pág %d | title=%r | links_htm=%d | links_any=%d | url=%s",
+                            portal, page_n, title, n_htm, n_any, lp.url,
+                        )
+                    except Exception:
+                        log.warning("[%s] Timeout pág %d — %s", portal, page_n, lp.url)
                     await ctx.close()
                     break
 
