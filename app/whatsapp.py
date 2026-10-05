@@ -35,8 +35,9 @@ FLOW_DATOS_ID = os.environ.get("META_FLOW_DATOS_ID", "")
 FLOWS_MODE = os.environ.get("META_FLOWS_MODE", "draft")
 USE_FLOWS = bool(FLOW_REQUISITOS_ID and FLOW_DATOS_ID)
 
-# Plantilla de apertura aprobada por Meta (Hito 7). Variables del cuerpo:
-# {{1}} tipo de inmueble, {{2}} portal, {{3}} monto "hasta" en millones.
+# Plantilla de apertura aprobada por Meta.
+#   massi_apertura_a (deprecada): 3 variables (tipo, portal, monto).
+#   massi_apertura_b (actual):    1 variable ({{1}} = vendiendo | arrendando | publicando).
 PLANTILLA_APERTURA = os.environ.get("META_PLANTILLA_APERTURA", "")
 PLANTILLA_IDIOMA = os.environ.get("META_PLANTILLA_IDIOMA", "es_CO")
 
@@ -419,25 +420,56 @@ def send_paz_salvo_recordatorio(to, nombre_corto, dia):
     return send_text(to, cuerpo)
 
 
-def send_plantilla_apertura(to, tipo, portal, monto_hasta):
+def send_plantilla_apertura(to, tipo=None, portal=None, monto_hasta=None, operacion=None):
+    """Envía la plantilla de apertura aprobada.
+
+    Soporta las dos plantillas vigentes según el nombre configurado en el
+    env var META_PLANTILLA_APERTURA:
+      - massi_apertura_b (actual): 1 variable → {{1}} = operación en gerundio
+        (vendiendo / arrendando / publicando).
+      - massi_apertura_a (deprecada): 3 variables (tipo, portal, monto).
+
+    Los argumentos `tipo`, `portal`, `monto_hasta` quedan por compatibilidad
+    con los callsites que todavía los pasan; se usan sólo si estamos en la
+    plantilla vieja. En la nueva, importa `operacion`.
+    """
+    nombre = PLANTILLA_APERTURA or ""
+    es_nueva = nombre.endswith("_b") or "apertura_b" in nombre
+
+    if es_nueva:
+        op = (operacion or _inferir_operacion(portal)).strip() or "publicando"
+        parameters = [{"type": "text", "text": op}]
+        resumen = f"[PLANTILLA {nombre}] operación={op}"
+    else:
+        monto_txt = f"{monto_hasta:,}".replace(",", ".") if monto_hasta else "0"
+        parameters = [
+            {"type": "text", "text": tipo or "inmueble"},
+            {"type": "text", "text": portal or "internet"},
+            {"type": "text", "text": monto_txt},
+        ]
+        resumen = f"[PLANTILLA {nombre}] {tipo} en {portal}, hasta ${monto_hasta}M"
+
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "template",
         "template": {
-            "name": PLANTILLA_APERTURA,
+            "name": nombre,
             "language": {"code": PLANTILLA_IDIOMA},
-            "components": [{
-                "type": "body",
-                "parameters": [
-                    {"type": "text", "text": tipo},
-                    {"type": "text", "text": portal or "internet"},
-                    {"type": "text", "text": f"{monto_hasta:,}".replace(",", ".")},
-                ],
-            }],
+            "components": [{"type": "body", "parameters": parameters}],
         },
     }
-    return _dispatch(payload, f"[PLANTILLA {PLANTILLA_APERTURA}] {tipo} en {portal}, hasta ${monto_hasta}M")
+    return _dispatch(payload, resumen)
+
+
+def _inferir_operacion(portal_u_url):
+    """Deduce vendiendo / arrendando / publicando desde un portal o URL."""
+    s = (portal_u_url or "").lower()
+    if "arriendo" in s or "arrendar" in s or "renta" in s:
+        return "arrendando"
+    if "venta" in s or "vender" in s or "compra" in s:
+        return "vendiendo"
+    return "publicando"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
