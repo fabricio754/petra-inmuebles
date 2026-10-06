@@ -150,10 +150,10 @@
               {
                 "type": "TextInput",
                 "name": "avaluo",
-                "label": "Avalúo comercial (COP)",
+                "label": "Avalúo en millones (COP)",
                 "input-type": "number",
                 "required": true,
-                "helper-text": "Lo que crees que vale tu inmueble en el mercado. Ej: 350000000"
+                "helper-text": "Ej: 350 = $350.000.000. Lo que crees que vale tu inmueble."
               },
               {
                 "type": "TextCaption",

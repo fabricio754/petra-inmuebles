@@ -129,20 +129,21 @@ _TIPOS_RESIDENCIAL = {"apartamento", "casa", "parqueadero", "habitacion"}
 
 
 def _calcular_monto_estimado(data, avaluo_raw):
-    """Guarda el avalúo en data y devuelve el monto estimado en millones (int)
-    o None si no se pudo leer el avalúo."""
+    """El Flow pide el avalúo EN MILLONES (más fácil para el usuario en el
+    teclado de un celular). Guardamos el avalúo en pesos y devolvemos el
+    monto estimado también en millones (int) o None si no se pudo leer."""
     import re as _re
     digitos = _re.sub(r"\D", "", str(avaluo_raw or ""))
     if not digitos:
         return None
     try:
-        avaluo = int(digitos)
+        avaluo_m = int(digitos)
     except ValueError:
         return None
-    data["avaluo_comercial"] = avaluo
+    data["avaluo_comercial"] = avaluo_m * 1_000_000  # a pesos para la DB
     tipo = str(data.get("tipo_inmueble") or data.get("tipo") or "").lower()
     pct = 0.40 if tipo in _TIPOS_RESIDENCIAL else 0.30
-    return int(avaluo * pct // 1_000_000)
+    return int(avaluo_m * pct)
 
 
 def _iniciar(phone):
