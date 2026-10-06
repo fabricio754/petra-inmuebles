@@ -286,6 +286,65 @@ def admin_clean_pilot():
     return jsonify({"truncated": list(tablas), "filas_antes": counts})
 
 
+@app.post("/admin/recovery-pilot")
+def admin_recovery_pilot():
+    """Recupera mensajes IN que no se guardaron entre 12:14-12:32 UTC del
+    6-oct-2026 por saturación del pool. Inserta en `mensajes` y marca
+    opt-out para quienes dijeron NO ME INTERESA.
+    Idempotente: no inserta duplicados (dedupa por telefono+fecha).
+    Auth: header X-Admin-Token.
+    """
+    token = request.headers.get("X-Admin-Token", "")
+    if not ADMIN_RESET_TOKEN or token != ADMIN_RESET_TOKEN:
+        return jsonify({"error": "no_autorizado"}), 401
+
+    mensajes_perdidos = [
+        ("573124599054", "template_button", "No me interesa", "2026-10-06 12:16:17.214288+00"),
+        ("573115754778", "template_button", "No me interesa", "2026-10-06 12:16:17.245562+00"),
+        ("573115754778", "template_button", "No me interesa", "2026-10-06 12:16:40.388952+00"),
+        ("573145434199", "text", "¡Hola! Soy Sandra jurado ¿como puedo ayudarte?", "2026-10-06 12:20:53.265539+00"),
+        ("573145434199", "text", "Gracias por tu mensaje. En este momento no podemos responder, pero lo haremos lo antes posible.", "2026-10-06 12:20:58.290448+00"),
+        ("573124599054", "template_button", "No me interesa", "2026-10-06 12:21:17.915545+00"),
+        ("573145434199", "text", "¡Hola! Soy Sandra jurado ¿como puedo ayudarte?", "2026-10-06 12:26:34.813158+00"),
+        ("573124599054", "template_button", "No me interesa", "2026-10-06 12:29:58.736947+00"),
+        ("573224485315", "text", "Gracias por tu mensaje. En este momento no podemos responder. Nuestros horarios de atención son de 8am a 12:30pm - 2pm a 5:30pm de lunes a viernes. 8am a 12:30pm sábado.", "2026-10-06 12:31:13.752439+00"),
+        ("573138620885", "text", "", "2026-10-06 12:31:30.481171+00"),
+        ("573224485315", "text", "Gracias por tu mensaje. En este momento no podemos responder.", "2026-10-06 12:31:52.546270+00"),
+        ("573138620885", "text", "", "2026-10-06 12:31:53.762960+00"),
+    ]
+    opt_outs = ["573124599054", "573115754778"]
+
+    from app import db as _db, state as _state
+    insertadas = 0
+    saltadas = 0
+    with _db._conexion() as conn:
+        for tel, tipo, resumen, fecha in mensajes_perdidos:
+            dup = conn.execute(
+                "SELECT 1 FROM mensajes WHERE telefono=%s AND fecha=%s::timestamptz",
+                (tel, fecha),
+            ).fetchone()
+            if dup:
+                saltadas += 1
+                continue
+            conn.execute(
+                "INSERT INTO mensajes (telefono, direccion, tipo, resumen, fecha) "
+                "VALUES (%s, 'in', %s, %s, %s::timestamptz)",
+                (tel, tipo, resumen[:4000], fecha),
+            )
+            insertadas += 1
+
+    for tel in opt_outs:
+        _state.set_no_contactar(tel, True)
+
+    log.info("[Admin] recovery-pilot: %d insertadas, %d saltadas, %d opt-outs",
+             insertadas, saltadas, len(opt_outs))
+    return jsonify({
+        "insertadas": insertadas,
+        "saltadas_duplicado": saltadas,
+        "opt_outs": opt_outs,
+    })
+
+
 @app.post("/scraper/ingest")
 def scraper_ingest():
     """Recibe contactos crudos del actor Apify y los procesa con _guardar.
