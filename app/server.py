@@ -248,6 +248,36 @@ def admin_reset_sesion():
     return jsonify({"sesion_eliminada": deleted, "template": "enviado", "tipo": tipo, "monto": monto})
 
 
+@app.post("/admin/clean-pilot")
+def admin_clean_pilot():
+    """Trunca tablas operativas (contactos, sesiones, pipeline, documentos,
+    remarketing, mensajes, leads) para arrancar un piloto desde cero.
+    No toca schema ni la tabla `meta`.
+
+    Auth: header X-Admin-Token.
+    """
+    token = request.headers.get("X-Admin-Token", "")
+    if not ADMIN_RESET_TOKEN or token != ADMIN_RESET_TOKEN:
+        return jsonify({"error": "no_autorizado"}), 401
+
+    from app import db as _db
+    tablas = ("contactos", "sesiones", "pipeline", "documentos",
+              "remarketing", "mensajes", "leads")
+    counts = {}
+    with _db._conexion() as conn:
+        for t in tablas:
+            try:
+                before = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+            except Exception:
+                before = -1
+            counts[t] = before
+        conn.execute(
+            "TRUNCATE " + ", ".join(tablas) + " RESTART IDENTITY CASCADE"
+        )
+    log.info("[Admin] clean-pilot ejecutado. Filas antes: %s", counts)
+    return jsonify({"truncated": list(tablas), "filas_antes": counts})
+
+
 @app.post("/scraper/ingest")
 def scraper_ingest():
     """Recibe contactos crudos del actor Apify y los procesa con _guardar.
