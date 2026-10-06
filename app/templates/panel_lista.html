@@ -143,7 +143,10 @@
       </td>
       <td><span class="estado estado-{{ f.estado.split(':')[0] }}">{{ f.estado }}</span></td>
       <td>
-        {% if f.resultado_contacto %}
+        {# Solo contamos cierre humano cuando resultado_contacto_por está:
+           la columna resultado_contacto preexiste con valores automáticos
+           del bot (plantilla_enviada, en_flujo, …) que no son un cierre. #}
+        {% if f.resultado_contacto_por %}
           <span class="badge-resultado badge-{{ f.resultado_contacto }}">
             {{ labels_resultado.get(f.resultado_contacto, f.resultado_contacto) }}
           </span>
