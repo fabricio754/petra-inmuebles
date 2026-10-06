@@ -164,8 +164,9 @@ def save_pipeline(data):
             "INSERT INTO pipeline "
             "(telefono, nombre, cedula, edad, email, direccion_inmueble, ciudad, "
             "tipo_inmueble, estrato, es_ph, objetivo_prestamo, valor_solicitado, "
+            "avaluo_comercial, "
             "requiere_paz_salvo, autorizacion_datos_en, estado) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 data.get("telefono"),
                 data.get("nombre"),
@@ -179,6 +180,7 @@ def save_pipeline(data):
                 data.get("es_ph"),
                 data.get("objetivo_prestamo"),
                 data.get("valor_solicitado"),
+                data.get("avaluo_comercial"),
                 bool(data.get("requiere_paz_salvo", False)),
                 data.get("autorizacion_datos_en"),
                 data.get("estado", "NUEVO"),

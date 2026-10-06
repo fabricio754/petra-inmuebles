@@ -155,12 +155,22 @@ def send_form_requisitos(to, repetir=False):
     return _flow(to, FLOW_REQUISITOS_ID, "REQUISITOS", cuerpo, "Empezar", "[FORM REQUISITOS]")
 
 
-def send_form_datos(to, repetir=False):
-    cuerpo = (
-        "Toca el botón para continuar." if repetir else
-        "🎉 ¡Excelente! Tu inmueble cumple con los requisitos para el crédito.\n\n"
-        "Falta un último paso: tus datos para enviar la solicitud a Sureti."
-    )
+def send_form_datos(to, repetir=False, monto_estimado_m=None):
+    if repetir:
+        cuerpo = "Toca el botón para continuar."
+    elif monto_estimado_m:
+        monto_fmt = f"{int(monto_estimado_m):,}".replace(",", ".")
+        cuerpo = (
+            f"🎉 ¡Excelente! Tu inmueble aplica.\n\n"
+            f"Según el avalúo que nos diste, podríamos prestarte hasta "
+            f"**${monto_fmt} millones**.\n\n"
+            "Falta un último paso: tus datos para enviar la solicitud a Sureti."
+        )
+    else:
+        cuerpo = (
+            "🎉 ¡Excelente! Tu inmueble cumple con los requisitos para el crédito.\n\n"
+            "Falta un último paso: tus datos para enviar la solicitud a Sureti."
+        )
     return _flow(to, FLOW_DATOS_ID, "DATOS", cuerpo, "Último paso", "[FORM DATOS]")
 
 

@@ -144,6 +144,18 @@
                 ]
               },
               {
+                "type": "TextSubheading",
+                "text": "💵 Valor del inmueble"
+              },
+              {
+                "type": "TextInput",
+                "name": "avaluo",
+                "label": "Avalúo comercial (COP)",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "Lo que crees que vale tu inmueble en el mercado. Ej: 350000000"
+              },
+              {
                 "type": "TextCaption",
                 "text": "🔒 Tus respuestas solo se usan para evaluar tu solicitud."
               },
@@ -162,7 +174,8 @@
                     "hipoteca": "${form.hipoteca}",
                     "patrimonio": "${form.patrimonio}",
                     "edad": "${form.edad}",
-                    "paz_salvo": "${form.paz_salvo}"
+                    "paz_salvo": "${form.paz_salvo}",
+                    "avaluo": "${form.avaluo}"
                   }
                 }
               }
