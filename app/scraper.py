@@ -294,6 +294,18 @@ def _guardar(portal: str, telefono_raw: str, **campos) -> bool:
     barrio = campos.get("barrio") or ""
     nombre = campos.get("nombre") or ""
 
+    # Filtro extra por patrones semanticos (inmobiliaria/agencia/asesor/...)
+    # contra nombre del anunciante, nombre del contacto y URL.
+    from app import filtros
+    texto_para_detectar = " ".join([
+        str(anunciante.get("nombre") or ""),
+        str(nombre or ""),
+        str(url or ""),
+    ])
+    if filtros.es_broker(texto_para_detectar):
+        log.info("[Guardar] broker detectado por patron: %s", texto_para_detectar[:100])
+        return False
+
     ciudad = _buscar(CIUDADES, ciudad_raw, url, direccion, barrio, nombre)
     if not ciudad:
         log.info("[Guardar] ciudad no encontrada: ciudad_raw=%r url=%r", ciudad_raw, url[:80])
