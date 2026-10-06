@@ -21,8 +21,11 @@ ZONAS_EXCLUIDAS = ("san cristobal", "ciudad bolivar")
 TIPOS = {
     "apartamento": "apartamento", "apartaestudio": "apartamento", "casa": "casa",
     "local": "local", "oficina": "oficina", "bodega": "bodega", "lote": "lote",
+    # Un parqueadero publicado implica que el dueño tiene un apartamento en el
+    # mismo conjunto; lo tratamos como señal de propietario residencial.
+    "parqueadero": "parqueadero",
 }
-RESIDENCIAL = {"apartamento", "casa"}
+RESIDENCIAL = {"apartamento", "casa", "parqueadero"}
 PORCENTAJE = {"residencial": 0.40, "comercial": 0.30}
 # Rango de crédito de Sureti, en millones.
 MONTO_MIN_M, MONTO_MAX_M = 20, 800
