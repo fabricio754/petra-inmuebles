@@ -296,53 +296,70 @@ jobs:
               print("[Batch] No hay filas validas para enviar. Salida sin error.")
               sys.exit(0)
 
-          # ── UN SOLO POST con el array completo ──────────────────────────────────────────
+          # ── POSTs en chunks de 50 items ─────────────────────────────────────────────────
+          # El handler procesa los inserts en serie dentro de la request HTTP; con 200+
+          # items un solo POST tarda >100s y el edge proxy de Render devuelve 502 antes
+          # de terminar. Dividimos client-side en chunks de 50 (~25-30s por POST), bien
+          # bajo el límite del proxy.
+          CHUNK_SIZE   = 50
+          total_items  = len(batch)
+          total_chunks = (total_items + CHUNK_SIZE - 1) // CHUNK_SIZE
+          saved_total  = 0
+          total_server = 0
+
           print()
-          print(f"[Batch] Enviando batch de {len(batch)} items a {INGEST_URL} ...")
-          try:
-              resp = requests.post(
-                  INGEST_URL,
-                  json=batch,
-                  headers={
-                      "X-Ingest-Token": INGEST_TOKEN,
-                      "Content-Type":   "application/json",
-                  },
-                  timeout=180,
-              )
-          except Exception as exc:
-              print(f"[Batch] ERROR de red: {exc}", file=sys.stderr)
-              sys.exit(1)
+          print(f"[Batch] Enviando {total_items} items en {total_chunks} chunks de hasta {CHUNK_SIZE} a {INGEST_URL} ...")
 
-          print(f"[Batch] Respuesta HTTP {resp.status_code}")
-          print(f"[Batch] Body: {resp.text[:1000]}")
+          for i in range(0, total_items, CHUNK_SIZE):
+              chunk     = batch[i:i + CHUNK_SIZE]
+              chunk_idx = i // CHUNK_SIZE + 1
+              print(f"[Batch chunk {chunk_idx}/{total_chunks}] Enviando {len(chunk)} items (acumulado {i + len(chunk)}/{total_items})...")
+              try:
+                  resp = requests.post(
+                      INGEST_URL,
+                      json=chunk,
+                      headers={
+                          "X-Ingest-Token": INGEST_TOKEN,
+                          "Content-Type":   "application/json",
+                      },
+                      timeout=90,
+                  )
+              except Exception as exc:
+                  print(f"[Batch chunk {chunk_idx}] ERROR de red: {exc}", file=sys.stderr)
+                  sys.exit(1)
 
-          if resp.status_code == 401:
-              print("[Batch] ERROR 401 (token invalido)", file=sys.stderr)
-              sys.exit(1)
-          if resp.status_code != 200:
-              print(f"[Batch] ERROR HTTP {resp.status_code}", file=sys.stderr)
-              sys.exit(1)
+              print(f"[Batch chunk {chunk_idx}] HTTP {resp.status_code}: {resp.text[:200]}")
 
-          try:
-              result = resp.json()
-          except Exception:
-              print("[Batch] ERROR: respuesta no es JSON valido", file=sys.stderr)
-              sys.exit(1)
+              if resp.status_code == 401:
+                  print(f"[Batch chunk {chunk_idx}] ERROR 401 (token invalido), abortando.", file=sys.stderr)
+                  sys.exit(1)
+              if resp.status_code >= 300:
+                  print(f"[Batch chunk {chunk_idx}] ERROR HTTP {resp.status_code}, abortando.", file=sys.stderr)
+                  sys.exit(1)
 
-          saved = result.get("saved", 0)
-          total = result.get("total", len(batch))
-          duplicados = max(0, total - saved)
+              try:
+                  result = resp.json()
+              except Exception:
+                  print(f"[Batch chunk {chunk_idx}] ERROR: respuesta no es JSON valido", file=sys.stderr)
+                  sys.exit(1)
+
+              chunk_saved = result.get("saved", 0)
+              chunk_total = result.get("total", len(chunk))
+              saved_total  += chunk_saved
+              total_server += chunk_total
+
+          duplicados = max(0, total_server - saved_total)
 
           print()
           print("=" * 50)
-          print(f"Enviados             : {len(batch)}")
-          print(f"Guardados (nuevos)   : {saved}")
+          print(f"Enviados             : {total_items}")
+          print(f"Guardados (nuevos)   : {saved_total}")
           print(f"Duplicados/omitidos  : {duplicados}")
           print(f"Sin teléfono válido  : {n_skip_tel}")
           print(f"Total filas          : {len(rows)}")
           print("=" * 50)
 
-          if saved == 0 and duplicados == 0:
+          if saved_total == 0 and duplicados == 0:
               # Ni guardados ni duplicados ⇒ el handler fallo con cada item
               sys.exit(1)
           PYEOF
