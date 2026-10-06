@@ -125,7 +125,6 @@ def _flow(to, flow_id, screen, cuerpo, cta, resumen):
         "interactive": {
             "type": "flow",
             "body": {"text": cuerpo},
-            "footer": {"text": "Massi"},
             "action": {
                 "name": "flow",
                 "parameters": {
