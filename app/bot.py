@@ -12,11 +12,13 @@ import logging
 import re
 import unicodedata
 
-from app import state, whatsapp
+from app import filtros, state, whatsapp
 
 _log = logging.getLogger("petra")
 
-# Palabras que en cualquier momento significan "no quiero más mensajes".
+# Deprecated: usar `filtros.es_opt_out(texto)` (incluye estas palabras + patrones
+# semanticos: "no me interesa", "ya no esta disponible", "numero equivocado", ...).
+# Se mantiene aqui solo como referencia; nadie debe leerlo.
 OPT_OUT_KEYWORDS = {"STOP", "BAJA", "SALIR", "PARA"}
 
 # Palabras que indican solicitud de atención humana (se buscan sin tildes).
@@ -555,8 +557,17 @@ def handle_incoming(phone, event):
         state.marcar_respuesta(phone, "interesado")
         return [_iniciar(phone)]
 
-    # Salir en cualquier momento (STOP, BAJA, SALIR, PARA).
-    if event["type"] == "text" and resp in OPT_OUT_KEYWORDS:
+    # Broker / inmobiliaria / auto-reply del otro lado: marcamos no_contactar
+    # y dejamos la conversacion muerta (sin responder nada).
+    if event["type"] == "text" and filtros.es_broker(event["text"]):
+        _log.info("[Bot] broker detectado por patron, no respondemos: phone=%s", phone)
+        state.set_no_contactar(phone, True)
+        _terminar(phone)
+        return []
+
+    # Salir en cualquier momento: STOP/BAJA/SALIR/PARA + opt-outs semanticos
+    # ("no me interesa", "ya no esta disponible", "numero equivocado", ...).
+    if event["type"] == "text" and filtros.es_opt_out(event["text"]):
         state.set_no_contactar(phone, True)
         _terminar(phone)
         return [whatsapp.send_no_contactar(phone)]
