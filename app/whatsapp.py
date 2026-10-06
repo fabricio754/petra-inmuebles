@@ -505,3 +505,55 @@ def send_human_handoff(to: str):
         to,
         "Entendido, un asesor te contactará pronto. Tu caso está registrado. ☎️",
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Descarga de media (Cloud API)
+#
+# Hoy perdimos audios porque el bot solo persistía text/button/flow. Para
+# recibir audios/imágenes/videos/documentos/stickers hay que:
+#   1. Resolver la URL temporal del binario con GET /{media_id}.
+#   2. Descargar el binario con el mismo Bearer token.
+# Ambas llamadas requieren META_ACCESS_TOKEN y van al host de la Cloud API
+# (graph.facebook.com, misma versión que el resto del módulo).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_media_url(media_id: str) -> dict:
+    """GET https://graph.facebook.com/{version}/{media_id}.
+
+    Devuelve el JSON con {url, mime_type, sha256, file_size, ...}. La URL que
+    devuelve es temporal (válida ~5 min) y requiere `Authorization: Bearer
+    <TOKEN>` para descargarla. Lanza en caso de error HTTP.
+    """
+    if not ACCESS_TOKEN:
+        raise RuntimeError("META_ACCESS_TOKEN no configurado")
+    r = requests.get(
+        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{media_id}",
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+def descargar_media(media_id: str, destino: str) -> dict:
+    """Descarga el `media_id` a la ruta local `destino` (streaming).
+
+    Devuelve la metadata (dict con mime_type, file_size, sha256, ...) obtenida
+    de la Cloud API. Lanza en caso de error HTTP o de E/S — el caller decide
+    si registrar o no el mensaje aunque la descarga falle.
+    """
+    meta = get_media_url(media_id)
+    url = meta["url"]
+    r = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+        timeout=30,
+        stream=True,
+    )
+    r.raise_for_status()
+    with open(destino, "wb") as f:
+        for chunk in r.iter_content(8192):
+            if chunk:
+                f.write(chunk)
+    return meta

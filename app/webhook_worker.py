@@ -414,6 +414,14 @@ def _procesar_mensaje(phone, event, message=None):
     """Antes vivía en server.py como `_procesar_mensaje_async`. Loggea el
     mensaje IN en `mensajes`, descarga media si aplica, y pasa el evento al
     bot. Si falla, el caller (_procesar_fila) marca la fila como fallo."""
+    # Media: audio/image/video/document/sticker. Son los únicos tipos cuyo
+    # payload de DB depende del resultado de la descarga, así que se persisten
+    # DESPUÉS de bajar el archivo (ver _procesar_media_in). Si llegara un media
+    # sin media_id (edge case), cae al logging normal de abajo.
+    if event.get("type") == "media" and event.get("media_id"):
+        _procesar_media_in(phone, event, message)
+        return
+
     try:
         _resumen_in = (event.get("text")
                        or event.get("id")
@@ -425,15 +433,178 @@ def _procesar_mensaje(phone, event, message=None):
     except Exception:
         log.exception("No se pudo registrar mensaje entrante.")
 
-    if event["type"] == "media":
-        from app import media as media_mod, whatsapp as wa
-        mime = event["mime_type"]
-        if mime not in media_mod.MIME_SOPORTADOS:
-            wa.send_tipo_doc_invalido(phone)
-            return
-        ruta = media_mod.download_and_save(phone, event["media_id"], mime)
-        media_mod.registrar(phone, event["media_id"], mime, ruta)
-        event["ruta_local"] = ruta
-
     from app import bot
     bot.handle_incoming(phone, event)
+
+
+# ----------------------------------------------------------------------------
+# Media entrante (audio/image/video/document/sticker)
+# ----------------------------------------------------------------------------
+
+# Mapeo mime → extensión para armar el nombre de archivo. Si el mime no está
+# acá, cae a `.bin` (el panel igual sirve el archivo con su Content-Type).
+_MEDIA_EXT = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "audio/ogg": ".ogg",
+    "audio/opus": ".opus",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/mp4": ".m4a",
+    "audio/aac": ".aac",
+    "audio/amr": ".amr",
+    "video/mp4": ".mp4",
+    "video/3gp": ".3gp",
+    "video/3gpp": ".3gp",
+    "video/quicktime": ".mov",
+    "application/pdf": ".pdf",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/zip": ".zip",
+    "text/plain": ".txt",
+}
+
+# Carpeta en disco donde se guardan los binarios. En Render `/var/data/media`
+# es un disco persistente (ver render.yaml); fuera de Render se puede sobrescribir
+# con la env var MEDIA_DIR.
+MEDIA_DIR = os.environ.get("MEDIA_DIR", "/var/data/media/wa")
+
+
+def _extension_para_mime(mime: str) -> str:
+    if not mime:
+        return ".bin"
+    mime = mime.split(";", 1)[0].strip().lower()
+    return _MEDIA_EXT.get(mime, ".bin")
+
+
+def _resumen_media(subtipo: str, caption: str, voice: bool) -> str:
+    """Texto corto para la columna `resumen` del panel."""
+    cap = (caption or "").strip()
+    if cap:
+        return cap[:4000]
+    if subtipo == "audio":
+        return "[nota de voz]" if voice else "[audio]"
+    if subtipo == "image":
+        return "[imagen]"
+    if subtipo == "video":
+        return "[video]"
+    if subtipo == "sticker":
+        return "[sticker]"
+    if subtipo == "document":
+        return "[documento]"
+    return f"[{subtipo}]"
+
+
+def _descargar_media_a_disco(wa_msg_id: str, media_id: str, mime: str):
+    """Descarga el media a MEDIA_DIR. Devuelve (local_path, size, meta).
+
+    Si la descarga falla loguea y devuelve (None, None, None) — el mensaje
+    debe quedar en DB aunque no tengamos el binario (reintentable después).
+    """
+    from app import whatsapp as wa
+    try:
+        os.makedirs(MEDIA_DIR, exist_ok=True)
+    except Exception:
+        log.exception("[Media IN] No se pudo crear MEDIA_DIR=%s", MEDIA_DIR)
+        return None, None, None
+
+    ext = _extension_para_mime(mime)
+    nombre_base = wa_msg_id or f"m-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
+    # wa_msg_id trae wamid.* con '.' y chars seguros, pero defensivo: evitar
+    # separadores de ruta por si cambia el formato.
+    nombre_base = nombre_base.replace("/", "_").replace("\\", "_")
+    destino = os.path.join(MEDIA_DIR, f"{nombre_base}{ext}")
+    try:
+        meta = wa.descargar_media(media_id, destino)
+        size = os.path.getsize(destino) if os.path.exists(destino) else None
+        return destino, size, meta
+    except Exception:
+        log.exception("[Media IN] Error descargando media_id=%s (mime=%s)",
+                      media_id, mime)
+        # Si quedó un archivo a medio bajar, limpiarlo para no servir basura.
+        try:
+            if os.path.exists(destino):
+                os.remove(destino)
+        except Exception:
+            pass
+        return None, None, None
+
+
+def _procesar_media_in(phone, event, message):
+    """Handler nuevo para audio/image/video/document/sticker entrantes.
+
+    1. Descarga el binario a disco (si Meta responde).
+    2. Persiste la fila en `mensajes` con tipo=<subtipo> y payload con todo
+       lo necesario para que el panel pueda servir el archivo.
+    3. Si el contacto está bloqueado (`no_contactar=true`), no responde.
+    4. Marca `requiere_humano=true` y manda alerta WA a los asesores
+       configurados en `ALERTAS_WHATSAPP` (reusa `_enviar_alerta_lead_caliente`).
+    5. Responde al cliente una confirmación corta.
+    """
+    subtipo = event.get("media_subtipo") or "media"
+    media_id = event.get("media_id") or ""
+    mime = event.get("mime_type") or ""
+    caption = event.get("caption") or ""
+    voice = bool(event.get("voice", False))
+    filename = event.get("filename") or ""
+    wa_msg_id = (message or {}).get("id") or ""
+
+    local_path, size, meta = _descargar_media_a_disco(wa_msg_id, media_id, mime)
+
+    payload = {
+        "wa_msg_id": wa_msg_id,
+        "media_id": media_id,
+        "mime": mime,
+        "local_path": local_path,
+        "caption": caption,
+        "voice": voice,
+        "filename": filename,
+        "size": size,
+        "sha256": (meta or {}).get("sha256"),
+        "subtipo": subtipo,
+    }
+    resumen = _resumen_media(subtipo, caption, voice)
+    try:
+        db.log_mensaje(phone, "in", subtipo, resumen, payload)
+    except Exception:
+        log.exception("[Media IN] No se pudo registrar mensaje de %s", phone)
+
+    # Opt-out tiene precedencia absoluta: no respondemos NADA al bloqueado.
+    try:
+        if db.esta_bloqueado(phone):
+            log.info("[Media IN] %s con no_contactar=true, no respondo", phone)
+            return
+    except Exception:
+        log.exception("[Media IN] Error consultando esta_bloqueado(%s)", phone)
+
+    # Marcar como requiere_humano (idempotente) y disparar alerta solo si es
+    # la primera vez — reusa el canal de alerta WA que ya tiene bot.py.
+    motivo = f"envio {subtipo}: {(caption or '')[:100]}"
+    marco_nuevo = False
+    try:
+        marco_nuevo = db.marcar_requiere_humano(phone, motivo)
+    except Exception:
+        log.exception("[Media IN] Error marcando requiere_humano para %s", phone)
+
+    try:
+        from app import bot
+        if marco_nuevo:
+            bot._enviar_alerta_lead_caliente(phone, resumen)
+    except Exception:
+        log.exception("[Media IN] Error disparando alerta lead caliente para %s", phone)
+
+    # Confirmación corta al cliente. Sin tildes en el mensaje para mantener
+    # consistencia con el resto de outs del bot al usuario.
+    try:
+        from app import whatsapp as wa
+        wa.send_text(
+            phone,
+            "Recibimos tu mensaje! Un asesor te respondera por este chat.",
+        )
+    except Exception:
+        log.exception("[Media IN] Error enviando confirmacion a %s", phone)

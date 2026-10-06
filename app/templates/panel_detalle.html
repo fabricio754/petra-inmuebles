@@ -243,6 +243,30 @@
             {% if m.flow_lineas %}
               <strong>Flow reply:</strong>
               <ul>{% for l in m.flow_lineas %}<li>{{ l }}</li>{% endfor %}</ul>
+            {% elif m.media %}
+              {% if not m.media.disponible %}
+                <span class="media-nd">[{{ m.media.kind }} no disponible]</span>
+              {% elif m.media.kind == 'audio' %}
+                <audio controls preload="none" src="/panel/media/{{ m.id }}?token={{ token }}"></audio>
+                {% if m.media.voice %}<div class="meta">nota de voz</div>{% endif %}
+              {% elif m.media.kind == 'image' %}
+                <a href="/panel/media/{{ m.id }}?token={{ token }}" target="_blank" rel="noopener">
+                  <img src="/panel/media/{{ m.id }}?token={{ token }}" style="max-width:300px;max-height:300px;display:block;border-radius:6px" alt="imagen">
+                </a>
+              {% elif m.media.kind == 'video' %}
+                <video controls preload="none" style="max-width:300px;max-height:300px">
+                  <source src="/panel/media/{{ m.id }}?token={{ token }}" type="{{ m.media.mime }}">
+                </video>
+              {% elif m.media.kind == 'document' %}
+                <a href="/panel/media/{{ m.id }}?token={{ token }}" download>
+                  &#128206; {{ m.media.filename or m.media.caption or 'documento' }}
+                </a>
+              {% elif m.media.kind == 'sticker' %}
+                <img src="/panel/media/{{ m.id }}?token={{ token }}" style="max-width:150px;max-height:150px;display:block" alt="sticker">
+              {% endif %}
+              {% if m.media.caption and m.media.kind != 'document' %}
+                <div class="media-caption">{{ m.media.caption }}</div>
+              {% endif %}
             {% else %}
               {{ m.resumen_render }}
             {% endif %}
