@@ -514,7 +514,10 @@ def panel_lista():
             return False
         if f_pendientes:
             # Pendientes de cerrar: ya los contactamos pero no hay cierre humano.
-            if not f.get("contactado") or f.get("resultado_contacto"):
+            # OJO: `resultado_contacto` puede traer valores viejos del bot
+            # (plantilla_enviada, en_flujo, …). Un cierre humano siempre deja
+            # `resultado_contacto_por` seteado — ese es el discriminador.
+            if not f.get("contactado") or f.get("resultado_contacto_por"):
                 return False
         if q:
             hay = " ".join([

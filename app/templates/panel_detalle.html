@@ -134,18 +134,26 @@
 <h1>
   {{ telefono }}
   <span class="estado estado-{{ estado.split(':')[0] }}">{{ estado }}</span>
-  {% if contacto and contacto.resultado_contacto %}
+  {# Solo mostramos badge de cierre si hay cierre humano registrado
+     (resultado_contacto_por != NULL). La columna resultado_contacto por sí
+     sola puede traer valores viejos automáticos del bot. #}
+  {% if contacto and contacto.resultado_contacto_por %}
     <span class="badge-resultado badge-{{ contacto.resultado_contacto }}">
       {{ labels_resultado.get(contacto.resultado_contacto, contacto.resultado_contacto) }}
       {% if contacto.resultado_contacto_at %}
         <small>— {{ contacto.resultado_contacto_at.strftime('%Y-%m-%d %H:%M') }}</small>
       {% endif %}
-      {% if contacto.resultado_contacto_por %}
-        <small>por {{ contacto.resultado_contacto_por }}</small>
-      {% endif %}
+      <small>por {{ contacto.resultado_contacto_por }}</small>
     </span>
   {% endif %}
 </h1>
+{% if contacto and contacto.resultado_contacto and not contacto.resultado_contacto_por %}
+  <p class="nota">
+    <small>Estado automático del bot:
+      <code>{{ contacto.resultado_contacto }}</code>
+    </small>
+  </p>
+{% endif %}
 
 {% if flash == 'accion_ok' %}
   <p class="nota ok">Acción registrada.</p>
