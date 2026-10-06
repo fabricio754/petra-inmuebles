@@ -312,7 +312,10 @@ def admin_recovery_pilot():
         ("573224485315", "text", "Gracias por tu mensaje. En este momento no podemos responder.", "2026-10-06 12:31:52.546270+00"),
         ("573138620885", "text", "", "2026-10-06 12:31:53.762960+00"),
     ]
-    opt_outs = ["573124599054", "573115754778"]
+    opt_outs = [
+        "573124599054", "573115754778",   # Dijeron "No me interesa"
+        "573145434199", "573224485315",   # Bots auto-replicadores (Sandra, horario atención)
+    ]
 
     from app import db as _db, state as _state
     insertadas = 0
