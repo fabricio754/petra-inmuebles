@@ -212,3 +212,141 @@ def test_b1_funcion_reconstruir_devuelve_algo(wa_stubs, state_stub, monkeypatch)
 
     assert result is not None
     assert wa_stubs["send_form_requisitos"].calls
+
+
+# ---------- Pide llamada: lead caliente (piloto 6-oct) ----------------------
+
+def test_pide_llamada_marca_requiere_humano_y_responde(wa_stubs, state_stub, monkeypatch):
+    """Caso real: 573508463133 escribió 'Me pueden llamar?'. Debe marcar
+    requiere_humano, disparar alerta (es la 1ª vez), y responder la
+    confirmación corta. NO sigue flujo."""
+    phone = "573508463133"
+    import app.db as _db
+
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+
+    marco_calls = []
+
+    def _marcar(telefono, motivo):
+        marco_calls.append((telefono, motivo))
+        return True  # primera vez
+
+    monkeypatch.setattr(_db, "marcar_requiere_humano", _marcar)
+
+    alerta_calls = []
+    monkeypatch.setattr(
+        bot, "_enviar_alerta_lead_caliente",
+        lambda p, t: alerta_calls.append((p, t)),
+    )
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "Me pueden llamar?"})
+
+    # Marcó requiere_humano con motivo que incluye el texto original.
+    assert len(marco_calls) == 1
+    assert marco_calls[0][0] == phone
+    assert "Me pueden llamar" in marco_calls[0][1]
+
+    # Disparó la alerta externa (primera vez).
+    assert alerta_calls == [(phone, "Me pueden llamar?")]
+
+    # Respondió UNA sola vez con texto de confirmación.
+    assert len(out) == 1
+    assert len(wa_stubs["send_text"].calls) == 1
+    (args, _kw) = wa_stubs["send_text"].calls[0]
+    assert args[0] == phone
+    assert "asesor" in args[1].lower()
+
+
+def test_pide_llamada_segunda_vez_no_dispara_alerta(wa_stubs, state_stub, monkeypatch):
+    """Si marcar_requiere_humano devuelve False (ya estaba marcado), NO
+    disparar alerta otra vez; sí responder la confirmación."""
+    phone = "573508463133"
+    import app.db as _db
+
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+    monkeypatch.setattr(
+        _db, "marcar_requiere_humano",
+        lambda telefono, motivo: False,  # ya estaba marcado
+    )
+
+    alerta_calls = []
+    monkeypatch.setattr(
+        bot, "_enviar_alerta_lead_caliente",
+        lambda p, t: alerta_calls.append((p, t)),
+    )
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "Me pueden llamar?"})
+
+    # Alerta NO se dispara la segunda vez.
+    assert alerta_calls == []
+    # Pero sí re-respondemos la confirmación.
+    assert len(out) == 1
+    assert len(wa_stubs["send_text"].calls) == 1
+
+
+def test_bloqueado_tiene_precedencia_sobre_pide_llamada(wa_stubs, state_stub, monkeypatch):
+    """Guard esta_bloqueado tiene precedencia absoluta: si no_contactar=TRUE,
+    no respondemos NADA (ni confirmación) ni marcamos requiere_humano."""
+    phone = "573508463133"
+    import app.db as _db
+
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: True)
+
+    marco_calls = []
+
+    def _marcar(telefono, motivo):
+        marco_calls.append((telefono, motivo))
+        return True
+
+    monkeypatch.setattr(_db, "marcar_requiere_humano", _marcar)
+
+    alerta_calls = []
+    monkeypatch.setattr(
+        bot, "_enviar_alerta_lead_caliente",
+        lambda p, t: alerta_calls.append((p, t)),
+    )
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "Me pueden llamar?"})
+
+    assert out == []
+    assert marco_calls == []
+    assert alerta_calls == []
+    for name, f in wa_stubs.items():
+        assert f.calls == [], f"se envió {name} aun estando bloqueado"
+
+
+def test_pide_llamada_db_falla_no_rompe_handler(wa_stubs, state_stub, monkeypatch):
+    """Si la DB tira excepción al marcar, el bot sigue y responde igual la
+    confirmación (fail-open) sin disparar alerta (no sabemos si es nueva)."""
+    phone = "573000000003"
+    import app.db as _db
+
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+
+    def _boom(telefono, motivo):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(_db, "marcar_requiere_humano", _boom)
+
+    alerta_calls = []
+    monkeypatch.setattr(
+        bot, "_enviar_alerta_lead_caliente",
+        lambda p, t: alerta_calls.append((p, t)),
+    )
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "Me pueden llamar?"})
+
+    # Alerta NO se dispara si no supimos si era nueva.
+    assert alerta_calls == []
+    # Sí respondemos confirmación igual (no dejamos al user sin respuesta).
+    assert len(out) == 1
+    assert len(wa_stubs["send_text"].calls) == 1
+
+
+def test_enviar_alerta_lead_caliente_sin_env_no_rompe(monkeypatch):
+    """Si no hay ALERT_WEBHOOK_URL, la función solo logea; no debe lanzar
+    ni tocar la red."""
+    monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.setattr(bot, "ALERT_WEBHOOK_URL", "")
+    # No debe lanzar.
+    bot._enviar_alerta_lead_caliente("573000000000", "test")

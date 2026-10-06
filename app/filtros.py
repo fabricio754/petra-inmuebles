@@ -67,8 +67,29 @@ OPT_OUT_PATRONES = [
     r"borra(?:r|me) de (?:la )?(?:lista|base)",
 ]
 
+# Patrones que indican que el usuario quiere que lo llamen o hablar con un
+# humano. IMPORTANTE: aplicados sobre texto normalizado (lowercase sin
+# acentos), por eso NO llevan tildes ni enies. Por ejemplo "llámame" / "llamen"
+# / "llámenme" quedan como "llamame" / "llamen" / "llamenme" tras normalizar
+# y los cubre `\bllam[aeior]r\b` + `\bllamen(?:me|nos)?\b` + el match literal
+# del verbo "llam" en "me pueden llam..." .
+PEDIR_LLAMADA_PATRONES = [
+    r"\bllam[aeior]r\b",                          # llamar, llamarme, llamarnos (post-normalizar)
+    r"me (?:pueden|podrian|podrias|podria) llam",
+    r"\btelefono\b",                              # pide teléfono
+    r"numero (?:de |para )?(?:contact|llamar|hablar)",
+    r"con qui[e]?n hablo",
+    r"qui[e]?n (?:me )?(?:contesta|habla|atiende)",
+    r"\batender(?:me|nos)?\b",
+    r"necesito hablar",
+    r"quiero (?:que me )?llamen",
+    r"quiero hablar con (?:un[ao]? )?(?:asesor|humano|persona)",
+    r"hablar con (?:un[ao]? )?(?:asesor|humano|persona|alguien)",
+]
+
 BROKER_REGEX = [re.compile(p) for p in BROKER_PATRONES]
 OPT_OUT_REGEX = [re.compile(p) for p in OPT_OUT_PATRONES]
+PEDIR_LLAMADA_REGEX = [re.compile(p) for p in PEDIR_LLAMADA_PATRONES]
 
 
 def es_broker(texto: str) -> bool:
@@ -85,3 +106,16 @@ def es_opt_out(texto: str) -> bool:
     if not norm:
         return False
     return any(r.search(norm) for r in OPT_OUT_REGEX)
+
+
+def es_pedido_llamada(texto: str) -> bool:
+    """True si el texto pide ser llamado o hablar con un humano/asesor.
+
+    Casos reales del piloto 6-oct (lead 573508463133 que dijo tres veces "Me
+    pueden llamar?" y no se escaló a humano): esta señal es la que dispara el
+    routing a asesor y la alerta externa (ver `bot.handle_incoming`).
+    """
+    norm = _normalizar(texto)
+    if not norm:
+        return False
+    return any(r.search(norm) for r in PEDIR_LLAMADA_REGEX)

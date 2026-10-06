@@ -528,16 +528,42 @@ def marcar_comision_cobrada(pipeline_id: int) -> None:
         )
 
 
-def marcar_requiere_humano(telefono: str) -> None:
-    """Marca que este contacto requiere atención de un asesor humano."""
-    with _conexion() as conn:
-        conn.execute(
-            "UPDATE pipeline SET requires_human = TRUE "
-            "WHERE telefono = %s AND id = ("
-            "  SELECT id FROM pipeline WHERE telefono = %s ORDER BY fecha_ingreso DESC LIMIT 1"
-            ")",
-            (telefono, telefono),
+def marcar_requiere_humano(telefono: str, motivo: str) -> bool:
+    """Marca `contactos.requiere_humano = true` (idempotente).
+
+    Devuelve True si acabamos de marcarlo por primera vez, False si ya estaba
+    marcado. El caller usa el valor para decidir si disparar la alerta externa
+    (ver `bot._enviar_alerta_lead_caliente`): si ya estaba marcado, no vale la
+    pena re-notificar al asesor humano.
+
+    Usa `_conexion_directa` (bypass del pool) por los mismos motivos que
+    `guardar_contacto`: ruta de baja frecuencia y resistente al pool roto.
+    """
+    with _conexion_directa(timeout=10) as conn:
+        cur = conn.execute(
+            "UPDATE contactos SET requiere_humano = TRUE, "
+            "requiere_humano_motivo = %s, requiere_humano_at = NOW() "
+            "WHERE telefono = %s AND requiere_humano = FALSE",
+            (motivo, telefono),
         )
+        return cur.rowcount > 0
+
+
+def esta_requiere_humano(telefono: str) -> bool:
+    """True si el contacto ya está marcado como `requiere_humano`.
+
+    No lanza: si la DB falla devuelve False (fail-open como `esta_bloqueado`).
+    """
+    try:
+        with _conexion() as conn:
+            fila = conn.execute(
+                "SELECT requiere_humano FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+        return bool(fila and fila[0])
+    except Exception as exc:
+        log.warning("[esta_requiere_humano] no se pudo consultar (%s): %s", telefono, exc)
+        return False
 
 
 # === Remarketing paz y salvos (Hito 10) =====================================
