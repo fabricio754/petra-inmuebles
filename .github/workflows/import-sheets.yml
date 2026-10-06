@@ -6,7 +6,7 @@ on:
       sheet_id:
         description: "ID del Google Sheet (parte de la URL entre /d/ y /edit)"
         required: true
-        default: "1NDG1YAW1f9eD1Jp2lP0yQ57zNcI8PJkfRWihYC9_2Wk"
+        default: "1QzewQHKpzvBFyuUj33GJo6uPxKwOH3QvNLpk-w1lgwo"
       dry_run:
         description: "Si 'true', solo loguea filas sin hacer POST al endpoint"
         required: false
@@ -52,16 +52,33 @@ jobs:
           INGEST_URL = "https://petra-inmuebles.onrender.com/scraper/ingest"
           INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
 
-          # ── Columnas esperadas del sheet (case-insensitive, se busca por coincidencia parcial)
-          COL_TIPO      = "tipo inmueble"
+          # ── Columnas esperadas del sheet (case + accent-insensitive, coincidencia parcial)
+          # Keywords SIN acentos y en lowercase. find_col() también normaliza los headers del
+          # Sheet antes de comparar, así que "Teléfono" matchea "tel", "Vendiendo/Arrendando"
+          # matchea "arrend", etc.
+          COL_TIPO      = "tipo"       # "Tipo inmueble"
           COL_CIUDAD    = "ciudad"
-          COL_OPERACION = "venta/arriendo"
-          COL_ZONA      = "zona/conjunto"
-          COL_TEL       = "teléfono"
+          COL_OPERACION = "arrend"     # "Venta/Arriendo" o "Vendiendo/Arrendando"
+          COL_ZONA      = "zona"       # "Zona/Conjunto"
+          COL_TEL       = "tel"        # "Teléfono" o "Telefono"
           COL_TORRE     = "torre"
           COL_PISO      = "piso"
           COL_METROS    = "metros"
           COL_PARQ      = "parqueadero"
+
+          # ── Normalizar acentos para que find_col matchee "Teléfono" con "tel", etc. ────
+          def _sin_acentos(s):
+              import unicodedata
+              nfd = unicodedata.normalize("NFD", s or "")
+              return "".join(c for c in nfd if unicodedata.category(c) != "Mn").lower()
+
+          # ── Scanear la primera fila NO vacía para usarla como headers. El Sheet puede
+          #     tener filas vacías arriba (title, separador, etc).
+          def _detectar_headers(all_values):
+              for i, row in enumerate(all_values):
+                  if any(str(c).strip() for c in row):
+                      return [_sin_acentos(h) for h in row], all_values[i+1:]
+              return [], []
 
           # ── Normalizar teléfono colombiano ──────────────────────────────────────────────
           def normalizar_telefono(valor):
@@ -99,8 +116,7 @@ jobs:
                   ws     = sh.get_worksheet(0)
                   all_values = ws.get_all_values()
                   if all_values:
-                      headers = [h.strip().lower() for h in all_values[0]]
-                      rows    = all_values[1:]
+                      headers, rows = _detectar_headers(all_values)
                   auth_method = "service_account"
                   print(f"[Auth] Autenticado con Service Account. Sheet: {sh.title!r}")
               except Exception as e:
@@ -121,8 +137,7 @@ jobs:
                       data = resp.json()
                       all_values = data.get("values", [])
                       if all_values:
-                          headers = [h.strip().lower() for h in all_values[0]]
-                          rows    = all_values[1:]
+                          headers, rows = _detectar_headers(all_values)
                       auth_method = "api_key"
                       print(f"[Auth] Autenticado con API key publica. Filas leidas: {len(rows)}")
                   except Exception as e:
@@ -139,8 +154,7 @@ jobs:
                           data = resp.json()
                           all_values = data.get("values", [])
                           if all_values:
-                              headers = [h.strip().lower() for h in all_values[0]]
-                              rows    = all_values[1:]
+                              headers, rows = _detectar_headers(all_values)
                           auth_method = "publico_sin_key"
                       else:
                           raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
