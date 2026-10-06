@@ -310,6 +310,10 @@ def _procesar(phone, session, event):
                             ("DESC_EDAD", "edad")):
             if str(r.get(campo)).upper() == "SI":
                 return _descartar(phone, data, MOTIVO_DESCARTE[paso])
+        # "No sé" en patrimonio: no descarta, pero marcamos para verificar
+        # con escrituras / CTL antes de enviar a Sureti.
+        if str(r.get("patrimonio", "")).upper() == "NO_SE":
+            data["patrimonio_verificar"] = True
         if str(r.get("paz_salvo")).upper() != "SI":
             return _pausar(phone, data)
         data["requiere_paz_salvo"] = True

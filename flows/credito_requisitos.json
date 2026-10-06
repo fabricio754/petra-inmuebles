@@ -3,7 +3,7 @@
   "screens": [
     {
       "id": "REQUISITOS",
-      "title": "Paso 1 de 2",
+      "title": "Massi · Paso 1 de 2",
       "terminal": true,
       "success": true,
       "data": {},
@@ -16,15 +16,15 @@
             "children": [
               {
                 "type": "TextHeading",
-                "text": "Tu inmueble"
+                "text": "🏠 Tu inmueble"
               },
               {
                 "type": "TextBody",
-                "text": "Cuéntanos dónde está y responde unas preguntas rápidas."
+                "text": "Para evaluar si podemos ayudarte con el crédito, necesitamos saber dónde queda y confirmar algunos requisitos. Son 5 preguntas cortas."
               },
               {
                 "type": "TextSubheading",
-                "text": "Ubicación"
+                "text": "📍 Dónde queda"
               },
               {
                 "type": "TextInput",
@@ -32,28 +32,27 @@
                 "label": "Dirección",
                 "input-type": "text",
                 "required": true,
-                "helper-text": "Dirección del inmueble. Ej: Cra 45 # 80-20"
+                "helper-text": "Ej: Cra 45 # 80-20"
               },
               {
                 "type": "TextInput",
                 "name": "apto",
-                "label": "Apto / interior",
+                "label": "Apto / interior (opcional)",
                 "input-type": "text",
                 "required": false,
-                "helper-text": "Opcional. Ej: Apto 302, Torre 2"
+                "helper-text": "Ej: Apto 302, Torre 2"
               },
               {
                 "type": "TextInput",
                 "name": "barrio",
                 "label": "Barrio",
                 "input-type": "text",
-                "required": true,
-                "helper-text": "Barrio donde está el inmueble"
+                "required": true
               },
               {
                 "type": "Dropdown",
                 "name": "ciudad",
-                "label": "Ciudad del inmueble",
+                "label": "Ciudad",
                 "required": true,
                 "data-source": [
                   { "id": "BARRANQUILLA", "title": "Barranquilla" },
@@ -85,8 +84,8 @@
               {
                 "type": "RadioButtonsGroup",
                 "name": "es_ph",
-                "label": "Propiedad horizontal",
-                "description": "¿El inmueble está en conjunto o edificio (propiedad horizontal)?",
+                "label": "¿Es un conjunto o edificio?",
+                "description": "Propiedad horizontal (comparte zonas comunes, administración).",
                 "required": true,
                 "data-source": [
                   { "id": "SI", "title": "Sí" },
@@ -95,13 +94,16 @@
               },
               {
                 "type": "TextSubheading",
-                "text": "Requisitos"
+                "text": "✅ Requisitos del crédito"
+              },
+              {
+                "type": "TextBody",
+                "text": "Son 4 preguntas rápidas para confirmar que el inmueble aplica."
               },
               {
                 "type": "RadioButtonsGroup",
                 "name": "hipoteca",
-                "label": "Hipoteca o embargo",
-                "description": "¿El inmueble tiene hipoteca o embargo vigente?",
+                "label": "¿Tiene hipoteca o embargo?",
                 "required": true,
                 "data-source": [
                   { "id": "SI", "title": "Sí" },
@@ -111,19 +113,19 @@
               {
                 "type": "RadioButtonsGroup",
                 "name": "patrimonio",
-                "label": "Afectación a patrimonio de familia",
-                "description": "¿Este inmueble tiene afectación a patrimonio de familia? Si hay hijos menores, no podrás venderlo libremente. Esto se ve en las escrituras del inmueble o en el certificado de tradición.",
+                "label": "¿Afectación a patrimonio de familia?",
+                "description": "Si hay hijos menores, no podrás venderlo libremente. Lo ves en las escrituras o en el certificado de tradición.",
                 "required": true,
                 "data-source": [
                   { "id": "SI", "title": "Sí" },
-                  { "id": "NO", "title": "No" }
+                  { "id": "NO", "title": "No" },
+                  { "id": "NO_SE", "title": "No sé" }
                 ]
               },
               {
                 "type": "RadioButtonsGroup",
                 "name": "edad",
-                "label": "Edad del propietario",
-                "description": "¿El propietario tiene más de 75 años?",
+                "label": "¿Propietario mayor de 75 años?",
                 "required": true,
                 "data-source": [
                   { "id": "SI", "title": "Sí" },
@@ -133,8 +135,8 @@
               {
                 "type": "RadioButtonsGroup",
                 "name": "paz_salvo",
-                "label": "Pagos al día",
-                "description": "¿Estás dispuesto a ponerte al día con predial, servicios y administración?",
+                "label": "¿Puedes ponerte al día con pagos pendientes?",
+                "description": "Predial, servicios públicos y administración.",
                 "required": true,
                 "data-source": [
                   { "id": "SI", "title": "Sí" },
@@ -143,11 +145,11 @@
               },
               {
                 "type": "TextCaption",
-                "text": "Tus respuestas solo se usan para evaluar tu solicitud."
+                "text": "🔒 Tus respuestas solo se usan para evaluar tu solicitud."
               },
               {
                 "type": "Footer",
-                "label": "Continuar",
+                "label": "Continuar al paso 2",
                 "on-click-action": {
                   "name": "complete",
                   "payload": {
