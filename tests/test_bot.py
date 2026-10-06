@@ -344,9 +344,138 @@ def test_pide_llamada_db_falla_no_rompe_handler(wa_stubs, state_stub, monkeypatc
 
 
 def test_enviar_alerta_lead_caliente_sin_env_no_rompe(monkeypatch):
-    """Si no hay ALERT_WEBHOOK_URL, la función solo logea; no debe lanzar
-    ni tocar la red."""
+    """Si no hay ALERT_WEBHOOK_URL ni ALERTAS_WHATSAPP, la función solo
+    logea; no debe lanzar ni tocar la red."""
     monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("ALERTAS_WHATSAPP", raising=False)
     monkeypatch.setattr(bot, "ALERT_WEBHOOK_URL", "")
+    monkeypatch.setattr(bot, "ALERTAS_WHATSAPP", "")
     # No debe lanzar.
     bot._enviar_alerta_lead_caliente("573000000000", "test")
+
+
+# ---------- Alerta WA a asesores -------------------------------------------
+
+def test_alerta_lead_caliente_manda_wa_a_todos_los_asesores(monkeypatch):
+    """Con ALERTAS_WHATSAPP=csv, debe llamar whatsapp.send_text una vez por
+    cada asesor con un mensaje que incluye telefono, fragmento y link al panel
+    (si PANEL_URL + PANEL_TOKEN estan configurados)."""
+    monkeypatch.setenv("ALERTAS_WHATSAPP", "573001112233, 573004445566")
+    monkeypatch.setenv("PANEL_URL", "https://panel.example.com")
+    monkeypatch.setenv("PANEL_TOKEN", "tok-secreto")
+    monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.setattr(bot, "ALERT_WEBHOOK_URL", "")
+
+    sent = []
+    monkeypatch.setattr(
+        bot.whatsapp, "send_text",
+        lambda to, body: sent.append((to, body)),
+    )
+
+    bot._enviar_alerta_lead_caliente("573508463133", "Me pueden llamar?")
+
+    assert len(sent) == 2
+    destinos = [to for to, _b in sent]
+    assert destinos == ["573001112233", "573004445566"]
+    # El cuerpo contiene las piezas clave.
+    for _to, body in sent:
+        assert "LEAD CALIENTE" in body
+        assert "573508463133" in body
+        assert "Me pueden llamar?" in body
+        assert "https://panel.example.com/573508463133?token=tok-secreto" in body
+
+
+def test_alerta_lead_caliente_sin_asesores_no_falla(monkeypatch):
+    """ALERTAS_WHATSAPP vacio: no debe llamar send_text ni lanzar."""
+    monkeypatch.delenv("ALERTAS_WHATSAPP", raising=False)
+    monkeypatch.setattr(bot, "ALERTAS_WHATSAPP", "")
+    monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.setattr(bot, "ALERT_WEBHOOK_URL", "")
+
+    sent = []
+    monkeypatch.setattr(
+        bot.whatsapp, "send_text",
+        lambda to, body: sent.append((to, body)),
+    )
+
+    # No debe lanzar.
+    bot._enviar_alerta_lead_caliente("573000000000", "test")
+    assert sent == []
+
+
+def test_alerta_lead_caliente_falla_un_asesor_sigue_con_otros(monkeypatch):
+    """Si send_text revienta para un asesor, debe seguir intentando con los
+    demas (no abortar el loop)."""
+    monkeypatch.setenv("ALERTAS_WHATSAPP", "573001112233,573004445566,573007778899")
+    monkeypatch.delenv("PANEL_URL", raising=False)
+    monkeypatch.delenv("PANEL_TOKEN", raising=False)
+    monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.setattr(bot, "ALERT_WEBHOOK_URL", "")
+
+    calls = []
+
+    def _send(to, body):
+        calls.append(to)
+        if to == "573004445566":
+            raise RuntimeError("API down para este numero")
+
+    monkeypatch.setattr(bot.whatsapp, "send_text", _send)
+
+    # No debe lanzar.
+    bot._enviar_alerta_lead_caliente("573508463133", "Llamenme por favor")
+
+    # Se intento con los tres aunque el segundo haya tirado.
+    assert calls == ["573001112233", "573004445566", "573007778899"]
+
+
+def test_alerta_lead_caliente_sin_panel_omite_link(monkeypatch):
+    """Si PANEL_URL o PANEL_TOKEN no estan, el mensaje se arma sin link."""
+    monkeypatch.setenv("ALERTAS_WHATSAPP", "573001112233")
+    monkeypatch.delenv("PANEL_URL", raising=False)
+    monkeypatch.delenv("PANEL_TOKEN", raising=False)
+    monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.setattr(bot, "ALERT_WEBHOOK_URL", "")
+
+    sent = []
+    monkeypatch.setattr(
+        bot.whatsapp, "send_text",
+        lambda to, body: sent.append((to, body)),
+    )
+
+    bot._enviar_alerta_lead_caliente("573508463133", "hola")
+
+    assert len(sent) == 1
+    _to, body = sent[0]
+    assert "panel" not in body.lower()
+    assert "http" not in body
+
+
+def test_alerta_lead_caliente_webhook_y_wa_coexisten(monkeypatch):
+    """Si estan los dos canales, ambos se disparan (el webhook sigue
+    funcionando como complementario)."""
+    monkeypatch.setenv("ALERTAS_WHATSAPP", "573001112233")
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "https://hook.example.com/alert")
+    monkeypatch.setattr(bot, "ALERT_WEBHOOK_URL", "https://hook.example.com/alert")
+
+    sent = []
+    monkeypatch.setattr(
+        bot.whatsapp, "send_text",
+        lambda to, body: sent.append((to, body)),
+    )
+
+    posts = []
+
+    class _FakeRequests:
+        @staticmethod
+        def post(url, json=None, timeout=None):
+            posts.append((url, json, timeout))
+
+    import sys
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests)
+
+    bot._enviar_alerta_lead_caliente("573508463133", "me llaman?")
+
+    assert len(sent) == 1
+    assert len(posts) == 1
+    assert posts[0][0] == "https://hook.example.com/alert"
+    assert posts[0][1]["phone"] == "573508463133"

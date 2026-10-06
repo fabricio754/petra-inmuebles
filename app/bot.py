@@ -17,9 +17,22 @@ from app import filtros, state, whatsapp
 
 _log = logging.getLogger("petra")
 
-# Alerta externa cuando se detecta un lead caliente (pide llamada). Si no
-# está seteada, solo loguea — ver `_enviar_alerta_lead_caliente`.
+# Alertas de lead caliente: dos canales opcionales y complementarios.
+#
+# 1) `ALERTAS_WHATSAPP`: CSV de números con prefijo país (ej:
+#    "573001112233,573004445566") a los que mandamos un WA de texto plano
+#    cuando se detecta un lead caliente. Es la vía principal: el asesor
+#    recibe el ping en su propio WA y abre el panel del contacto desde ahí.
+#    Caveat: `send_text` fuera de la ventana de 24h se bloquea en Meta; para
+#    que esto funcione el asesor debe haber escrito al bot alguna vez en las
+#    últimas 24h (ver TODO template `alerta_lead_caliente_v1` en el PR body).
+#
+# 2) `ALERT_WEBHOOK_URL`: webhook HTTP legacy (del PR #56). Se mantiene como
+#    canal opcional/complementario — si está seteado, dispara además del WA.
+#
+# Si ninguno está seteado, la función solo logea. Ver `_enviar_alerta_lead_caliente`.
 ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
+ALERTAS_WHATSAPP = os.environ.get("ALERTAS_WHATSAPP", "").strip()
 
 # Deprecated: usar `filtros.es_opt_out(texto)` (incluye estas palabras + patrones
 # semanticos: "no me interesa", "ya no esta disponible", "numero equivocado", ...).
@@ -78,17 +91,57 @@ def _sin_tildes(s):
 
 
 def _enviar_alerta_lead_caliente(phone: str, mensaje_original: str) -> None:
-    """Dispara una alerta externa (webhook configurable) cuando un contacto
-    pide llamada por primera vez. Nunca lanza: fallos de red/HTTP se logean y
-    el handler sigue como si nada (la marca en DB ya persistió).
+    """Dispara alertas de lead caliente por dos canales independientes:
 
-    `ALERT_WEBHOOK_URL` lee del env en caliente para que, si lo rota en Render,
-    el próximo lead ya use el nuevo endpoint (sin reiniciar workers). Si no
-    está seteada, solo logea.
+    1) WhatsApp a cada número en `ALERTAS_WHATSAPP` (CSV con prefijo país),
+       usando `whatsapp.send_text`. Mensaje incluye teléfono del lead, un
+       fragmento del mensaje original y — si están configurados `PANEL_URL`
+       y `PANEL_TOKEN` — un link directo al panel del contacto para que el
+       asesor abra y responda desde ahí.
+    2) Webhook HTTP legacy a `ALERT_WEBHOOK_URL` (del PR #56), si está seteado.
+
+    Ambos son opcionales y complementarios: si están los dos, se disparan los
+    dos; si solo uno, solo ese. Si ninguno, solo logea.
+
+    Las env vars se leen en caliente para que, si se rotan en Render, el
+    próximo lead ya use lo nuevo (sin reiniciar workers).
+
+    Nunca lanza: fallos de red/HTTP/API se logean y el handler sigue como si
+    nada (la marca en DB ya persistió). Si falla el envío a un asesor,
+    seguimos con los demás.
     """
+    # ─── Canal 1: WhatsApp a cada asesor ─────────────────────────────────
+    asesores_csv = os.environ.get("ALERTAS_WHATSAPP", ALERTAS_WHATSAPP).strip()
+    asesores = [n.strip() for n in asesores_csv.split(",") if n.strip()]
+    if not asesores:
+        _log.info("[Alerta] ALERTAS_WHATSAPP no seteado; sin ping WA para %s", phone)
+    else:
+        panel_url = os.environ.get("PANEL_URL", "").strip().rstrip("/")
+        panel_token = os.environ.get("PANEL_TOKEN", "").strip()
+        fragmento = (mensaje_original or "")[:200]
+        link = ""
+        if panel_url and panel_token:
+            link = f"\n\nAbrilo en el panel:\n{panel_url}/{phone}?token={panel_token}"
+        mensaje = (
+            f"🚨 LEAD CALIENTE\n\n"
+            f"Teléfono: {phone}\n"
+            f"Pidió llamada: \"{fragmento}\""
+            f"{link}"
+        )
+        for asesor in asesores:
+            try:
+                whatsapp.send_text(asesor, mensaje)
+                _log.info("[Alerta] WA enviado a asesor %s por lead %s", asesor, phone)
+            except Exception:
+                _log.exception(
+                    "[Alerta] fallo WA a asesor %s por lead %s (sigo con los demas)",
+                    asesor, phone,
+                )
+
+    # ─── Canal 2: webhook HTTP legacy (complementario) ───────────────────
     url = os.environ.get("ALERT_WEBHOOK_URL", ALERT_WEBHOOK_URL).strip()
     if not url:
-        _log.info("[Alerta] ALERT_WEBHOOK_URL no seteado; lead caliente %s solo loguea", phone)
+        _log.info("[Alerta] ALERT_WEBHOOK_URL no seteado; lead caliente %s sin webhook", phone)
         return
     try:
         import requests  # import local: no quiero bajarlo al top-level
