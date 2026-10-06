@@ -3,7 +3,7 @@
   "screens": [
     {
       "id": "DATOS",
-      "title": "Paso 2 de 2",
+      "title": "Massi · Paso 2 de 2",
       "terminal": true,
       "success": true,
       "data": {},
@@ -16,17 +16,20 @@
             "children": [
               {
                 "type": "TextHeading",
-                "text": "Datos del propietario"
+                "text": "🎉 ¡Último paso!"
               },
               {
                 "type": "TextBody",
-                "text": "Con esto enviamos tu solicitud a Sureti para que estudie tu crédito."
+                "text": "Tu inmueble cumple con los requisitos. Solo necesitamos tus datos para enviar la solicitud a Sureti."
+              },
+              {
+                "type": "TextSubheading",
+                "text": "👤 Propietario del inmueble"
               },
               {
                 "type": "RadioButtonsGroup",
                 "name": "tipo_persona",
-                "label": "Tipo de propietario",
-                "description": "¿El dueño del inmueble es una persona o una empresa?",
+                "label": "¿Persona natural o empresa?",
                 "required": true,
                 "data-source": [
                   { "id": "NATURAL", "title": "Persona natural" },
@@ -44,23 +47,27 @@
               {
                 "type": "TextInput",
                 "name": "cedula",
-                "label": "Cédula",
+                "label": "Cédula o NIT",
                 "input-type": "number",
                 "required": true,
                 "helper-text": "Solo números, sin puntos"
               },
               {
                 "type": "TextInput",
-                "name": "email",
-                "label": "Correo electrónico",
-                "input-type": "email",
+                "name": "edad",
+                "label": "Edad",
+                "input-type": "number",
                 "required": true,
-                "helper-text": "Aquí te enviaremos novedades de tu solicitud"
+                "helper-text": "Años cumplidos"
+              },
+              {
+                "type": "TextSubheading",
+                "text": "💰 Tu crédito"
               },
               {
                 "type": "Dropdown",
                 "name": "objetivo",
-                "label": "¿Para qué necesitas el préstamo?",
+                "label": "¿Para qué lo necesitas?",
                 "required": true,
                 "data-source": [
                   { "id": "OBJ_CAPITAL", "title": "Capital de trabajo" },
@@ -72,15 +79,15 @@
               },
               {
                 "type": "TextInput",
-                "name": "edad",
-                "label": "Edad del propietario",
-                "input-type": "number",
+                "name": "email",
+                "label": "Correo electrónico",
+                "input-type": "email",
                 "required": true,
-                "helper-text": "Años cumplidos"
+                "helper-text": "Para enviarte novedades de tu solicitud"
               },
               {
                 "type": "TextCaption",
-                "text": "Al enviar, autorizas compartir estos datos con Sureti para estudiar tu crédito."
+                "text": "🔒 Al enviar, autorizas compartir estos datos con Sureti para estudiar tu crédito."
               },
               {
                 "type": "Footer",
