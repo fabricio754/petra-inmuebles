@@ -60,11 +60,25 @@ def _conexion():
                 # which libpq resolves with alarm() (main thread only).
                 # min_size=1: pool keeps one live connection so requests reuse it
                 # without creating new TCP connections from worker threads.
+                # check=ConnectionPool.check_connection: antes de servir una
+                # conn al cliente la validamos con un SELECT 1 — si la conn
+                # está muerta por error SSL (bad record mac) el pool la
+                # descarta y abre una nueva, en vez de dejarla ocupando un
+                # slot fantasma hasta reiniciar el proceso.
+                # max_lifetime=600: recicla cada conn a los 10 min, antes de
+                # que lleve suficiente tráfico TLS como para corromperse.
+                # max_idle=180: cierra conns ociosas >3 min (menos presión
+                # de slots inactivos).
+                # reconnect_timeout=30: no se queda colgado reconectando.
                 p = ConnectionPool(
                     url,
                     min_size=1,
                     max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "20")),
                     open=True,
+                    check=ConnectionPool.check_connection,
+                    max_lifetime=600,
+                    max_idle=180,
+                    reconnect_timeout=30,
                     kwargs={"connect_timeout": 12},
                 )
                 _preparar(p)
