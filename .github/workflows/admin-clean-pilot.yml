@@ -1,0 +1,15 @@
+name: Admin clean pilot (truncar DB)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar POST /admin/clean-pilot
+        run: |
+          RESP=$(curl -sf -X POST https://petra-inmuebles.onrender.com/admin/clean-pilot \
+            -H 'X-Admin-Token: massi-admin-reset-petra') \
+          && echo "Respuesta: $RESP" \
+          || { echo "ERROR llamando al endpoint"; exit 1; }
