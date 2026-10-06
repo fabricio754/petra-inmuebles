@@ -21,8 +21,23 @@ _pool = None
 _pool_lock = threading.Lock()
 
 
+def _pool_conexion(timeout=20.0):
+    """Igual que `_conexion()` pero con timeout parametrizable. Útil en
+    hot-paths (p. ej. webhook_worker.encolar) donde queremos fallar rápido
+    si el pool está saturado en vez de bloquear el gthread 20s mientras
+    Meta reintenta y cascadea más carga."""
+    _asegurar_pool()
+    return _pool.connection(timeout=timeout)
+
+
 def _conexion():
     """Pool de conexiones, creado (y la base preparada) en el primer uso."""
+    _asegurar_pool()
+    return _pool.connection(timeout=20.0)
+
+
+def _asegurar_pool():
+    """Crea el pool (y prepara el schema) la primera vez. Hilo-seguro."""
     global _pool
     if _pool is None:
         with _pool_lock:
@@ -83,7 +98,6 @@ def _conexion():
                 )
                 _preparar(p)
                 _pool = p
-    return _pool.connection(timeout=20.0)
 
 
 def _preparar(pool):
