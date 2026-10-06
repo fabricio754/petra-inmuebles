@@ -173,6 +173,35 @@ def test_b1_boton_si_con_sesion_activa_sigue_flujo_normal(wa_stubs, state_stub, 
     assert wa_stubs["send_form_requisitos"].calls, "flujo normal no corrió"
 
 
+# ---------- BOTON_NO sin flujo → opt-out ------------------------------------
+
+def test_boton_no_sin_sesion_marca_opt_out(wa_stubs, state_stub, monkeypatch):
+    """Edge case reportado en PR #54: BOTON_NO llega sin sesión activa.
+    Antes caía a `_iniciar()` → re-template → loop. Ahora marca no_contactar
+    y manda UNA confirmación corta, sin reiniciar."""
+    phone = "573508463133"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+
+    iniciar_calls = []
+    monkeypatch.setattr(bot, "_iniciar", lambda p: iniciar_calls.append(p) or "iniciar")
+
+    out = bot.handle_incoming(phone, {"type": "button_reply", "id": "BOTON_NO"})
+
+    # Marcó opt-out.
+    assert state_stub["no_contactar"].get(phone) is True
+    # Mandó UNA sola respuesta y es un texto plano de confirmación.
+    assert len(out) == 1
+    assert len(wa_stubs["send_text"].calls) == 1
+    (args, _kwargs) = wa_stubs["send_text"].calls[0]
+    assert args[0] == phone
+    assert "no te volveremos a contactar" in args[1].lower()
+    # NO llamó a _iniciar (no reinicia la conversación).
+    assert iniciar_calls == []
+    # No mandó plantilla de apertura ni consent.
+    assert wa_stubs["send_plantilla_apertura"].calls == []
+
+
 def test_b1_funcion_reconstruir_devuelve_algo(wa_stubs, state_stub, monkeypatch):
     """Smoke test de la función auxiliar."""
     import app.db as _db

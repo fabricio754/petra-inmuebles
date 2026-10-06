@@ -652,6 +652,19 @@ def handle_incoming(phone, event):
         state.set_no_contactar(phone, True)
         return [whatsapp.send_no_contactar(phone)]
 
+    # BOTON_NO tardío sin sesión activa: si el usuario clickeó "No" después de
+    # que la sesión expiró (o nunca existió), antes caía a `_iniciar()` y le
+    # reenviaba la plantilla de apertura → loop. Ahora marcamos opt-out y
+    # mandamos UNA sola confirmación corta.
+    if event["type"] == "button_reply" and resp in NO:
+        _log.info("[Bot] BOTON_NO sin sesión → opt-out para %s", phone)
+        state.set_no_contactar(phone, True)
+        _terminar(phone)
+        return [whatsapp.send_text(
+            phone,
+            "Entendido, no te volveremos a contactar. Gracias por avisarnos.",
+        )]
+
     # Clasificador de texto libre sin flujo activo (ver BOT_PATTERNS, etc).
     # Evita mandar autorización en loop a bots atendedores y despide con
     # elegancia a quien ya vendió o no quiere más mensajes.
