@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, abort, redirect, render_template, request, url_for
+from psycopg_pool import PoolTimeout
 
 from app import db
 
