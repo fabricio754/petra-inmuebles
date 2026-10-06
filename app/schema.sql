@@ -70,6 +70,15 @@ ALTER TABLE contactos ADD COLUMN IF NOT EXISTS foto_url TEXT;
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS monto_hasta_millones INTEGER;
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS barrio TEXT;
 
+-- Lead caliente: el contacto pidió explícitamente que lo llamen / hablar con
+-- un humano. Se setea cuando `filtros.es_pedido_llamada()` matchea un IN de
+-- texto. Idempotente (ver `db.marcar_requiere_humano`): la marca ocurre una
+-- sola vez por contacto, para que la alerta externa no se dispare dos veces.
+ALTER TABLE contactos
+    ADD COLUMN IF NOT EXISTS requiere_humano boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS requiere_humano_motivo text,
+    ADD COLUMN IF NOT EXISTS requiere_humano_at timestamptz;
+
 CREATE TABLE IF NOT EXISTS documentos (
   id SERIAL PRIMARY KEY,
   telefono VARCHAR(100),

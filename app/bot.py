@@ -9,12 +9,17 @@ Con los Flows configurados (META_FLOW_REQUISITOS_ID y META_FLOW_DATOS_ID) las
 preguntas van en dos formularios de WhatsApp; si no, se hacen por chat.
 """
 import logging
+import os
 import re
 import unicodedata
 
 from app import filtros, state, whatsapp
 
 _log = logging.getLogger("petra")
+
+# Alerta externa cuando se detecta un lead caliente (pide llamada). Si no
+# está seteada, solo loguea — ver `_enviar_alerta_lead_caliente`.
+ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
 
 # Deprecated: usar `filtros.es_opt_out(texto)` (incluye estas palabras + patrones
 # semanticos: "no me interesa", "ya no esta disponible", "numero equivocado", ...).
@@ -70,6 +75,36 @@ def _sin_tildes(s):
         c for c in unicodedata.normalize("NFD", s)
         if unicodedata.category(c) != "Mn"
     )
+
+
+def _enviar_alerta_lead_caliente(phone: str, mensaje_original: str) -> None:
+    """Dispara una alerta externa (webhook configurable) cuando un contacto
+    pide llamada por primera vez. Nunca lanza: fallos de red/HTTP se logean y
+    el handler sigue como si nada (la marca en DB ya persistió).
+
+    `ALERT_WEBHOOK_URL` lee del env en caliente para que, si lo rota en Render,
+    el próximo lead ya use el nuevo endpoint (sin reiniciar workers). Si no
+    está seteada, solo logea.
+    """
+    url = os.environ.get("ALERT_WEBHOOK_URL", ALERT_WEBHOOK_URL).strip()
+    if not url:
+        _log.info("[Alerta] ALERT_WEBHOOK_URL no seteado; lead caliente %s solo loguea", phone)
+        return
+    try:
+        import requests  # import local: no quiero bajarlo al top-level
+        requests.post(
+            url,
+            json={
+                "phone": phone,
+                "motivo": "pide_llamada",
+                "mensaje_original": mensaje_original,
+                "fuente": "massi",
+            },
+            timeout=5,
+        )
+        _log.info("[Alerta] webhook enviado para lead caliente %s", phone)
+    except Exception:
+        _log.exception("[Alerta] fallo al disparar webhook para %s (no rompe handler)", phone)
 
 PASOS = [
     "AUTORIZACION",     # Ley 1581: tratamiento y envío a Sureti
@@ -615,6 +650,30 @@ def handle_incoming(phone, event):
         _terminar(phone)
         return []
 
+    # Pide llamada / quiere hablar con un humano: detectar ANTES de opt-out y
+    # broker. Es la señal más caliente que podemos recibir — el piloto 6-oct
+    # (lead 573508463133) la mandó tres veces y el bot le siguió contestando
+    # consent. Marcamos requiere_humano en `contactos` (idempotente), disparamos
+    # alerta externa solo si es la primera vez, y respondemos UNA sola vez que
+    # un asesor va a contactar. No seguimos con el flujo.
+    if event["type"] == "text" and filtros.es_pedido_llamada(event["text"]):
+        texto = event["text"]
+        try:
+            from app import db as _db
+            marco_nuevo = _db.marcar_requiere_humano(
+                phone, f"pidió llamada: {texto[:200]}"
+            )
+        except Exception:
+            _log.exception("[Bot] Error marcando requiere_humano para %s", phone)
+            marco_nuevo = False
+        _log.info("[Bot] Pide llamada detectado: %s (nuevo=%s)", phone, marco_nuevo)
+        if marco_nuevo:
+            _enviar_alerta_lead_caliente(phone, texto)
+        return [whatsapp.send_text(
+            phone,
+            "¡Entendido! Un asesor te contactará pronto por este mismo chat.",
+        )]
+
     # Salir en cualquier momento: STOP/BAJA/SALIR/PARA + opt-outs semanticos
     # ("no me interesa", "ya no esta disponible", "numero equivocado", ...).
     if event["type"] == "text" and filtros.es_opt_out(event["text"]):
@@ -628,7 +687,7 @@ def handle_incoming(phone, event):
         if any(p in texto_norm for p in PALABRAS_HUMANO):
             try:
                 from app import db as _db
-                _db.marcar_requiere_humano(phone)
+                _db.marcar_requiere_humano(phone, f"palabra_humano: {event['text'][:200]}")
             except Exception:
                 import logging
                 logging.getLogger("petra").exception("[HUMANO] Error marcando requiere_humano.")
@@ -756,7 +815,9 @@ def _clasificar_texto_libre(phone, session, texto):
     if veces >= 2:
         try:
             from app import db as _db
-            _db.marcar_requiere_humano(phone)
+            _db.marcar_requiere_humano(
+                phone, f"texto_libre_sin_match x{veces}: {texto[:200]}"
+            )
         except Exception:
             logging.getLogger("petra").exception(
                 "[Clasificador] Error marcando requiere_humano."
