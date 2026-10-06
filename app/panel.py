@@ -296,6 +296,23 @@ def _formatear_flow_reply(resumen):
     return lineas or None
 
 
+def _pool_busy_response(endpoint):
+    """Respuesta HTML liviana cuando el pool de Postgres está saturado.
+    Antes esto producía un 500 crudo (traceback de PoolTimeout). Un 503 con
+    mensaje legible permite al operador reintentar sin asustarse."""
+    log.warning("[Panel] Pool saturado atendiendo %s — devolviendo 503.", endpoint)
+    html = (
+        "<!doctype html><meta charset='utf-8'><title>Panel ocupado</title>"
+        "<body style='font-family:system-ui,sans-serif;padding:24px;max-width:640px;margin:0 auto'>"
+        "<h2 style='color:#9a4b00'>El panel está saturado momentáneamente</h2>"
+        "<p>La base de datos tiene todas las conexiones ocupadas (webhooks "
+        "en vuelo). Reintentá en unos segundos.</p>"
+        "<p><a href='javascript:location.reload()'>Reintentar</a></p>"
+        "</body>"
+    )
+    return html, 503, {"Content-Type": "text/html; charset=utf-8", "Retry-After": "5"}
+
+
 def _dia_etiqueta(fecha, ahora=None):
     """Devuelve 'Hoy', 'Ayer' o la fecha 'YYYY-MM-DD'."""
     if not fecha:
@@ -338,25 +355,28 @@ def panel_lista():
     f_portal = (request.args.get("portal") or "").strip()
     q = (request.args.get("q") or "").strip()
 
-    with db._conexion() as conn:
-        contactos = _rows(conn, """
-            SELECT telefono, nombre, ciudad, tipo_inmueble, portal,
-                   monto_hasta_millones AS monto_hasta,
-                   no_contactar, contactado, fecha_contacto, fecha_scraping
-            FROM contactos
-            ORDER BY COALESCE(fecha_contacto, fecha_scraping) DESC NULLS LAST
-            LIMIT 2000
-        """)
-        sesiones = {r["telefono"]: r for r in _rows(conn, """
-            SELECT telefono, estado, ultima_actividad FROM sesiones
-        """)}
-        pipelines = {r["telefono"]: r for r in _rows(conn, """
-            SELECT telefono, estado, sureti_lead_id, fecha_ingreso,
-                   fecha_aprobacion, fecha_desembolso, monto_aprobado,
-                   avaluo_comercial
-            FROM pipeline
-            ORDER BY fecha_ingreso DESC
-        """)}
+    try:
+        with db._conexion() as conn:
+            contactos = _rows(conn, """
+                SELECT telefono, nombre, ciudad, tipo_inmueble, portal,
+                       monto_hasta_millones AS monto_hasta,
+                       no_contactar, contactado, fecha_contacto, fecha_scraping
+                FROM contactos
+                ORDER BY COALESCE(fecha_contacto, fecha_scraping) DESC NULLS LAST
+                LIMIT 2000
+            """)
+            sesiones = {r["telefono"]: r for r in _rows(conn, """
+                SELECT telefono, estado, ultima_actividad FROM sesiones
+            """)}
+            pipelines = {r["telefono"]: r for r in _rows(conn, """
+                SELECT telefono, estado, sureti_lead_id, fecha_ingreso,
+                       fecha_aprobacion, fecha_desembolso, monto_aprobado,
+                       avaluo_comercial
+                FROM pipeline
+                ORDER BY fecha_ingreso DESC
+            """)}
+    except PoolTimeout:
+        return _pool_busy_response("/panel")
 
     filas_all = []
     for c in contactos:
@@ -432,58 +452,61 @@ def panel_stats():
     _check_token()
     token = request.args.get("token", "")
 
-    with db._conexion() as conn:
-        captados = _scalar(conn, "SELECT COUNT(*) FROM contactos") or 0
-        contactados = _scalar(conn,
-            "SELECT COUNT(*) FROM contactos WHERE contactado") or 0
-        respondieron = _scalar(conn,
-            "SELECT COUNT(DISTINCT telefono) FROM mensajes WHERE direccion='in'") or 0
-        autorizaron = _scalar(conn, """
-            SELECT COUNT(DISTINCT telefono) FROM mensajes
-            WHERE direccion='in' AND tipo='button_reply' AND resumen='BOTON_SI'
-        """) or 0
-        flow1 = _scalar(conn, """
-            SELECT COUNT(DISTINCT telefono) FROM mensajes
-            WHERE direccion='in' AND tipo='flow_reply'
-              AND resumen ILIKE '%avaluo%'
-        """) or 0
-        flow2 = _scalar(conn, """
-            SELECT COUNT(DISTINCT telefono) FROM mensajes
-            WHERE direccion='in' AND tipo='flow_reply'
-              AND (resumen ILIKE '%cedula%' OR resumen ILIKE '%nit%')
-              AND resumen ILIKE '%nombre%'
-        """) or 0
+    try:
+        with db._conexion() as conn:
+            captados = _scalar(conn, "SELECT COUNT(*) FROM contactos") or 0
+            contactados = _scalar(conn,
+                "SELECT COUNT(*) FROM contactos WHERE contactado") or 0
+            respondieron = _scalar(conn,
+                "SELECT COUNT(DISTINCT telefono) FROM mensajes WHERE direccion='in'") or 0
+            autorizaron = _scalar(conn, """
+                SELECT COUNT(DISTINCT telefono) FROM mensajes
+                WHERE direccion='in' AND tipo='button_reply' AND resumen='BOTON_SI'
+            """) or 0
+            flow1 = _scalar(conn, """
+                SELECT COUNT(DISTINCT telefono) FROM mensajes
+                WHERE direccion='in' AND tipo='flow_reply'
+                  AND resumen ILIKE '%avaluo%'
+            """) or 0
+            flow2 = _scalar(conn, """
+                SELECT COUNT(DISTINCT telefono) FROM mensajes
+                WHERE direccion='in' AND tipo='flow_reply'
+                  AND (resumen ILIKE '%cedula%' OR resumen ILIKE '%nit%')
+                  AND resumen ILIKE '%nombre%'
+            """) or 0
 
-        en_pipeline = _scalar(conn, "SELECT COUNT(*) FROM pipeline") or 0
-        en_sureti = _scalar(conn,
-            "SELECT COUNT(*) FROM pipeline WHERE sureti_lead_id IS NOT NULL") or 0
-        desembolsados = _scalar(conn,
-            "SELECT COUNT(*) FROM pipeline WHERE fecha_desembolso IS NOT NULL") or 0
+            en_pipeline = _scalar(conn, "SELECT COUNT(*) FROM pipeline") or 0
+            en_sureti = _scalar(conn,
+                "SELECT COUNT(*) FROM pipeline WHERE sureti_lead_id IS NOT NULL") or 0
+            desembolsados = _scalar(conn,
+                "SELECT COUNT(*) FROM pipeline WHERE fecha_desembolso IS NOT NULL") or 0
 
-        pipes = _rows(conn, """
-            SELECT telefono, tipo_inmueble, avaluo_comercial
-            FROM pipeline
-            WHERE avaluo_comercial IS NOT NULL AND avaluo_comercial > 0
-        """)
+            pipes = _rows(conn, """
+                SELECT telefono, tipo_inmueble, avaluo_comercial
+                FROM pipeline
+                WHERE avaluo_comercial IS NOT NULL AND avaluo_comercial > 0
+            """)
 
-        volumen = _rows(conn, """
-            SELECT DATE(fecha AT TIME ZONE 'America/Bogota') AS dia,
-                   SUM(CASE WHEN direccion='out' THEN 1 ELSE 0 END) AS enviados,
-                   COUNT(DISTINCT CASE WHEN direccion='in' THEN telefono END) AS respondieron
-            FROM mensajes
-            WHERE fecha >= NOW() - INTERVAL '7 days'
-            GROUP BY DATE(fecha AT TIME ZONE 'America/Bogota')
-            ORDER BY dia ASC
-        """)
+            volumen = _rows(conn, """
+                SELECT DATE(fecha AT TIME ZONE 'America/Bogota') AS dia,
+                       SUM(CASE WHEN direccion='out' THEN 1 ELSE 0 END) AS enviados,
+                       COUNT(DISTINCT CASE WHEN direccion='in' THEN telefono END) AS respondieron
+                FROM mensajes
+                WHERE fecha >= NOW() - INTERVAL '7 days'
+                GROUP BY DATE(fecha AT TIME ZONE 'America/Bogota')
+                ORDER BY dia ASC
+            """)
 
-        horas = _rows(conn, """
-            SELECT EXTRACT(HOUR FROM fecha AT TIME ZONE 'America/Bogota')::INT AS hora,
-                   COUNT(*) AS n
-            FROM mensajes
-            WHERE direccion='in'
-            GROUP BY hora
-            ORDER BY hora ASC
-        """)
+            horas = _rows(conn, """
+                SELECT EXTRACT(HOUR FROM fecha AT TIME ZONE 'America/Bogota')::INT AS hora,
+                       COUNT(*) AS n
+                FROM mensajes
+                WHERE direccion='in'
+                GROUP BY hora
+                ORDER BY hora ASC
+            """)
+    except PoolTimeout:
+        return _pool_busy_response("/panel/stats")
 
     pasos = [
         ("Captados (contactos)", captados, captados),
@@ -577,26 +600,29 @@ def panel_stats():
 def panel_detalle(telefono):
     _check_token()
     token = request.args.get("token", "")
-    with db._conexion() as conn:
-        contactos = _rows(conn,
-            "SELECT * FROM contactos WHERE telefono = %s", (telefono,))
-        sesiones = _rows(conn,
-            "SELECT * FROM sesiones WHERE telefono = %s", (telefono,))
-        pipelines = _rows(conn,
-            "SELECT * FROM pipeline WHERE telefono = %s "
-            "ORDER BY fecha_ingreso DESC", (telefono,))
-        documentos = _rows(conn,
-            "SELECT * FROM documentos WHERE telefono = %s "
-            "ORDER BY fecha_recepcion DESC", (telefono,))
-        remarketing = _rows(conn,
-            "SELECT * FROM remarketing WHERE telefono = %s "
-            "ORDER BY fecha_envio DESC", (telefono,))
-        leads = _rows(conn,
-            "SELECT fecha, operacion, datos FROM leads WHERE telefono = %s "
-            "ORDER BY fecha DESC LIMIT 100", (telefono,))
-        mensajes = _rows(conn,
-            "SELECT fecha, direccion, tipo, resumen FROM mensajes "
-            "WHERE telefono = %s ORDER BY fecha DESC LIMIT 500", (telefono,))
+    try:
+        with db._conexion() as conn:
+            contactos = _rows(conn,
+                "SELECT * FROM contactos WHERE telefono = %s", (telefono,))
+            sesiones = _rows(conn,
+                "SELECT * FROM sesiones WHERE telefono = %s", (telefono,))
+            pipelines = _rows(conn,
+                "SELECT * FROM pipeline WHERE telefono = %s "
+                "ORDER BY fecha_ingreso DESC", (telefono,))
+            documentos = _rows(conn,
+                "SELECT * FROM documentos WHERE telefono = %s "
+                "ORDER BY fecha_recepcion DESC", (telefono,))
+            remarketing = _rows(conn,
+                "SELECT * FROM remarketing WHERE telefono = %s "
+                "ORDER BY fecha_envio DESC", (telefono,))
+            leads = _rows(conn,
+                "SELECT fecha, operacion, datos FROM leads WHERE telefono = %s "
+                "ORDER BY fecha DESC LIMIT 100", (telefono,))
+            mensajes = _rows(conn,
+                "SELECT fecha, direccion, tipo, resumen FROM mensajes "
+                "WHERE telefono = %s ORDER BY fecha DESC LIMIT 500", (telefono,))
+    except PoolTimeout:
+        return _pool_busy_response(f"/panel/{telefono}")
 
     contacto = contactos[0] if contactos else None
     sesion = sesiones[0] if sesiones else None
