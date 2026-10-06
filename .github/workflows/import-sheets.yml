@@ -301,7 +301,7 @@ jobs:
           # items un solo POST tarda >100s y el edge proxy de Render devuelve 502 antes
           # de terminar. Dividimos client-side en chunks de 50 (~25-30s por POST), bien
           # bajo el límite del proxy.
-          CHUNK_SIZE   = 50
+          CHUNK_SIZE   = 25
           total_items  = len(batch)
           total_chunks = (total_items + CHUNK_SIZE - 1) // CHUNK_SIZE
           saved_total  = 0
@@ -322,7 +322,7 @@ jobs:
                           "X-Ingest-Token": INGEST_TOKEN,
                           "Content-Type":   "application/json",
                       },
-                      timeout=90,
+                      timeout=180,
                   )
               except Exception as exc:
                   print(f"[Batch chunk {chunk_idx}] ERROR de red: {exc}", file=sys.stderr)
