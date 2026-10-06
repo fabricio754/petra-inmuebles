@@ -12,6 +12,14 @@ CREATE TABLE IF NOT EXISTS sesiones (
   ultima_actividad TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Clasificador de texto libre (ver BOT_PATTERNS en app/bot.py): cuántas veces
+-- un contacto nos escribió texto libre fuera de un flujo activo sin que
+-- matcheara ningún patrón conocido. A la 2ª vez el bot lo deriva a un asesor.
+-- El valor "canónico" se guarda dentro de `datos` JSONB (campo
+-- veces_mensaje_libre) junto con el resto de la sesión; esta columna queda
+-- disponible para consultas SQL directas si en el futuro hace falta.
+ALTER TABLE sesiones ADD COLUMN IF NOT EXISTS veces_mensaje_libre INT DEFAULT 0;
+
 -- Inventario de inmuebles del menú de Arrayanes. Temporal: se deja de
 -- usar cuando el flujo de crédito reemplace ese menú (Hito 6).
 CREATE TABLE IF NOT EXISTS inventario (
@@ -140,3 +148,20 @@ CREATE TABLE IF NOT EXISTS mensajes (
 );
 CREATE INDEX IF NOT EXISTS mensajes_telefono_fecha_idx
   ON mensajes (telefono, fecha DESC);
+
+-- Cola persistente de webhooks de WhatsApp. El handler HTTP solo
+-- INSERTa aquí y responde 200 OK; un worker (app/webhook_worker.py)
+-- drena las filas pendientes. Si el proceso muere a mitad de camino,
+-- lo pendiente queda en la DB y se reprocesa al reiniciar — 0 pérdidas.
+CREATE TABLE IF NOT EXISTS webhook_queue (
+  id BIGSERIAL PRIMARY KEY,
+  payload JSONB NOT NULL,
+  recibido_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  procesado_at TIMESTAMPTZ,
+  intentos INT NOT NULL DEFAULT 0,
+  ultimo_error TEXT,
+  estado VARCHAR(20) NOT NULL DEFAULT 'pending'
+    CHECK (estado IN ('pending', 'procesando', 'ok', 'error'))
+);
+CREATE INDEX IF NOT EXISTS webhook_queue_pendientes_idx
+  ON webhook_queue (recibido_at) WHERE estado = 'pending';

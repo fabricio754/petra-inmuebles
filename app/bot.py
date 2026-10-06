@@ -22,6 +22,45 @@ OPT_OUT_KEYWORDS = {"STOP", "BAJA", "SALIR", "PARA"}
 # Palabras que indican solicitud de atención humana (se buscan sin tildes).
 PALABRAS_HUMANO = {"asesor", "humano", "persona real", "hablar con alguien"}
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Clasificador de respuestas en texto libre a la plantilla de apertura
+# ─────────────────────────────────────────────────────────────────────────────
+# Varios teléfonos del lado del propietario responden en texto libre (no tocan
+# los botones). El clasificador detecta tres grupos antes de responder la
+# autorización de datos, para no mandar autorización en loop a bots atendedores
+# ni insistir con quien ya no vende.
+#
+# Todos los patrones se comparan en minúsculas y sin tildes (ver _sin_tildes).
+
+BOT_PATTERNS = [
+    "gracias por tu mensaje",
+    "gracias por comunicar",
+    "horario de atencion",
+    "lo haremos lo antes posible",
+    "soy sandra",
+    "agencia de cambios",
+    "inmobiliaria sala",
+    "atendemos de lunes",
+    "fuera de nuestro horario",
+    "en este momento no podemos responder",
+]
+
+NO_VENDO_PATTERNS = [
+    "ya no esta disponible",
+    "ya vendi",
+    "ya se vendio",
+    "ya fue vendido",
+    "no vendo",
+    "no esta en venta",
+    "ya no vendo",
+]
+
+NO_INTERESADO_PATTERNS = [
+    "no me interesa",
+    "no gracias",
+    "no quiero",
+]
+
 
 def _sin_tildes(s):
     """Convierte a minúsculas y elimina diacríticos para comparar sin tildes."""
@@ -583,6 +622,74 @@ def handle_incoming(phone, event):
         state.set_no_contactar(phone, True)
         return [whatsapp.send_no_contactar(phone)]
 
+    # Clasificador de texto libre sin flujo activo (ver BOT_PATTERNS, etc).
+    # Evita mandar autorización en loop a bots atendedores y despide con
+    # elegancia a quien ya vendió o no quiere más mensajes.
+    if event["type"] == "text":
+        return _clasificar_texto_libre(phone, session, event["text"])
+
     # Cualquier otro mensaje (también de alguien que antes dijo NO y vuelve
     # a escribir por su cuenta) empieza el flujo desde la autorización.
     return [_iniciar(phone)]
+
+
+def _clasificar_texto_libre(phone, session, texto):
+    """Clasifica texto libre recibido sin flujo activo.
+
+    Devuelve siempre una lista de respuestas (posiblemente vacía) para
+    homogeneizar con handle_incoming.
+    """
+    texto_norm = _sin_tildes((texto or "").lower())
+
+    # 1) Bots atendedores: opt-out silencioso.
+    if any(p in texto_norm for p in BOT_PATTERNS):
+        _log.info("[Clasificador] BOT detectado phone=%s texto=%r", phone, texto)
+        state.set_no_contactar(phone, True)
+        _terminar(phone)
+        return []
+
+    # 2) "Ya vendí / no vendo": opt-out con despedida amable.
+    if any(p in texto_norm for p in NO_VENDO_PATTERNS):
+        _log.info("[Clasificador] NO VENDE detectado phone=%s texto=%r", phone, texto)
+        state.set_no_contactar(phone, True)
+        _terminar(phone)
+        return [whatsapp.send_text(
+            phone,
+            "Entendido 🙌 Cuando lo pongas en venta y necesites crédito con "
+            "tu inmueble como garantía, escríbenos aquí.",
+        )]
+
+    # 3) "No me interesa" en texto libre: mismo tratamiento que el botón.
+    if any(p in texto_norm for p in NO_INTERESADO_PATTERNS):
+        _log.info("[Clasificador] NO INTERESADO detectado phone=%s texto=%r", phone, texto)
+        state.set_no_contactar(phone, True)
+        _terminar(phone)
+        return [whatsapp.send_no_contactar(phone)]
+
+    # 4) Texto libre no clasificable: re-enviar plantilla la primera vez;
+    #    a partir de la segunda, pasar a atención humana.
+    veces = int(session.get("veces_mensaje_libre") or 0)
+    veces += 1
+    state.set_session(phone, veces_mensaje_libre=veces)
+    _log.info("[Clasificador] texto libre sin match phone=%s veces=%d", phone, veces)
+
+    if veces >= 2:
+        try:
+            from app import db as _db
+            _db.marcar_requiere_humano(phone)
+        except Exception:
+            logging.getLogger("petra").exception(
+                "[Clasificador] Error marcando requiere_humano."
+            )
+        return [whatsapp.send_text(
+            phone, "Gracias por escribir, un asesor te contactará pronto 👋"
+        )]
+
+    # Primera vez: re-enviar la plantilla de apertura.
+    try:
+        return [whatsapp.send_plantilla_apertura(phone)]
+    except Exception:
+        logging.getLogger("petra").exception(
+            "[Clasificador] Error reenviando plantilla de apertura; cae a autorización."
+        )
+        return [_iniciar(phone)]
