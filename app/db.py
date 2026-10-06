@@ -274,8 +274,14 @@ def log_mensaje(telefono, direccion, tipo, resumen, payload=None):
 
 def guardar_contacto(c):
     """Inserta un anuncio capturado. Devuelve True si es nuevo, False si el
-    teléfono ya existía (no se toca: ni se recontacta ni se pisa no_contactar)."""
-    with _conexion() as conn:
+    teléfono ya existía (no se toca: ni se recontacta ni se pisa no_contactar).
+
+    Usa `_conexion_directa` (bypass del pool) porque el endpoint que llama a
+    esta función (`/scraper/ingest`) es de baja frecuencia (~1 req/20s desde
+    Apps Script) y el pool compartido ha mostrado quedarse pegado tras
+    errores iniciales (slots zombie, nunca escala a max_size). pgBouncer en
+    6432 multiplexa las conns directas, así que el costo extra es mínimo."""
+    with _conexion_directa(timeout=10) as conn:
         fila = conn.execute(
             "INSERT INTO contactos (telefono, nombre, direccion, barrio, ciudad, tipo_inmueble, "
             "precio_publicado, estrato, requiere_ph, url_listing, portal, foto_url, "
