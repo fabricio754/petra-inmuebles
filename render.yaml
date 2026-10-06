@@ -67,7 +67,7 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: MEDIA_DIR
-        value: /var/data/media
+        value: /var/data/media/wa
 
       # === Scraper / Apify ingest ===
       - key: SCRAPER_ENABLED

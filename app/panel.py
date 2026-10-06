@@ -16,7 +16,8 @@ import re
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, abort, redirect, render_template, request, url_for
+from flask import (Blueprint, Response, abort, redirect, render_template,
+                   request, send_file, url_for)
 from psycopg_pool import PoolTimeout
 
 from app import db
@@ -369,6 +370,47 @@ def _dia_etiqueta(fecha, ahora=None):
     if d == hoy - timedelta(days=1):
         return "Ayer"
     return d.isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Media entrante (audio/image/video/document/sticker)
+# ---------------------------------------------------------------------------
+
+_MEDIA_TIPOS = {"audio", "image", "video", "document", "sticker"}
+
+
+def _info_media(mensaje):
+    """A partir de una fila de `mensajes`, deriva si es un media visible en el
+    panel (audio/image/video/document/sticker) y los datos necesarios para
+    rendear el reproductor/visor y el link `/panel/media/<id>`.
+
+    Devuelve None si el mensaje no es media. Un dict:
+      {kind, id, mime, caption, voice, disponible, filename}
+    si lo es. `disponible=False` cuando no hay local_path en payload o el
+    archivo no existe en disco: el template muestra el placeholder.
+    """
+    tipo = (mensaje.get("tipo") or "").lower()
+    if tipo not in _MEDIA_TIPOS:
+        return None
+    payload = mensaje.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    local_path = payload.get("local_path")
+    disponible = bool(local_path) and os.path.exists(local_path)
+    return {
+        "kind": tipo,
+        "id": mensaje.get("id"),
+        "mime": payload.get("mime") or "",
+        "caption": payload.get("caption") or "",
+        "voice": bool(payload.get("voice", False)),
+        "filename": payload.get("filename") or "",
+        "disponible": disponible,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -920,7 +962,7 @@ def panel_detalle(telefono):
                 "SELECT fecha, operacion, datos FROM leads WHERE telefono = %s "
                 "ORDER BY fecha DESC LIMIT 100", (telefono,))
             mensajes = _rows(conn,
-                "SELECT fecha, direccion, tipo, resumen FROM mensajes "
+                "SELECT id, fecha, direccion, tipo, resumen, payload FROM mensajes "
                 "WHERE telefono = %s ORDER BY fecha DESC LIMIT 500", (telefono,))
     except PoolTimeout:
         return _pool_busy_response(f"/panel/{telefono}")
@@ -1057,6 +1099,7 @@ def panel_detalle(telefono):
         resumen_render = m.get("resumen") or "—"
         if m.get("direccion") == "out":
             resumen_render = _humanizar_resumen_salida(m.get("resumen"))
+        media_info = _info_media(m)
         mensajes_vista.append({
             **m,
             "etiqueta_dia": etiqueta,
@@ -1064,6 +1107,7 @@ def panel_detalle(telefono):
             "flow_lineas": flow_lineas,
             "resumen_render": resumen_render,
             "hora_hm": m.get("fecha").strftime("%H:%M") if m.get("fecha") else "—",
+            "media": media_info,
         })
         dia_prev = etiqueta
 
@@ -1092,6 +1136,67 @@ def panel_detalle(telefono):
         avaluo_m=avaluo_m, monto_estimado_m=monto_estimado_m,
         datos_tabla=datos_tabla, flows=flows,
         sesion_hace=sesion_hace,
+    )
+
+
+@panel.get("/panel/media/<int:mensaje_id>")
+def servir_media(mensaje_id):
+    """Sirve el binario local asociado a un mensaje de media (audio/image/
+    video/document/sticker). Mismo token que el resto del panel.
+
+    Lee `payload.local_path` y `payload.mime` de la fila `mensajes[id]`. Si
+    el archivo no existe en disco (descarga que falló en su momento, disco
+    rotado, media_id expirado), devuelve 404 — el template renderiza el
+    placeholder "[tipo no disponible]".
+    """
+    _check_token()
+    try:
+        with _panel_conexion() as conn:
+            fila = conn.execute(
+                "SELECT tipo, payload FROM mensajes WHERE id = %s AND direccion = 'in'",
+                (mensaje_id,),
+            ).fetchone()
+    except PoolTimeout:
+        return _pool_busy_response(f"/panel/media/{mensaje_id}")
+    if not fila:
+        abort(404, description="mensaje no encontrado")
+
+    tipo, payload = fila
+    if (tipo or "").lower() not in _MEDIA_TIPOS:
+        abort(404, description="mensaje no es media")
+
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    local_path = payload.get("local_path") or ""
+    mime = payload.get("mime") or "application/octet-stream"
+    if not local_path or not os.path.exists(local_path):
+        abort(404, description="archivo no disponible en disco")
+
+    # Defensa: solo servir archivos bajo MEDIA_DIR. Evita que un payload
+    # tocado a mano pida un archivo arbitrario del filesystem.
+    media_dir = os.environ.get("MEDIA_DIR", "/var/data/media/wa")
+    try:
+        real_media = os.path.realpath(media_dir)
+        real_path = os.path.realpath(local_path)
+        if not real_path.startswith(real_media + os.sep) and real_path != real_media:
+            log.warning("[Panel media] Intento de leer fuera de MEDIA_DIR: %s", local_path)
+            abort(404)
+    except Exception:
+        abort(404)
+
+    filename = payload.get("filename") or os.path.basename(local_path)
+    descarga = (tipo or "").lower() == "document"
+    return send_file(
+        local_path,
+        mimetype=mime,
+        as_attachment=descarga,
+        download_name=filename if descarga else None,
     )
 
 

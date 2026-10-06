@@ -467,19 +467,54 @@ def _to_event(message):
         img = message.get("image", {})
         return {
             "type": "media",
+            "media_subtipo": "image",
             "media_id": img.get("id", ""),
             "mime_type": img.get("mime_type", "image/jpeg"),
+            "caption": img.get("caption", "") or "",
             "filename": "",
         }
     if msg_type == "document":
         doc = message.get("document", {})
         return {
             "type": "media",
+            "media_subtipo": "document",
             "media_id": doc.get("id", ""),
             "mime_type": doc.get("mime_type", "application/pdf"),
-            "filename": doc.get("filename", ""),
+            "caption": doc.get("caption", "") or "",
+            "filename": doc.get("filename", "") or "",
         }
-    # Tipo no manejado (audio, ubicación...) → texto vacío.
+    if msg_type == "audio":
+        au = message.get("audio", {})
+        return {
+            "type": "media",
+            "media_subtipo": "audio",
+            "media_id": au.get("id", ""),
+            "mime_type": au.get("mime_type", "audio/ogg"),
+            "voice": bool(au.get("voice", False)),
+            "caption": "",
+            "filename": "",
+        }
+    if msg_type == "video":
+        vid = message.get("video", {})
+        return {
+            "type": "media",
+            "media_subtipo": "video",
+            "media_id": vid.get("id", ""),
+            "mime_type": vid.get("mime_type", "video/mp4"),
+            "caption": vid.get("caption", "") or "",
+            "filename": "",
+        }
+    if msg_type == "sticker":
+        st = message.get("sticker", {})
+        return {
+            "type": "media",
+            "media_subtipo": "sticker",
+            "media_id": st.get("id", ""),
+            "mime_type": st.get("mime_type", "image/webp"),
+            "caption": "",
+            "filename": "",
+        }
+    # Tipo no manejado (ubicación, contactos...) → texto vacío.
     return {"type": "text", "text": ""}
 
 
