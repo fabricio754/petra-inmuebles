@@ -29,7 +29,8 @@
               {
                 "type": "RadioButtonsGroup",
                 "name": "tipo_persona",
-                "label": "¿Persona natural o empresa?",
+                "label": "Tipo",
+                "description": "¿El dueño es persona natural o empresa?",
                 "required": true,
                 "data-source": [
                   { "id": "NATURAL", "title": "Persona natural" },
@@ -39,7 +40,7 @@
               {
                 "type": "TextInput",
                 "name": "nombre",
-                "label": "Nombre completo",
+                "label": "Nombre",
                 "input-type": "text",
                 "required": true,
                 "helper-text": "Como aparece en la cédula"
@@ -67,7 +68,7 @@
               {
                 "type": "Dropdown",
                 "name": "objetivo",
-                "label": "¿Para qué lo necesitas?",
+                "label": "Objetivo del crédito",
                 "required": true,
                 "data-source": [
                   { "id": "OBJ_CAPITAL", "title": "Capital de trabajo" },
@@ -80,7 +81,7 @@
               {
                 "type": "TextInput",
                 "name": "email",
-                "label": "Correo electrónico",
+                "label": "Correo",
                 "input-type": "email",
                 "required": true,
                 "helper-text": "Para enviarte novedades de tu solicitud"
