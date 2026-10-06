@@ -6,6 +6,7 @@ import os
 import json
 import logging
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
 # Python-level socket timeout so DB/network connections time out in worker threads.
@@ -33,6 +34,13 @@ app.register_blueprint(panel_bp)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
+
+# Pool fijo de workers para procesar webhooks en background. Antes creaba un
+# threading.Thread por mensaje; con 100 mensajes concurrentes RAM se dispara
+# (100 × ~8 MB = 800 MB) y Render mata el proceso. Con un pool acotado los
+# mensajes extra entran a la cola del executor en vez de reventar el worker.
+_WH_WORKERS = int(os.environ.get("WEBHOOK_WORKERS", "32"))
+_webhook_pool = ThreadPoolExecutor(max_workers=_WH_WORKERS, thread_name_prefix="wh")
 
 _reset_tel = os.environ.get("STARTUP_RESET_TELEFONO", "").strip()
 if _reset_tel:
@@ -375,13 +383,7 @@ def receive_webhook():
         # requests (panel, siguientes webhooks). El log a DB también va al
         # background: en picos de carga el pool se satura y el INSERT puede
         # tardar hasta 20 s, lo que mata el worker thread.
-        import threading as _threading
-        _threading.Thread(
-            target=_procesar_mensaje_async,
-            args=(phone, event, message),
-            daemon=True,
-            name=f"wh-{phone[-4:]}",
-        ).start()
+        _webhook_pool.submit(_procesar_mensaje_async, phone, event, message)
     except Exception:
         log.exception("Error procesando webhook. Payload: %s", payload)
     return jsonify({"status": "received"}), 200
