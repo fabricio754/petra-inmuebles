@@ -39,6 +39,23 @@
   .histograma .hc .hb { width: 100%; background: #d4a72c; border-radius: 2px 2px 0 0; min-height: 1px; }
   .histograma .hc .hlbl { font-size: .65rem; color: #57606a; font-family: ui-monospace, monospace; margin-top: 2px; }
   .nota { font-size: .82rem; color: #8c959f; margin-top: 8px; }
+  table.mini { width: 100%; border-collapse: collapse; font-size: .88rem; font-family: ui-monospace, monospace; }
+  table.mini th, table.mini td { padding: 6px 8px; text-align: left; border-bottom: 1px solid #eaeef2; vertical-align: top; }
+  table.mini th { color: #57606a; font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .02em; }
+  table.mini td.num, table.mini th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.mini tr.total td { font-weight: 700; background: #f6f8fa; }
+  .tiles { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  .tiles .tile { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 14px; min-width: 140px; flex: 1 1 160px; }
+  .tiles .tile .big { font-size: 1.35rem; font-weight: 700; color: #1f2328; font-family: ui-monospace, monospace; }
+  .tiles .tile .big.na { color: #8c959f; font-size: 1rem; }
+  .tiles .tile .lbl { font-size: .78rem; color: #57606a; margin-top: 2px; }
+  .tiles .tile .sub { font-size: .7rem; color: #8c959f; margin-top: 4px; }
+  .scrollbox { max-height: 420px; overflow-y: auto; border: 1px solid #d0d7de; border-radius: 6px; }
+  .scrollbox table.mini { font-size: .82rem; }
+  .scrollbox table.mini th { position: sticky; top: 0; background: #f6f8fa; z-index: 1; }
+  .scrollbox a { color: #0969da; text-decoration: none; }
+  .scrollbox a:hover { text-decoration: underline; }
+  .empty { font-size: .85rem; color: #8c959f; padding: 10px 2px; }
   @media (prefers-color-scheme: dark) {
     body { background: #0d1117; color: #e6edf3; }
     section { background: #161b22; border-color: #30363d; }
@@ -53,6 +70,18 @@
     .barras-dia .col .lbl, .histograma .hc .hlbl { color: #8b949e; }
     .barras-dia, .histograma { border-color: #30363d; }
     .leyenda, .nota { color: #8b949e; }
+    table.mini th, table.mini td { border-color: #30363d; }
+    table.mini th { color: #8b949e; }
+    table.mini tr.total td { background: #0d1117; }
+    .tiles .tile { background: #0d1117; border-color: #30363d; }
+    .tiles .tile .big { color: #e6edf3; }
+    .tiles .tile .big.na { color: #6e7681; }
+    .tiles .tile .lbl { color: #8b949e; }
+    .tiles .tile .sub { color: #6e7681; }
+    .scrollbox { border-color: #30363d; }
+    .scrollbox table.mini th { background: #0d1117; }
+    .scrollbox a { color: #58a6ff; }
+    .empty { color: #6e7681; }
   }
 </style>
 </head>
@@ -112,6 +141,115 @@
     {% endfor %}
   </div>
   <p class="nota">Pico máximo de la ventana: {{ max_hora_n }} mensaje(s) IN en una franja horaria.</p>
+</section>
+
+<section>
+  <h2>Cierres humanos · últimos 30 días</h2>
+  {% if cierres %}
+  <table class="mini">
+    <thead>
+      <tr>
+        <th>Resultado</th>
+        <th class="num">Total</th>
+        <th>Por asesor</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in cierres %}
+      <tr>
+        <td>{{ c.tipo }}</td>
+        <td class="num">{{ c.total }}</td>
+        <td>{{ c.detalle }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total">
+        <td>Total</td>
+        <td class="num">{{ cierres_total }}</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Sin cierres humanos registrados en los últimos 30 días.</p>
+  {% endif %}
+  <p class="nota">Fuente: `contactos.resultado_contacto_*` con `resultado_contacto_at` dentro de los últimos 30 días.</p>
+</section>
+
+<section>
+  <h2>Tiempos entre etapas · últimos 30 días</h2>
+  <table class="mini">
+    <thead>
+      <tr>
+        <th>Etapa</th>
+        <th class="num">n</th>
+        <th class="num">p25</th>
+        <th class="num">mediana</th>
+        <th class="num">p75</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in tiempos %}
+      <tr>
+        <td>{{ t.etapa }}</td>
+        <td class="num">{{ t.n }}</td>
+        <td class="num">{{ t.p25 }}</td>
+        <td class="num">{{ t.mediana }}</td>
+        <td class="num">{{ t.p75 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="nota">Minutos entre eventos consecutivos del mismo teléfono. "OUT → primer IN" usa `contactos.fecha_contacto`; etapas siguientes usan `MIN(fecha)` por tipo de evento.</p>
+</section>
+
+<section>
+  <h2>Detectados por filtros · últimos 30 días</h2>
+  <div class="tiles">
+    {% for t in detectados_tiles %}
+    <div class="tile">
+      {% if t.n is none %}
+      <div class="big na">{{ t.nota }}</div>
+      <div class="lbl">{{ t.label }}</div>
+      {% else %}
+      <div class="big">{{ t.n }}</div>
+      <div class="lbl">{{ t.label }}</div>
+      <div class="sub">{{ t.nota }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <p class="nota">Ventana: contactos con `requiere_humano_at` o `resultado_contacto_at` en los últimos 30 días. Brokers detectados en scraper salen solo por log, no por DB.</p>
+</section>
+
+<section>
+  <h2>Leads calientes activos · sin cerrar</h2>
+  {% if calientes %}
+  <div class="scrollbox">
+    <table class="mini">
+      <thead>
+        <tr>
+          <th>Teléfono</th>
+          <th>Motivo</th>
+          <th>Marcado</th>
+          <th>Última actividad</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lc in calientes %}
+        <tr>
+          <td><a href="/panel/{{ lc.telefono }}?token={{ token }}">{{ lc.telefono }}</a></td>
+          <td>{{ lc.motivo }}</td>
+          <td>{{ lc.requiere_humano_at }}</td>
+          <td>{{ lc.ultima_act }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="nota">Máx. 50. Horarios en zona Bogotá. `requiere_humano = TRUE` y aún sin `resultado_contacto_por` (no cerrado).</p>
+  {% else %}
+  <p class="empty">No hay leads calientes sin cerrar.</p>
+  {% endif %}
 </section>
 
 </body>

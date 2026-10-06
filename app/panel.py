@@ -604,6 +604,150 @@ def panel_stats():
                 GROUP BY hora
                 ORDER BY hora ASC
             """)
+
+            # ---------- Mini-vista 1: cierres humanos últimos 30d ----------
+            cierres_rows = _rows(conn, """
+                SELECT resultado_contacto,
+                       COALESCE(resultado_contacto_por, '') AS asesor,
+                       COUNT(*) AS n
+                FROM contactos
+                WHERE resultado_contacto_por IS NOT NULL
+                  AND resultado_contacto_at >= NOW() - INTERVAL '30 days'
+                GROUP BY resultado_contacto, resultado_contacto_por
+                ORDER BY resultado_contacto, n DESC
+            """)
+
+            # ---------- Mini-vista 2: tiempos entre etapas (30d) ----------
+            # OUT -> primer IN posterior
+            tiempos_out_in = _rows(conn, """
+                WITH primera_in AS (
+                    SELECT telefono, MIN(fecha) AS primer_in
+                    FROM mensajes
+                    WHERE direccion='in'
+                    GROUP BY telefono
+                )
+                SELECT
+                    percentile_cont(0.25) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM pi.primer_in - c.fecha_contacto)/60
+                    ) AS p25_min,
+                    percentile_cont(0.5)  WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM pi.primer_in - c.fecha_contacto)/60
+                    ) AS mediana_min,
+                    percentile_cont(0.75) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM pi.primer_in - c.fecha_contacto)/60
+                    ) AS p75_min,
+                    COUNT(*) AS n
+                FROM contactos c
+                JOIN primera_in pi USING (telefono)
+                WHERE c.fecha_contacto >= NOW() - INTERVAL '30 days'
+                  AND pi.primer_in > c.fecha_contacto
+            """)
+
+            # IN -> BOTON_SI (primer button_reply BOTON_SI posterior al primer IN)
+            tiempos_in_si = _rows(conn, """
+                WITH primera_in AS (
+                    SELECT telefono, MIN(fecha) AS primer_in
+                    FROM mensajes
+                    WHERE direccion='in'
+                    GROUP BY telefono
+                ),
+                primer_si AS (
+                    SELECT telefono, MIN(fecha) AS primer_si
+                    FROM mensajes
+                    WHERE direccion='in'
+                      AND tipo='button_reply'
+                      AND resumen='BOTON_SI'
+                    GROUP BY telefono
+                )
+                SELECT
+                    percentile_cont(0.25) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM ps.primer_si - pi.primer_in)/60
+                    ) AS p25_min,
+                    percentile_cont(0.5)  WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM ps.primer_si - pi.primer_in)/60
+                    ) AS mediana_min,
+                    percentile_cont(0.75) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM ps.primer_si - pi.primer_in)/60
+                    ) AS p75_min,
+                    COUNT(*) AS n
+                FROM primera_in pi
+                JOIN primer_si ps USING (telefono)
+                WHERE ps.primer_si >= pi.primer_in
+                  AND ps.primer_si >= NOW() - INTERVAL '30 days'
+            """)
+
+            # BOTON_SI -> primer flow_reply posterior
+            tiempos_si_flow = _rows(conn, """
+                WITH primer_si AS (
+                    SELECT telefono, MIN(fecha) AS primer_si
+                    FROM mensajes
+                    WHERE direccion='in'
+                      AND tipo='button_reply'
+                      AND resumen='BOTON_SI'
+                    GROUP BY telefono
+                ),
+                primer_flow AS (
+                    SELECT telefono, MIN(fecha) AS primer_flow
+                    FROM mensajes
+                    WHERE direccion='in'
+                      AND tipo='flow_reply'
+                    GROUP BY telefono
+                )
+                SELECT
+                    percentile_cont(0.25) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM pf.primer_flow - ps.primer_si)/60
+                    ) AS p25_min,
+                    percentile_cont(0.5)  WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM pf.primer_flow - ps.primer_si)/60
+                    ) AS mediana_min,
+                    percentile_cont(0.75) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM pf.primer_flow - ps.primer_si)/60
+                    ) AS p75_min,
+                    COUNT(*) AS n
+                FROM primer_si ps
+                JOIN primer_flow pf USING (telefono)
+                WHERE pf.primer_flow >= ps.primer_si
+                  AND pf.primer_flow >= NOW() - INTERVAL '30 days'
+            """)
+
+            # ---------- Mini-vista 3: detectados por filtros (30d) ----------
+            detectados = _rows(conn, """
+                SELECT
+                  COUNT(*) FILTER (
+                    WHERE no_contactar = TRUE AND resultado_contacto_por IS NULL
+                  ) AS opt_outs_auto,
+                  COUNT(*) FILTER (
+                    WHERE no_contactar = TRUE AND resultado_contacto_por IS NOT NULL
+                  ) AS opt_outs_humanos,
+                  COUNT(*) FILTER (
+                    WHERE requiere_humano_motivo ILIKE 'pid%%llamada%%'
+                  ) AS pide_llamada,
+                  COUNT(*) FILTER (
+                    WHERE requiere_humano = TRUE
+                      AND resultado_contacto_por IS NULL
+                  ) AS requiere_humano_activos,
+                  COUNT(*) FILTER (
+                    WHERE resultado_contacto = 'broker'
+                      AND resultado_contacto_at >= NOW() - INTERVAL '30 days'
+                  ) AS brokers_cerrados
+                FROM contactos
+                WHERE (requiere_humano_at >= NOW() - INTERVAL '30 days'
+                       OR resultado_contacto_at >= NOW() - INTERVAL '30 days')
+            """)
+
+            # ---------- Mini-vista 4: leads calientes activos ----------
+            leads_calientes = _rows(conn, """
+                SELECT c.telefono,
+                       c.requiere_humano_motivo,
+                       c.requiere_humano_at,
+                       (SELECT MAX(fecha) FROM mensajes
+                        WHERE telefono = c.telefono) AS ultima_act
+                FROM contactos c
+                WHERE requiere_humano = TRUE
+                  AND resultado_contacto_por IS NULL
+                ORDER BY requiere_humano_at DESC NULLS LAST
+                LIMIT 50
+            """)
     except PoolTimeout:
         return _pool_busy_response("/panel/stats")
 
@@ -682,6 +826,117 @@ def panel_stats():
             "alto": int(n / max_h * 100) if max_h else 0,
         })
 
+    # ---------- Mini 1: agrupar cierres por tipo con sub-breakdown asesor ----
+    cierres_por_tipo = {}
+    cierres_total = 0
+    for r in cierres_rows:
+        tipo = r.get("resultado_contacto") or "(sin tipo)"
+        asesor = r.get("asesor") or "(sin asesor)"
+        n = int(r.get("n") or 0)
+        cierres_total += n
+        slot = cierres_por_tipo.setdefault(tipo, {"total": 0, "por_asesor": []})
+        slot["total"] += n
+        slot["por_asesor"].append({"asesor": asesor, "n": n})
+    # Orden por total desc, mantener orden interno de asesores por volumen desc.
+    cierres = []
+    for tipo, slot in sorted(cierres_por_tipo.items(),
+                             key=lambda kv: kv[1]["total"], reverse=True):
+        slot["por_asesor"].sort(key=lambda a: a["n"], reverse=True)
+        detalle = ", ".join(f"{a['asesor']}: {a['n']}" for a in slot["por_asesor"])
+        cierres.append({
+            "tipo": tipo,
+            "total": slot["total"],
+            "detalle": detalle,
+        })
+
+    # ---------- Mini 2: formatear tiempos entre etapas --------------------
+    def _fmt_min(valor):
+        if valor is None:
+            return "-"
+        try:
+            m = float(valor)
+        except (TypeError, ValueError):
+            return "-"
+        if m < 1:
+            return "<1m"
+        if m < 60:
+            return f"{int(round(m))}m"
+        if m < 60 * 24:
+            return f"{m / 60:.1f}h"
+        return f"{m / (60 * 24):.1f}d"
+
+    def _etapa(nombre, rows):
+        r = (rows[0] if rows else {}) or {}
+        n = int(r.get("n") or 0)
+        return {
+            "etapa": nombre,
+            "n": n,
+            "p25": _fmt_min(r.get("p25_min")) if n else "-",
+            "mediana": _fmt_min(r.get("mediana_min")) if n else "-",
+            "p75": _fmt_min(r.get("p75_min")) if n else "-",
+        }
+
+    tiempos = [
+        _etapa("OUT → primer IN", tiempos_out_in),
+        _etapa("IN → BOTON_SI", tiempos_in_si),
+        _etapa("BOTON_SI → Flow completo", tiempos_si_flow),
+    ]
+
+    # ---------- Mini 3: tiles de detección por filtros --------------------
+    d = (detectados[0] if detectados else {}) or {}
+    detectados_tiles = [
+        {
+            "label": "Opt-outs automáticos",
+            "n": int(d.get("opt_outs_auto") or 0),
+            "nota": "cerrados por el bot (no_contactar=true, sin asesor)",
+        },
+        {
+            "label": "Opt-outs humanos",
+            "n": int(d.get("opt_outs_humanos") or 0),
+            "nota": "no_contactar=true cerrado por asesor",
+        },
+        {
+            "label": "Pidieron llamada",
+            "n": int(d.get("pide_llamada") or 0),
+            "nota": "detectado por filtros.es_pedido_llamada()",
+        },
+        {
+            "label": "Requiere humano activos",
+            "n": int(d.get("requiere_humano_activos") or 0),
+            "nota": "lead caliente aún sin cerrar",
+        },
+        {
+            "label": "Brokers cerrados",
+            "n": int(d.get("brokers_cerrados") or 0),
+            "nota": "resultado_contacto='broker'",
+        },
+        {
+            "label": "Brokers scraper",
+            "n": None,
+            "nota": "n/a — solo visible en logs",
+        },
+    ]
+
+    # ---------- Mini 4: formatear leads calientes -------------------------
+    def _fmt_dt(dt):
+        if not dt:
+            return "-"
+        try:
+            # dt es tz-aware (UTC). Convertir a Bogotá para legibilidad.
+            local = dt.astimezone(timezone(timedelta(hours=-5)))
+            return local.strftime("%d/%m %H:%M")
+        except Exception:  # noqa: BLE001
+            return str(dt)
+
+    calientes = []
+    for lc in leads_calientes:
+        calientes.append({
+            "telefono": lc.get("telefono") or "",
+            "motivo": lc.get("requiere_humano_motivo") or "(sin motivo)",
+            "requiere_humano_at": _fmt_dt(lc.get("requiere_humano_at")),
+            "ultima_act": _fmt_dt(lc.get("ultima_act")),
+        })
+
     return render_template(
         "panel_stats.html",
         token=token,
@@ -692,6 +947,11 @@ def panel_stats():
         dias=dias,
         hist=hist,
         max_hora_n=max_h,
+        cierres=cierres,
+        cierres_total=cierres_total,
+        tiempos=tiempos,
+        detectados_tiles=detectados_tiles,
+        calientes=calientes,
     )
 
 
