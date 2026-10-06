@@ -58,7 +58,10 @@
 <body>
 <div class="topbar">
   <h1>Panel Massi · {{ total }} de {{ total_sin_filtro }} leads</h1>
-  <a class="stats-link" href="/panel/stats?token={{ token }}">📊 Ver estadísticas</a>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <a class="stats-link" href="/panel/respuestas?token={{ token }}">💬 Respuestas</a>
+    <a class="stats-link" href="/panel/stats?token={{ token }}">📊 Ver estadísticas</a>
+  </div>
 </div>
 <div class="totales">
   {% for estado, n in por_estado %}
