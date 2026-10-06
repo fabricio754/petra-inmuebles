@@ -8,6 +8,9 @@
   :root { color-scheme: light dark; }
   body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #f6f8fa; color: #1f2328; }
   h1 { font-size: 1.3rem; margin: 0 0 12px; }
+  .topbar { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .topbar a.stats-link { font-size: .9rem; color: #0969da; text-decoration: none; padding: 4px 10px; border: 1px solid #0969da; border-radius: 6px; }
+  .topbar a.stats-link:hover { background: #0969da; color: #fff; }
   .totales { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
   .chip { background: #fff; border: 1px solid #d0d7de; border-radius: 999px; padding: 4px 10px; font-size: .85rem; text-decoration: none; color: inherit; }
   .chip strong { margin-left: 4px; }
@@ -32,6 +35,11 @@
   .estado-desembolsado { background: #116329; color: #fff; }
   .estado-no_contactar, .estado-descartado { background: #ffebe9; color: #cf222e; }
   .estado-pausado_paz_salvo { background: #fff1e5; color: #9a4b00; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot-verde { background: #2da44e; }
+  .dot-amarillo { background: #d4a72c; }
+  .dot-gris { background: #8c959f; }
+  .avaluo-aprox { color: #8c959f; }
   @media (prefers-color-scheme: dark) {
     body { background: #0d1117; color: #e6edf3; }
     .chip, table, .filtros input, .filtros select { background: #161b22; border-color: #30363d; color: #e6edf3; }
@@ -41,11 +49,17 @@
     th, td { border-color: #30363d; }
     tr:hover { background: #1c2128; }
     td.tel a { color: #58a6ff; }
+    .avaluo-aprox { color: #6e7681; }
+    .topbar a.stats-link { color: #58a6ff; border-color: #58a6ff; }
+    .topbar a.stats-link:hover { background: #58a6ff; color: #0d1117; }
   }
 </style>
 </head>
 <body>
-<h1>Panel Massi · {{ total }} de {{ total_sin_filtro }} leads</h1>
+<div class="topbar">
+  <h1>Panel Massi · {{ total }} de {{ total_sin_filtro }} leads</h1>
+  <a class="stats-link" href="/panel/stats?token={{ token }}">📊 Ver estadísticas</a>
+</div>
 <div class="totales">
   {% for estado, n in por_estado %}
     <a class="chip chip-link {% if f_estado == estado %}chip-active{% endif %}"
@@ -82,7 +96,7 @@
       <th>Ciudad</th>
       <th>Tipo</th>
       <th>Portal</th>
-      <th>Hasta ($M)</th>
+      <th>Avalúo ($M)</th>
       <th>Estado</th>
       <th>Última actividad</th>
     </tr>
@@ -95,9 +109,19 @@
       <td>{{ f.ciudad or '—' }}</td>
       <td>{{ f.tipo_inmueble or '—' }}</td>
       <td>{{ f.portal or '—' }}</td>
-      <td>{{ f.monto_hasta or '—' }}</td>
+      <td>
+        {% if f.avaluo_m %}
+          {% if f.avaluo_fuente == 'pipeline' %}
+            {{ f.avaluo_m }}
+          {% else %}
+            <span class="avaluo-aprox" title="Aproximación por monto_hasta — todavía sin pipeline">~{{ f.avaluo_m }}</span>
+          {% endif %}
+        {% else %}—{% endif %}
+      </td>
       <td><span class="estado estado-{{ f.estado.split(':')[0] }}">{{ f.estado }}</span></td>
-      <td>{{ f.ultima_actividad.strftime('%Y-%m-%d %H:%M') if f.ultima_actividad else '—' }}</td>
+      <td>
+        <span class="dot dot-{{ f.ultima_actividad_semaforo }}"></span>{{ f.ultima_actividad_hace }}
+      </td>
     </tr>
     {% endfor %}
   </tbody>

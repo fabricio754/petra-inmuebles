@@ -3,13 +3,16 @@
 Vista web protegida por token (`PANEL_TOKEN`) que permite ver, por lead:
 captación, sesión activa, pipeline, documentos recibidos y remarketing.
 
-Monta tres rutas en el server principal:
+Monta rutas en el server principal:
   GET  /panel                    → lista de leads con filtros
+  GET  /panel/stats              → embudo de conversión + métricas
   GET  /panel/<tel>              → línea de tiempo completa del lead
   POST /panel/<tel>/responder    → envía un mensaje de texto manual al lead
 """
+import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, abort, redirect, render_template, request, url_for
@@ -19,6 +22,10 @@ from app import db
 log = logging.getLogger("petra")
 panel = Blueprint("panel", __name__)
 
+
+# ---------------------------------------------------------------------------
+# Helpers de token / SQL
+# ---------------------------------------------------------------------------
 
 def _check_token():
     token_cfg = os.environ.get("PANEL_TOKEN", "")
@@ -32,6 +39,16 @@ def _rows(conn, sql, params=()):
     cols = [c.name for c in cur.description] if cur.description else []
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
+
+def _scalar(conn, sql, params=()):
+    cur = conn.execute(sql, params)
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Humanización y formato
+# ---------------------------------------------------------------------------
 
 def _estado_lead(c, s, p):
     """Deriva el estado actual del lead a partir de contacto, sesión y pipeline."""
@@ -61,11 +78,253 @@ def _estado_lead(c, s, p):
     return "sin_contacto"
 
 
+def _hace(fecha, ahora=None):
+    """Fecha relativa humana en español: 'hace 3 min', 'hace 1 h 20', 'hace 2 d'."""
+    if not fecha:
+        return "—"
+    ahora = ahora or datetime.now(timezone.utc)
+    try:
+        delta = ahora - fecha
+    except TypeError:
+        delta = ahora - fecha.replace(tzinfo=timezone.utc)
+    seg = int(delta.total_seconds())
+    if seg < 0:
+        return "ahora"
+    if seg < 60:
+        return "hace unos seg"
+    if seg < 3600:
+        return f"hace {seg // 60} min"
+    if seg < 86400:
+        h = seg // 3600
+        m = (seg % 3600) // 60
+        return f"hace {h} h" if m == 0 else f"hace {h} h {m}"
+    d = seg // 86400
+    return f"hace {d} d"
+
+
+def _semaforo(fecha, ahora=None):
+    """Devuelve clase CSS: verde (<1h), amarillo (<24h), gris (>24h o sin fecha)."""
+    if not fecha:
+        return "gris"
+    ahora = ahora or datetime.now(timezone.utc)
+    try:
+        delta = ahora - fecha
+    except TypeError:
+        delta = ahora - fecha.replace(tzinfo=timezone.utc)
+    seg = delta.total_seconds()
+    if seg < 3600:
+        return "verde"
+    if seg < 86400:
+        return "amarillo"
+    return "gris"
+
+
+# Mapa de keys crudas a etiquetas humanas, para render en tabla key/value.
+_KEY_HUMANO = {
+    "tipo_inmueble": "Tipo",
+    "avaluo_comercial": "Avalúo",
+    "avaluo_catastral": "Avalúo catastral",
+    "edad": "Edad",
+    "direccion": "Dirección",
+    "apto": "Apto",
+    "barrio": "Barrio",
+    "ciudad": "Ciudad",
+    "estrato": "Estrato",
+    "es_ph": "Es PH",
+    "hipoteca": "Hipoteca vigente",
+    "patrimonio": "Patrimonio",
+    "paz_salvo": "Paz y salvo",
+    "avaluo": "Avalúo",
+    "tipo_persona": "Tipo de persona",
+    "nombre": "Nombre",
+    "cedula": "Cédula",
+    "nit": "NIT",
+    "objetivo": "Objetivo",
+    "objetivo_prestamo": "Objetivo",
+    "email": "Email",
+    "valor_solicitado": "Valor solicitado",
+    "requiere_paz_salvo": "Requiere paz y salvo",
+    "patrimonio_verificar": "Patrimonio por verificar",
+    "monto_estimado_m": "Monto estimado (M)",
+    "autorizacion_en": "Autorización en",
+    "flow": "Flow",
+    "flow_step": "Paso",
+    "flow_data": "Datos del flow",
+    "conjunto": "Conjunto",
+    "extractos_count": "Extractos recibidos",
+}
+
+_FLOW1_KEYS = ("direccion", "apto", "barrio", "ciudad", "estrato", "es_ph",
+               "hipoteca", "patrimonio", "edad", "paz_salvo", "avaluo",
+               "avaluo_comercial", "valor_solicitado")
+_FLOW2_KEYS = ("tipo_persona", "nombre", "cedula", "nit", "edad", "objetivo",
+               "objetivo_prestamo", "email")
+
+
+def _humanizar_key(k):
+    return _KEY_HUMANO.get(k, k.replace("_", " ").capitalize())
+
+
+def _formatear_valor(v):
+    """Convierte un valor crudo a texto legible."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, bool):
+        return "sí" if v else "no"
+    if isinstance(v, (int, float)):
+        if abs(v) >= 1000:
+            try:
+                return "{:,}".format(int(v)).replace(",", ".")
+            except (ValueError, OverflowError):
+                return str(v)
+        return str(v)
+    return str(v)
+
+
+def _tabla_kv(datos):
+    """Convierte un dict en una lista [(label, value)] para render como tabla.
+    Omite nulos/vacíos. Humaniza keys."""
+    if not datos:
+        return []
+    if isinstance(datos, str):
+        try:
+            datos = json.loads(datos)
+        except (ValueError, TypeError):
+            return [("Datos", datos)]
+    if not isinstance(datos, dict):
+        return [("Datos", str(datos))]
+    out = []
+    for k, v in datos.items():
+        if v is None or v == "" or v == {} or v == []:
+            continue
+        if isinstance(v, (dict, list)):
+            val = json.dumps(v, ensure_ascii=False)
+        else:
+            val = _formatear_valor(v)
+        if val is None:
+            continue
+        out.append((_humanizar_key(k), val))
+    return out
+
+
+def _separar_flows(datos):
+    """A partir del flow_data (sesión), extrae campos relevantes para
+    las cajas Flow 1 (Requisitos) y Flow 2 (Propietario)."""
+    if not datos:
+        datos = {}
+    if isinstance(datos, str):
+        try:
+            datos = json.loads(datos)
+        except (ValueError, TypeError):
+            datos = {}
+
+    base = dict(datos) if isinstance(datos, dict) else {}
+    if isinstance(base.get("flow_data"), dict):
+        for k, v in base["flow_data"].items():
+            base.setdefault(k, v)
+
+    flow1_items = []
+    flow2_items = []
+    for k in _FLOW1_KEYS:
+        v = base.get(k)
+        if v is None or v == "":
+            continue
+        flow1_items.append((_humanizar_key(k), _formatear_valor(v)))
+    for k in _FLOW2_KEYS:
+        v = base.get(k)
+        if v is None or v == "":
+            continue
+        flow2_items.append((_humanizar_key(k), _formatear_valor(v)))
+
+    return {
+        "flow1_items": flow1_items,
+        "flow2_items": flow2_items,
+        "flow1_completo": len(flow1_items) >= 3,
+        "flow2_completo": len(flow2_items) >= 3,
+    }
+
+
+def _humanizar_resumen_salida(resumen):
+    """Mensajes salientes del bot con etiquetas internas → texto humano."""
+    if not resumen:
+        return "—"
+    r = resumen
+    if r.startswith("[AUTORIZACIÓN DATOS]"):
+        extra = r[len("[AUTORIZACIÓN DATOS]"):].strip()
+        return "📋 Pide autorización de datos (Ley 1581)" + (f" {extra}" if extra else "")
+    if r.startswith("[FORM REQUISITOS]"):
+        return "📝 Envía Flow 1 (Requisitos)"
+    if r.startswith("[FORM DATOS]"):
+        return "👤 Envía Flow 2 (Datos propietario)"
+    if r.startswith("[PLANTILLA massi_apertura_b]"):
+        resto = r[len("[PLANTILLA massi_apertura_b]"):].strip()
+        return "💬 Plantilla apertura" + (f" — {resto}" if resto else "")
+    if r.startswith("[PLANTILLA massi_apertura_a]"):
+        resto = r[len("[PLANTILLA massi_apertura_a]"):].strip()
+        return "💬 Plantilla apertura (a)" + (f" — {resto}" if resto else "")
+    if r.startswith("[PLANTILLA "):
+        m = re.match(r"\[PLANTILLA\s+([^\]]+)\](.*)", r)
+        if m:
+            return f"💬 Plantilla {m.group(1).strip()} — {m.group(2).strip()}".rstrip(" —")
+    return r
+
+
+def _formatear_flow_reply(resumen):
+    """Si el resumen es un dict JSON, devuelve lista de líneas 'key: value'.
+    Si no, devuelve None."""
+    if not resumen:
+        return None
+    s = resumen.strip()
+    if not (s.startswith("{") and s.endswith("}")):
+        return None
+    try:
+        obj = json.loads(s)
+    except (ValueError, TypeError):
+        try:
+            obj = json.loads(s.replace("'", '"'))
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(obj, dict):
+        return None
+    lineas = []
+    for k, v in obj.items():
+        if v is None or v == "":
+            continue
+        if isinstance(v, bool):
+            v = "sí" if v else "no"
+        lineas.append(f"{_humanizar_key(k)}: {v}")
+    return lineas or None
+
+
+def _dia_etiqueta(fecha, ahora=None):
+    """Devuelve 'Hoy', 'Ayer' o la fecha 'YYYY-MM-DD'."""
+    if not fecha:
+        return "—"
+    ahora = ahora or datetime.now(timezone.utc)
+    try:
+        hoy = ahora.date()
+        d = fecha.date()
+    except AttributeError:
+        return "—"
+    if d == hoy:
+        return "Hoy"
+    if d == hoy - timedelta(days=1):
+        return "Ayer"
+    return d.isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Rutas
+#
+# Nota: todas las transformaciones humanas (fecha relativa, semáforo,
+# humanizar resumen, etiquetas de día, flow_reply decodeado) se precalculan
+# en Python y se pasan al template como campos nuevos. Así los templates
+# usan solo filtros Jinja builtin y compilan con un `Environment` desnudo,
+# lo que facilita las validaciones.
+# ---------------------------------------------------------------------------
+
 @panel.get("/panel/ping")
 def panel_ping():
-    """Endpoint de diagnóstico: valida el token y responde texto plano,
-    sin tocar la DB ni renderizar HTML. Si /panel cuelga pero /panel/ping
-    responde, el problema no es el token ni la red."""
     _check_token()
     return "pong", 200, {"Content-Type": "text/plain"}
 
@@ -93,7 +352,8 @@ def panel_lista():
         """)}
         pipelines = {r["telefono"]: r for r in _rows(conn, """
             SELECT telefono, estado, sureti_lead_id, fecha_ingreso,
-                   fecha_aprobacion, fecha_desembolso, monto_aprobado
+                   fecha_aprobacion, fecha_desembolso, monto_aprobado,
+                   avaluo_comercial
             FROM pipeline
             ORDER BY fecha_ingreso DESC
         """)}
@@ -102,15 +362,33 @@ def panel_lista():
     for c in contactos:
         s = sesiones.get(c["telefono"])
         p = pipelines.get(c["telefono"])
+        avaluo_m = None
+        avaluo_fuente = None
+        if p and p.get("avaluo_comercial"):
+            try:
+                avaluo_m = int(p["avaluo_comercial"]) // 1_000_000
+                avaluo_fuente = "pipeline"
+            except (ValueError, TypeError):
+                avaluo_m = None
+        if avaluo_m is None and c.get("monto_hasta"):
+            try:
+                avaluo_m = int(c["monto_hasta"])
+                avaluo_fuente = "aprox"
+            except (ValueError, TypeError):
+                avaluo_m = None
+        ultima = ((s or {}).get("ultima_actividad")
+                  or c.get("fecha_contacto")
+                  or c.get("fecha_scraping"))
         filas_all.append({
             **c,
             "estado": _estado_lead(c, s, p),
-            "ultima_actividad": (s or {}).get("ultima_actividad")
-                                or c.get("fecha_contacto")
-                                or c.get("fecha_scraping"),
+            "ultima_actividad": ultima,
+            "ultima_actividad_hace": _hace(ultima),
+            "ultima_actividad_semaforo": _semaforo(ultima),
+            "avaluo_m": avaluo_m,
+            "avaluo_fuente": avaluo_fuente,
         })
 
-    # Agregados sobre TODO el conjunto (chips siempre reflejan el universo).
     por_estado = {}
     ciudades_set = set()
     portales_set = set()
@@ -121,7 +399,6 @@ def panel_lista():
         if f.get("portal"):
             portales_set.add(f["portal"])
 
-    # Aplicar filtros.
     def _match(f):
         if f_estado and not f["estado"].startswith(f_estado):
             return False
@@ -146,6 +423,153 @@ def panel_lista():
         total=len(filas), total_sin_filtro=len(filas_all),
         ciudades=sorted(ciudades_set), portales=sorted(portales_set),
         f_estado=f_estado, f_ciudad=f_ciudad, f_portal=f_portal, q=q,
+    )
+
+
+@panel.get("/panel/stats")
+def panel_stats():
+    """Embudo de conversión y métricas del pilot."""
+    _check_token()
+    token = request.args.get("token", "")
+
+    with db._conexion() as conn:
+        captados = _scalar(conn, "SELECT COUNT(*) FROM contactos") or 0
+        contactados = _scalar(conn,
+            "SELECT COUNT(*) FROM contactos WHERE contactado") or 0
+        respondieron = _scalar(conn,
+            "SELECT COUNT(DISTINCT telefono) FROM mensajes WHERE direccion='in'") or 0
+        autorizaron = _scalar(conn, """
+            SELECT COUNT(DISTINCT telefono) FROM mensajes
+            WHERE direccion='in' AND tipo='button_reply' AND resumen='BOTON_SI'
+        """) or 0
+        flow1 = _scalar(conn, """
+            SELECT COUNT(DISTINCT telefono) FROM mensajes
+            WHERE direccion='in' AND tipo='flow_reply'
+              AND resumen ILIKE '%avaluo%'
+        """) or 0
+        flow2 = _scalar(conn, """
+            SELECT COUNT(DISTINCT telefono) FROM mensajes
+            WHERE direccion='in' AND tipo='flow_reply'
+              AND (resumen ILIKE '%cedula%' OR resumen ILIKE '%nit%')
+              AND resumen ILIKE '%nombre%'
+        """) or 0
+
+        en_pipeline = _scalar(conn, "SELECT COUNT(*) FROM pipeline") or 0
+        en_sureti = _scalar(conn,
+            "SELECT COUNT(*) FROM pipeline WHERE sureti_lead_id IS NOT NULL") or 0
+        desembolsados = _scalar(conn,
+            "SELECT COUNT(*) FROM pipeline WHERE fecha_desembolso IS NOT NULL") or 0
+
+        pipes = _rows(conn, """
+            SELECT telefono, tipo_inmueble, avaluo_comercial
+            FROM pipeline
+            WHERE avaluo_comercial IS NOT NULL AND avaluo_comercial > 0
+        """)
+
+        volumen = _rows(conn, """
+            SELECT DATE(fecha AT TIME ZONE 'America/Bogota') AS dia,
+                   SUM(CASE WHEN direccion='out' THEN 1 ELSE 0 END) AS enviados,
+                   COUNT(DISTINCT CASE WHEN direccion='in' THEN telefono END) AS respondieron
+            FROM mensajes
+            WHERE fecha >= NOW() - INTERVAL '7 days'
+            GROUP BY DATE(fecha AT TIME ZONE 'America/Bogota')
+            ORDER BY dia ASC
+        """)
+
+        horas = _rows(conn, """
+            SELECT EXTRACT(HOUR FROM fecha AT TIME ZONE 'America/Bogota')::INT AS hora,
+                   COUNT(*) AS n
+            FROM mensajes
+            WHERE direccion='in'
+            GROUP BY hora
+            ORDER BY hora ASC
+        """)
+
+    pasos = [
+        ("Captados (contactos)", captados, captados),
+        ("Contactados (contactado=TRUE)", contactados, captados),
+        ("Respondieron (hay mensaje IN)", respondieron, contactados),
+        ("Autorizaron (BOTON_SI)", autorizaron, respondieron),
+        ("Flow 1 completo", flow1, autorizaron),
+        ("Flow 2 completo", flow2, flow1),
+        ("En pipeline", en_pipeline, flow2),
+        ("Enviados a Sureti", en_sureti, en_pipeline),
+        ("Desembolsados", desembolsados, en_sureti),
+    ]
+    embudo = []
+    for nombre, n, prev in pasos:
+        pct_total = round((n / captados * 100), 1) if captados else 0
+        pct_prev = round((n / prev * 100), 1) if prev else 0
+        barra = min(40, int((n / captados * 40))) if captados else 0
+        embudo.append({
+            "nombre": nombre,
+            "n": n,
+            "pct_total": pct_total,
+            "pct_prev": pct_prev,
+            "barra": barra,
+            "barra_pct": round(barra / 40 * 100, 1),
+        })
+
+    RESIDENCIAL = {"apartamento", "casa", "parqueadero", "habitacion", "habitación"}
+    monto_potencial_pesos = 0
+    for p in pipes:
+        tipo = str(p.get("tipo_inmueble") or "").strip().lower()
+        avaluo = int(p.get("avaluo_comercial") or 0)
+        pct = 0.40 if tipo in RESIDENCIAL else 0.30
+        monto_potencial_pesos += int(avaluo * pct)
+    monto_potencial_m = monto_potencial_pesos // 1_000_000
+
+    def _comision(monto_pesos):
+        m_millones = monto_pesos / 1_000_000
+        if m_millones <= 150:
+            return int(monto_pesos * 0.035)
+        if m_millones <= 500:
+            return int(monto_pesos * 0.030)
+        return int(monto_pesos * 0.025)
+    comision_potencial_pesos = _comision(monto_potencial_pesos)
+    comision_potencial_m = comision_potencial_pesos // 1_000_000
+
+    # Hoy en Colombia (UTC-5, sin DST).
+    hoy_bog = (datetime.now(timezone.utc) - timedelta(hours=5)).date()
+    vol_map = {v["dia"]: v for v in volumen}
+    max_vol = 1
+    dias = []
+    for i in range(6, -1, -1):
+        d = hoy_bog - timedelta(days=i)
+        v = vol_map.get(d)
+        env = int(v["enviados"]) if v else 0
+        resp = int(v["respondieron"]) if v else 0
+        max_vol = max(max_vol, env, resp)
+        dias.append({
+            "dia": d.strftime("%a %d/%m"),
+            "enviados": env,
+            "respondieron": resp,
+        })
+    for d in dias:
+        d["bar_env"] = int(d["enviados"] / max_vol * 100) if max_vol else 0
+        d["bar_resp"] = int(d["respondieron"] / max_vol * 100) if max_vol else 0
+
+    hora_map = {int(h["hora"]): int(h["n"]) for h in horas}
+    max_h = max([v for v in hora_map.values()] + [1])
+    hist = []
+    for h in range(24):
+        n = hora_map.get(h, 0)
+        hist.append({
+            "hora": f"{h:02d}",
+            "n": n,
+            "alto": int(n / max_h * 100) if max_h else 0,
+        })
+
+    return render_template(
+        "panel_stats.html",
+        token=token,
+        embudo=embudo,
+        monto_potencial_m=monto_potencial_m,
+        comision_potencial_m=comision_potencial_m,
+        comision_potencial_pesos=comision_potencial_pesos,
+        dias=dias,
+        hist=hist,
+        max_hora_n=max_h,
     )
 
 
@@ -178,20 +602,29 @@ def panel_detalle(telefono):
     sesion = sesiones[0] if sesiones else None
     pipeline = pipelines[0] if pipelines else None
 
-    # Línea de tiempo: ordenamos todos los eventos conocidos.
+    # Línea de tiempo
     eventos = []
     if contacto:
+        portal = contacto.get("portal") or ""
+        p_lower = portal.lower()
+        if "manual" in p_lower or "sheet" in p_lower:
+            captacion_detalle = "Lead orgánico (Google Sheet)"
+        elif portal:
+            captacion_detalle = f"Captado por {portal}"
+        else:
+            captacion_detalle = "Lead orgánico (origen desconocido)"
+        if contacto.get("url_listing"):
+            captacion_detalle += f" — {contacto['url_listing']}"
         eventos.append({
             "cuando": contacto.get("fecha_scraping"),
             "tipo": "captacion",
-            "detalle": f"Captado por {contacto.get('portal') or 'origen desconocido'}"
-                       f"{' — ' + (contacto.get('url_listing') or '') if contacto.get('url_listing') else ''}",
+            "detalle": captacion_detalle,
         })
         if contacto.get("contactado"):
             eventos.append({
                 "cuando": contacto.get("fecha_contacto"),
                 "tipo": "mensaje_apertura",
-                "detalle": f"Plantilla massi_apertura_a enviada "
+                "detalle": f"Plantilla massi_apertura enviada "
                            f"(hasta ${contacto.get('monto_hasta_millones') or '?'}M)",
             })
         if contacto.get("no_contactar"):
@@ -249,9 +682,67 @@ def panel_detalle(telefono):
 
     estado = _estado_lead(contacto, sesion, pipeline)
 
-    # Ventana de servicio 24h de WhatsApp: solo se puede enviar texto libre si
-    # el cliente escribió en las últimas 24h. Fuera de eso, Meta solo acepta
-    # plantillas aprobadas.
+    # Avalúo / monto estimado para la caja superior.
+    avaluo_m = None
+    monto_estimado_m = None
+    if pipeline:
+        if pipeline.get("avaluo_comercial"):
+            try:
+                avaluo_m = int(pipeline["avaluo_comercial"]) // 1_000_000
+            except (ValueError, TypeError):
+                avaluo_m = None
+        if pipeline.get("valor_solicitado"):
+            try:
+                monto_estimado_m = int(pipeline["valor_solicitado"]) // 1_000_000
+            except (ValueError, TypeError):
+                monto_estimado_m = None
+    datos_sesion_raw = (sesion or {}).get("datos") or {}
+    if isinstance(datos_sesion_raw, str):
+        try:
+            datos_sesion_raw = json.loads(datos_sesion_raw)
+        except (ValueError, TypeError):
+            datos_sesion_raw = {}
+    if avaluo_m is None and isinstance(datos_sesion_raw, dict):
+        fd = datos_sesion_raw.get("flow_data") or {}
+        if isinstance(fd, dict) and fd.get("avaluo_comercial"):
+            try:
+                avaluo_m = int(fd["avaluo_comercial"]) // 1_000_000
+            except (ValueError, TypeError):
+                pass
+        if monto_estimado_m is None and isinstance(fd, dict) and fd.get("monto_estimado_m"):
+            try:
+                monto_estimado_m = int(fd["monto_estimado_m"])
+            except (ValueError, TypeError):
+                pass
+
+    datos_tabla = _tabla_kv(datos_sesion_raw)
+    flows = _separar_flows(datos_sesion_raw)
+
+    # Prepara mensajes para la vista: separador por día + flow_reply decodeado.
+    mensajes_vista = []
+    dia_prev = None
+    # mensajes vienen ORDER BY fecha DESC — invertimos para render cronológico.
+    for m in reversed(mensajes):
+        etiqueta = _dia_etiqueta(m.get("fecha"))
+        flow_lineas = None
+        if m.get("direccion") == "in" and m.get("tipo") == "flow_reply":
+            flow_lineas = _formatear_flow_reply(m.get("resumen"))
+        resumen_render = m.get("resumen") or "—"
+        if m.get("direccion") == "out":
+            resumen_render = _humanizar_resumen_salida(m.get("resumen"))
+        mensajes_vista.append({
+            **m,
+            "etiqueta_dia": etiqueta,
+            "nuevo_dia": etiqueta != dia_prev,
+            "flow_lineas": flow_lineas,
+            "resumen_render": resumen_render,
+            "hora_hm": m.get("fecha").strftime("%H:%M") if m.get("fecha") else "—",
+        })
+        dia_prev = etiqueta
+
+    sesion_hace = _hace(sesion.get("ultima_actividad")) if sesion else ""
+
+    # Ventana de servicio 24h de WhatsApp.
     ultimo_inbound = None
     for m in mensajes:
         if m["direccion"] == "in" and m.get("fecha"):
@@ -268,9 +759,12 @@ def panel_detalle(telefono):
         telefono=telefono, estado=estado, token=token,
         contacto=contacto, sesion=sesion, pipeline=pipeline,
         documentos=documentos, remarketing=remarketing,
-        eventos=eventos, mensajes=mensajes,
+        eventos=eventos, mensajes=mensajes, mensajes_vista=mensajes_vista,
         puede_responder=puede_responder, ultimo_inbound=ultimo_inbound,
         flash=flash,
+        avaluo_m=avaluo_m, monto_estimado_m=monto_estimado_m,
+        datos_tabla=datos_tabla, flows=flows,
+        sesion_hace=sesion_hace,
     )
 
 
@@ -283,7 +777,6 @@ def panel_responder(telefono):
         return redirect(url_for("panel.panel_detalle", telefono=telefono,
                                 token=token, flash="vacio"))
 
-    # Chequeo de ventana 24h antes de llamar a Meta.
     with db._conexion() as conn:
         cur = conn.execute(
             "SELECT MAX(fecha) FROM mensajes WHERE telefono=%s AND direccion='in'",

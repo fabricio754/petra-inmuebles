@@ -22,6 +22,20 @@
   dl { display: grid; grid-template-columns: 160px 1fr; gap: 4px 12px; margin: 0; font-size: .9rem; }
   dt { color: #57606a; }
   dd { margin: 0; word-break: break-word; }
+  .destacado { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; }
+  .destacado .cifra { background: #ddf4ff; color: #0969da; padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 1rem; }
+  .destacado .cifra small { display: block; font-size: .7rem; color: #57606a; font-weight: 400; }
+  .tabla-kv { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  .tabla-kv th, .tabla-kv td { padding: 4px 8px; text-align: left; border-bottom: 1px solid #eaeef2; }
+  .tabla-kv th { color: #57606a; font-weight: 500; width: 180px; }
+  .flows-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  @media (max-width: 640px) { .flows-grid { grid-template-columns: 1fr; } }
+  .flow-box { border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px; background: #f6f8fa; }
+  .flow-box.pendiente { opacity: 0.65; }
+  .flow-box h3 { margin: 0 0 6px; font-size: .9rem; color: #57606a; }
+  .flow-box.completo h3 { color: #116329; }
+  .flow-box .pendiente-txt { font-style: italic; color: #8c959f; font-size: .85rem; }
+  .flow-box ul { margin: 0; padding-left: 16px; font-size: .85rem; }
   .timeline { list-style: none; padding: 0; margin: 0; }
   .timeline li { padding: 8px 0; border-bottom: 1px solid #eaeef2; font-size: .9rem; }
   .timeline li:last-child { border: 0; }
@@ -34,7 +48,9 @@
   .chat li.out { align-self: flex-end; }
   .chat .bubble { padding: 8px 12px; border-radius: 12px; background: #eef2f6; font-size: .9rem; line-height: 1.4; }
   .chat li.out .bubble { background: #dcf8c6; }
+  .chat .bubble ul { margin: 4px 0 0; padding-left: 16px; font-size: .85rem; }
   .chat .meta { display: block; font-size: .72rem; color: #8c959f; margin-top: 2px; font-family: ui-monospace, monospace; }
+  .dia-sep { align-self: center; font-size: .72rem; color: #8c959f; background: #eaeef2; border-radius: 999px; padding: 2px 10px; margin: 8px 0 2px; text-transform: uppercase; letter-spacing: .5px; }
   .responder { display: flex; gap: 8px; margin-top: 12px; }
   .responder textarea { flex: 1; min-height: 60px; font: inherit; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; resize: vertical; }
   .responder button { padding: 8px 18px; cursor: pointer; background: #0969da; color: #fff; border: 0; border-radius: 6px; font-weight: 500; }
@@ -43,6 +59,8 @@
   .nota.warn { border-color: #d4a72c; background: #fff8c5; color: #633c01; }
   .nota.ok { border-color: #2da44e; background: #dafbe1; color: #1a7f37; }
   .nota.err { border-color: #cf222e; background: #ffebe9; color: #82071e; }
+  .refresh-ctl { position: fixed; bottom: 12px; right: 12px; background: #fff; border: 1px solid #d0d7de; border-radius: 999px; padding: 6px 12px; font-size: .8rem; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.08); z-index: 10; }
+  .refresh-ctl.paused { background: #fff8c5; color: #7d4e00; border-color: #d4a72c; }
   @media (prefers-color-scheme: dark) {
     body { background: #0d1117; color: #e6edf3; }
     section { background: #161b22; border-color: #30363d; }
@@ -53,17 +71,40 @@
     .chat .bubble { background: #262d36; }
     .chat li.out .bubble { background: #1f6e32; color: #e6edf3; }
     .chat .meta { color: #6e7681; }
+    .dia-sep { background: #262d36; color: #8b949e; }
+    .destacado .cifra { background: #0c2d6b; color: #58a6ff; }
+    .destacado .cifra small { color: #8b949e; }
+    .tabla-kv th, .tabla-kv td { border-color: #30363d; }
+    .tabla-kv th { color: #8b949e; }
+    .flow-box { background: #0d1117; border-color: #30363d; }
     .responder textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
     .nota { background: #161b22; border-color: #30363d; color: #8b949e; }
     .nota.warn { background: #341a00; border-color: #d4a72c; color: #e8c547; }
     .nota.ok { background: #0a2d16; border-color: #2da44e; color: #7ee787; }
     .nota.err { background: #3b0a0f; border-color: #cf222e; color: #ff7b72; }
+    .refresh-ctl { background: #161b22; border-color: #30363d; color: #e6edf3; }
+    .refresh-ctl.paused { background: #341a00; color: #e8c547; border-color: #d4a72c; }
   }
 </style>
 </head>
 <body>
 <p><a class="back" href="/panel?token={{ token }}">← volver al listado</a></p>
 <h1>{{ telefono }} <span class="estado estado-{{ estado.split(':')[0] }}">{{ estado }}</span></h1>
+
+<section>
+  <h2>Estado del lead</h2>
+  <div class="destacado">
+    {% if avaluo_m %}
+      <div class="cifra">Avalúo: ${{ avaluo_m }}M<small>comercial</small></div>
+    {% endif %}
+    {% if monto_estimado_m %}
+      <div class="cifra">Monto estimado: ${{ monto_estimado_m }}M<small>a solicitar</small></div>
+    {% endif %}
+    {% if not avaluo_m and not monto_estimado_m %}
+      <p class="vacio">Todavía no hay avalúo ni monto estimado en pipeline.</p>
+    {% endif %}
+  </div>
+</section>
 
 <section>
   <h2>Contacto</h2>
@@ -75,7 +116,16 @@
     <dt>Tipo</dt><dd>{{ contacto.tipo_inmueble or '—' }} · estrato {{ contacto.estrato or '—' }}</dd>
     <dt>Precio publicado</dt><dd>{% if contacto.precio_publicado %}${{ '{:,}'.format(contacto.precio_publicado).replace(',', '.') }}{% else %}—{% endif %}</dd>
     <dt>Monto hasta</dt><dd>${{ contacto.monto_hasta_millones or '—' }}M</dd>
-    <dt>Portal · URL</dt><dd>{{ contacto.portal or '—' }} {% if contacto.url_listing %}· <a href="{{ contacto.url_listing }}" target="_blank">anuncio</a>{% endif %}</dd>
+    <dt>Portal · URL</dt>
+    <dd>
+      {% set portal_lower = (contacto.portal or '')|lower %}
+      {% if 'manual' in portal_lower or 'sheet' in portal_lower %}
+        Lead orgánico (Google Sheet)
+      {% else %}
+        {{ contacto.portal or '—' }}
+      {% endif %}
+      {% if contacto.url_listing %}· <a href="{{ contacto.url_listing }}" target="_blank">anuncio</a>{% endif %}
+    </dd>
     <dt>No contactar</dt><dd>{{ 'sí' if contacto.no_contactar else 'no' }}</dd>
     <dt>Captado</dt><dd>{{ contacto.fecha_scraping.strftime('%Y-%m-%d %H:%M') if contacto.fecha_scraping else '—' }}</dd>
     <dt>Contactado</dt><dd>{{ contacto.fecha_contacto.strftime('%Y-%m-%d %H:%M') if contacto.fecha_contacto else '—' }}</dd>
@@ -86,13 +136,52 @@
 </section>
 
 <section>
+  <h2>Flows recolectados</h2>
+  <div class="flows-grid">
+    <div class="flow-box {% if flows.flow1_completo %}completo{% else %}pendiente{% endif %}">
+      <h3>📋 Flow 1 — Requisitos</h3>
+      {% if flows.flow1_items %}
+        <ul>
+          {% for k, v in flows.flow1_items %}
+            <li><strong>{{ k }}:</strong> {{ v }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="pendiente-txt">Pendiente</p>
+      {% endif %}
+    </div>
+    <div class="flow-box {% if flows.flow2_completo %}completo{% else %}pendiente{% endif %}">
+      <h3>👤 Flow 2 — Propietario</h3>
+      {% if flows.flow2_items %}
+        <ul>
+          {% for k, v in flows.flow2_items %}
+            <li><strong>{{ k }}:</strong> {{ v }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="pendiente-txt">Pendiente</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section>
   <h2>Sesión activa (bot)</h2>
   {% if sesion %}
   <dl>
     <dt>Estado del flujo</dt><dd>{{ sesion.estado or '—' }}</dd>
-    <dt>Última actividad</dt><dd>{{ sesion.ultima_actividad.strftime('%Y-%m-%d %H:%M') if sesion.ultima_actividad else '—' }}</dd>
-    <dt>Datos</dt><dd><code style="white-space: pre-wrap;">{{ sesion.datos }}</code></dd>
+    <dt>Última actividad</dt><dd>{{ sesion_hace }} <small style="color:#8c959f">({{ sesion.ultima_actividad.strftime('%Y-%m-%d %H:%M') if sesion.ultima_actividad else '—' }})</small></dd>
   </dl>
+  {% if datos_tabla %}
+    <h3 style="font-size:.9rem; color:#57606a; margin: 12px 0 4px;">Datos</h3>
+    <table class="tabla-kv">
+      <tbody>
+        {% for k, v in datos_tabla %}
+          <tr><th>{{ k }}</th><td>{{ v }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
   {% else %}
   <p class="vacio">Sin sesión activa.</p>
   {% endif %}
@@ -108,6 +197,7 @@
     <dt>Dirección inmueble</dt><dd>{{ pipeline.direccion_inmueble or '—' }}</dd>
     <dt>CHIP · Matrícula</dt><dd>{{ pipeline.chip or '—' }} · {{ pipeline.matricula_numero or '—' }}</dd>
     <dt>Avalúo catastral</dt><dd>{% if pipeline.avaluo_catastral %}${{ '{:,}'.format(pipeline.avaluo_catastral).replace(',','.') }}{% else %}—{% endif %}</dd>
+    <dt>Avalúo comercial</dt><dd>{% if pipeline.avaluo_comercial %}${{ '{:,}'.format(pipeline.avaluo_comercial).replace(',','.') }}{% else %}—{% endif %}</dd>
     <dt>Valor solicitado</dt><dd>{% if pipeline.valor_solicitado %}${{ '{:,}'.format(pipeline.valor_solicitado).replace(',','.') }}{% else %}—{% endif %}</dd>
     <dt>Requiere paz y salvo</dt><dd>{{ 'sí' if pipeline.requiere_paz_salvo else 'no' }}</dd>
     <dt>Autorización Ley 1581</dt><dd>{{ pipeline.autorizacion_datos_en.strftime('%Y-%m-%d %H:%M') if pipeline.autorizacion_datos_en else '—' }}</dd>
@@ -141,19 +231,29 @@
 
 <section>
   <h2>Conversación ({{ mensajes|length }})</h2>
-  {% if mensajes %}
-  <ul class="chat">
-    {% for m in mensajes|reverse %}
-    <li class="{{ m.direccion }}">
-      <div>
-        <div class="bubble">{{ m.resumen or '—' }}</div>
-        <span class="meta">
-          {{ 'cliente' if m.direccion == 'in' else 'bot' }} ·
-          {{ m.tipo or '—' }} ·
-          {{ m.fecha.strftime('%Y-%m-%d %H:%M') if m.fecha else '—' }}
-        </span>
-      </div>
-    </li>
+  {% if mensajes_vista %}
+  <ul class="chat" id="chat">
+    {% for m in mensajes_vista %}
+      {% if m.nuevo_dia %}
+        <li class="dia-sep">{{ m.etiqueta_dia }}</li>
+      {% endif %}
+      <li class="{{ m.direccion }}">
+        <div>
+          <div class="bubble">
+            {% if m.flow_lineas %}
+              <strong>Flow reply:</strong>
+              <ul>{% for l in m.flow_lineas %}<li>{{ l }}</li>{% endfor %}</ul>
+            {% else %}
+              {{ m.resumen_render }}
+            {% endif %}
+          </div>
+          <span class="meta">
+            {{ 'cliente' if m.direccion == 'in' else 'bot' }} ·
+            {{ m.tipo or '—' }} ·
+            {{ m.hora_hm }}
+          </span>
+        </div>
+      </li>
     {% endfor %}
   </ul>
   {% else %}
@@ -170,8 +270,8 @@
     <p class="nota err">Error al enviar: {{ flash[6:] }}</p>
   {% endif %}
 
-  <form class="responder" method="post" action="/panel/{{ telefono }}/responder?token={{ token }}">
-    <textarea name="texto" placeholder="Responder como Massi…" maxlength="1500" {% if not puede_responder %}disabled{% endif %}></textarea>
+  <form class="responder" method="post" action="/panel/{{ telefono }}/responder?token={{ token }}" id="responder-form">
+    <textarea name="texto" id="responder-texto" placeholder="Responder como Massi…" maxlength="1500" {% if not puede_responder %}disabled{% endif %}></textarea>
     <button type="submit" {% if not puede_responder %}disabled{% endif %}>Enviar</button>
   </form>
   {% if not puede_responder %}
@@ -201,6 +301,50 @@
   <p class="vacio">Sin eventos.</p>
   {% endif %}
 </section>
+
+<button id="refresh-ctl" class="refresh-ctl" type="button">⏸ pausar auto-refresh</button>
+
+<script>
+  // Scroll al final de la conversación al cargar.
+  (function(){
+    try {
+      var chat = document.getElementById('chat');
+      if (chat && chat.lastElementChild) {
+        chat.lastElementChild.scrollIntoView({block: 'end'});
+      }
+    } catch (e) {}
+  })();
+
+  // Auto-refresh cada 10 s, con toggle para pausar.
+  (function(){
+    var btn = document.getElementById('refresh-ctl');
+    var txt = document.getElementById('responder-texto');
+    var KEY = 'panel-autorefresh-paused:{{ telefono }}';
+    var paused = false;
+    try { paused = localStorage.getItem(KEY) === '1'; } catch(e) {}
+    function render() {
+      if (paused) {
+        btn.textContent = '▶ reanudar auto-refresh';
+        btn.classList.add('paused');
+      } else {
+        btn.textContent = '⏸ pausar auto-refresh';
+        btn.classList.remove('paused');
+      }
+    }
+    render();
+    btn.addEventListener('click', function(){
+      paused = !paused;
+      try { localStorage.setItem(KEY, paused ? '1' : '0'); } catch(e) {}
+      render();
+    });
+    setInterval(function(){
+      if (paused) return;
+      // No recargar si el usuario está escribiendo.
+      if (txt && document.activeElement === txt && txt.value.length > 0) return;
+      location.reload();
+    }, 10000);
+  })();
+</script>
 
 </body>
 </html>
