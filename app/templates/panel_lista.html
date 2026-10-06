@@ -40,7 +40,22 @@
   .dot-amarillo { background: #d4a72c; }
   .dot-gris { background: #8c959f; }
   .avaluo-aprox { color: #8c959f; }
+  .badge-resultado { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: .72rem; font-weight: 500; background: #eaeef2; color: #57606a; }
+  .badge-flow { background: #ddf4ff; color: #0969da; }
+  .badge-broker, .badge-no_interesa { background: #ffebe9; color: #cf222e; }
+  .badge-sureti { background: #dafbe1; color: #116329; }
+  .badge-recontactar { background: #fff8c5; color: #7d4e00; }
+  .badge-otro { background: #fff1e5; color: #9a4b00; }
+  .pendiente-txt { color: #8c959f; font-style: italic; font-size: .78rem; }
+  label.chk-pendientes { font-size: .9rem; display: inline-flex; align-items: center; gap: 4px; }
   @media (prefers-color-scheme: dark) {
+    .badge-resultado { background: #262d36; color: #8b949e; }
+    .badge-flow { background: #0c2d6b; color: #58a6ff; }
+    .badge-broker, .badge-no_interesa { background: #3b0a0f; color: #ff7b72; }
+    .badge-sureti { background: #0a2d16; color: #7ee787; }
+    .badge-recontactar { background: #341a00; color: #e8c547; }
+    .badge-otro { background: #341a00; color: #ffa657; }
+    .pendiente-txt { color: #6e7681; }
     body { background: #0d1117; color: #e6edf3; }
     .chip, table, .filtros input, .filtros select { background: #161b22; border-color: #30363d; color: #e6edf3; }
     .chip-link:hover { background: #1c2128; }
@@ -89,6 +104,10 @@
       <option value="{{ p }}" {% if p == f_portal %}selected{% endif %}>{{ p }}</option>
     {% endfor %}
   </select>
+  <label class="chk-pendientes">
+    <input type="checkbox" name="pendientes" value="1" {% if f_pendientes %}checked{% endif %}>
+    Pendientes de cerrar
+  </label>
   <button type="submit">Filtrar</button>
 </form>
 <table>
@@ -101,6 +120,7 @@
       <th>Portal</th>
       <th>Avalúo ($M)</th>
       <th>Estado</th>
+      <th>Resultado</th>
       <th>Última actividad</th>
     </tr>
   </thead>
@@ -122,6 +142,17 @@
         {% else %}—{% endif %}
       </td>
       <td><span class="estado estado-{{ f.estado.split(':')[0] }}">{{ f.estado }}</span></td>
+      <td>
+        {% if f.resultado_contacto %}
+          <span class="badge-resultado badge-{{ f.resultado_contacto }}">
+            {{ labels_resultado.get(f.resultado_contacto, f.resultado_contacto) }}
+          </span>
+        {% elif f.contactado %}
+          <span class="pendiente-txt">— pendiente —</span>
+        {% else %}
+          —
+        {% endif %}
+      </td>
       <td>
         <span class="dot dot-{{ f.ultima_actividad_semaforo }}"></span>{{ f.ultima_actividad_hace }}
       </td>

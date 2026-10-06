@@ -61,6 +61,48 @@
   .nota.err { border-color: #cf222e; background: #ffebe9; color: #82071e; }
   .refresh-ctl { position: fixed; bottom: 12px; right: 12px; background: #fff; border: 1px solid #d0d7de; border-radius: 999px; padding: 6px 12px; font-size: .8rem; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.08); z-index: 10; }
   .refresh-ctl.paused { background: #fff8c5; color: #7d4e00; border-color: #d4a72c; }
+  .badge-resultado { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: .8rem; font-weight: 500; margin-left: 8px; vertical-align: middle; background: #eaeef2; color: #57606a; }
+  .badge-resultado small { font-weight: 400; opacity: .8; margin-left: 4px; }
+  .badge-flow { background: #ddf4ff; color: #0969da; }
+  .badge-broker, .badge-no_interesa { background: #ffebe9; color: #cf222e; }
+  .badge-sureti { background: #dafbe1; color: #116329; }
+  .badge-recontactar { background: #fff8c5; color: #7d4e00; }
+  .badge-otro { background: #fff1e5; color: #9a4b00; }
+  .btn-cerrar-conv { background: #0969da; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 500; cursor: pointer; font-size: .9rem; margin-top: 8px; }
+  .btn-cerrar-conv:hover { background: #0860c7; }
+  dialog#modal-accion { border: 1px solid #d0d7de; border-radius: 8px; padding: 20px; max-width: 560px; width: 92%; background: #fff; color: #1f2328; }
+  dialog#modal-accion::backdrop { background: rgba(0,0,0,.4); }
+  dialog#modal-accion h3 { margin: 0 0 12px; font-size: 1.05rem; }
+  dialog#modal-accion fieldset { border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 12px; margin: 10px 0; }
+  dialog#modal-accion fieldset legend { font-size: .85rem; color: #57606a; padding: 0 6px; }
+  dialog#modal-accion fieldset label { display: block; padding: 4px 0; cursor: pointer; font-size: .9rem; }
+  dialog#modal-accion fieldset label small { display: block; color: #57606a; font-size: .78rem; margin-left: 20px; }
+  dialog#modal-accion label.linea { display: block; font-size: .9rem; margin-top: 10px; }
+  dialog#modal-accion input[type=text], dialog#modal-accion textarea { width: 100%; padding: 6px 8px; font: inherit; border: 1px solid #d0d7de; border-radius: 4px; background: #fff; margin-top: 4px; box-sizing: border-box; }
+  dialog#modal-accion .acciones-fila { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  dialog#modal-accion button[type=submit] { background: #0969da; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 500; cursor: pointer; }
+  dialog#modal-accion button[type=button] { background: #f6f8fa; color: #1f2328; border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 16px; cursor: pointer; }
+  #historial-acciones ul { list-style: none; padding: 0; margin: 0; }
+  #historial-acciones li { padding: 6px 0; border-bottom: 1px solid #eaeef2; font-size: .88rem; }
+  #historial-acciones li:last-child { border: 0; }
+  #historial-acciones time { color: #57606a; font-family: ui-monospace, monospace; font-size: .8rem; margin-right: 8px; }
+  #historial-acciones .accion-key { display: inline-block; background: #ddf4ff; color: #0969da; border-radius: 4px; padding: 1px 6px; font-size: .72rem; margin-right: 6px; font-weight: 500; }
+  @media (prefers-color-scheme: dark) {
+    .badge-resultado { background: #262d36; color: #8b949e; }
+    .badge-flow { background: #0c2d6b; color: #58a6ff; }
+    .badge-broker, .badge-no_interesa { background: #3b0a0f; color: #ff7b72; }
+    .badge-sureti { background: #0a2d16; color: #7ee787; }
+    .badge-recontactar { background: #341a00; color: #e8c547; }
+    .badge-otro { background: #341a00; color: #ffa657; }
+    dialog#modal-accion { background: #161b22; color: #e6edf3; border-color: #30363d; }
+    dialog#modal-accion fieldset { border-color: #30363d; }
+    dialog#modal-accion fieldset legend, dialog#modal-accion fieldset label small { color: #8b949e; }
+    dialog#modal-accion input[type=text], dialog#modal-accion textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
+    dialog#modal-accion button[type=button] { background: #262d36; color: #e6edf3; border-color: #30363d; }
+    #historial-acciones li { border-color: #30363d; }
+    #historial-acciones time { color: #8b949e; }
+    #historial-acciones .accion-key { background: #0c2d6b; color: #58a6ff; }
+  }
   @media (prefers-color-scheme: dark) {
     body { background: #0d1117; color: #e6edf3; }
     section { background: #161b22; border-color: #30363d; }
@@ -89,7 +131,29 @@
 </head>
 <body>
 <p><a class="back" href="/panel?token={{ token }}">← volver al listado</a></p>
-<h1>{{ telefono }} <span class="estado estado-{{ estado.split(':')[0] }}">{{ estado }}</span></h1>
+<h1>
+  {{ telefono }}
+  <span class="estado estado-{{ estado.split(':')[0] }}">{{ estado }}</span>
+  {% if contacto and contacto.resultado_contacto %}
+    <span class="badge-resultado badge-{{ contacto.resultado_contacto }}">
+      {{ labels_resultado.get(contacto.resultado_contacto, contacto.resultado_contacto) }}
+      {% if contacto.resultado_contacto_at %}
+        <small>— {{ contacto.resultado_contacto_at.strftime('%Y-%m-%d %H:%M') }}</small>
+      {% endif %}
+      {% if contacto.resultado_contacto_por %}
+        <small>por {{ contacto.resultado_contacto_por }}</small>
+      {% endif %}
+    </span>
+  {% endif %}
+</h1>
+
+{% if flash == 'accion_ok' %}
+  <p class="nota ok">Acción registrada.</p>
+{% elif flash and flash.startswith('accion_err:') %}
+  <p class="nota err">No se pudo registrar la acción: {{ flash[11:] }}</p>
+{% elif flash == 'accion_requerida' %}
+  <p class="nota err">Elegí una acción antes de guardar.</p>
+{% endif %}
 
 <section>
   <h2>Estado del lead</h2>
@@ -104,7 +168,40 @@
       <p class="vacio">Todavía no hay avalúo ni monto estimado en pipeline.</p>
     {% endif %}
   </div>
+  <button type="button" id="btn-cerrar-conv" class="btn-cerrar-conv">
+    Cerrar conversación / registrar acción
+  </button>
 </section>
+
+<dialog id="modal-accion">
+  <form method="post" action="/panel/{{ telefono }}/accion?token={{ token }}">
+    <h3>Registrar acción humana sobre {{ telefono }}</h3>
+    <label class="linea">
+      Tu nombre:
+      <input type="text" name="actor" id="actor-input" required
+             placeholder="Ej. Massi" autocomplete="off">
+    </label>
+    <fieldset>
+      <legend>Acción:</legend>
+      {% for key, cfg in acciones.items() %}
+        <label>
+          <input type="radio" name="accion" value="{{ key }}" required>
+          <strong>{{ cfg.label }}</strong>
+          <small>{{ cfg.descripcion }}</small>
+        </label>
+      {% endfor %}
+    </fieldset>
+    <label class="linea">
+      Nota (opcional — obligatoria si elegís "Otro"):
+      <textarea name="nota" rows="3"
+                placeholder="Contexto del asesor…"></textarea>
+    </label>
+    <div class="acciones-fila">
+      <button type="button" id="btn-cancelar-accion">Cancelar</button>
+      <button type="submit">Guardar</button>
+    </div>
+  </form>
+</dialog>
 
 <section>
   <h2>Contacto</h2>
@@ -326,6 +423,24 @@
   {% endif %}
 </section>
 
+<section id="historial-acciones">
+  <h2>Historial de acciones humanas ({{ acciones_historial|length }})</h2>
+  {% if acciones_historial %}
+    <ul>
+      {% for a in acciones_historial %}
+        <li>
+          <time>{{ a.fecha.strftime('%Y-%m-%d %H:%M') if a.fecha else '—' }}</time>
+          <span class="accion-key">{{ a.accion }}</span>
+          {% if a.actor %}<em>{{ a.actor }}</em>{% endif %}
+          {% if a.nota %}— {{ a.nota }}{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="vacio">Sin acciones humanas registradas todavía.</p>
+  {% endif %}
+</section>
+
 <button id="refresh-ctl" class="refresh-ctl" type="button">⏸ pausar auto-refresh</button>
 
 <script>
@@ -337,6 +452,31 @@
         chat.lastElementChild.scrollIntoView({block: 'end'});
       }
     } catch (e) {}
+  })();
+
+  // Modal "Cerrar conversación": muestra el <dialog>, recuerda el nombre
+  // del asesor en localStorage para no retiparlo cada vez.
+  (function(){
+    var dlg = document.getElementById('modal-accion');
+    var btnAbrir = document.getElementById('btn-cerrar-conv');
+    var btnCancelar = document.getElementById('btn-cancelar-accion');
+    var inputActor = document.getElementById('actor-input');
+    var KEY = 'panel_actor_name';
+    if (!dlg || !btnAbrir || !inputActor) return;
+    try {
+      var saved = localStorage.getItem(KEY);
+      if (saved) inputActor.value = saved;
+    } catch(e) {}
+    inputActor.addEventListener('change', function(){
+      try { localStorage.setItem(KEY, inputActor.value); } catch(e) {}
+    });
+    btnAbrir.addEventListener('click', function(){
+      if (typeof dlg.showModal === 'function') { dlg.showModal(); }
+      else { dlg.setAttribute('open', ''); }
+    });
+    if (btnCancelar) {
+      btnCancelar.addEventListener('click', function(){ dlg.close(); });
+    }
   })();
 
   // Auto-refresh cada 30 s, con toggle para pausar.

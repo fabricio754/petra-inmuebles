@@ -16,8 +16,8 @@ import re
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-from flask import (Blueprint, Response, abort, redirect, render_template,
-                   request, send_file, url_for)
+from flask import (Blueprint, Response, abort, jsonify, redirect,
+                   render_template, request, send_file, url_for)
 from psycopg_pool import PoolTimeout
 
 from app import db
@@ -436,6 +436,7 @@ def panel_lista():
     f_estado = (request.args.get("estado") or "").strip()
     f_ciudad = (request.args.get("ciudad") or "").strip()
     f_portal = (request.args.get("portal") or "").strip()
+    f_pendientes = request.args.get("pendientes") == "1"
     q = (request.args.get("q") or "").strip()
 
     try:
@@ -443,7 +444,9 @@ def panel_lista():
             contactos = _rows(conn, """
                 SELECT telefono, nombre, ciudad, tipo_inmueble, portal,
                        monto_hasta_millones AS monto_hasta,
-                       no_contactar, contactado, fecha_contacto, fecha_scraping
+                       no_contactar, contactado, fecha_contacto, fecha_scraping,
+                       resultado_contacto, resultado_contacto_at,
+                       resultado_contacto_por
                 FROM contactos
                 ORDER BY COALESCE(fecha_contacto, fecha_scraping) DESC NULLS LAST
                 LIMIT 2000
@@ -509,6 +512,10 @@ def panel_lista():
             return False
         if f_portal and (f.get("portal") or "") != f_portal:
             return False
+        if f_pendientes:
+            # Pendientes de cerrar: ya los contactamos pero no hay cierre humano.
+            if not f.get("contactado") or f.get("resultado_contacto"):
+                return False
         if q:
             hay = " ".join([
                 str(f.get("telefono") or ""),
@@ -520,12 +527,18 @@ def panel_lista():
 
     filas = [f for f in filas_all if _match(f)][:500]
 
+    # Labels de resultado_contacto para el badge en la lista.
+    from app import panel_acciones as _pa
+    labels_resultado = {k: v["label"] for k, v in _pa.ACCIONES.items()}
+
     return render_template(
         "panel_lista.html",
         filas=filas, por_estado=sorted(por_estado.items()), token=token,
         total=len(filas), total_sin_filtro=len(filas_all),
         ciudades=sorted(ciudades_set), portales=sorted(portales_set),
         f_estado=f_estado, f_ciudad=f_ciudad, f_portal=f_portal, q=q,
+        f_pendientes=f_pendientes,
+        labels_resultado=labels_resultado,
     )
 
 
@@ -964,6 +977,10 @@ def panel_detalle(telefono):
             mensajes = _rows(conn,
                 "SELECT id, fecha, direccion, tipo, resumen, payload FROM mensajes "
                 "WHERE telefono = %s ORDER BY fecha DESC LIMIT 500", (telefono,))
+            acciones_historial = _rows(conn,
+                "SELECT id, telefono, accion, nota, actor, fecha "
+                "FROM panel_acciones WHERE telefono = %s "
+                "ORDER BY fecha DESC LIMIT 50", (telefono,))
     except PoolTimeout:
         return _pool_busy_response(f"/panel/{telefono}")
 
@@ -1125,6 +1142,8 @@ def panel_detalle(telefono):
         puede_responder = delta < timedelta(hours=24)
 
     flash = request.args.get("flash", "")
+    from app import panel_acciones as _pa
+    labels_resultado = {k: v["label"] for k, v in _pa.ACCIONES.items()}
     return render_template(
         "panel_detalle.html",
         telefono=telefono, estado=estado, token=token,
@@ -1136,6 +1155,9 @@ def panel_detalle(telefono):
         avaluo_m=avaluo_m, monto_estimado_m=monto_estimado_m,
         datos_tabla=datos_tabla, flows=flows,
         sesion_hace=sesion_hace,
+        acciones=_pa.ACCIONES,
+        acciones_historial=acciones_historial,
+        labels_resultado=labels_resultado,
     )
 
 
@@ -1231,3 +1253,52 @@ def panel_responder(telefono):
 
     return redirect(url_for("panel.panel_detalle", telefono=telefono,
                             token=token, flash="enviado"))
+
+
+@panel.post("/panel/<telefono>/accion")
+def ejecutar_accion(telefono):
+    """Aplica una acción humana del panel (cierre de conversación / audit).
+
+    Acepta form-encoded (desde el modal del template) o JSON (desde scripts).
+    Siempre valida token. Si viene de form, redirige al detalle con `flash`;
+    si viene de JSON, devuelve el dict de resultado como body.
+    """
+    _check_token()
+    token = request.args.get("token", "")
+
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        accion = (body.get("accion") or "").strip()
+        nota = (body.get("nota") or "").strip()
+        actor = (body.get("actor") or "").strip()
+    else:
+        accion = (request.form.get("accion") or "").strip()
+        nota = (request.form.get("nota") or "").strip()
+        actor = (request.form.get("actor") or "").strip()
+
+    if not accion:
+        if request.is_json:
+            return jsonify({"ok": False, "error": "accion_requerida"}), 400
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="accion_requerida"))
+
+    try:
+        from app import panel_acciones
+        resultado = panel_acciones.aplicar(telefono, accion, nota, actor)
+        if not resultado["ok"]:
+            if request.is_json:
+                return jsonify(resultado), 400
+            return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                    token=token,
+                                    flash=f"accion_err:{resultado['error']}"))
+        if request.is_json:
+            return jsonify(resultado)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="accion_ok"))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("[Panel] Error aplicando acción %s a %s: %s",
+                      accion, telefono, exc)
+        if request.is_json:
+            return jsonify({"ok": False, "error": "server_error"}), 500
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="accion_err:server"))
