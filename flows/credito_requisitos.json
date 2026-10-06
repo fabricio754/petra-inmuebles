@@ -37,10 +37,10 @@
               {
                 "type": "TextInput",
                 "name": "apto",
-                "label": "Apto / interior (opcional)",
+                "label": "Apto o torre",
                 "input-type": "text",
                 "required": false,
-                "helper-text": "Ej: Apto 302, Torre 2"
+                "helper-text": "Opcional. Ej: Apto 302, Torre 2"
               },
               {
                 "type": "TextInput",
@@ -150,7 +150,7 @@
               {
                 "type": "TextInput",
                 "name": "avaluo",
-                "label": "Avalúo en millones (COP)",
+                "label": "Avalúo en millones",
                 "input-type": "number",
                 "required": true,
                 "helper-text": "Ej: 350 = $350.000.000. Lo que crees que vale tu inmueble."
