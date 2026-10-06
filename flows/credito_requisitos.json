@@ -56,12 +56,15 @@
                 "label": "Ciudad del inmueble",
                 "required": true,
                 "data-source": [
-                  { "id": "BOGOTA", "title": "Bogotá" },
-                  { "id": "MEDELLIN", "title": "Medellín" },
                   { "id": "BARRANQUILLA", "title": "Barranquilla" },
+                  { "id": "BOGOTA", "title": "Bogotá" },
+                  { "id": "CAJICA", "title": "Cajicá" },
                   { "id": "CARTAGENA", "title": "Cartagena" },
-                  { "id": "SANTA_MARTA", "title": "Santa Marta" },
+                  { "id": "CHIA", "title": "Chía" },
                   { "id": "CUCUTA", "title": "Cúcuta" },
+                  { "id": "MEDELLIN", "title": "Medellín" },
+                  { "id": "SANTA_MARTA", "title": "Santa Marta" },
+                  { "id": "ZIPAQUIRA", "title": "Zipaquirá" },
                   { "id": "OTRA", "title": "Otra" }
                 ]
               },
@@ -108,8 +111,8 @@
               {
                 "type": "RadioButtonsGroup",
                 "name": "patrimonio",
-                "label": "Patrimonio de familia",
-                "description": "¿Tiene patrimonio de familia con hijos menores de edad?",
+                "label": "Afectación a patrimonio de familia",
+                "description": "¿Este inmueble tiene afectación a patrimonio de familia? Si hay hijos menores, no podrás venderlo libremente. Esto se ve en las escrituras del inmueble o en el certificado de tradición.",
                 "required": true,
                 "data-source": [
                   { "id": "SI", "title": "Sí" },
