@@ -38,8 +38,12 @@ def iniciar():
                        id="remarketing", max_instances=1, coalesce=True)
     _scheduler.add_job(_export_job, "cron", hour=6, minute=0,
                        id="export_sheets", max_instances=1, coalesce=True)
+    _scheduler.add_job(_webhook_queue_health, "interval", minutes=10,
+                       id="webhook_queue_health",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
-    log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá.")
+    log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
+             "healthcheck webhook_queue c/10min.")
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +79,25 @@ def _export_job():
         export.ejecutar()
     except Exception:
         log.exception("[Scheduler] Error en export sheets.")
+
+
+def _webhook_queue_health():
+    """Alerta si hay webhooks pendientes atascados (>1 min sin procesar).
+    En operación normal la cola se drena en milisegundos; una acumulación
+    sostenida indica que el worker está colgado o la DB saturada."""
+    from app import db
+    try:
+        with db._conexion() as conn:
+            fila = conn.execute(
+                "SELECT COUNT(*) FROM webhook_queue "
+                "WHERE estado='pending' AND recibido_at < NOW() - INTERVAL '1 minute'"
+            ).fetchone()
+        pendientes = fila[0] if fila else 0
+        if pendientes > 0:
+            log.warning("[WebhookQueue] %d webhooks pendientes atascados >1 min.",
+                        pendientes)
+    except Exception:
+        log.exception("[WebhookQueue] Error en healthcheck.")
 
 
 def revisar_leads():
