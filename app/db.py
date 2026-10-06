@@ -63,7 +63,7 @@ def _conexion():
                 p = ConnectionPool(
                     url,
                     min_size=1,
-                    max_size=2,
+                    max_size=10,
                     open=True,
                     kwargs={"connect_timeout": 12},
                 )
