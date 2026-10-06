@@ -596,6 +596,266 @@ def panel_stats():
     )
 
 
+def _clasificar_tag(mensajes_hilo):
+    """Clasifica un hilo (lista de mensajes de un teléfono) en un tag.
+
+    Reglas (en orden de prioridad):
+      - convertido        → hay flow_reply con 'objetivo'
+      - pide_llamada      → algún IN con 'me pueden llamar'
+      - autorizando       → button_reply BOTON_SI (sin flow_reply)
+      - rechazo           → plantilla/botón 'No me interesa'
+      - no_vende_ya       → 'ya no está disponible' / 'ya vendí'
+      - bot_externo       → patrones típicos de bot inmobiliario
+      - lead_tibio        → default
+    """
+    tiene_flow_objetivo = False
+    tiene_boton_si = False
+    textos_in = []
+    for m in mensajes_hilo:
+        if m.get("direccion") != "in":
+            continue
+        tipo = (m.get("tipo") or "").lower()
+        resumen = (m.get("resumen") or "")
+        resumen_l = resumen.lower()
+        if tipo == "flow_reply" and "objetivo" in resumen_l:
+            tiene_flow_objetivo = True
+        if tipo == "button_reply" and resumen.strip().upper() == "BOTON_SI":
+            tiene_boton_si = True
+        textos_in.append(resumen_l)
+
+    texto_combinado = " ".join(textos_in)
+
+    if tiene_flow_objetivo:
+        return "convertido"
+    if "me pueden llamar" in texto_combinado:
+        return "pide_llamada"
+    if tiene_boton_si:
+        return "autorizando"
+    if "no me interesa" in texto_combinado:
+        return "rechazo"
+    if "ya no está disponible" in texto_combinado \
+            or "ya no esta disponible" in texto_combinado \
+            or "ya vendí" in texto_combinado \
+            or "ya vendi" in texto_combinado:
+        return "no_vende_ya"
+    patrones_bot = (
+        "gracias por tu mensaje",
+        "inmobiliaria",
+        "agencia",
+    )
+    if any(p in texto_combinado for p in patrones_bot):
+        return "bot_externo"
+    # "soy X" como patrón de bot externo (presentación automatizada)
+    if re.search(r"\bsoy\s+\w+", texto_combinado):
+        # Evitar colisión con mensajes muy cortos del usuario tipo "soy yo" —
+        # pedimos que haya al menos un texto largo que sugiera presentación.
+        for t in textos_in:
+            if re.search(r"\bsoy\s+\w+", t) and len(t) > 25:
+                return "bot_externo"
+    return "lead_tibio"
+
+
+_TAG_META = {
+    "convertido":   {"label": "Convertido",  "color": "verde"},
+    "autorizando":  {"label": "Autorizando", "color": "azul"},
+    "lead_tibio":   {"label": "Lead tibio",  "color": "amarillo"},
+    "pide_llamada": {"label": "Pide llamada", "color": "rojo"},
+    "bot_externo":  {"label": "Bot externo", "color": "gris_claro"},
+    "rechazo":      {"label": "Rechazo",     "color": "gris"},
+    "no_vende_ya":  {"label": "No vende ya", "color": "gris"},
+}
+
+
+@panel.get("/panel/respuestas")
+def panel_respuestas():
+    """Timeline literal de todas las respuestas de los usuarios del día.
+
+    Muestra, agrupado por teléfono, el hilo entero (IN del usuario + OUT del
+    bot cercanos) tal cual fue, con un tag de clasificación arriba.
+    Útil para leer letra por letra qué contestó la gente a la plantilla de
+    apertura. Query param ``?dias=N`` extiende la ventana.
+    """
+    _check_token()
+    token = request.args.get("token", "")
+
+    try:
+        dias = int(request.args.get("dias", "1"))
+    except (TypeError, ValueError):
+        dias = 1
+    if dias < 1:
+        dias = 1
+    if dias > 30:
+        dias = 30
+
+    f_tag = (request.args.get("tag") or "").strip()
+
+    try:
+        with db._conexion() as conn:
+            if dias == 1:
+                sql = """
+                    SELECT
+                      m.telefono,
+                      m.direccion,
+                      m.tipo,
+                      COALESCE(m.resumen, '') AS resumen,
+                      m.fecha,
+                      c.tipo_inmueble,
+                      c.ciudad,
+                      c.barrio,
+                      c.no_contactar,
+                      c.monto_hasta_millones AS monto_hasta
+                    FROM mensajes m
+                    LEFT JOIN contactos c ON c.telefono = m.telefono
+                    WHERE m.telefono IN (
+                      SELECT DISTINCT telefono FROM mensajes
+                      WHERE direccion='in'
+                        AND (fecha AT TIME ZONE 'America/Bogota')::date
+                            = (NOW() AT TIME ZONE 'America/Bogota')::date
+                    )
+                    AND (m.fecha AT TIME ZONE 'America/Bogota')::date
+                        = (NOW() AT TIME ZONE 'America/Bogota')::date
+                    ORDER BY m.telefono, m.fecha
+                """
+                filas = _rows(conn, sql)
+            else:
+                sql = """
+                    SELECT
+                      m.telefono,
+                      m.direccion,
+                      m.tipo,
+                      COALESCE(m.resumen, '') AS resumen,
+                      m.fecha,
+                      c.tipo_inmueble,
+                      c.ciudad,
+                      c.barrio,
+                      c.no_contactar,
+                      c.monto_hasta_millones AS monto_hasta
+                    FROM mensajes m
+                    LEFT JOIN contactos c ON c.telefono = m.telefono
+                    WHERE m.telefono IN (
+                      SELECT DISTINCT telefono FROM mensajes
+                      WHERE direccion='in'
+                        AND fecha >= NOW() - make_interval(days => %s)
+                    )
+                    AND m.fecha >= NOW() - make_interval(days => %s)
+                    ORDER BY m.telefono, m.fecha
+                """
+                filas = _rows(conn, sql, (dias, dias))
+    except PoolTimeout:
+        return _pool_busy_response("/panel/respuestas")
+
+    # Agrupar por teléfono.
+    por_tel = {}
+    for r in filas:
+        tel = r["telefono"]
+        if tel not in por_tel:
+            por_tel[tel] = {
+                "telefono": tel,
+                "tipo_inmueble": r.get("tipo_inmueble"),
+                "ciudad": r.get("ciudad"),
+                "barrio": r.get("barrio"),
+                "no_contactar": r.get("no_contactar"),
+                "monto_hasta": r.get("monto_hasta"),
+                "mensajes": [],
+            }
+        por_tel[tel]["mensajes"].append(r)
+
+    # Construir tarjetas humanizadas.
+    tarjetas = []
+    conteo_tags = {}
+    for tel, info in por_tel.items():
+        mensajes_hilo = info["mensajes"]
+        tag = _clasificar_tag(mensajes_hilo)
+        conteo_tags[tag] = conteo_tags.get(tag, 0) + 1
+
+        mensajes_vista = []
+        for m in mensajes_hilo:
+            direccion = m.get("direccion")
+            tipo = m.get("tipo") or ""
+            resumen = m.get("resumen") or ""
+            flow_lineas = None
+            if direccion == "in" and tipo == "flow_reply":
+                flow_lineas = _formatear_flow_reply(resumen)
+                resumen_render = resumen if not flow_lineas else ""
+            elif direccion == "out":
+                resumen_render = _humanizar_resumen_salida(resumen)
+            else:
+                resumen_render = resumen or "—"
+            fecha = m.get("fecha")
+            hora_hm = fecha.strftime("%H:%M") if fecha else "—"
+            mensajes_vista.append({
+                "direccion": direccion,
+                "tipo": tipo,
+                "resumen_render": resumen_render,
+                "flow_lineas": flow_lineas,
+                "hora_hm": hora_hm,
+            })
+
+        # Última actividad para ordenar.
+        ult = None
+        for m in mensajes_hilo:
+            if m.get("fecha") and (ult is None or m["fecha"] > ult):
+                ult = m["fecha"]
+
+        tarjetas.append({
+            "telefono": tel,
+            "tipo_inmueble": info["tipo_inmueble"],
+            "ciudad": info["ciudad"],
+            "barrio": info["barrio"],
+            "no_contactar": info["no_contactar"],
+            "monto_hasta": info["monto_hasta"],
+            "tag": tag,
+            "tag_label": _TAG_META.get(tag, {}).get("label", tag),
+            "tag_color": _TAG_META.get(tag, {}).get("color", "gris"),
+            "mensajes": mensajes_vista,
+            "ultima": ult,
+        })
+
+    # Orden: más reciente arriba.
+    tarjetas.sort(key=lambda t: t["ultima"] or datetime.min.replace(tzinfo=timezone.utc),
+                  reverse=True)
+
+    # Filtro por tag.
+    if f_tag:
+        tarjetas_filtradas = [t for t in tarjetas if t["tag"] == f_tag]
+    else:
+        tarjetas_filtradas = tarjetas
+
+    # Chips: todos los tags que existen + "todos" al principio.
+    chips = [{
+        "key": "",
+        "label": "Todos",
+        "color": "neutro",
+        "count": len(tarjetas),
+        "activo": f_tag == "",
+    }]
+    # Orden fijo de tags para los chips.
+    for key in ("convertido", "autorizando", "lead_tibio", "pide_llamada",
+                "bot_externo", "rechazo", "no_vende_ya"):
+        n = conteo_tags.get(key, 0)
+        if n == 0 and f_tag != key:
+            continue
+        meta = _TAG_META.get(key, {})
+        chips.append({
+            "key": key,
+            "label": meta.get("label", key),
+            "color": meta.get("color", "gris"),
+            "count": n,
+            "activo": f_tag == key,
+        })
+
+    return render_template(
+        "panel_respuestas.html",
+        token=token,
+        tarjetas=tarjetas_filtradas,
+        total=len(tarjetas_filtradas),
+        total_sin_filtro=len(tarjetas),
+        chips=chips,
+        f_tag=f_tag,
+        dias=dias,
+    )
+
+
 @panel.get("/panel/<telefono>")
 def panel_detalle(telefono):
     _check_token()
