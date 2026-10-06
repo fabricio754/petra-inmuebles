@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, abort, redirect, render_template, request, url_for
@@ -22,6 +23,45 @@ from app import db
 
 log = logging.getLogger("petra")
 panel = Blueprint("panel", __name__)
+
+
+# ---------------------------------------------------------------------------
+# Conexión directa a Postgres (bypass del pool)
+#
+# El pool compartido (`db._conexion()`) se corrompe periódicamente por errores
+# SSL 'bad record mac' en la red interna de Render, dejando conns muertas que
+# ocupan slots hasta reiniciar el proceso. Mientras los webhooks pueden tolerar
+# ese fallo (reintentos de Meta, spool en disco — PR #48), el panel sufre 503
+# cada 5-10 min.
+#
+# Las rutas del panel abren ahora una conn TCP directa a Postgres por request
+# (nueva al entrar, cerrada al salir). Paga 200-500ms extra de handshake TLS,
+# pero es inmune a la corrupción del pool. El resto del app (webhooks, envíos,
+# scheduler) sigue usando el pool normal.
+# ---------------------------------------------------------------------------
+
+@contextmanager
+def _panel_conexion():
+    """Context manager: prefiere conn directa a Postgres (bypass del pool).
+
+    Si abrir la conn directa falla (timeout TCP, DNS, lo que sea), cae al
+    pool compartido como último recurso en vez de romper el panel entero."""
+    conn = None
+    try:
+        try:
+            conn = db._conexion_directa(timeout=10)
+        except Exception as exc:  # noqa: BLE001 — queremos capturar lo que sea
+            log.warning("[Panel] conn directa falló (%s); cayendo al pool.", exc)
+            with db._conexion() as pool_conn:
+                yield pool_conn
+            return
+        yield conn
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001 — cerrar nunca debe propagar
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +397,7 @@ def panel_lista():
     q = (request.args.get("q") or "").strip()
 
     try:
-        with db._conexion() as conn:
+        with _panel_conexion() as conn:
             contactos = _rows(conn, """
                 SELECT telefono, nombre, ciudad, tipo_inmueble, portal,
                        monto_hasta_millones AS monto_hasta,
@@ -454,7 +494,7 @@ def panel_stats():
     token = request.args.get("token", "")
 
     try:
-        with db._conexion() as conn:
+        with _panel_conexion() as conn:
             captados = _scalar(conn, "SELECT COUNT(*) FROM contactos") or 0
             contactados = _scalar(conn,
                 "SELECT COUNT(*) FROM contactos WHERE contactado") or 0
@@ -691,7 +731,7 @@ def panel_respuestas():
     f_tag = (request.args.get("tag") or "").strip()
 
     try:
-        with db._conexion() as conn:
+        with _panel_conexion() as conn:
             if dias == 1:
                 sql = """
                     SELECT
@@ -862,7 +902,7 @@ def panel_detalle(telefono):
     _check_token()
     token = request.args.get("token", "")
     try:
-        with db._conexion() as conn:
+        with _panel_conexion() as conn:
             contactos = _rows(conn,
                 "SELECT * FROM contactos WHERE telefono = %s", (telefono,))
             sesiones = _rows(conn,
@@ -1065,7 +1105,7 @@ def panel_responder(telefono):
                                 token=token, flash="vacio"))
 
     try:
-        with db._conexion() as conn:
+        with _panel_conexion() as conn:
             cur = conn.execute(
                 "SELECT MAX(fecha) FROM mensajes WHERE telefono=%s AND direccion='in'",
                 (telefono,))

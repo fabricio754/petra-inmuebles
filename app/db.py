@@ -9,6 +9,7 @@ import logging
 import os
 import threading
 
+import psycopg
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
@@ -36,6 +37,49 @@ def _conexion():
     return _pool.connection(timeout=20.0)
 
 
+def _preparar_url(url):
+    """Normaliza la DSN: agrega keepalives, connect_timeout y sslmode=prefer
+    si no están ya presentes. Compartido entre el pool y las conns directas
+    para asegurar que ambas usen los mismos parámetros TCP/SSL."""
+    import re as _re
+
+    # TCP keepalives: kernel-managed, work in all threads.
+    # After 30s idle the kernel probes the connection; 3 failed probes
+    # (15s total) close the socket with a real error instead of hanging.
+    if "keepalives" not in url:
+        sep = "&" if "?" in url else "?"
+        url = (f"{url}{sep}keepalives=1&keepalives_idle=30"
+               "&keepalives_interval=5&keepalives_count=3")
+    if "connect_timeout" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}connect_timeout=10"
+    # sslmode=prefer: try SSL first, fall back to plain — Render's internal
+    # PostgreSQL may require SSL; sslmode=disable can cause the server to
+    # drop the connection silently.
+    if "sslmode" in url:
+        url = _re.sub(r"sslmode=[^&\s]*", "sslmode=prefer", url)
+    else:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}sslmode=prefer"
+    return url
+
+
+def _conexion_directa(timeout=10):
+    """Abre una conn directa a Postgres, bypassing el pool compartido.
+
+    Usar SOLO en rutas de baja frecuencia (ej. panel) donde no vale la pena
+    pelear por una conn del pool compartido. Paga 200-500ms extra de TCP
+    + handshake TLS por request, pero es inmune a la corrupción del pool
+    (errores SSL 'bad record mac' en la red interna de Render que dejan
+    conns muertas ocupando slots)."""
+    url = DATABASE_URL
+    if not url:
+        raise RuntimeError("[DB] DATABASE_URL no configurada")
+    url = _preparar_url(url)
+    # connect_timeout aquí sobre-escribe el de la DSN con el que pide el caller.
+    return psycopg.connect(url, connect_timeout=timeout)
+
+
 def _asegurar_pool():
     """Crea el pool (y prepara el schema) la primera vez. Hilo-seguro."""
     global _pool
@@ -48,24 +92,7 @@ def _asegurar_pool():
                 if not url:
                     raise Exception("[DB] DATABASE_URL no configurado")
 
-                # TCP keepalives: kernel-managed, work in all threads.
-                # After 30s idle the kernel probes the connection; 3 failed probes
-                # (15s total) close the socket with a real error instead of hanging.
-                if "keepalives" not in url:
-                    sep = "&" if "?" in url else "?"
-                    url = (f"{url}{sep}keepalives=1&keepalives_idle=30"
-                           "&keepalives_interval=5&keepalives_count=3")
-                if "connect_timeout" not in url:
-                    sep = "&" if "?" in url else "?"
-                    url = f"{url}{sep}connect_timeout=10"
-                # sslmode=prefer: try SSL first, fall back to plain — Render's internal
-                # PostgreSQL may require SSL; sslmode=disable can cause the server to
-                # drop the connection silently.
-                if "sslmode" in url:
-                    url = _re.sub(r"sslmode=[^&\s]*", "sslmode=prefer", url)
-                else:
-                    sep = "&" if "?" in url else "?"
-                    url = f"{url}{sep}sslmode=prefer"
+                url = _preparar_url(url)
 
                 safe_url = _re.sub(r":[^@]+@", ":***@", url)
                 log.info("[DB] Conectando a: %s", safe_url)
