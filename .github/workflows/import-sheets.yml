@@ -218,10 +218,13 @@ jobs:
               return str(row[idx]).strip()
 
           # ── Procesar filas ──────────────────────────────────────────────────────────────
-          n_importados  = 0
-          n_duplicados  = 0
-          n_errores     = 0
+          # Construimos un ÚNICO array con todos los payloads y lo mandamos en 1 solo POST.
+          # Antes mandábamos 1 POST por fila (230 POSTs secuenciales), lo que agotaba el
+          # pool DB porque cada request pedía su propia conn. Ahora el handler itera
+          # internamente usando una sola conn.
           n_skip_tel    = 0
+          batch         = []
+          filas_batch   = []  # para loguear qué fila corresponde a cada payload
 
           if DRY_RUN:
               print("\n[DryRun] MODO PRUEBA — no se harán POSTs al endpoint\n")
@@ -270,54 +273,76 @@ jobs:
 
               if DRY_RUN:
                   print(f"  [DryRun] Fila {i}: tel={telefono} tipo={tipo_raw!r} ciudad={ciudad_raw!r} barrio={barrio!r}")
-                  n_importados += 1
-                  continue
 
-              # POST al endpoint
-              try:
-                  resp = requests.post(
-                      INGEST_URL,
-                      json=payload,
-                      headers={
-                          "X-Ingest-Token": INGEST_TOKEN,
-                          "Content-Type":   "application/json",
-                      },
-                      timeout=30,
-                  )
-                  if resp.status_code == 200:
-                      result = resp.json()
-                      saved  = result.get("saved", 0)
-                      if saved:
-                          n_importados += 1
-                          print(f"  Fila {i} → guardado   (tel={telefono})")
-                      else:
-                          n_duplicados += 1
-                          print(f"  Fila {i} → duplicado  (tel={telefono})")
-                  elif resp.status_code == 401:
-                      print(f"  Fila {i} → ERROR 401 (token invalido)")
-                      n_errores += 1
-                  else:
-                      print(f"  Fila {i} → ERROR {resp.status_code}: {resp.text[:100]}")
-                      n_errores += 1
-              except Exception as exc:
-                  print(f"  Fila {i} → ERROR de red: {exc}")
-                  n_errores += 1
+              batch.append(payload)
+              filas_batch.append(i)
 
-          # ── Resumen final ───────────────────────────────────────────────────────────────
+          # ── Resumen filas válidas ───────────────────────────────────────────────────────
           print()
-          print("=" * 50)
+          print(f"[Batch] Filas con telefono valido : {len(batch)}")
+          print(f"[Batch] Filas sin telefono valido : {n_skip_tel}")
+          print(f"[Batch] Total filas procesadas    : {len(rows)}")
+
           if DRY_RUN:
-              print(f"[DryRun] Filas validas encontradas : {n_importados}")
+              print()
+              print("=" * 50)
+              print(f"[DryRun] Filas validas encontradas : {len(batch)}")
               print(f"[DryRun] Filas sin telefono valido : {n_skip_tel}")
               print(f"[DryRun] Total filas procesadas    : {len(rows)}")
-          else:
-              print(f"Importados (nuevos)  : {n_importados}")
-              print(f"Duplicados           : {n_duplicados}")
-              print(f"Errores              : {n_errores}")
-              print(f"Sin teléfono válido  : {n_skip_tel}")
-              print(f"Total filas          : {len(rows)}")
+              print("=" * 50)
+              sys.exit(0)
+
+          if not batch:
+              print("[Batch] No hay filas validas para enviar. Salida sin error.")
+              sys.exit(0)
+
+          # ── UN SOLO POST con el array completo ──────────────────────────────────────────
+          print()
+          print(f"[Batch] Enviando batch de {len(batch)} items a {INGEST_URL} ...")
+          try:
+              resp = requests.post(
+                  INGEST_URL,
+                  json=batch,
+                  headers={
+                      "X-Ingest-Token": INGEST_TOKEN,
+                      "Content-Type":   "application/json",
+                  },
+                  timeout=180,
+              )
+          except Exception as exc:
+              print(f"[Batch] ERROR de red: {exc}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"[Batch] Respuesta HTTP {resp.status_code}")
+          print(f"[Batch] Body: {resp.text[:1000]}")
+
+          if resp.status_code == 401:
+              print("[Batch] ERROR 401 (token invalido)", file=sys.stderr)
+              sys.exit(1)
+          if resp.status_code != 200:
+              print(f"[Batch] ERROR HTTP {resp.status_code}", file=sys.stderr)
+              sys.exit(1)
+
+          try:
+              result = resp.json()
+          except Exception:
+              print("[Batch] ERROR: respuesta no es JSON valido", file=sys.stderr)
+              sys.exit(1)
+
+          saved = result.get("saved", 0)
+          total = result.get("total", len(batch))
+          duplicados = max(0, total - saved)
+
+          print()
+          print("=" * 50)
+          print(f"Enviados             : {len(batch)}")
+          print(f"Guardados (nuevos)   : {saved}")
+          print(f"Duplicados/omitidos  : {duplicados}")
+          print(f"Sin teléfono válido  : {n_skip_tel}")
+          print(f"Total filas          : {len(rows)}")
           print("=" * 50)
 
-          if not DRY_RUN and n_errores > 0 and n_importados == 0 and n_duplicados == 0:
+          if saved == 0 and duplicados == 0:
+              # Ni guardados ni duplicados ⇒ el handler fallo con cada item
               sys.exit(1)
           PYEOF
