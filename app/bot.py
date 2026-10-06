@@ -713,14 +713,17 @@ def handle_incoming(phone, event):
         texto = event["text"]
         try:
             from app import db as _db
-            marco_nuevo = _db.marcar_requiere_humano(
+            resultado = _db.marcar_requiere_humano(
                 phone, f"pidió llamada: {texto[:200]}"
             )
         except Exception:
             _log.exception("[Bot] Error marcando requiere_humano para %s", phone)
-            marco_nuevo = False
-        _log.info("[Bot] Pide llamada detectado: %s (nuevo=%s)", phone, marco_nuevo)
-        if marco_nuevo:
+            resultado = {"nuevo": False, "debe_alertar": False}
+        _log.info(
+            "[Bot] Pide llamada detectado: %s (nuevo=%s alertar=%s)",
+            phone, resultado.get("nuevo"), resultado.get("debe_alertar"),
+        )
+        if resultado.get("debe_alertar"):
             _enviar_alerta_lead_caliente(phone, texto)
         return [whatsapp.send_text(
             phone,
