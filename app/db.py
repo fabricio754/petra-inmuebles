@@ -254,6 +254,25 @@ def set_no_contactar(phone, valor):
         )
 
 
+def esta_bloqueado(telefono):
+    """True si el teléfono tiene no_contactar=TRUE en contactos (opt-out).
+
+    Usado por el bot al inicio del handler de IN para quedarse mudo tras
+    un opt-out, en vez de seguir contestando (loop de consent, etc.).
+    No lanza: si la DB falla devuelve False y el bot responde normal.
+    """
+    try:
+        with _conexion() as conn:
+            fila = conn.execute(
+                "SELECT no_contactar FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+        return bool(fila and fila[0])
+    except Exception as exc:
+        log.warning("[esta_bloqueado] no se pudo consultar (%s): %s", telefono, exc)
+        return False
+
+
 def log_mensaje(telefono, direccion, tipo, resumen, payload=None):
     """Inserta una fila en `mensajes`. Nunca lanza excepción al caller."""
     import json as _json
