@@ -382,7 +382,7 @@ def test_alerta_lead_caliente_manda_wa_a_todos_los_asesores(monkeypatch):
         assert "LEAD CALIENTE" in body
         assert "573508463133" in body
         assert "Me pueden llamar?" in body
-        assert "https://panel.example.com/573508463133?token=tok-secreto" in body
+        assert "https://panel.example.com/panel/573508463133?token=tok-secreto" in body
 
 
 def test_alerta_lead_caliente_sin_asesores_no_falla(monkeypatch):
