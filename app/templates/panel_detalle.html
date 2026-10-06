@@ -315,7 +315,11 @@
     } catch (e) {}
   })();
 
-  // Auto-refresh cada 10 s, con toggle para pausar.
+  // Auto-refresh cada 30 s, con toggle para pausar.
+  // Antes era cada 10 s. Con varias pestañas abiertas y la cola de
+  // webhooks drenando backlog, 10 s saturaba el pool de Postgres
+  // (max 20 conexiones) y hacía caer el panel con 500 (PoolTimeout).
+  // Además, pausamos el refresh si la pestaña está en segundo plano.
   (function(){
     var btn = document.getElementById('refresh-ctl');
     var txt = document.getElementById('responder-texto');
@@ -327,7 +331,7 @@
         btn.textContent = '▶ reanudar auto-refresh';
         btn.classList.add('paused');
       } else {
-        btn.textContent = '⏸ pausar auto-refresh';
+        btn.textContent = '⏸ pausar auto-refresh (30 s)';
         btn.classList.remove('paused');
       }
     }
@@ -339,10 +343,12 @@
     });
     setInterval(function(){
       if (paused) return;
+      // No recargar si la pestaña está en segundo plano.
+      if (document.hidden) return;
       // No recargar si el usuario está escribiendo.
       if (txt && document.activeElement === txt && txt.value.length > 0) return;
       location.reload();
-    }, 10000);
+    }, 30000);
   })();
 </script>
 
