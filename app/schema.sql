@@ -79,6 +79,31 @@ ALTER TABLE contactos
     ADD COLUMN IF NOT EXISTS requiere_humano_motivo text,
     ADD COLUMN IF NOT EXISTS requiere_humano_at timestamptz;
 
+-- Resultado de cierre de conversación (acción humana post-contacto).
+-- `resultado_contacto` ya existe arriba como VARCHAR(50); los otros tres
+-- campos registran cuándo, quién y una nota libre asociada al cierre.
+ALTER TABLE contactos
+    ADD COLUMN IF NOT EXISTS resultado_contacto text,
+    ADD COLUMN IF NOT EXISTS resultado_contacto_at timestamptz,
+    ADD COLUMN IF NOT EXISTS resultado_contacto_por text,
+    ADD COLUMN IF NOT EXISTS resultado_contacto_nota text;
+
+-- Audit de acciones humanas sobre un contacto desde el panel.
+-- Cada acción del asesor (cerrar conversación, mandar al flow, marcar como
+-- broker, etc.) deja una row inmutable aquí: quién, qué, cuándo y con qué
+-- nota. Permite reconstruir el historial de intervenciones humanas.
+CREATE TABLE IF NOT EXISTS panel_acciones (
+    id bigserial PRIMARY KEY,
+    telefono varchar(150) NOT NULL,
+    accion text NOT NULL,
+    nota text,
+    actor text,
+    fecha timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_panel_acciones_telefono_fecha
+    ON panel_acciones(telefono, fecha DESC);
+
 CREATE TABLE IF NOT EXISTS documentos (
   id SERIAL PRIMARY KEY,
   telefono VARCHAR(100),

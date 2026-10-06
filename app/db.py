@@ -627,3 +627,59 @@ def leads_paz_salvo_por_contactar(dias: int) -> list[dict]:
             (dias, tipo),
         ).fetchall()
     return [dict(zip(("id", "telefono", "nombre"), f)) for f in filas]
+
+
+# === Panel: acciones humanas + audit (PR acciones_panel) ===================
+
+def aplicar_accion_panel(telefono, updates, accion_key, nota, actor):
+    """Aplica una acción del panel: UPDATE en `contactos` + INSERT audit.
+
+    Se corre bajo una sola conn directa a Postgres (bypass del pool, misma
+    razón que el resto del panel). `psycopg` ejecuta ambas sentencias en la
+    misma transacción implícita del context manager: si la segunda falla,
+    la primera también se revierte.
+
+    `updates` es un dict columna → valor; el literal "NOW()" se emite como
+    función SQL en vez de parámetro, para no castear timestamps en Python.
+    """
+    with _conexion_directa(timeout=10) as conn:
+        if updates:
+            set_fragments = []
+            values = []
+            for k, v in updates.items():
+                if v == "NOW()":
+                    set_fragments.append(f"{k} = NOW()")
+                else:
+                    set_fragments.append(f"{k} = %s")
+                    values.append(v)
+            values.append(telefono)
+            sql = (
+                f"UPDATE contactos SET {', '.join(set_fragments)} "
+                f"WHERE telefono = %s"
+            )
+            conn.execute(sql, values)
+        conn.execute(
+            "INSERT INTO panel_acciones (telefono, accion, nota, actor) "
+            "VALUES (%s, %s, %s, %s)",
+            (telefono, accion_key, nota or None, actor or None),
+        )
+
+
+def historial_acciones_panel(telefono, limite=20):
+    """Últimas N acciones humanas sobre un teléfono (más recientes primero).
+
+    Devuelve una lista de dicts con `id, telefono, accion, nota, actor, fecha`.
+    Usa el pool normal: la vista de detalle del panel ya abre su propia conn
+    directa — reutilizamos esa conn pasándola por `_rows` desde panel.py.
+    Esta función existe para callers externos (tests, scripts); en caliente
+    el panel la saltea.
+    """
+    with _conexion_directa(timeout=10) as conn:
+        cur = conn.execute(
+            "SELECT id, telefono, accion, nota, actor, fecha "
+            "FROM panel_acciones WHERE telefono = %s "
+            "ORDER BY fecha DESC LIMIT %s",
+            (telefono, limite),
+        )
+        cols = [c.name for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
