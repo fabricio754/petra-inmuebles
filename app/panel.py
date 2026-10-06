@@ -507,13 +507,13 @@ def panel_stats():
             flow1 = _scalar(conn, """
                 SELECT COUNT(DISTINCT telefono) FROM mensajes
                 WHERE direccion='in' AND tipo='flow_reply'
-                  AND resumen ILIKE '%avaluo%'
+                  AND resumen ILIKE '%%avaluo%%'
             """) or 0
             flow2 = _scalar(conn, """
                 SELECT COUNT(DISTINCT telefono) FROM mensajes
                 WHERE direccion='in' AND tipo='flow_reply'
-                  AND (resumen ILIKE '%cedula%' OR resumen ILIKE '%nit%')
-                  AND resumen ILIKE '%nombre%'
+                  AND (resumen ILIKE '%%cedula%%' OR resumen ILIKE '%%nit%%')
+                  AND resumen ILIKE '%%nombre%%'
             """) or 0
 
             en_pipeline = _scalar(conn, "SELECT COUNT(*) FROM pipeline") or 0
