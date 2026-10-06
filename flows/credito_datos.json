@@ -68,8 +68,7 @@
               {
                 "type": "Dropdown",
                 "name": "objetivo",
-                "label": "Objetivo",
-                "helper-text": "¿Para qué necesitas el crédito?",
+                "label": "Objetivo del crédito",
                 "required": true,
                 "data-source": [
                   { "id": "OBJ_CAPITAL", "title": "Capital de trabajo" },
