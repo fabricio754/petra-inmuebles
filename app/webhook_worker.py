@@ -64,6 +64,20 @@ _ENCOLAR_TIMEOUT_SEG = float(os.environ.get("WEBHOOK_ENCOLAR_TIMEOUT", "2.0"))
 _DEFAULT_SPOOL = "/var/data/media/webhook_spool"
 WEBHOOK_SPOOL = os.environ.get("WEBHOOK_SPOOL", _DEFAULT_SPOOL)
 
+# Cuántos archivos procesa `_drenar_spool()` por tanda. Si hay cientos de
+# archivos acumulados (p.ej. porque el pool DB estuvo caído), no queremos
+# bloquear el thread minutos. Procesamos BATCH y cedemos; la próxima ronda
+# del dispatcher sigue.
+_SPOOL_BATCH = int(os.environ.get("WEBHOOK_SPOOL_BATCH", "20"))
+
+# Kill-switch: si el spool está roto o enorme, se puede saltar el drenaje
+# inicial poniendo WEBHOOK_SPOOL_DRAIN_ON_START=false. El dispatcher igual
+# intentará drenar en cada ronda cuando esté levantado.
+_DRAIN_ON_START = os.environ.get("WEBHOOK_SPOOL_DRAIN_ON_START", "true").lower() != "false"
+
+# Pausa entre items al drenar para ceder al scheduler y no monopolizar el CPU.
+_SPOOL_YIELD_SEG = float(os.environ.get("WEBHOOK_SPOOL_YIELD", "0.05"))
+
 _iniciado = False
 _lock = threading.Lock()
 _despertar = threading.Event()
@@ -127,19 +141,43 @@ def iniciar():
     except Exception:
         log.exception("[WebhookQueue] Error reencolando filas pendientes.")
 
-    # Drena cualquier payload que haya quedado en disco por `PoolTimeout` en
-    # un ciclo anterior. Si la DB sigue caída se re-intenta en la próxima
-    # ronda del dispatcher.
-    try:
-        n = _drenar_spool()
-        if n:
-            log.info("[WebhookQueue] %d payload(s) recuperados del spool en disco.", n)
-    except Exception:
-        log.exception("[WebhookQueue] Error drenando spool en disco.")
+    # Drena en BACKGROUND cualquier payload que haya quedado en disco por
+    # `PoolTimeout` en un ciclo anterior. Si lo corriéramos en este thread
+    # con cientos de archivos acumulados, bloquearíamos el arranque minutos
+    # y el server dejaría de responder health checks → el host lo reinicia
+    # y entra en loop. El dispatcher igual re-intenta en cada ronda.
+    if _DRAIN_ON_START:
+        threading.Thread(target=_drenar_spool_background,
+                         name="webhook-spool-drain-start",
+                         daemon=True).start()
+    else:
+        log.warning("[WebhookQueue] WEBHOOK_SPOOL_DRAIN_ON_START=false — skip drenaje inicial.")
 
     threading.Thread(target=_bucle, name="webhook-queue", daemon=True).start()
-    log.info("[WebhookQueue] Dispatcher iniciado (workers=%d, encolar_timeout=%.1fs, spool=%s).",
-             _WORKERS, _ENCOLAR_TIMEOUT_SEG, WEBHOOK_SPOOL)
+    log.info("[WebhookQueue] Dispatcher iniciado (workers=%d, encolar_timeout=%.1fs, "
+             "spool=%s, batch=%d, drain_on_start=%s).",
+             _WORKERS, _ENCOLAR_TIMEOUT_SEG, WEBHOOK_SPOOL,
+             _SPOOL_BATCH, _DRAIN_ON_START)
+
+
+def _drenar_spool_background():
+    """Drena el spool completo en tandas, cediendo entre tandas. Para
+    el drenaje inicial (fuera del dispatcher). Si quedan archivos luego
+    de pasar por todas las tandas, el bucle del dispatcher sigue trabajando."""
+    try:
+        total = 0
+        while True:
+            n = _drenar_spool()
+            if not n:
+                break
+            total += n
+            # Ceder para no monopolizar CPU/IO. Entre tandas damos aire
+            # al worker thread y a los HTTP handlers.
+            time.sleep(_SPOOL_YIELD_SEG)
+        if total:
+            log.info("[WebhookQueue] Drenaje inicial: %d payload(s) recuperados.", total)
+    except Exception:
+        log.exception("[WebhookQueue] Error en drenaje inicial de spool.")
 
 
 # ----------------------------------------------------------------------------
@@ -180,12 +218,20 @@ def _spool_payload(payload, motivo="unknown"):
 
 
 def _drenar_spool():
-    """Intenta re-encolar en Postgres cada payload del spool. Los que fallan
-    quedan en disco para la próxima ronda. Devuelve cuántos se encolaron OK."""
+    """Intenta re-encolar en Postgres hasta `_SPOOL_BATCH` payloads del spool
+    en UNA tanda. Los que fallan quedan en disco para la próxima ronda.
+    Devuelve cuántos se encolaron OK.
+
+    Se limita a BATCH para no bloquear al caller: si hay cientos de archivos
+    acumulados, un drenaje completo síncrono podría tardar minutos y
+    bloquear el thread. El dispatcher llama a esto en cada ronda, así que
+    el resto se procesa luego.
+    """
     d = _spool_dir()
     if not d:
         return 0
-    archivos = sorted(glob.glob(os.path.join(d, "*.json")))
+    # Ordenamos por nombre (nombre empieza con timestamp ms) → FIFO.
+    archivos = sorted(glob.glob(os.path.join(d, "*.json")))[:_SPOOL_BATCH]
     if not archivos:
         return 0
     ok = 0
@@ -214,6 +260,10 @@ def _drenar_spool():
         except Exception:
             log.exception("[WebhookQueue] Error re-encolando %s — se deja para reintento.", ruta)
             break
+        # Yield mínimo entre items para no monopolizar el thread si el
+        # pool responde rápido pero hay mucho que hacer.
+        if _SPOOL_YIELD_SEG > 0:
+            time.sleep(_SPOOL_YIELD_SEG)
     return ok
 
 
