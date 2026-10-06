@@ -370,7 +370,28 @@ def receive_webhook():
         event = _to_event(message)
         log.info("Mensaje entrante de %s: %s", phone, event)
 
-        # Bitácora de entrada (sobrevive al ciclo de sesión; el panel lo lee).
+        # Procesar en background para liberar el worker thread de gunicorn.
+        # Meta espera un 200 rápido; cualquier latencia aquí bloquea otras
+        # requests (panel, siguientes webhooks). El log a DB también va al
+        # background: en picos de carga el pool se satura y el INSERT puede
+        # tardar hasta 20 s, lo que mata el worker thread.
+        import threading as _threading
+        _threading.Thread(
+            target=_procesar_mensaje_async,
+            args=(phone, event, message),
+            daemon=True,
+            name=f"wh-{phone[-4:]}",
+        ).start()
+    except Exception:
+        log.exception("Error procesando webhook. Payload: %s", payload)
+    return jsonify({"status": "received"}), 200
+
+
+def _procesar_mensaje_async(phone, event, message=None):
+    """Corre lo pesado del webhook fuera del worker thread de gunicorn.
+    Incluye el log de entrada (bitácora) para que ni siquiera un INSERT lento
+    bloquee el 200 OK a Meta."""
+    try:
         try:
             from app import db as _db
             _resumen_in = (event.get("text")
@@ -383,25 +404,6 @@ def receive_webhook():
         except Exception:
             log.exception("No se pudo registrar mensaje entrante.")
 
-        # Procesar en background para liberar el worker thread de gunicorn.
-        # Meta espera un 200 rápido; cualquier latencia aquí bloquea otras
-        # requests (panel, siguientes webhooks). handle_incoming puede hacer
-        # requests.post a Meta Graph (10-15s), que es lo que agota los threads.
-        import threading as _threading
-        _threading.Thread(
-            target=_procesar_mensaje_async,
-            args=(phone, event),
-            daemon=True,
-            name=f"wh-{phone[-4:]}",
-        ).start()
-    except Exception:
-        log.exception("Error procesando webhook. Payload: %s", payload)
-    return jsonify({"status": "received"}), 200
-
-
-def _procesar_mensaje_async(phone, event):
-    """Corre lo pesado del webhook fuera del worker thread de gunicorn."""
-    try:
         if event["type"] == "media":
             from app import media as media_mod
             mime = event["mime_type"]
