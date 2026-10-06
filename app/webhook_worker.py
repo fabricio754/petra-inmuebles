@@ -27,7 +27,10 @@ POLL_SEG = 1.0
 BATCH = 10
 
 # Cuántos webhooks procesa en paralelo el worker. Configurable.
-_WORKERS = int(os.environ.get("WEBHOOK_QUEUE_WORKERS", "4"))
+# Default bajado a 2: con 4 workers manteniendo conns a Meta en paralelo
+# la sesión TLS a Postgres acumula tráfico y se corrompe más seguido
+# (bad record mac → slot fantasma en el pool). Mantener configurable.
+_WORKERS = int(os.environ.get("WEBHOOK_QUEUE_WORKERS", "2"))
 
 _iniciado = False
 _lock = threading.Lock()
