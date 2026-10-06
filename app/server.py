@@ -383,21 +383,39 @@ def receive_webhook():
         except Exception:
             log.exception("No se pudo registrar mensaje entrante.")
 
+        # Procesar en background para liberar el worker thread de gunicorn.
+        # Meta espera un 200 rápido; cualquier latencia aquí bloquea otras
+        # requests (panel, siguientes webhooks). handle_incoming puede hacer
+        # requests.post a Meta Graph (10-15s), que es lo que agota los threads.
+        import threading as _threading
+        _threading.Thread(
+            target=_procesar_mensaje_async,
+            args=(phone, event),
+            daemon=True,
+            name=f"wh-{phone[-4:]}",
+        ).start()
+    except Exception:
+        log.exception("Error procesando webhook. Payload: %s", payload)
+    return jsonify({"status": "received"}), 200
+
+
+def _procesar_mensaje_async(phone, event):
+    """Corre lo pesado del webhook fuera del worker thread de gunicorn."""
+    try:
         if event["type"] == "media":
             from app import media as media_mod
             mime = event["mime_type"]
             if mime not in media_mod.MIME_SOPORTADOS:
                 from app import whatsapp as wa
                 wa.send_tipo_doc_invalido(phone)
-                return jsonify({"status": "received"}), 200
+                return
             ruta = media_mod.download_and_save(phone, event["media_id"], mime)
             media_mod.registrar(phone, event["media_id"], mime, ruta)
             event["ruta_local"] = ruta
 
         bot.handle_incoming(phone, event)
     except Exception:
-        log.exception("Error procesando webhook. Payload: %s", payload)
-    return jsonify({"status": "received"}), 200
+        log.exception("[Webhook async] Error procesando mensaje de %s.", phone)
 
 
 def _to_event(message):

@@ -14,7 +14,7 @@ services:
     region: oregon          # Cambia si prefieres otra región
     plan: starter           # USD 7/mes
     buildCommand: pip install -r requirements.txt && playwright install chromium
-    startCommand: gunicorn -w 1 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app.server:app
+    startCommand: gunicorn -w 1 --threads 16 --timeout 120 -b 0.0.0.0:$PORT app.server:app
     healthCheckPath: /
 
     disk:

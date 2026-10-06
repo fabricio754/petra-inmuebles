@@ -70,7 +70,8 @@ def _dispatch(payload, human_summary):
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json",
     }
-    resp = requests.post(_graph_url(), headers=headers, json=payload, timeout=15)
+    # (connect_timeout, read_timeout): corta más rápido para no bloquear threads.
+    resp = requests.post(_graph_url(), headers=headers, json=payload, timeout=(5, 10))
     if resp.status_code >= 300:
         log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
     else:
