@@ -37,10 +37,10 @@
               {
                 "type": "TextInput",
                 "name": "apto",
-                "label": "Apto / interior (opcional)",
+                "label": "Apto o torre",
                 "input-type": "text",
                 "required": false,
-                "helper-text": "Ej: Apto 302, Torre 2"
+                "helper-text": "Opcional. Ej: Apto 302, Torre 2"
               },
               {
                 "type": "TextInput",
@@ -144,6 +144,18 @@
                 ]
               },
               {
+                "type": "TextSubheading",
+                "text": "💵 Valor del inmueble"
+              },
+              {
+                "type": "TextInput",
+                "name": "avaluo",
+                "label": "Avalúo en millones",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "Ej: 350 = $350.000.000. Lo que crees que vale tu inmueble."
+              },
+              {
                 "type": "TextCaption",
                 "text": "🔒 Tus respuestas solo se usan para evaluar tu solicitud."
               },
@@ -162,7 +174,8 @@
                     "hipoteca": "${form.hipoteca}",
                     "patrimonio": "${form.patrimonio}",
                     "edad": "${form.edad}",
-                    "paz_salvo": "${form.paz_salvo}"
+                    "paz_salvo": "${form.paz_salvo}",
+                    "avaluo": "${form.avaluo}"
                   }
                 }
               }

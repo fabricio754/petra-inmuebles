@@ -124,6 +124,28 @@ def _terminar(phone, **extra):
     state.set_session(phone, flow=None, flow_step=None, flow_data=None, **extra)
 
 
+# Residencial: hasta 40 % del avalúo. Comercial: hasta 30 %.
+_TIPOS_RESIDENCIAL = {"apartamento", "casa", "parqueadero", "habitacion"}
+
+
+def _calcular_monto_estimado(data, avaluo_raw):
+    """El Flow pide el avalúo EN MILLONES (más fácil para el usuario en el
+    teclado de un celular). Guardamos el avalúo en pesos y devolvemos el
+    monto estimado también en millones (int) o None si no se pudo leer."""
+    import re as _re
+    digitos = _re.sub(r"\D", "", str(avaluo_raw or ""))
+    if not digitos:
+        return None
+    try:
+        avaluo_m = int(digitos)
+    except ValueError:
+        return None
+    data["avaluo_comercial"] = avaluo_m * 1_000_000  # a pesos para la DB
+    tipo = str(data.get("tipo_inmueble") or data.get("tipo") or "").lower()
+    pct = 0.40 if tipo in _TIPOS_RESIDENCIAL else 0.30
+    return int(avaluo_m * pct)
+
+
 def _iniciar(phone):
     state.set_session(phone, flow="SURETI", flow_step="AUTORIZACION", flow_data={})
     return whatsapp.send_autorizacion_datos(phone)
@@ -325,8 +347,10 @@ def _procesar(phone, session, event):
                 pass
         if "es_ph" in r:
             data["es_ph"] = str(r["es_ph"]).upper() == "SI"
+        # Avalúo que declara el propietario → calculamos monto estimado.
+        monto_estimado_m = _calcular_monto_estimado(data, r.get("avaluo"))
         state.set_session(phone, flow_step="FORM_DATOS", flow_data=data)
-        return whatsapp.send_form_datos(phone)
+        return whatsapp.send_form_datos(phone, monto_estimado_m=monto_estimado_m)
 
     if step == "FORM_DATOS":
         r = event.get("response") if event["type"] == "flow_reply" else None
