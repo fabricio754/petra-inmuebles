@@ -39,7 +39,7 @@ scheduler.iniciar()
 # threading.Thread por mensaje; con 100 mensajes concurrentes RAM se dispara
 # (100 × ~8 MB = 800 MB) y Render mata el proceso. Con un pool acotado los
 # mensajes extra entran a la cola del executor en vez de reventar el worker.
-_WH_WORKERS = int(os.environ.get("WEBHOOK_WORKERS", "32"))
+_WH_WORKERS = int(os.environ.get("WEBHOOK_WORKERS", "8"))
 _webhook_pool = ThreadPoolExecutor(max_workers=_WH_WORKERS, thread_name_prefix="wh")
 
 _reset_tel = os.environ.get("STARTUP_RESET_TELEFONO", "").strip()

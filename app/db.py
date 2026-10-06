@@ -63,7 +63,7 @@ def _conexion():
                 p = ConnectionPool(
                     url,
                     min_size=1,
-                    max_size=10,
+                    max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "20")),
                     open=True,
                     kwargs={"connect_timeout": 12},
                 )
