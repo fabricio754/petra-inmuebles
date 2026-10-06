@@ -27,7 +27,7 @@ LIMITE_DIARIO = int(os.environ.get("ENVIO_LIMITE_DIARIO", "20"))
 _desde = os.environ.get("ENVIO_DESDE", "").strip()
 DESDE = datetime.fromisoformat(_desde).replace(tzinfo=ZONA) if _desde else None
 INTERVALO_SEG = 300   # revisa la cola cada 5 minutos
-POR_RONDA = 10        # y manda como máximo 10 por ronda, para repartir en el día
+POR_RONDA = int(os.environ.get("ENVIOS_POR_RONDA", "5"))  # máximo plantillas por ronda (cada 5 min)
 
 _iniciado = False
 
