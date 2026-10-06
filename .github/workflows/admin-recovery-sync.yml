@@ -1,0 +1,21 @@
+name: Admin recovery sync (respuestas perdidas 13:01)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar POST /admin/recovery-sync
+        env:
+          TOKEN: ${{ secrets.ADMIN_RESET_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "Falta GitHub Secret ADMIN_RESET_TOKEN"
+            exit 1
+          fi
+          RESP=$(curl -sf -X POST https://petra-inmuebles.onrender.com/admin/recovery-sync \
+            -H "X-Admin-Token: $TOKEN") \
+          && echo "Respuesta: $RESP" \
+          || { echo "ERROR"; exit 1; }
