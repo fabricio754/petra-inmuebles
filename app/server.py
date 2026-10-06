@@ -6,7 +6,6 @@ import os
 import json
 import logging
 import socket
-from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
 # Python-level socket timeout so DB/network connections time out in worker threads.
@@ -18,7 +17,7 @@ load_dotenv()  # debe cargar antes de importar app.bot -> app.whatsapp (lee env 
 
 from flask import Flask, request, jsonify, render_template
 
-from app import bot, envios, scraper, scheduler
+from app import bot, envios, scraper, scheduler, webhook_worker
 from app.panel import panel as panel_bp
 
 logging.basicConfig(level=logging.INFO)
@@ -36,13 +35,7 @@ app.register_blueprint(admin_sync_bp)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
-
-# Pool fijo de workers para procesar webhooks en background. Antes creaba un
-# threading.Thread por mensaje; con 100 mensajes concurrentes RAM se dispara
-# (100 × ~8 MB = 800 MB) y Render mata el proceso. Con un pool acotado los
-# mensajes extra entran a la cola del executor en vez de reventar el worker.
-_WH_WORKERS = int(os.environ.get("WEBHOOK_WORKERS", "8"))
-_webhook_pool = ThreadPoolExecutor(max_workers=_WH_WORKERS, thread_name_prefix="wh")
+webhook_worker.iniciar()
 
 _reset_tel = os.environ.get("STARTUP_RESET_TELEFONO", "").strip()
 if _reset_tel:
@@ -413,77 +406,39 @@ def verify_webhook():
 
 @app.post("/webhook")
 def receive_webhook():
+    """Encola el webhook en Postgres y responde 200 instantáneo.
+
+    Antes el handler despachaba el procesamiento a un ThreadPoolExecutor en
+    memoria; si el proceso moría (SIGTERM, OOM) los mensajes encolados se
+    perdían. Ahora el handler solo INSERTa el payload crudo en
+    `webhook_queue` y un worker (app/webhook_worker.py) lo drena. Si el
+    proceso muere a mitad de camino, lo pendiente queda en la DB y se
+    reprocesa al reiniciar — 0 pérdidas.
+    """
     payload = request.get_json(silent=True) or {}
     try:
-        entry = payload["entry"][0]
-        change = entry["changes"][0]["value"]
-
-        # Opt-out de marketing (botón "Stop" en la tarjeta de la plantilla).
-        # Meta notifica el cambio en user_preferences; lo tratamos igual que
-        # STOP/BAJA/PARA/SALIR por texto: upsert a no_contactar.
-        for pref in change.get("user_preferences") or []:
-            if (pref.get("category") == "marketing_messages"
-                    and str(pref.get("value", "")).lower() == "stop"):
-                wa_id = pref.get("wa_id")
-                if wa_id:
-                    from app import state
-                    state.set_no_contactar(wa_id, True)
-                    log.info("Opt-out de marketing recibido de %s (botón Stop).", wa_id)
-
-        messages = change.get("messages")
-        if not messages:
-            # Eventos de status (entregado/leído) y preferencias puras: ya tratados.
-            return jsonify({"status": "ignored"}), 200
-
-        message = messages[0]
-        # Si el usuario oculta su número tras un nombre de usuario de WhatsApp,
-        # Meta no manda "from" sino "from_user_id" (BSUID, ej. "CO.123...").
-        phone = message.get("from") or message["from_user_id"]
-        event = _to_event(message)
-        log.info("Mensaje entrante de %s: %s", phone, event)
-
-        # Procesar en background para liberar el worker thread de gunicorn.
-        # Meta espera un 200 rápido; cualquier latencia aquí bloquea otras
-        # requests (panel, siguientes webhooks). El log a DB también va al
-        # background: en picos de carga el pool se satura y el INSERT puede
-        # tardar hasta 20 s, lo que mata el worker thread.
-        _webhook_pool.submit(_procesar_mensaje_async, phone, event, message)
-    except Exception:
-        log.exception("Error procesando webhook. Payload: %s", payload)
-    return jsonify({"status": "received"}), 200
-
-
-def _procesar_mensaje_async(phone, event, message=None):
-    """Corre lo pesado del webhook fuera del worker thread de gunicorn.
-    Incluye el log de entrada (bitácora) para que ni siquiera un INSERT lento
-    bloquee el 200 OK a Meta."""
-    try:
+        # Para que los logs sigan igual que antes, extraemos phone+event
+        # (si existen) solo para loggear "Mensaje entrante".
         try:
-            from app import db as _db
-            _resumen_in = (event.get("text")
-                           or event.get("id")
-                           or event.get("media_id")
-                           or event.get("response")
-                           or "")
-            _db.log_mensaje(phone, "in", event.get("type", "unknown"),
-                            str(_resumen_in)[:4000], message)
-        except Exception:
-            log.exception("No se pudo registrar mensaje entrante.")
+            entry = payload["entry"][0]
+            change = entry["changes"][0]["value"]
+            messages = change.get("messages") or []
+            if messages:
+                message = messages[0]
+                phone = message.get("from") or message.get("from_user_id") or "?"
+                event = _to_event(message)
+            else:
+                phone, event = None, None
+        except (KeyError, IndexError, TypeError):
+            phone, event = None, None
 
-        if event["type"] == "media":
-            from app import media as media_mod
-            mime = event["mime_type"]
-            if mime not in media_mod.MIME_SOPORTADOS:
-                from app import whatsapp as wa
-                wa.send_tipo_doc_invalido(phone)
-                return
-            ruta = media_mod.download_and_save(phone, event["media_id"], mime)
-            media_mod.registrar(phone, event["media_id"], mime, ruta)
-            event["ruta_local"] = ruta
+        webhook_worker.encolar(payload)
 
-        bot.handle_incoming(phone, event)
+        if phone is not None:
+            log.info("Mensaje entrante de %s: %s", phone, event)
     except Exception:
-        log.exception("[Webhook async] Error procesando mensaje de %s.", phone)
+        log.exception("Error encolando webhook. Payload: %s", payload)
+    return jsonify({"status": "received"}), 200
 
 
 def _to_event(message):
