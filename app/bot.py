@@ -565,6 +565,17 @@ def handle_incoming(phone, event):
              | {"type": "media", "media_id": str, "mime_type": str}
              | {"type": "media_invalido"}
     Devuelve la lista de respuestas enviadas (para logging/pruebas)."""
+    # B3: tras un opt-out (no_contactar=TRUE) el bot debe quedarse mudo.
+    # Antes seguía respondiendo (loop de consent, "no entendí", etc). Esto
+    # va lo más temprano posible para que ninguna rama de abajo mande OUTs.
+    try:
+        from app import db as _db
+        if _db.esta_bloqueado(phone):
+            _log.info("[Bot] IN de %s con no_contactar=true, ignorando", phone)
+            return []
+    except Exception:
+        _log.exception("[Bot] Error consultando no_contactar, continuando normal")
+
     if event["type"] == "media_invalido":
         return [whatsapp.send_tipo_doc_invalido(phone)]
 
@@ -627,6 +638,14 @@ def handle_incoming(phone, event):
     if en_flujo:
         return [_procesar(phone, session, event)]
 
+    # B1: BOTON_SI (click en "Sí/Autorizo") con sesión expirada o inexistente.
+    # Antes caía a `_iniciar()` o a "no entendí" tras varias horas. Ahora
+    # reconstruimos el estado desde `contactos` y mandamos el consent /
+    # FORM_REQUISITOS que correspondería después de autorizar.
+    if event["type"] == "button_reply" and resp in SI:
+        _log.info("[Bot] BOTON_SI sin flujo activo — reconstruyendo estado phone=%s", phone)
+        return [_reconstruir_sesion_para_boton_si(phone)]
+
     # Sin conversación activa. "NO" como primera respuesta (p. ej. a nuestro
     # mensaje de apertura) también es salir.
     if event["type"] == "text" and resp in NO:
@@ -642,6 +661,43 @@ def handle_incoming(phone, event):
     # Cualquier otro mensaje (también de alguien que antes dijo NO y vuelve
     # a escribir por su cuenta) empieza el flujo desde la autorización.
     return [_iniciar(phone)]
+
+
+def _reconstruir_sesion_para_boton_si(phone):
+    """B1: llega BOTON_SI y no hay sesión activa (expiró o nunca existió).
+
+    Reconstruimos un estado mínimo "ya autorizó" con los datos conocidos
+    del contacto (ciudad/tipo/monto) y mandamos el FORM_REQUISITOS
+    (o la primera pregunta por chat si USE_FLOWS=False), para no responder
+    "no entendí" a un click explícito de interés.
+    """
+    data = {"autorizacion_en": state.now_iso()}
+    try:
+        from app import db as _db
+        contacto = _db.get_contacto(phone)
+        if contacto:
+            if contacto.get("tipo_inmueble"):
+                data["tipo_inmueble"] = contacto["tipo_inmueble"]
+            if contacto.get("monto_hasta"):
+                try:
+                    data["valor_solicitado"] = int(contacto["monto_hasta"]) * 1_000_000
+                except (TypeError, ValueError):
+                    pass
+    except Exception:
+        _log.exception("[Bot] Error leyendo contacto para reconstruir BOTON_SI phone=%s", phone)
+
+    # Si el contacto existe pero quedó con no_contactar=False (post-SI anterior),
+    # no hace falta reafirmarlo acá. Si no existía, lo deja limpio.
+    try:
+        state.set_no_contactar(phone, False)
+    except Exception:
+        _log.exception("[Bot] Error reseteando no_contactar en reconstrucción phone=%s", phone)
+
+    if whatsapp.USE_FLOWS:
+        state.set_session(phone, flow="SURETI", flow_step="FORM_REQUISITOS", flow_data=data)
+        return whatsapp.send_form_requisitos(phone)
+    state.set_session(phone, flow="SURETI", flow_step="DESC_HIPOTECA", flow_data=data)
+    return whatsapp.send_pregunta_si_no(phone, PREGUNTAS_DESCARTE["DESC_HIPOTECA"])
 
 
 def _clasificar_texto_libre(phone, session, texto):
