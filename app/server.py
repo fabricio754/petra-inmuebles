@@ -31,6 +31,8 @@ MIME_SOPORTADOS = {"image/jpeg", "image/png", "application/pdf"}
 
 app = Flask(__name__)
 app.register_blueprint(panel_bp)
+from app.admin_sync import admin_sync as admin_sync_bp
+app.register_blueprint(admin_sync_bp)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
