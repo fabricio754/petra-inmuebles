@@ -582,18 +582,25 @@ def _procesar_media_in(phone, event, message):
     except Exception:
         log.exception("[Media IN] Error consultando esta_bloqueado(%s)", phone)
 
-    # Marcar como requiere_humano (idempotente) y disparar alerta solo si es
-    # la primera vez — reusa el canal de alerta WA que ya tiene bot.py.
+    # Marcar como requiere_humano (idempotente) y disparar alerta si es
+    # nuevo o si pasaron >= cooldown_minutos desde la última alerta —
+    # reusa el canal de alerta WA que ya tiene bot.py.
     motivo = f"envio {subtipo}: {(caption or '')[:100]}"
-    marco_nuevo = False
+    debe_alertar = False
     try:
-        marco_nuevo = db.marcar_requiere_humano(phone, motivo)
+        resultado = db.marcar_requiere_humano(phone, motivo)
+        # Compat: `marcar_requiere_humano` ahora devuelve dict; en los tests
+        # un stub puede devolver bool. Normalizamos.
+        if isinstance(resultado, dict):
+            debe_alertar = bool(resultado.get("debe_alertar"))
+        else:
+            debe_alertar = bool(resultado)
     except Exception:
         log.exception("[Media IN] Error marcando requiere_humano para %s", phone)
 
     try:
         from app import bot
-        if marco_nuevo:
+        if debe_alertar:
             bot._enviar_alerta_lead_caliente(phone, resumen)
     except Exception:
         log.exception("[Media IN] Error disparando alerta lead caliente para %s", phone)

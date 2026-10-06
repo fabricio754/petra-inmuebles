@@ -229,7 +229,7 @@ def test_pide_llamada_marca_requiere_humano_y_responde(wa_stubs, state_stub, mon
 
     def _marcar(telefono, motivo):
         marco_calls.append((telefono, motivo))
-        return True  # primera vez
+        return {"nuevo": True, "debe_alertar": True}  # primera vez
 
     monkeypatch.setattr(_db, "marcar_requiere_humano", _marcar)
 
@@ -257,16 +257,17 @@ def test_pide_llamada_marca_requiere_humano_y_responde(wa_stubs, state_stub, mon
     assert "asesor" in args[1].lower()
 
 
-def test_pide_llamada_segunda_vez_no_dispara_alerta(wa_stubs, state_stub, monkeypatch):
-    """Si marcar_requiere_humano devuelve False (ya estaba marcado), NO
-    disparar alerta otra vez; sí responder la confirmación."""
+def test_pide_llamada_dentro_del_cooldown_no_dispara_alerta(wa_stubs, state_stub, monkeypatch):
+    """Si marcar_requiere_humano reporta debe_alertar=False (ya estaba
+    marcado y la última alerta fue dentro del cooldown), NO disparar
+    alerta otra vez; sí responder la confirmación."""
     phone = "573508463133"
     import app.db as _db
 
     monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
     monkeypatch.setattr(
         _db, "marcar_requiere_humano",
-        lambda telefono, motivo: False,  # ya estaba marcado
+        lambda telefono, motivo: {"nuevo": False, "debe_alertar": False},
     )
 
     alerta_calls = []
@@ -277,9 +278,36 @@ def test_pide_llamada_segunda_vez_no_dispara_alerta(wa_stubs, state_stub, monkey
 
     out = bot.handle_incoming(phone, {"type": "text", "text": "Me pueden llamar?"})
 
-    # Alerta NO se dispara la segunda vez.
+    # Alerta NO se dispara dentro del cooldown.
     assert alerta_calls == []
     # Pero sí re-respondemos la confirmación.
+    assert len(out) == 1
+    assert len(wa_stubs["send_text"].calls) == 1
+
+
+def test_pide_llamada_despues_del_cooldown_dispara_alerta(wa_stubs, state_stub, monkeypatch):
+    """Si pasaron >= cooldown_minutos desde la última alerta, marcar_requiere_humano
+    reporta debe_alertar=True aunque nuevo=False. Debe re-disparar la alerta
+    (el cliente volvió a pedir llamada y nadie lo atendió todavía)."""
+    phone = "573508463133"
+    import app.db as _db
+
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+    monkeypatch.setattr(
+        _db, "marcar_requiere_humano",
+        lambda telefono, motivo: {"nuevo": False, "debe_alertar": True},
+    )
+
+    alerta_calls = []
+    monkeypatch.setattr(
+        bot, "_enviar_alerta_lead_caliente",
+        lambda p, t: alerta_calls.append((p, t)),
+    )
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "Me pueden llamar?"})
+
+    # Alerta SÍ se re-dispara pasado el cooldown.
+    assert alerta_calls == [(phone, "Me pueden llamar?")]
     assert len(out) == 1
     assert len(wa_stubs["send_text"].calls) == 1
 
@@ -296,7 +324,7 @@ def test_bloqueado_tiene_precedencia_sobre_pide_llamada(wa_stubs, state_stub, mo
 
     def _marcar(telefono, motivo):
         marco_calls.append((telefono, motivo))
-        return True
+        return {"nuevo": True, "debe_alertar": True}
 
     monkeypatch.setattr(_db, "marcar_requiere_humano", _marcar)
 

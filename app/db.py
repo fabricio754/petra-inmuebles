@@ -528,25 +528,68 @@ def marcar_comision_cobrada(pipeline_id: int) -> None:
         )
 
 
-def marcar_requiere_humano(telefono: str, motivo: str) -> bool:
-    """Marca `contactos.requiere_humano = true` (idempotente).
+def marcar_requiere_humano(
+    telefono: str, motivo: str, cooldown_minutos: int = 15
+) -> dict:
+    """Marca `contactos.requiere_humano = true` y decide si disparar alerta.
 
-    Devuelve True si acabamos de marcarlo por primera vez, False si ya estaba
-    marcado. El caller usa el valor para decidir si disparar la alerta externa
-    (ver `bot._enviar_alerta_lead_caliente`): si ya estaba marcado, no vale la
-    pena re-notificar al asesor humano.
+    Retorna dict con dos claves:
+      - `nuevo`: True si `requiere_humano` pasó de FALSE → TRUE en esta llamada.
+      - `debe_alertar`: True si es `nuevo` O si pasaron ≥ `cooldown_minutos`
+        desde la última alerta (`requiere_humano_at`). Si `debe_alertar` es
+        True, el UPDATE refresca `requiere_humano_at = NOW()`.
+
+    Contexto: antes esta función retornaba un bool "es la primera vez". El
+    caller (bot._enviar_alerta_lead_caliente) solo alertaba la 1ª vez; si el
+    cliente volvía a pedir llamada horas después y nadie lo atendió, no se
+    re-disparaba. Ahora re-dispara pasado el cooldown.
 
     Usa `_conexion_directa` (bypass del pool) por los mismos motivos que
     `guardar_contacto`: ruta de baja frecuencia y resistente al pool roto.
     """
+    from datetime import datetime, timedelta, timezone
+
     with _conexion_directa(timeout=10) as conn:
         cur = conn.execute(
-            "UPDATE contactos SET requiere_humano = TRUE, "
-            "requiere_humano_motivo = %s, requiere_humano_at = NOW() "
-            "WHERE telefono = %s AND requiere_humano = FALSE",
-            (motivo, telefono),
+            "SELECT requiere_humano, requiere_humano_at FROM contactos "
+            "WHERE telefono = %s FOR UPDATE",
+            (telefono,),
         )
-        return cur.rowcount > 0
+        row = cur.fetchone()
+        if row is None:
+            return {"nuevo": False, "debe_alertar": False}
+
+        req_prev, at_prev = row[0], row[1]
+        nuevo = not req_prev
+        if nuevo or at_prev is None:
+            debe_alertar = True
+        else:
+            # at_prev viene de Postgres TIMESTAMPTZ con tzinfo; comparamos
+            # contra ahora en UTC. Si fuera naive (no debería), lo tratamos
+            # como UTC para no romper.
+            ahora = datetime.now(timezone.utc)
+            if at_prev.tzinfo is None:
+                at_prev = at_prev.replace(tzinfo=timezone.utc)
+            debe_alertar = (ahora - at_prev) >= timedelta(minutes=cooldown_minutos)
+
+        if debe_alertar:
+            conn.execute(
+                "UPDATE contactos SET requiere_humano = TRUE, "
+                "requiere_humano_motivo = %s, requiere_humano_at = NOW() "
+                "WHERE telefono = %s",
+                (motivo, telefono),
+            )
+        else:
+            # Mantener flag en TRUE y refrescar motivo, pero NO tocar
+            # requiere_humano_at (ventana de cooldown corre desde la última
+            # alerta efectiva).
+            conn.execute(
+                "UPDATE contactos SET requiere_humano = TRUE, "
+                "requiere_humano_motivo = %s WHERE telefono = %s",
+                (motivo, telefono),
+            )
+
+    return {"nuevo": nuevo, "debe_alertar": debe_alertar}
 
 
 def esta_requiere_humano(telefono: str) -> bool:
