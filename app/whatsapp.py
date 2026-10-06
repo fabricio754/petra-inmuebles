@@ -148,17 +148,20 @@ def _flow(to, flow_id, screen, cuerpo, cta, resumen):
 def send_form_requisitos(to, repetir=False):
     cuerpo = (
         "Toca el botón para continuar." if repetir else
-        "Paso 1 de 2: ubicación y preguntas del inmueble."
+        "👋 ¡Empecemos!\n\n"
+        "Paso 1 de 2: dónde queda tu inmueble y 4 preguntas rápidas de requisitos. "
+        "Te toma 1 minuto."
     )
-    return _flow(to, FLOW_REQUISITOS_ID, "REQUISITOS", cuerpo, "Paso 1: tu inmueble", "[FORM REQUISITOS]")
+    return _flow(to, FLOW_REQUISITOS_ID, "REQUISITOS", cuerpo, "Empezar", "[FORM REQUISITOS]")
 
 
 def send_form_datos(to, repetir=False):
     cuerpo = (
         "Toca el botón para continuar." if repetir else
-        "Tu inmueble cumple los requisitos.\n\nPaso 2 de 2: datos del propietario."
+        "🎉 ¡Excelente! Tu inmueble cumple con los requisitos para el crédito.\n\n"
+        "Falta un último paso: tus datos para enviar la solicitud a Sureti."
     )
-    return _flow(to, FLOW_DATOS_ID, "DATOS", cuerpo, "Paso 2: propietario", "[FORM DATOS]")
+    return _flow(to, FLOW_DATOS_ID, "DATOS", cuerpo, "Último paso", "[FORM DATOS]")
 
 
 def send_autorizacion_datos(to, repetir=False):
