@@ -121,7 +121,7 @@ def _enviar_alerta_lead_caliente(phone: str, mensaje_original: str) -> None:
         fragmento = (mensaje_original or "")[:200]
         link = ""
         if panel_url and panel_token:
-            link = f"\n\nAbrilo en el panel:\n{panel_url}/{phone}?token={panel_token}"
+            link = f"\n\nAbrilo en el panel:\n{panel_url}/panel/{phone}?token={panel_token}"
         mensaje = (
             f"🚨 LEAD CALIENTE\n\n"
             f"Teléfono: {phone}\n"
