@@ -1064,11 +1064,14 @@ def panel_responder(telefono):
         return redirect(url_for("panel.panel_detalle", telefono=telefono,
                                 token=token, flash="vacio"))
 
-    with db._conexion() as conn:
-        cur = conn.execute(
-            "SELECT MAX(fecha) FROM mensajes WHERE telefono=%s AND direccion='in'",
-            (telefono,))
-        ultimo = cur.fetchone()[0]
+    try:
+        with db._conexion() as conn:
+            cur = conn.execute(
+                "SELECT MAX(fecha) FROM mensajes WHERE telefono=%s AND direccion='in'",
+                (telefono,))
+            ultimo = cur.fetchone()[0]
+    except PoolTimeout:
+        return _pool_busy_response(f"/panel/{telefono}/responder")
     if not ultimo or (datetime.now(timezone.utc) - ultimo) >= timedelta(hours=24):
         return redirect(url_for("panel.panel_detalle", telefono=telefono,
                                 token=token, flash="fuera_24h"))

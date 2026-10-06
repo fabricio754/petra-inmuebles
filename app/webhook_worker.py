@@ -7,13 +7,34 @@ mensajes encolados se perdían. Ahora el handler solo INSERTA el payload en
 lee las filas pendientes y las procesa en paralelo con un ThreadPoolExecutor
 pequeño. Si el proceso muere a mitad de camino, los pendientes quedan en la
 DB y se reprocesan al reiniciar — garantiza 0 pérdidas.
+
+Fallback a disco cuando el pool está saturado
+---------------------------------------------
+Render usa un Postgres interno con SSL. Bajo carga TLS puede corromperse
+("bad record mac"): el pool descarta esa conn y abre otra. Mientras el pool
+está reciclando conns, `encolar()` puede toparse con `PoolTimeout` y perder
+el payload — justo cuando más necesitamos no perderlos.
+
+Para que ESO no pase, `encolar()` usa un timeout corto. Si el pool está
+contendido, en vez de bloquear 20s el gthread (que Meta reintentaría y
+cascadearía más carga), escribe el payload a `WEBHOOK_SPOOL` en disco y
+devuelve. El hilo dispatcher drena el spool periódicamente (cada ronda
+intenta re-encolar los payloads en disco). `iniciar()` también reclama el
+spool al arrancar. Resultado: 0 pérdidas incluso cuando el pool está
+agotado por un rato.
 """
+import glob
+import json
 import logging
 import os
+import tempfile
 import threading
+import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from psycopg.types.json import Jsonb
+from psycopg_pool import PoolTimeout
 
 from app import db
 
@@ -32,6 +53,17 @@ BATCH = 10
 # (bad record mac → slot fantasma en el pool). Mantener configurable.
 _WORKERS = int(os.environ.get("WEBHOOK_QUEUE_WORKERS", "2"))
 
+# Timeout corto para la escritura rápida de `encolar()`. Si el pool está
+# saturado no bloqueamos el gthread 20s (eso bloquea más llegadas y hace
+# que Meta reintente, cascadeando). Fallamos rápido y escribimos a disco.
+_ENCOLAR_TIMEOUT_SEG = float(os.environ.get("WEBHOOK_ENCOLAR_TIMEOUT", "2.0"))
+
+# Directorio de respaldo en disco cuando el pool está saturado. En Render
+# `/var/data/media` es un disco persistente (ver render.yaml); fuera de
+# Render cae a tempdir.
+_DEFAULT_SPOOL = "/var/data/media/webhook_spool"
+WEBHOOK_SPOOL = os.environ.get("WEBHOOK_SPOOL", _DEFAULT_SPOOL)
+
 _iniciado = False
 _lock = threading.Lock()
 _despertar = threading.Event()
@@ -44,14 +76,30 @@ _pool = None
 
 def encolar(payload):
     """Inserta el payload completo del webhook en `webhook_queue` y despierta
-    al dispatcher. Devuelve el id de la fila (útil para logs/debug)."""
-    with db._conexion() as conn:
-        row = conn.execute(
-            "INSERT INTO webhook_queue (payload) VALUES (%s) RETURNING id",
-            (Jsonb(payload),),
-        ).fetchone()
-    _despertar.set()
-    return row[0] if row else None
+    al dispatcher. Devuelve el id de la fila (útil para logs/debug).
+
+    Si el pool está saturado (`PoolTimeout`) o la DB falla, el payload NO se
+    pierde: se escribe en disco (`WEBHOOK_SPOOL`) y el dispatcher lo reclamará
+    en la próxima ronda. Devuelve None en ese caso.
+    """
+    try:
+        with db._pool_conexion(timeout=_ENCOLAR_TIMEOUT_SEG) as conn:
+            row = conn.execute(
+                "INSERT INTO webhook_queue (payload) VALUES (%s) RETURNING id",
+                (Jsonb(payload),),
+            ).fetchone()
+        _despertar.set()
+        return row[0] if row else None
+    except PoolTimeout:
+        # Pool contendido: no bloqueamos el gthread. Caemos a disco.
+        _spool_payload(payload, motivo="pool_timeout")
+        _despertar.set()
+        return None
+    except Exception as exc:
+        # Error inesperado (SSL, red, DB caída): mismo tratamiento, 0 pérdidas.
+        _spool_payload(payload, motivo=f"db_error:{type(exc).__name__}")
+        _despertar.set()
+        return None
 
 
 def iniciar():
@@ -79,8 +127,94 @@ def iniciar():
     except Exception:
         log.exception("[WebhookQueue] Error reencolando filas pendientes.")
 
+    # Drena cualquier payload que haya quedado en disco por `PoolTimeout` en
+    # un ciclo anterior. Si la DB sigue caída se re-intenta en la próxima
+    # ronda del dispatcher.
+    try:
+        n = _drenar_spool()
+        if n:
+            log.info("[WebhookQueue] %d payload(s) recuperados del spool en disco.", n)
+    except Exception:
+        log.exception("[WebhookQueue] Error drenando spool en disco.")
+
     threading.Thread(target=_bucle, name="webhook-queue", daemon=True).start()
-    log.info("[WebhookQueue] Dispatcher iniciado (workers=%d).", _WORKERS)
+    log.info("[WebhookQueue] Dispatcher iniciado (workers=%d, encolar_timeout=%.1fs, spool=%s).",
+             _WORKERS, _ENCOLAR_TIMEOUT_SEG, WEBHOOK_SPOOL)
+
+
+# ----------------------------------------------------------------------------
+# Spool a disco (fallback cuando el pool está saturado)
+# ----------------------------------------------------------------------------
+
+def _spool_dir():
+    """Devuelve el directorio de spool, creándolo si hace falta. Cae a tempdir
+    si el disco persistente no existe (desarrollo local)."""
+    for d in (WEBHOOK_SPOOL, os.path.join(tempfile.gettempdir(), "massi_webhook_spool")):
+        try:
+            os.makedirs(d, exist_ok=True)
+            return d
+        except Exception:
+            continue
+    return None
+
+
+def _spool_payload(payload, motivo="unknown"):
+    """Escribe el payload del webhook en disco. Nunca lanza — el handler HTTP
+    ya respondió 200 y Meta no reintentará."""
+    try:
+        d = _spool_dir()
+        if not d:
+            log.error("[WebhookQueue] Sin spool dir — PAYLOAD PERDIDO. motivo=%s", motivo)
+            return
+        # Nombre único: timestamp + uuid4 (evita colisiones entre threads).
+        nombre = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}.json"
+        tmp = os.path.join(d, nombre + ".tmp")
+        final = os.path.join(d, nombre)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        # Rename atómico: el drenador nunca ve archivos a medio escribir.
+        os.replace(tmp, final)
+        log.warning("[WebhookQueue] Payload spooled a %s (motivo=%s).", final, motivo)
+    except Exception:
+        log.exception("[WebhookQueue] No se pudo spoolear payload. motivo=%s", motivo)
+
+
+def _drenar_spool():
+    """Intenta re-encolar en Postgres cada payload del spool. Los que fallan
+    quedan en disco para la próxima ronda. Devuelve cuántos se encolaron OK."""
+    d = _spool_dir()
+    if not d:
+        return 0
+    archivos = sorted(glob.glob(os.path.join(d, "*.json")))
+    if not archivos:
+        return 0
+    ok = 0
+    for ruta in archivos:
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
+            log.exception("[WebhookQueue] Spool corrupto, removiendo: %s", ruta)
+            try:
+                os.remove(ruta)
+            except Exception:
+                pass
+            continue
+        try:
+            with db._pool_conexion(timeout=_ENCOLAR_TIMEOUT_SEG) as conn:
+                conn.execute(
+                    "INSERT INTO webhook_queue (payload) VALUES (%s)",
+                    (Jsonb(payload),),
+                )
+            os.remove(ruta)
+            ok += 1
+        except PoolTimeout:
+            # Sigue contendido: dejamos este y los que falten para la próxima.
+            break
+        except Exception:
+            log.exception("[WebhookQueue] Error re-encolando %s — se deja para reintento.", ruta)
+            break
+    return ok
 
 
 # ----------------------------------------------------------------------------
@@ -91,6 +225,15 @@ def _bucle():
     global _pool
     _pool = ThreadPoolExecutor(max_workers=_WORKERS, thread_name_prefix="whq")
     while True:
+        # Primero drena el spool: si quedó algo pendiente por PoolTimeout
+        # anterior, hay que re-encolarlo antes de leer la cola.
+        try:
+            n = _drenar_spool()
+            if n:
+                log.info("[WebhookQueue] %d payload(s) drenados del spool.", n)
+        except Exception:
+            log.exception("[WebhookQueue] Error drenando spool.")
+
         try:
             filas = _reclamar_batch()
         except Exception:
