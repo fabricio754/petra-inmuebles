@@ -23,3 +23,13 @@ def test_es_opt_out_detecta_ya_vendido():
 
 def test_es_opt_out_no_falsea_interes():
     assert not es_opt_out("Sí me interesa, cuéntame más")
+
+
+def test_es_opt_out_no_falsea_para_preposicion():
+    # "para" como preposicion no debe disparar opt-out.
+    assert not es_opt_out("Hola, esto es un apto para la venta")
+
+
+def test_es_opt_out_detecta_no_soy_dueno_con_enie():
+    # El input lleva "ñ" pero el patron (normalizado) es "duen"; debe matchear.
+    assert es_opt_out("No soy el dueño")
