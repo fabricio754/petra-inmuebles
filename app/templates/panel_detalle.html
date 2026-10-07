@@ -50,6 +50,13 @@
   .chat li.out .bubble { background: #dcf8c6; }
   .chat .bubble ul { margin: 4px 0 0; padding-left: 16px; font-size: .85rem; }
   .chat .meta { display: block; font-size: .72rem; color: #8c959f; margin-top: 2px; font-family: ui-monospace, monospace; }
+  .chulo { font-weight: 600; margin-left: 4px; letter-spacing: -1px; }
+  .chulo-pending { color: #c8ced6; }
+  .chulo-sent { color: #8c959f; }
+  .chulo-delivered { color: #8c959f; }
+  .chulo-read { color: #0969da; }
+  .chulo-failed { color: #cf222e; letter-spacing: 0; }
+  .chulo-error-txt { color: #cf222e; margin-left: 4px; font-style: italic; }
   .dia-sep { align-self: center; font-size: .72rem; color: #8c959f; background: #eaeef2; border-radius: 999px; padding: 2px 10px; margin: 8px 0 2px; text-transform: uppercase; letter-spacing: .5px; }
   .responder { display: flex; gap: 8px; margin-top: 12px; }
   .responder textarea { flex: 1; min-height: 60px; font: inherit; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; resize: vertical; }
@@ -113,6 +120,12 @@
     .chat .bubble { background: #262d36; }
     .chat li.out .bubble { background: #1f6e32; color: #e6edf3; }
     .chat .meta { color: #6e7681; }
+    .chulo-pending { color: #484f58; }
+    .chulo-sent { color: #8b949e; }
+    .chulo-delivered { color: #8b949e; }
+    .chulo-read { color: #58a6ff; }
+    .chulo-failed { color: #ff7b72; }
+    .chulo-error-txt { color: #ff7b72; }
     .dia-sep { background: #262d36; color: #8b949e; }
     .destacado .cifra { background: #0c2d6b; color: #58a6ff; }
     .destacado .cifra small { color: #8b949e; }
@@ -380,6 +393,19 @@
             {{ 'cliente' if m.direccion == 'in' else 'bot' }} ·
             {{ m.tipo or '—' }} ·
             {{ m.hora_hm }}
+            {% if m.direccion == 'out' %}
+              <span class="chulo chulo-{{ m.estado_entrega or 'pending' }}"
+                    title="{{ m.estado_entrega or 'pendiente' }}{% if m.estado_entrega_at %} — {{ m.estado_entrega_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}">
+                {% if m.estado_entrega == 'read' %}&#x2713;&#x2713;{%
+                 elif m.estado_entrega == 'delivered' %}&#x2713;&#x2713;{%
+                 elif m.estado_entrega == 'sent' %}&#x2713;{%
+                 elif m.estado_entrega == 'failed' %}&#x26A0;{%
+                 else %}&#x1F55B;{% endif %}
+              </span>
+              {% if m.estado_entrega == 'failed' and m.estado_entrega_error %}
+                <span class="chulo-error-txt">({{ m.estado_entrega_error }})</span>
+              {% endif %}
+            {% endif %}
           </span>
         </div>
       </li>

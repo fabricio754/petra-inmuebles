@@ -395,9 +395,16 @@ def _invocar_logica(payload):
                 state.set_no_contactar(wa_id, True)
                 log.info("Opt-out de marketing recibido de %s (botón Stop).", wa_id)
 
+    # Statuses de WhatsApp (sent/delivered/read/failed): Meta los manda
+    # para cada OUT que enviamos. Los correlacionamos con la fila OUT
+    # por `wa_msg_id` (que guardamos al enviar en app/whatsapp.py).
+    statuses = change.get("statuses") or []
+    for s in statuses:
+        _procesar_status(s)
+
     messages = change.get("messages")
     if not messages:
-        # Eventos de status (entregado/leído) y preferencias puras: ya tratados.
+        # Eventos de status y preferencias puras: ya tratados arriba.
         return
 
     message = messages[0]
@@ -408,6 +415,44 @@ def _invocar_logica(payload):
     log.info("Mensaje entrante de %s: %s", phone, event)
 
     _procesar_mensaje(phone, event, message)
+
+
+def _procesar_status(s):
+    """Procesa un item del array `statuses` del webhook de Meta.
+
+    Formato tipico:
+      {
+        "id": "wamid.XXXX",
+        "status": "sent" | "delivered" | "read" | "failed",
+        "timestamp": "1760000000",
+        "recipient_id": "573001112233",
+        "errors": [{"code": 131047, "title": "...", "message": "..."}]
+      }
+
+    Delega en `db.actualizar_estado_entrega`, que es idempotente y
+    monotonica (sent < delivered < read; failed siempre pisa)."""
+    wa_msg_id = s.get("id")
+    estado = s.get("status")
+    if not wa_msg_id or not estado:
+        return
+    timestamp = s.get("timestamp") or 0
+
+    error_text = None
+    errores = s.get("errors") or []
+    if errores:
+        err = errores[0] or {}
+        titulo = (err.get("title") or "").strip()
+        mensaje = (err.get("message") or err.get("error_data", {}).get("details") or "").strip()
+        if titulo and mensaje:
+            error_text = f"{titulo}: {mensaje}"[:500]
+        else:
+            error_text = (titulo or mensaje or "error desconocido")[:500]
+
+    try:
+        db.actualizar_estado_entrega(wa_msg_id, estado, timestamp, error_text)
+    except Exception:
+        log.exception("[WebhookQueue] fallo actualizando estado %s para %s",
+                      estado, wa_msg_id)
 
 
 def _procesar_mensaje(phone, event, message=None):

@@ -309,7 +309,7 @@ def esta_bloqueado(telefono):
         return False
 
 
-def log_mensaje(telefono, direccion, tipo, resumen, payload=None):
+def log_mensaje(telefono, direccion, tipo, resumen, payload=None, wa_msg_id=None):
     """Inserta una fila en `mensajes`. Nunca lanza excepcion al caller.
 
     Fast path con 3 niveles para que los mensajes IN del webhook y OUT del
@@ -324,16 +324,21 @@ def log_mensaje(telefono, direccion, tipo, resumen, payload=None):
          `OUT_SPOOL_DIR` para que `_drenar_spool_log_mensaje()` los retire
          cuando la DB vuelva. El scheduler lo drena c/10 min.
 
+    `wa_msg_id` es el id que devuelve Meta al aceptar un OUT. Se guarda en
+    columna propia para que `actualizar_estado_entrega()` pueda matchear
+    los eventos de status (sent/delivered/read/failed) contra la fila.
+
     El spool se escribe en el thread actual (sync), no asincrono: si el
     proceso muere aca no perdemos nada.
     """
     import json as _json
 
-    sql = ("INSERT INTO mensajes (telefono, direccion, tipo, resumen, payload) "
-           "VALUES (%s, %s, %s, %s, %s::jsonb)")
+    sql = ("INSERT INTO mensajes "
+           "(telefono, direccion, tipo, resumen, payload, wa_msg_id) "
+           "VALUES (%s, %s, %s, %s, %s::jsonb, %s)")
     payload_json = _json.dumps(payload) if payload is not None else None
     values = (str(telefono)[:150], direccion[:4], (tipo or "")[:40],
-              (resumen or "")[:4000], payload_json)
+              (resumen or "")[:4000], payload_json, wa_msg_id)
 
     # Nivel 1: pool con timeout corto (3s en vez de 20s).
     try:
@@ -359,7 +364,66 @@ def log_mensaje(telefono, direccion, tipo, resumen, payload=None):
 
     # Nivel 3: spool a disco. El drain c/10 min reintenta.
     _spool_log_mensaje(telefono, direccion, tipo, resumen, payload,
-                       motivo="pool_y_directa_fallaron")
+                       motivo="pool_y_directa_fallaron",
+                       wa_msg_id=wa_msg_id)
+
+
+# Ranking monotonico para los estados de entrega. Se usa en el UPDATE para
+# que un evento mas atrasado (ej. 'sent' que llega despues de 'delivered')
+# no "baje" el estado. 'failed' es un caso aparte: siempre pisa.
+_ESTADO_ENTREGA_ORDEN = {"sent": 1, "delivered": 2, "read": 3, "failed": 99}
+
+
+def actualizar_estado_entrega(wa_msg_id, estado, timestamp_unix, error_text=None):
+    """Actualiza el estado de entrega de un OUT identificado por `wa_msg_id`.
+
+    Idempotente y monotonica:
+      - sent -> delivered -> read: solo "sube".
+      - cualquier estado -> failed: siempre pisa.
+      - failed NO se puede sobreescribir con sent/delivered/read.
+
+    Si el `wa_msg_id` no existe en `mensajes`, el UPDATE no afecta filas
+    y no lanza (puede pasar si el OUT se envio desde otra instancia o si
+    nunca se logueo el OUT).
+
+    Usa `_conexion_directa` para no pelear por una slot del pool: los
+    webhooks de status llegan en rafagas (sent + delivered + read por
+    cada OUT) y a veces coinciden con un backlog del worker.
+    """
+    if not wa_msg_id or not estado:
+        return
+
+    nuevo_rank = _ESTADO_ENTREGA_ORDEN.get(estado, 0)
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            conn.execute(
+                """
+                UPDATE mensajes
+                SET estado_entrega = %s,
+                    estado_entrega_at = to_timestamp(%s),
+                    estado_entrega_error = %s
+                WHERE wa_msg_id = %s
+                  AND (
+                      estado_entrega IS NULL
+                      OR %s = 'failed'
+                      OR (
+                          estado_entrega <> 'failed'
+                          AND CASE estado_entrega
+                              WHEN 'sent' THEN 1
+                              WHEN 'delivered' THEN 2
+                              WHEN 'read' THEN 3
+                              WHEN 'failed' THEN 99
+                              ELSE 0
+                          END < %s
+                      )
+                  )
+                """,
+                (estado, int(timestamp_unix) if timestamp_unix else 0,
+                 error_text, wa_msg_id, estado, nuevo_rank),
+            )
+    except Exception:
+        log.exception("[actualizar_estado_entrega] fallo wa_msg_id=%s estado=%s",
+                      wa_msg_id, estado)
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +442,8 @@ def _out_spool_dir():
     return None
 
 
-def _spool_log_mensaje(telefono, direccion, tipo, resumen, payload, motivo="unknown"):
+def _spool_log_mensaje(telefono, direccion, tipo, resumen, payload,
+                       motivo="unknown", wa_msg_id=None):
     """Serializa los args de `log_mensaje` a JSON en disco. Nunca lanza — el
     caller ya tuvo que decidir que no podia escalar el error."""
     try:
@@ -392,6 +457,7 @@ def _spool_log_mensaje(telefono, direccion, tipo, resumen, payload, motivo="unkn
             "tipo": tipo,
             "resumen": resumen,
             "payload": payload,
+            "wa_msg_id": wa_msg_id,
             "spooled_at_ms": int(time.time() * 1000),
             "motivo": motivo,
         }
@@ -438,13 +504,15 @@ def _drenar_spool_log_mensaje():
                             if row.get("payload") is not None else None)
             with _conexion() as conn:
                 conn.execute(
-                    "INSERT INTO mensajes (telefono, direccion, tipo, resumen, payload) "
-                    "VALUES (%s, %s, %s, %s, %s::jsonb)",
+                    "INSERT INTO mensajes "
+                    "(telefono, direccion, tipo, resumen, payload, wa_msg_id) "
+                    "VALUES (%s, %s, %s, %s, %s::jsonb, %s)",
                     (str(row.get("telefono"))[:150],
                      (row.get("direccion") or "")[:4],
                      (row.get("tipo") or "")[:40],
                      (row.get("resumen") or "")[:4000],
-                     payload_json),
+                     payload_json,
+                     row.get("wa_msg_id")),
                 )
             os.remove(ruta)
             ok += 1
