@@ -117,7 +117,21 @@ def test_aplicar_marcar_lead_caliente_fuerza_requiere_humano(captura):
     res = panel_acciones.aplicar("57307", "marcar_lead_caliente", actor="Fab")
     assert res["ok"] is True
     call = captura.llamadas[0]
-    assert call["updates"] == {"requiere_humano": True}
+    assert call["updates"]["requiere_humano"] is True
+    assert call["updates"]["resultado_contacto"] == "lead_caliente"
+
+
+def test_aplicar_marcar_lead_caliente_setea_resultado(captura):
+    """El fix: `marcar_lead_caliente` también debe setear resultado_contacto
+    para que la columna 'Resultado' del panel no quede en '— pendiente —'."""
+    res = panel_acciones.aplicar("57308", "marcar_lead_caliente",
+                                 nota="pidió llamar ya", actor="Massi")
+    assert res["ok"] is True
+    call = captura.llamadas[0]
+    assert call["updates"]["resultado_contacto"] == "lead_caliente"
+    assert call["updates"]["resultado_contacto_at"] == "NOW()"
+    assert call["updates"]["resultado_contacto_por"] == "Massi"
+    assert call["updates"]["resultado_contacto_nota"] == "pidió llamar ya"
 
 
 def test_todas_las_acciones_tienen_label_y_descripcion():
