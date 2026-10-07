@@ -1496,6 +1496,130 @@ def servir_media(mensaje_id):
     )
 
 
+@panel.get("/panel/<telefono>/mensajes.json")
+def panel_mensajes_json(telefono):
+    """Endpoint liviano para el polling del chat del panel.
+
+    Query params:
+      - token: obligatorio (mismo PANEL_TOKEN).
+      - since_id (opcional): devuelve solo mensajes con id > since_id.
+      - updates_window (opcional, default 50): además de los nuevos,
+        devuelve el estado_entrega actual de los últimos N OUT para
+        actualizar los chulos sin re-renderizar el bloque entero.
+
+    Respuesta:
+      {
+        "mensajes": [ ... nuevos ... ],
+        "updates":  [ {id, estado_entrega, estado_entrega_at,
+                        estado_entrega_error}, ... ],
+        "ultimo_id": <int|null>,
+        "ultimo_inbound": "<iso-8601>|null"
+      }
+
+    Usa `_conexion_directa` (bypass del pool) porque esto se pollea cada
+    segundo por panel; no queremos saturar el pool. Si falla la DB
+    devolvemos 503 con `{error: "db_busy"}` y el frontend hace backoff.
+    """
+    _check_token()
+    try:
+        since_id = int(request.args.get("since_id") or 0)
+    except (TypeError, ValueError):
+        since_id = 0
+    try:
+        updates_window = int(request.args.get("updates_window") or 50)
+    except (TypeError, ValueError):
+        updates_window = 50
+    updates_window = max(0, min(updates_window, 200))
+
+    try:
+        with db._conexion_directa(timeout=10) as conn:
+            if since_id > 0:
+                nuevos = _rows(conn,
+                    "SELECT id, fecha, direccion, tipo, resumen, payload, "
+                    "       wa_msg_id, estado_entrega, estado_entrega_at, "
+                    "       estado_entrega_error "
+                    "FROM mensajes "
+                    "WHERE telefono = %s AND id > %s "
+                    "ORDER BY id ASC LIMIT 500",
+                    (telefono, since_id))
+            else:
+                # Sin since_id: devolvemos los últimos 50 ordenados ASC para
+                # render cronológico (como el template hace al cargar).
+                nuevos = _rows(conn,
+                    "SELECT id, fecha, direccion, tipo, resumen, payload, "
+                    "       wa_msg_id, estado_entrega, estado_entrega_at, "
+                    "       estado_entrega_error "
+                    "FROM mensajes "
+                    "WHERE telefono = %s "
+                    "ORDER BY id DESC LIMIT 50",
+                    (telefono,))
+                nuevos = list(reversed(nuevos))
+
+            updates = []
+            if updates_window > 0:
+                updates = _rows(conn,
+                    "SELECT id, estado_entrega, estado_entrega_at, "
+                    "       estado_entrega_error "
+                    "FROM mensajes "
+                    "WHERE telefono = %s AND direccion = 'out' "
+                    "ORDER BY id DESC LIMIT %s",
+                    (telefono, updates_window))
+
+            cur = conn.execute(
+                "SELECT MAX(fecha) FROM mensajes "
+                "WHERE telefono = %s AND direccion = 'in'",
+                (telefono,))
+            row = cur.fetchone()
+            ultimo_inbound = row[0] if row else None
+    except Exception as exc:  # noqa: BLE001 — queremos degradar a 503
+        log.warning("[Panel JSON] db error para %s: %s", telefono, exc)
+        return jsonify({"error": "db_busy"}), 503
+
+    def _ser(m, incluir_payload=True):
+        d = dict(m)
+        # datetimes a ISO.
+        for k in ("fecha", "estado_entrega_at"):
+            v = d.get(k)
+            if hasattr(v, "isoformat"):
+                d[k] = v.isoformat()
+        # payload puede venir como str (algunas filas viejas) o dict.
+        if incluir_payload:
+            p = d.get("payload")
+            if isinstance(p, str):
+                try:
+                    d["payload"] = json.loads(p)
+                except (ValueError, TypeError):
+                    d["payload"] = None
+        else:
+            d.pop("payload", None)
+        return d
+
+    mensajes_ser = [_ser(m) for m in nuevos]
+    # Precomputamos info de render para que el JS no duplique lógica.
+    for mv, mo in zip(mensajes_ser, nuevos):
+        mv["hora_hm"] = mo["fecha"].strftime("%H:%M") if mo.get("fecha") else "—"
+        mv["resumen_render"] = (
+            _humanizar_resumen_salida(mo.get("resumen"))
+            if mo.get("direccion") == "out" else (mo.get("resumen") or "—")
+        )
+        if mo.get("direccion") == "in" and mo.get("tipo") == "flow_reply":
+            mv["flow_lineas"] = _formatear_flow_reply(mo.get("resumen"))
+        else:
+            mv["flow_lineas"] = None
+        mv["media"] = _info_media(mo)
+
+    updates_ser = [_ser(u, incluir_payload=False) for u in updates]
+
+    ultimo_id = max((m["id"] for m in nuevos), default=since_id or 0)
+
+    return jsonify({
+        "mensajes": mensajes_ser,
+        "updates": updates_ser,
+        "ultimo_id": ultimo_id,
+        "ultimo_inbound": ultimo_inbound.isoformat() if ultimo_inbound else None,
+    })
+
+
 @panel.post("/panel/<telefono>/responder")
 def panel_responder(telefono):
     _check_token()
@@ -1523,11 +1647,17 @@ def panel_responder(telefono):
         # compartido. Si el pool está saturado, log_mensaje cae al spool
         # a disco (drain cada 10 min, PR #64) y el chat queda vacío hasta
         # entonces. En su lugar insertamos directo via conn directa aquí.
-        wa.send_text(telefono, texto, log=False)
+        resp = wa.send_text(telefono, texto, log=False)
     except Exception as exc:
         log.exception("[Panel] Falló envío manual a %s", telefono)
         return redirect(url_for("panel.panel_detalle", telefono=telefono,
                                 token=token, flash=f"error:{exc}"[:120]))
+
+    # `_dispatch` ya extrae `wa_msg_id` del body de Meta (PR chulos). Lo
+    # capturamos acá para persistirlo junto al OUT; sin él los webhooks de
+    # status (sent/delivered/read) no pueden matchear la fila y el chulo
+    # se queda en 🕐 para siempre.
+    wa_msg_id = (resp or {}).get("wa_msg_id") if isinstance(resp, dict) else None
 
     # Log DIRECTO (bypass del pool) para que el OUT aparezca al instante
     # en el chat tras el redirect. Si falla, no rompemos el envío — el
@@ -1537,12 +1667,14 @@ def panel_responder(telefono):
     try:
         with db._conexion_directa(timeout=10) as conn:
             conn.execute(
-                "INSERT INTO mensajes (telefono, direccion, tipo, resumen, payload) "
-                "VALUES (%s, 'out', 'text', %s, %s::jsonb)",
+                "INSERT INTO mensajes (telefono, direccion, tipo, resumen, "
+                "       payload, wa_msg_id) "
+                "VALUES (%s, 'out', 'text', %s, %s::jsonb, %s)",
                 (
                     str(telefono)[:150],
                     (texto or "")[:4000],
                     json.dumps({"origen": "panel_responder", "actor": "humano"}),
+                    wa_msg_id,
                 ),
             )
             conn.commit()

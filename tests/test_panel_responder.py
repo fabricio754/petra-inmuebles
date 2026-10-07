@@ -82,7 +82,7 @@ def test_panel_responder_mandar_texto_envia_wa_y_log_directo(
 
     def fake_send_text(to, body, log=True):
         enviados.append({"to": to, "body": body, "log": log})
-        return {"status": 200}
+        return {"status": 200, "wa_msg_id": "wamid.ABC123"}
 
     monkeypatch.setattr(wa, "send_text", fake_send_text)
 
@@ -97,16 +97,68 @@ def test_panel_responder_mandar_texto_envia_wa_y_log_directo(
         {"to": "573001234567", "body": "hola, soy Massi", "log": False}
     ]
     # Debe haber un INSERT INTO mensajes con direccion='out' y el marcador
-    # panel_responder en el payload.
+    # panel_responder en el payload, incluyendo wa_msg_id.
     inserts = [sql_params for sql_params in executed
                if "INSERT INTO mensajes" in sql_params[0]]
     assert len(inserts) == 1, executed
     sql, params = inserts[0]
     assert "direccion" in sql and "'out'" in sql
+    assert "wa_msg_id" in sql
     assert params[0] == "573001234567"
     assert params[1] == "hola, soy Massi"
     payload = json.loads(params[2])
     assert payload == {"origen": "panel_responder", "actor": "humano"}
+    assert params[3] == "wamid.ABC123"
+
+
+def test_panel_responder_guarda_wa_msg_id(client, monkeypatch):
+    """Fix Bug 1: el wa_msg_id que devuelve Meta en send_text debe quedar
+    en la columna propia para que los webhooks de status matcheen."""
+    executed = []
+    hace_1h = datetime.now(timezone.utc) - timedelta(hours=1)
+    conns = [
+        _make_direct_conn(executed, ultimo_in=hace_1h),
+        _make_direct_conn(executed, ultimo_in=hace_1h),
+    ]
+    conns_iter = iter(conns)
+    monkeypatch.setattr(db, "_conexion_directa",
+                        lambda timeout=10: next(conns_iter))
+    monkeypatch.setattr(wa, "send_text",
+                        lambda to, body, log=True: {
+                            "status": 200, "wa_msg_id": "wamid.XYZ"})
+
+    client.post("/panel/573009999999/responder?token=test-token",
+                data={"texto": "con id"})
+    inserts = [sp for sp in executed if "INSERT INTO mensajes" in sp[0]]
+    assert len(inserts) == 1
+    sql, params = inserts[0]
+    assert "wa_msg_id" in sql
+    assert params[-1] == "wamid.XYZ"
+
+
+def test_panel_responder_sin_wa_msg_id_inserta_null(client, monkeypatch):
+    """Si wa.send_text no devuelve wa_msg_id (DRY_RUN, respuesta rara),
+    el INSERT va con NULL en wa_msg_id — no debe romper el flujo."""
+    executed = []
+    hace_1h = datetime.now(timezone.utc) - timedelta(hours=1)
+    conns = [
+        _make_direct_conn(executed, ultimo_in=hace_1h),
+        _make_direct_conn(executed, ultimo_in=hace_1h),
+    ]
+    conns_iter = iter(conns)
+    monkeypatch.setattr(db, "_conexion_directa",
+                        lambda timeout=10: next(conns_iter))
+    monkeypatch.setattr(wa, "send_text",
+                        lambda to, body, log=True: {"status": "dry-run"})
+
+    resp = client.post("/panel/573001112222/responder?token=test-token",
+                       data={"texto": "sin id"})
+    assert resp.status_code == 302
+    inserts = [sp for sp in executed if "INSERT INTO mensajes" in sp[0]]
+    assert len(inserts) == 1
+    sql, params = inserts[0]
+    assert "wa_msg_id" in sql
+    assert params[-1] is None
 
 
 def test_panel_responder_fuera_24h_bloquea_envio(client, monkeypatch):
