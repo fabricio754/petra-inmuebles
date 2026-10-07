@@ -108,6 +108,10 @@
     <input type="checkbox" name="pendientes" value="1" {% if f_pendientes %}checked{% endif %}>
     Pendientes de cerrar
   </label>
+  <label class="chk-pendientes">
+    <input type="checkbox" name="pendiente_humano" value="1" {% if f_pendiente_humano %}checked{% endif %}>
+    Pendiente humano
+  </label>
   <button type="submit">Filtrar</button>
 </form>
 <table>
