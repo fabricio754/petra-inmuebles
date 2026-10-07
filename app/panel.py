@@ -25,6 +25,11 @@ from app import db
 log = logging.getLogger("petra")
 panel = Blueprint("panel", __name__)
 
+# Fallback para ordenar eventos/tarjetas cuyo timestamp es None.
+# Usamos datetime.min aware (UTC) para que pueda compararse con otros
+# datetimes aware sin TypeError (Python 3.14 ya no acepta mezcla int/datetime).
+_MIN_DT = datetime.min.replace(tzinfo=timezone.utc)
+
 
 # ---------------------------------------------------------------------------
 # Conexión directa a Postgres (bypass del pool)
@@ -1179,8 +1184,7 @@ def panel_respuestas():
         })
 
     # Orden: más reciente arriba.
-    tarjetas.sort(key=lambda t: t["ultima"] or datetime.min.replace(tzinfo=timezone.utc),
-                  reverse=True)
+    tarjetas.sort(key=lambda t: t["ultima"] or _MIN_DT, reverse=True)
 
     # Filtro por tag.
     if f_tag:
@@ -1338,7 +1342,7 @@ def panel_detalle(telefono):
             "tipo": f"lead:{lead.get('operacion') or ''}",
             "detalle": str(lead.get("datos") or {})[:200],
         })
-    eventos.sort(key=lambda e: e["cuando"] or 0, reverse=True)
+    eventos.sort(key=lambda e: e["cuando"] or _MIN_DT, reverse=True)
 
     estado = _estado_lead(contacto, sesion, pipeline)
 
