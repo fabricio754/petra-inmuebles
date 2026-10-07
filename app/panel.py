@@ -437,6 +437,7 @@ def panel_lista():
     f_ciudad = (request.args.get("ciudad") or "").strip()
     f_portal = (request.args.get("portal") or "").strip()
     f_pendientes = request.args.get("pendientes") == "1"
+    f_pendiente_humano = request.args.get("pendiente_humano") == "1"
     q = (request.args.get("q") or "").strip()
 
     try:
@@ -446,7 +447,8 @@ def panel_lista():
                        monto_hasta_millones AS monto_hasta,
                        no_contactar, contactado, fecha_contacto, fecha_scraping,
                        resultado_contacto, resultado_contacto_at,
-                       resultado_contacto_por
+                       resultado_contacto_por,
+                       requiere_humano
                 FROM contactos
                 ORDER BY COALESCE(fecha_contacto, fecha_scraping) DESC NULLS LAST
                 LIMIT 2000
@@ -519,6 +521,11 @@ def panel_lista():
             # `resultado_contacto_por` seteado — ese es el discriminador.
             if not f.get("contactado") or f.get("resultado_contacto_por"):
                 return False
+        if f_pendiente_humano:
+            # Pendiente humano: el bot marcó `requiere_humano=TRUE` y aún
+            # no hay cierre humano (resultado_contacto_por sin setear).
+            if not f.get("requiere_humano") or f.get("resultado_contacto_por"):
+                return False
         if q:
             hay = " ".join([
                 str(f.get("telefono") or ""),
@@ -541,6 +548,7 @@ def panel_lista():
         ciudades=sorted(ciudades_set), portales=sorted(portales_set),
         f_estado=f_estado, f_ciudad=f_ciudad, f_portal=f_portal, q=q,
         f_pendientes=f_pendientes,
+        f_pendiente_humano=f_pendiente_humano,
         labels_resultado=labels_resultado,
     )
 
