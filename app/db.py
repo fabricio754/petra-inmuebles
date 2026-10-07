@@ -312,32 +312,54 @@ def esta_bloqueado(telefono):
 def log_mensaje(telefono, direccion, tipo, resumen, payload=None):
     """Inserta una fila en `mensajes`. Nunca lanza excepcion al caller.
 
-    Si falla por `PoolTimeout` (o cualquier otra excepcion de conn), serializa
-    los args a JSON y los deja en `OUT_SPOOL_DIR` para que
-    `_drenar_spool_log_mensaje()` los retire cuando la DB este sana. El spool
-    se escribe en el thread actual (sync), no asincrono: si el proceso muere
-    aca no perdemos nada.
+    Fast path con 3 niveles para que los mensajes IN del webhook y OUT del
+    bot aparezcan en el chat del panel al instante aun con el pool saturado:
+
+      1. Pool con timeout corto (3s). Lo normal.
+      2. `_conexion_directa` (bypass del pool). Si el pool esta saturado
+         pero la DB responde, abrir una conn directa cuesta ~200-500ms
+         extra pero no espera 20s. pgBouncer multiplexa, costo ok.
+      3. Spool a disco. Ultimo recurso: si tambien falla la directa (DB
+         caida, red rota, etc.), serializa args a JSON y los deja en
+         `OUT_SPOOL_DIR` para que `_drenar_spool_log_mensaje()` los retire
+         cuando la DB vuelva. El scheduler lo drena c/10 min.
+
+    El spool se escribe en el thread actual (sync), no asincrono: si el
+    proceso muere aca no perdemos nada.
     """
     import json as _json
+
+    sql = ("INSERT INTO mensajes (telefono, direccion, tipo, resumen, payload) "
+           "VALUES (%s, %s, %s, %s, %s::jsonb)")
+    payload_json = _json.dumps(payload) if payload is not None else None
+    values = (str(telefono)[:150], direccion[:4], (tipo or "")[:40],
+              (resumen or "")[:4000], payload_json)
+
+    # Nivel 1: pool con timeout corto (3s en vez de 20s).
     try:
-        payload_json = _json.dumps(payload) if payload is not None else None
-        with _conexion() as conn:
-            conn.execute(
-                "INSERT INTO mensajes (telefono, direccion, tipo, resumen, payload) "
-                "VALUES (%s, %s, %s, %s, %s::jsonb)",
-                (str(telefono)[:150], direccion[:4], (tipo or "")[:40],
-                 (resumen or "")[:4000], payload_json),
-            )
+        with _pool_conexion(timeout=3.0) as conn:
+            conn.execute(sql, values)
+        return
     except PoolTimeout:
-        log.warning("[log_mensaje] no se pudo guardar (%s): pool_timeout — spooling a disco.",
+        log.warning("[log_mensaje] pool_timeout (3s, %s) — intentando conexion directa.",
                     direccion)
-        _spool_log_mensaje(telefono, direccion, tipo, resumen, payload,
-                           motivo="pool_timeout")
     except Exception as exc:
-        log.warning("[log_mensaje] no se pudo guardar (%s): %s — spooling a disco.",
+        log.warning("[log_mensaje] fallo pool (%s, %s) — intentando conexion directa.",
                     direccion, exc)
-        _spool_log_mensaje(telefono, direccion, tipo, resumen, payload,
-                           motivo=f"db_error:{type(exc).__name__}")
+
+    # Nivel 2: conn directa (bypass del pool). ~200-500ms extra pero no se
+    # queda esperando una slot del pool.
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            conn.execute(sql, values)
+        return
+    except Exception as exc:
+        log.warning("[log_mensaje] fallo conexion directa (%s, %s) — cayendo al spool.",
+                    direccion, exc)
+
+    # Nivel 3: spool a disco. El drain c/10 min reintenta.
+    _spool_log_mensaje(telefono, direccion, tipo, resumen, payload,
+                       motivo="pool_y_directa_fallaron")
 
 
 # ---------------------------------------------------------------------------
