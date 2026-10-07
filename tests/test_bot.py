@@ -507,3 +507,102 @@ def test_alerta_lead_caliente_webhook_y_wa_coexisten(monkeypatch):
     assert len(posts) == 1
     assert posts[0][0] == "https://hook.example.com/alert"
     assert posts[0][1]["phone"] == "573508463133"
+
+
+# ---------- FAQ pre-grabadas (5 intents canónicos) --------------------------
+
+def test_bot_responde_faq_tasa(wa_stubs, state_stub, monkeypatch):
+    """Caso real: cliente pregunta 'cuanto cobran?'. Antes el bot caía al
+    clasificador y le mandaba la plantilla de apertura (consent). Ahora
+    debe responder la FAQ canónica de tasa_interes."""
+    phone = "573001234567"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "cuanto cobran?"})
+
+    assert len(out) == 1
+    assert wa_stubs["send_text"].calls, "no mandó la FAQ"
+    (args, _kwargs) = wa_stubs["send_text"].calls[0]
+    assert args[0] == phone
+    assert "tasa" in args[1].lower()
+    # No disparó el consent ni la plantilla de apertura.
+    assert wa_stubs["send_autorizacion_datos"].calls == []
+    assert wa_stubs["send_plantilla_apertura"].calls == []
+
+
+def test_bot_responde_faq_quienes_somos(wa_stubs, state_stub, monkeypatch):
+    """'quienes son?' debe mandar la respuesta canónica de quienes_somos,
+    no el consent."""
+    phone = "573001234568"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "quienes son?"})
+
+    assert len(out) == 1
+    assert wa_stubs["send_text"].calls
+    (args, _kwargs) = wa_stubs["send_text"].calls[0]
+    assert "Petra" in args[1]
+    assert wa_stubs["send_autorizacion_datos"].calls == []
+
+
+def test_bot_no_interrumpe_flow_activo_con_faq(wa_stubs, state_stub, monkeypatch):
+    """Si hay flow SURETI activo, la FAQ NO debe disparar — dejar que el
+    Flow siga su curso. Ej: usuario en DATOS_ESTRATO responde '2' pero
+    luego pregunta 'cuanto cobran?'; el handler normal debe correr."""
+    phone = "573001234569"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+
+    # Simulamos sesión con flow activo en un paso de texto libre.
+    state_stub["sessions"][phone] = {
+        "flow": "SURETI",
+        "flow_step": "DATOS_NOMBRE",
+        "flow_data": {},
+    }
+
+    bot.handle_incoming(phone, {"type": "text", "text": "cuanto cobran?"})
+
+    # La FAQ canónica NO debería haber salido. El flow debería seguir y
+    # pedir el nombre otra vez (o aceptar 'cuanto cobran?' como nombre).
+    # Lo clave: la respuesta canónica de tasa NO está entre los sends.
+    for args, _kwargs in wa_stubs["send_text"].calls:
+        assert "trabajamos en rangos competitivos" not in args[1]
+
+
+def test_bot_bloqueado_no_responde_faq(wa_stubs, state_stub, monkeypatch):
+    """Precedencia: si no_contactar=true, el guard esta_bloqueado gana y
+    el bot queda mudo aunque el texto sea FAQ pura."""
+    phone = "573001234570"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: True)
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "quienes son?"})
+
+    assert out == []
+    for name, f in wa_stubs.items():
+        assert f.calls == [], f"bloqueado pero se envió {name}"
+
+
+def test_bot_pide_llamada_tiene_prioridad_sobre_faq(wa_stubs, state_stub, monkeypatch):
+    """Precedencia: 'me pueden llamar?' es señal más caliente que una FAQ.
+    Debe ir a la rama de pide_llamada, no a FAQ."""
+    phone = "573001234571"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+    monkeypatch.setattr(
+        _db, "marcar_requiere_humano",
+        lambda p, m: {"nuevo": True, "debe_alertar": False},
+    )
+
+    bot.handle_incoming(phone, {"type": "text", "text": "me pueden llamar?"})
+
+    # Respondió la confirmación de pide_llamada, no la FAQ.
+    assert wa_stubs["send_text"].calls
+    textos = [a[1] for a, _ in wa_stubs["send_text"].calls]
+    assert any("asesor te contactar" in t.lower() for t in textos)
+    # NO salió una respuesta FAQ.
+    for t in textos:
+        assert "trabajamos en rangos competitivos" not in t
+        assert "Petra, una empresa" not in t

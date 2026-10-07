@@ -13,6 +13,7 @@ import os
 import re
 import unicodedata
 
+from app import faq as faq_mod
 from app import filtros, state, whatsapp
 
 _log = logging.getLogger("petra")
@@ -729,6 +730,16 @@ def handle_incoming(phone, event):
             phone,
             "¡Entendido! Un asesor te contactará pronto por este mismo chat.",
         )]
+
+    # FAQ pre-grabadas: preguntas canónicas con respuesta inmediata (quiénes
+    # somos, tasa, tiempo, pagos, usar inmueble). Va después de pide_llamada
+    # (señal más caliente) y antes de opt-out/broker. Si el usuario está en
+    # medio de un Flow activo, NO interrumpir — dejar que el Flow siga.
+    if event["type"] == "text" and session.get("flow") is None:
+        faq = faq_mod.detectar(event["text"])
+        if faq:
+            _log.info("[Bot] FAQ detectada: %s para %s", faq["clave"], phone)
+            return [whatsapp.send_text(phone, faq["respuesta"])]
 
     # Salir en cualquier momento: STOP/BAJA/SALIR/PARA + opt-outs semanticos
     # ("no me interesa", "ya no esta disponible", "numero equivocado", ...).
