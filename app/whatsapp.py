@@ -82,17 +82,35 @@ def _dispatch(payload, human_summary, log_out=True):
         log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
     else:
         log.info("[OK WhatsApp API] %s → %s: %s", resp.status_code, dest, human_summary)
+
+    # Meta devuelve en el body: {"messages": [{"id": "wamid.XXXX"}], ...}.
+    # Guardamos ese id para correlacionar con los webhooks de status
+    # (sent/delivered/read/failed) que llegan despues en webhook_queue.
+    wa_msg_id = None
+    try:
+        body = resp.json()
+        wa_msg_id = body.get("messages", [{}])[0].get("id")
+    except Exception:
+        pass
+
     if log_out:
-        _log_out(dest, tipo, human_summary, payload, resp.status_code)
-    return {"status": resp.status_code, "summary": human_summary, "body": resp.text}
+        _log_out(dest, tipo, human_summary, payload, resp.status_code,
+                 wa_msg_id=wa_msg_id)
+    return {"status": resp.status_code, "summary": human_summary,
+            "body": resp.text, "wa_msg_id": wa_msg_id}
 
 
-def _log_out(dest, tipo, resumen, payload, estado):
-    """Persiste el mensaje de salida en la tabla mensajes. Nunca propaga errores."""
+def _log_out(dest, tipo, resumen, payload, estado, wa_msg_id=None):
+    """Persiste el mensaje de salida en la tabla mensajes. Nunca propaga errores.
+
+    `wa_msg_id` es el id que devuelve Meta al aceptar el envio. Se guarda en
+    columna propia para que el webhook_worker pueda matchear los eventos de
+    status (sent/delivered/read/failed) contra la fila OUT original."""
     try:
         from app import db as _db
         _db.log_mensaje(dest, "out", tipo, resumen,
-                        {"status": estado, "payload": payload})
+                        {"status": estado, "payload": payload},
+                        wa_msg_id=wa_msg_id)
     except Exception:
         pass
 

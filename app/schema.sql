@@ -183,6 +183,20 @@ CREATE TABLE IF NOT EXISTS mensajes (
 CREATE INDEX IF NOT EXISTS mensajes_telefono_fecha_idx
   ON mensajes (telefono, fecha DESC);
 
+-- Trackeo del wa_msg_id en cada OUT para correlacionar con statuses de
+-- WhatsApp (sent/delivered/read/failed). Meta devuelve ese id en la
+-- respuesta de la Cloud API al enviar, y lo repite en los webhooks de
+-- status. Lo guardamos para poder actualizar el estado del OUT cuando
+-- llega cada webhook.
+ALTER TABLE mensajes
+    ADD COLUMN IF NOT EXISTS wa_msg_id text,
+    ADD COLUMN IF NOT EXISTS estado_entrega text,
+    ADD COLUMN IF NOT EXISTS estado_entrega_at timestamptz,
+    ADD COLUMN IF NOT EXISTS estado_entrega_error text;
+
+CREATE INDEX IF NOT EXISTS idx_mensajes_wa_msg_id
+    ON mensajes(wa_msg_id) WHERE wa_msg_id IS NOT NULL;
+
 -- Cola persistente de webhooks de WhatsApp. El handler HTTP solo
 -- INSERTa aquí y responde 200 OK; un worker (app/webhook_worker.py)
 -- drena las filas pendientes. Si el proceso muere a mitad de camino,

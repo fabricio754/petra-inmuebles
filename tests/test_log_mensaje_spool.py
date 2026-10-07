@@ -1,8 +1,14 @@
-"""Tests para el spool a disco de `db.log_mensaje`.
+"""Tests para `db.log_mensaje`: fast path + spool a disco.
 
-Durante el piloto 6-oct perdimos 6 filas OUT en la DB porque
-`log_mensaje` fallo con `PoolTimeout` y no habia fallback. Estos tests
-cubren el nuevo fallback a disco + el drenaje periodico/al arrancar.
+Historia:
+- Piloto 6-oct: `log_mensaje` fallo con `PoolTimeout` → perdimos 6 filas OUT.
+  Se agrego spool a disco (PR #64).
+- Oct 2026: con el pool saturado, el pool esperaba 20s antes de caer al
+  spool, y el spool se drenaba cada 10 min → los mensajes IN/OUT aparecian
+  tarde en el chat del panel. Se agrego fast path con 3 niveles:
+    1. pool con timeout 3s
+    2. _conexion_directa (bypass del pool)
+    3. spool a disco (fallback final)
 """
 import glob
 import json
@@ -37,6 +43,7 @@ def _conn_ok(executed):
 
 
 def _patch_conexion_ok(monkeypatch, executed):
+    """Patchea `_conexion` (usado por el drain) para devolver una conn OK."""
     @contextmanager
     def fake():
         with _conn_ok(executed) as c:
@@ -45,6 +52,7 @@ def _patch_conexion_ok(monkeypatch, executed):
 
 
 def _patch_conexion_pool_timeout(monkeypatch):
+    """Patchea `_conexion` (drain) para que simule pool saturado."""
     @contextmanager
     def fake():
         raise PoolTimeout("couldn't get a connection after 20.00 sec")
@@ -52,26 +60,114 @@ def _patch_conexion_pool_timeout(monkeypatch):
     monkeypatch.setattr(db, "_conexion", fake)
 
 
-# ---------- log_mensaje OK vs. fallback ------------------------------------
+def _patch_pool_conexion_ok(monkeypatch, executed):
+    """Nivel 1 OK: `_pool_conexion` devuelve conn que captura queries."""
+    @contextmanager
+    def fake(timeout=3.0):
+        with _conn_ok(executed) as c:
+            yield c
+    monkeypatch.setattr(db, "_pool_conexion", fake)
 
-def test_log_mensaje_ok_no_crea_archivo(spool_tmp, monkeypatch):
-    """Si la DB responde OK, log_mensaje NO escribe a disco."""
-    executed = []
-    _patch_conexion_ok(monkeypatch, executed)
+
+def _patch_pool_conexion_timeout(monkeypatch):
+    """Nivel 1 roto: `_pool_conexion` lanza PoolTimeout."""
+    @contextmanager
+    def fake(timeout=3.0):
+        raise PoolTimeout("couldn't get a connection after 3.00 sec")
+        yield  # pragma: no cover
+    monkeypatch.setattr(db, "_pool_conexion", fake)
+
+
+def _patch_pool_conexion_error(monkeypatch, exc):
+    """Nivel 1 roto con excepcion arbitraria (ej. SSL)."""
+    @contextmanager
+    def fake(timeout=3.0):
+        raise exc
+        yield  # pragma: no cover
+    monkeypatch.setattr(db, "_pool_conexion", fake)
+
+
+def _patch_conexion_directa_ok(monkeypatch, executed):
+    """Nivel 2 OK: `_conexion_directa` devuelve conn que captura queries."""
+    def fake(timeout=5):
+        conn = MagicMock()
+
+        def _exec(sql, params=None):
+            executed.append((sql, params))
+            return MagicMock()
+
+        conn.execute.side_effect = _exec
+        # psycopg.connect devuelve una conn con context-manager de
+        # transaccion; emulamos __enter__/__exit__.
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        return conn
+    monkeypatch.setattr(db, "_conexion_directa", fake)
+
+
+def _patch_conexion_directa_error(monkeypatch, exc):
+    """Nivel 2 roto: `_conexion_directa` lanza excepcion al abrir."""
+    def fake(timeout=5):
+        raise exc
+    monkeypatch.setattr(db, "_conexion_directa", fake)
+
+
+# ---------- log_mensaje: fast path (3 niveles) -----------------------------
+
+def test_log_mensaje_usa_pool_cuando_disponible(spool_tmp, monkeypatch):
+    """Nivel 1 OK: escribe por el pool, NO toca `_conexion_directa` ni spool."""
+    pool_executed = []
+    _patch_pool_conexion_ok(monkeypatch, pool_executed)
+
+    # Si el fast path toca `_conexion_directa` el test falla.
+    directa_llamada = []
+
+    def directa_boom(timeout=5):
+        directa_llamada.append(True)
+        raise AssertionError("no deberia llegar a _conexion_directa")
+    monkeypatch.setattr(db, "_conexion_directa", directa_boom)
 
     db.log_mensaje("573001112233", "out", "text", "hola",
                    payload={"status": "sent"})
 
-    # Insert ejecutado.
-    assert len(executed) == 1
-    assert "INSERT INTO mensajes" in executed[0][0]
-    # Nada escrito al spool.
+    assert len(pool_executed) == 1
+    assert "INSERT INTO mensajes" in pool_executed[0][0]
+    assert directa_llamada == []
     assert glob.glob(os.path.join(str(spool_tmp), "*.json")) == []
 
 
-def test_log_mensaje_pool_timeout_cae_a_spool(spool_tmp, monkeypatch):
-    """Si _conexion lanza PoolTimeout, log_mensaje serializa a disco."""
-    _patch_conexion_pool_timeout(monkeypatch)
+def test_log_mensaje_cae_a_directa_si_pool_timeout(spool_tmp, monkeypatch):
+    """Nivel 1 PoolTimeout → nivel 2 OK: escribe por directa, NO va al spool."""
+    _patch_pool_conexion_timeout(monkeypatch)
+    directa_executed = []
+    _patch_conexion_directa_ok(monkeypatch, directa_executed)
+
+    db.log_mensaje("573001112233", "in", "text", "hola panel",
+                   payload={"from": "573001112233"})
+
+    assert len(directa_executed) == 1
+    assert "INSERT INTO mensajes" in directa_executed[0][0]
+    # Spool vacio: la directa persistio al instante.
+    assert glob.glob(os.path.join(str(spool_tmp), "*.json")) == []
+
+
+def test_log_mensaje_cae_a_directa_si_pool_otra_excepcion(spool_tmp, monkeypatch):
+    """Nivel 1 excepcion arbitraria (SSL) → nivel 2 OK: directa escribe,
+    no cae al spool. Cualquier error del pool, no solo PoolTimeout."""
+    _patch_pool_conexion_error(monkeypatch, RuntimeError("SSL: bad record mac"))
+    directa_executed = []
+    _patch_conexion_directa_ok(monkeypatch, directa_executed)
+
+    db.log_mensaje("573001112233", "out", "text", "boom", payload=None)
+
+    assert len(directa_executed) == 1
+    assert glob.glob(os.path.join(str(spool_tmp), "*.json")) == []
+
+
+def test_log_mensaje_cae_a_spool_si_pool_y_directa_fallan(spool_tmp, monkeypatch):
+    """Nivel 1 PoolTimeout + nivel 2 falla → nivel 3: spool a disco."""
+    _patch_pool_conexion_timeout(monkeypatch)
+    _patch_conexion_directa_error(monkeypatch, RuntimeError("conn refused"))
 
     payload = {"status": "sent", "wa_msg_id": "wamid.ABC"}
     db.log_mensaje("573001112233", "out", "text",
@@ -86,25 +182,7 @@ def test_log_mensaje_pool_timeout_cae_a_spool(spool_tmp, monkeypatch):
     assert row["tipo"] == "text"
     assert row["resumen"] == "mensaje de prueba"
     assert row["payload"] == payload
-    assert row["motivo"] == "pool_timeout"
-
-
-def test_log_mensaje_otra_excepcion_tambien_cae_a_spool(spool_tmp, monkeypatch):
-    """Cualquier excepcion de la conn debe caer al spool, no solo PoolTimeout."""
-    @contextmanager
-    def fake():
-        raise RuntimeError("SSL error: bad record mac")
-        yield  # pragma: no cover
-    monkeypatch.setattr(db, "_conexion", fake)
-
-    db.log_mensaje("573001112233", "out", "text", "boom", payload=None)
-
-    archivos = glob.glob(os.path.join(str(spool_tmp), "*.json"))
-    assert len(archivos) == 1
-    with open(archivos[0], "r", encoding="utf-8") as f:
-        row = json.load(f)
-    assert row["motivo"].startswith("db_error:")
-    assert "RuntimeError" in row["motivo"]
+    assert row["motivo"] == "pool_y_directa_fallaron"
 
 
 # ---------- drenaje del spool ----------------------------------------------

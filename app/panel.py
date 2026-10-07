@@ -1246,7 +1246,10 @@ def panel_detalle(telefono):
                 "SELECT fecha, operacion, datos FROM leads WHERE telefono = %s "
                 "ORDER BY fecha DESC LIMIT 100", (telefono,))
             mensajes = _rows(conn,
-                "SELECT id, fecha, direccion, tipo, resumen, payload FROM mensajes "
+                "SELECT id, fecha, direccion, tipo, resumen, payload, "
+                "       wa_msg_id, estado_entrega, estado_entrega_at, "
+                "       estado_entrega_error "
+                "FROM mensajes "
                 "WHERE telefono = %s ORDER BY fecha DESC LIMIT 500", (telefono,))
             acciones_historial = _rows(conn,
                 "SELECT id, telefono, accion, nota, actor, fecha "
