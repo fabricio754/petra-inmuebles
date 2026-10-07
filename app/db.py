@@ -3,15 +3,33 @@
 state.py llama a estas funciones; bot.py no sabe que existen. Al
 arrancar se crean las tablas (schema.sql) y, la primera vez, se copian
 los datos que había en la Google Sheet (o el inventario base si no hay
-Sheet)."""
+Sheet).
+
+Spool a disco de OUTs
+---------------------
+Durante el piloto 6-oct se perdieron 6 filas de `mensajes` sentido='out'
+porque `log_mensaje` fallo con `PoolTimeout` (pool DB saturado por
+corrupcion TLS en la red interna de Render). El WA ya se habia enviado
+exitosamente, pero perdimos la trazabilidad en DB.
+
+Ahora `log_mensaje` cae a un spool en disco (`OUT_SPOOL_DIR`,
+por default `/var/data/media/log_mensaje_spool`) cuando no logra escribir
+en la DB. El scheduler drena el spool cada 10 min, y al arrancar el
+servicio (ver `_drenar_spool_log_mensaje`). Patron equivalente al de
+`app/webhook_worker.py` para los IN.
+"""
+import glob
 import json
 import logging
 import os
+import tempfile
 import threading
+import time
+import uuid
 
 import psycopg
 from psycopg.types.json import Jsonb
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, PoolTimeout
 
 log = logging.getLogger("petra")
 
@@ -20,6 +38,24 @@ SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.s
 
 _pool = None
 _pool_lock = threading.Lock()
+
+# === Spool a disco para `log_mensaje` (fallback cuando el pool esta saturado) ===
+#
+# En Render `/var/data/media` es un disco persistente (ver render.yaml); fuera
+# de Render cae a tempdir. Se mantiene separado del spool de IN
+# (`WEBHOOK_SPOOL`) para no mezclar formatos.
+_DEFAULT_OUT_SPOOL = "/var/data/media/log_mensaje_spool"
+OUT_SPOOL_DIR = os.environ.get("OUT_SPOOL_DIR", _DEFAULT_OUT_SPOOL)
+
+# Cuantos archivos procesa `_drenar_spool_log_mensaje()` por tanda. Si hay
+# cientos acumulados (ej. porque el pool DB estuvo caido), no bloqueamos el
+# thread minutos. El scheduler re-llama cada 10 min hasta drenar todo.
+OUT_SPOOL_DRAIN_BATCH = int(os.environ.get("OUT_SPOOL_DRAIN_BATCH", "20"))
+
+# Kill-switch: si el spool esta roto o enorme, se puede saltar el drenaje
+# inicial poniendo OUT_SPOOL_DRAIN_ON_START=false. Default true: el piloto
+# 6-oct mostro payloads huerfanos tras reinicios.
+OUT_SPOOL_DRAIN_ON_START = os.environ.get("OUT_SPOOL_DRAIN_ON_START", "true").lower() != "false"
 
 
 def _pool_conexion(timeout=20.0):
@@ -274,7 +310,14 @@ def esta_bloqueado(telefono):
 
 
 def log_mensaje(telefono, direccion, tipo, resumen, payload=None):
-    """Inserta una fila en `mensajes`. Nunca lanza excepción al caller."""
+    """Inserta una fila en `mensajes`. Nunca lanza excepcion al caller.
+
+    Si falla por `PoolTimeout` (o cualquier otra excepcion de conn), serializa
+    los args a JSON y los deja en `OUT_SPOOL_DIR` para que
+    `_drenar_spool_log_mensaje()` los retire cuando la DB este sana. El spool
+    se escribe en el thread actual (sync), no asincrono: si el proceso muere
+    aca no perdemos nada.
+    """
     import json as _json
     try:
         payload_json = _json.dumps(payload) if payload is not None else None
@@ -285,8 +328,121 @@ def log_mensaje(telefono, direccion, tipo, resumen, payload=None):
                 (str(telefono)[:150], direccion[:4], (tipo or "")[:40],
                  (resumen or "")[:4000], payload_json),
             )
+    except PoolTimeout:
+        log.warning("[log_mensaje] no se pudo guardar (%s): pool_timeout — spooling a disco.",
+                    direccion)
+        _spool_log_mensaje(telefono, direccion, tipo, resumen, payload,
+                           motivo="pool_timeout")
     except Exception as exc:
-        log.warning("[log_mensaje] no se pudo guardar (%s): %s", direccion, exc)
+        log.warning("[log_mensaje] no se pudo guardar (%s): %s — spooling a disco.",
+                    direccion, exc)
+        _spool_log_mensaje(telefono, direccion, tipo, resumen, payload,
+                           motivo=f"db_error:{type(exc).__name__}")
+
+
+# ---------------------------------------------------------------------------
+# Spool a disco para `log_mensaje` (fallback cuando el pool esta saturado)
+# ---------------------------------------------------------------------------
+
+def _out_spool_dir():
+    """Devuelve el directorio del spool, creandolo si hace falta. Cae a
+    tempdir si el disco persistente no existe (desarrollo local)."""
+    for d in (OUT_SPOOL_DIR, os.path.join(tempfile.gettempdir(), "petra_log_mensaje_spool")):
+        try:
+            os.makedirs(d, exist_ok=True)
+            return d
+        except Exception:
+            continue
+    return None
+
+
+def _spool_log_mensaje(telefono, direccion, tipo, resumen, payload, motivo="unknown"):
+    """Serializa los args de `log_mensaje` a JSON en disco. Nunca lanza — el
+    caller ya tuvo que decidir que no podia escalar el error."""
+    try:
+        d = _out_spool_dir()
+        if not d:
+            log.error("[LogMensajeSpool] Sin spool dir — LOG PERDIDO. motivo=%s", motivo)
+            return
+        row = {
+            "telefono": telefono,
+            "direccion": direccion,
+            "tipo": tipo,
+            "resumen": resumen,
+            "payload": payload,
+            "spooled_at_ms": int(time.time() * 1000),
+            "motivo": motivo,
+        }
+        nombre = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}.json"
+        tmp = os.path.join(d, nombre + ".tmp")
+        final = os.path.join(d, nombre)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(row, f, ensure_ascii=False, default=str)
+        # Rename atomico: el drenador nunca ve archivos a medio escribir.
+        os.replace(tmp, final)
+        log.warning("[LogMensajeSpool] fila spooled a %s (motivo=%s).", final, motivo)
+    except Exception:
+        log.exception("[LogMensajeSpool] No se pudo spoolear fila. motivo=%s", motivo)
+
+
+def _drenar_spool_log_mensaje():
+    """Lee hasta `OUT_SPOOL_DRAIN_BATCH` archivos del spool y reintenta
+    `log_mensaje` por cada uno. Si funciona, borra el archivo. Si falla, lo
+    deja para la proxima ronda (el scheduler lo re-llama c/10 min).
+
+    Devuelve cuantos archivos se drenaron OK (para el log).
+    """
+    d = _out_spool_dir()
+    if not d:
+        return 0
+    # Ordenamos por nombre (empieza con timestamp ms) → FIFO.
+    archivos = sorted(glob.glob(os.path.join(d, "*.json")))[:OUT_SPOOL_DRAIN_BATCH]
+    if not archivos:
+        return 0
+    ok = 0
+    for ruta in archivos:
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                row = json.load(f)
+        except Exception:
+            log.exception("[LogMensajeSpool] Spool corrupto, removiendo: %s", ruta)
+            try:
+                os.remove(ruta)
+            except Exception:
+                pass
+            continue
+        try:
+            payload_json = (json.dumps(row.get("payload"))
+                            if row.get("payload") is not None else None)
+            with _conexion() as conn:
+                conn.execute(
+                    "INSERT INTO mensajes (telefono, direccion, tipo, resumen, payload) "
+                    "VALUES (%s, %s, %s, %s, %s::jsonb)",
+                    (str(row.get("telefono"))[:150],
+                     (row.get("direccion") or "")[:4],
+                     (row.get("tipo") or "")[:40],
+                     (row.get("resumen") or "")[:4000],
+                     payload_json),
+                )
+            os.remove(ruta)
+            ok += 1
+        except PoolTimeout:
+            # Sigue contendido: dejamos este y los que falten para la proxima
+            # ronda. No vale la pena seguir probando con los demas si el pool
+            # ya nos nego una conn.
+            log.warning("[LogMensajeSpool] pool_timeout re-drenando %s — se deja.", ruta)
+            break
+        except Exception:
+            log.exception("[LogMensajeSpool] Error re-insertando %s — se deja para reintento.",
+                          ruta)
+            # Un error de datos (ej. row corrupta a nivel esquema) va a quedar
+            # trabando los que vienen detras. Rompemos el loop para no spamear
+            # el log; proxima ronda sigue intentando y eventualmente la
+            # removemos como "corrupta" si ya fallo con json decode.
+            break
+    if ok:
+        log.info("[LogMensajeSpool] %d archivo(s) drenados.", ok)
+    return ok
 
 
 # === Captación (Hito 7) ======================================================

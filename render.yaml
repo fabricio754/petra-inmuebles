@@ -69,6 +69,16 @@ services:
       - key: MEDIA_DIR
         value: /var/data/media/wa
 
+      # === Spool a disco de OUTs (log_mensaje) ===
+      # Si log_mensaje falla por pool_timeout, la fila se spoolea a este dir.
+      # El scheduler drena c/10 min + al arrancar el servicio.
+      - key: OUT_SPOOL_DIR
+        value: /var/data/media/log_mensaje_spool
+      - key: OUT_SPOOL_DRAIN_ON_START
+        value: "true"
+      - key: OUT_SPOOL_DRAIN_BATCH
+        value: "20"
+
       # === Scraper / Apify ingest ===
       - key: SCRAPER_ENABLED
         value: "false"       # Activar solo cuando esté listo (consume recursos)

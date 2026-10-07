@@ -10,6 +10,7 @@ APScheduler se usa en modo Background (no bloquea Gunicorn).
 """
 import logging
 import os
+import threading
 
 log = logging.getLogger("petra")
 
@@ -41,9 +42,24 @@ def iniciar():
     _scheduler.add_job(_webhook_queue_health, "interval", minutes=10,
                        id="webhook_queue_health",
                        max_instances=1, coalesce=True)
+    _scheduler.add_job(_drenar_log_mensaje_spool, "interval", minutes=10,
+                       id="log_mensaje_spool_drain",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
-             "healthcheck webhook_queue c/10min.")
+             "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
+
+    # Drenaje inicial del spool de OUTs: en background para no bloquear el
+    # arranque si hay cientos de archivos acumulados (bloquearia health
+    # checks → host reinicia → loop). El job periodico igual completara
+    # lo que falte.
+    from app import db as _db
+    if _db.OUT_SPOOL_DRAIN_ON_START:
+        threading.Thread(target=_drenar_log_mensaje_spool_background,
+                         name="log-mensaje-spool-drain-start",
+                         daemon=True).start()
+    else:
+        log.warning("[LogMensajeSpool] OUT_SPOOL_DRAIN_ON_START=false — skip drenaje inicial.")
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +95,35 @@ def _export_job():
         export.ejecutar()
     except Exception:
         log.exception("[Scheduler] Error en export sheets.")
+
+
+def _drenar_log_mensaje_spool():
+    """Job periodico: drena una tanda del spool de OUTs. Si quedan mas
+    archivos luego de la tanda, el proximo tick los procesa."""
+    from app import db
+    try:
+        db._drenar_spool_log_mensaje()
+    except Exception:
+        log.exception("[LogMensajeSpool] Error drenando spool.")
+
+
+def _drenar_log_mensaje_spool_background():
+    """Drenaje inicial completo (en tandas). Corre en un thread aparte para
+    no bloquear el arranque del server."""
+    from app import db
+    try:
+        total = 0
+        # Tope de seguridad: evitar loop infinito si siempre falla. Al
+        # alcanzarlo cedemos al job periodico.
+        for _ in range(500):
+            n = db._drenar_spool_log_mensaje()
+            if not n:
+                break
+            total += n
+        if total:
+            log.info("[LogMensajeSpool] Drenaje inicial: %d fila(s) recuperadas.", total)
+    except Exception:
+        log.exception("[LogMensajeSpool] Error en drenaje inicial.")
 
 
 def _webhook_queue_health():
