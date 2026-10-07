@@ -355,7 +355,7 @@
       {% if m.nuevo_dia %}
         <li class="dia-sep">{{ m.etiqueta_dia }}</li>
       {% endif %}
-      <li class="{{ m.direccion }}">
+      <li class="{{ m.direccion }}" data-mid="{{ m.id }}">
         <div>
           <div class="bubble">
             {% if m.flow_lineas %}
@@ -513,23 +513,46 @@
     }
   })();
 
-  // Auto-refresh cada 30 s, con toggle para pausar.
-  // Antes era cada 10 s. Con varias pestañas abiertas y la cola de
-  // webhooks drenando backlog, 10 s saturaba el pool de Postgres
-  // (max 20 conexiones) y hacía caer el panel con 500 (PoolTimeout).
-  // Además, pausamos el refresh si la pestaña está en segundo plano.
+  // Auto-refresh por polling incremental cada 1 s.
+  //
+  // Reemplaza el `location.reload()` anterior (30 s): el polling pide a
+  // /panel/<tel>/mensajes.json?since_id=... y mergea nuevos mensajes +
+  // actualiza los chulos de los OUT existentes, sin tocar el textarea
+  // de respuesta ni el modal. Preserva scroll si el usuario no está en
+  // el bottom. Pausa cuando la pestaña está oculta y hace backoff si la
+  // DB está saturada (503 → espera 5 s, 10 s, 30 s).
   (function(){
     var btn = document.getElementById('refresh-ctl');
     var txt = document.getElementById('responder-texto');
+    var chat = document.getElementById('chat');
+    var telefono = {{ telefono|tojson }};
+    var token = {{ token|tojson }};
     var KEY = 'panel-autorefresh-paused:{{ telefono }}';
     var paused = false;
     try { paused = localStorage.getItem(KEY) === '1'; } catch(e) {}
+
+    // Último id visible en el DOM. Si no hay mensajes todavía, 0.
+    var ultimoId = 0;
+    if (chat) {
+      var lis = chat.querySelectorAll('li[data-mid]');
+      for (var i = 0; i < lis.length; i++) {
+        var mid = parseInt(lis[i].getAttribute('data-mid'), 10);
+        if (!isNaN(mid) && mid > ultimoId) ultimoId = mid;
+      }
+    }
+
+    // Backoff cuando la DB está saturada.
+    var errCount = 0;
+    var pollMs = 1000;
+    var INTERVAL_OK = 1000;
+    var BACKOFF = [1000, 5000, 10000, 30000];
+
     function render() {
       if (paused) {
         btn.textContent = '▶ reanudar auto-refresh';
         btn.classList.add('paused');
       } else {
-        btn.textContent = '⏸ pausar auto-refresh (30 s)';
+        btn.textContent = '⏸ pausar auto-refresh (1 s)';
         btn.classList.remove('paused');
       }
     }
@@ -538,15 +561,195 @@
       paused = !paused;
       try { localStorage.setItem(KEY, paused ? '1' : '0'); } catch(e) {}
       render();
+      if (!paused) scheduleNext(0);
     });
-    setInterval(function(){
-      if (paused) return;
-      // No recargar si la pestaña está en segundo plano.
-      if (document.hidden) return;
-      // No recargar si el usuario está escribiendo.
-      if (txt && document.activeElement === txt && txt.value.length > 0) return;
-      location.reload();
-    }, 30000);
+
+    function esc(s) {
+      if (s == null) return '';
+      var d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    function chuloHTML(m) {
+      var estado = m.estado_entrega || 'pending';
+      var at = m.estado_entrega_at
+        ? (' — ' + (m.estado_entrega_at || '').replace('T',' ').slice(0, 16))
+        : '';
+      var icon = '&#x1F55B;';
+      if (estado === 'read' || estado === 'delivered') icon = '&#x2713;&#x2713;';
+      else if (estado === 'sent') icon = '&#x2713;';
+      else if (estado === 'failed') icon = '&#x26A0;';
+      var html = '<span class="chulo chulo-' + esc(estado) + '" title="' +
+        esc(estado) + esc(at) + '">' + icon + '</span>';
+      if (estado === 'failed' && m.estado_entrega_error) {
+        html += ' <span class="chulo-error-txt">(' +
+          esc(m.estado_entrega_error) + ')</span>';
+      }
+      return html;
+    }
+
+    function mediaHTML(m) {
+      var info = m.media;
+      if (!info) return '';
+      var src = '/panel/media/' + m.id + '?token=' + encodeURIComponent(token);
+      if (!info.disponible) {
+        return '<span class="media-nd">[' + esc(info.kind) + ' no disponible]</span>';
+      }
+      var inner = '';
+      if (info.kind === 'audio') {
+        inner = '<audio controls preload="none" src="' + src + '"></audio>' +
+                (info.voice ? '<div class="meta">nota de voz</div>' : '');
+      } else if (info.kind === 'image') {
+        inner = '<a href="' + src + '" target="_blank" rel="noopener">' +
+                '<img src="' + src + '" style="max-width:300px;max-height:300px;display:block;border-radius:6px" alt="imagen"></a>';
+      } else if (info.kind === 'video') {
+        inner = '<video controls preload="none" style="max-width:300px;max-height:300px">' +
+                '<source src="' + src + '" type="' + esc(info.mime) + '"></video>';
+      } else if (info.kind === 'document') {
+        inner = '<a href="' + src + '" download>&#128206; ' +
+                esc(info.filename || info.caption || 'documento') + '</a>';
+      } else if (info.kind === 'sticker') {
+        inner = '<img src="' + src + '" style="max-width:150px;max-height:150px;display:block" alt="sticker">';
+      }
+      if (info.caption && info.kind !== 'document') {
+        inner += '<div class="media-caption">' + esc(info.caption) + '</div>';
+      }
+      return inner;
+    }
+
+    function bubbleHTML(m) {
+      if (m.flow_lineas && m.flow_lineas.length) {
+        var lis = m.flow_lineas.map(function(l){
+          return '<li>' + esc(l) + '</li>';
+        }).join('');
+        return '<strong>Flow reply:</strong><ul>' + lis + '</ul>';
+      }
+      if (m.media) return mediaHTML(m);
+      return esc(m.resumen_render || m.resumen || '—');
+    }
+
+    function renderMensaje(m) {
+      var li = document.createElement('li');
+      li.className = m.direccion;
+      li.setAttribute('data-mid', String(m.id));
+      var meta = '<span class="meta">' +
+        (m.direccion === 'in' ? 'cliente' : 'bot') + ' · ' +
+        esc(m.tipo || '—') + ' · ' + esc(m.hora_hm || '—');
+      if (m.direccion === 'out') {
+        meta += ' ' + chuloHTML(m);
+      }
+      meta += '</span>';
+      li.innerHTML = '<div><div class="bubble">' + bubbleHTML(m) + '</div>' +
+                     meta + '</div>';
+      return li;
+    }
+
+    function actualizarChulo(li, m) {
+      var meta = li.querySelector('.meta');
+      if (!meta) return;
+      // Encontrar el chulo existente y los error-txt para re-renderizar.
+      var old = meta.querySelector('.chulo');
+      var oldErr = meta.querySelector('.chulo-error-txt');
+      if (oldErr) oldErr.remove();
+      if (old) {
+        var tmp = document.createElement('div');
+        tmp.innerHTML = chuloHTML(m);
+        // chuloHTML puede traer también .chulo-error-txt a continuación.
+        var nodes = Array.prototype.slice.call(tmp.childNodes);
+        var parent = old.parentNode;
+        // Reemplazar el <span class="chulo"> por los nuevos nodos.
+        for (var i = 0; i < nodes.length; i++) {
+          parent.insertBefore(nodes[i], old);
+        }
+        old.remove();
+      }
+    }
+
+    function cercaDelFondo() {
+      // Hay bottom del scroll de la ventana porque .chat usa el flujo normal.
+      var umbral = 120;  // px
+      var alturaDoc = document.documentElement.scrollHeight;
+      var scrollY = window.scrollY + window.innerHeight;
+      return (alturaDoc - scrollY) < umbral;
+    }
+
+    async function pollChat() {
+      if (paused || document.hidden) return;
+      try {
+        var url = '/panel/' + encodeURIComponent(telefono) +
+                  '/mensajes.json?token=' + encodeURIComponent(token) +
+                  '&since_id=' + ultimoId;
+        var r = await fetch(url, { cache: 'no-store' });
+        if (!r.ok) {
+          errCount++;
+          pollMs = BACKOFF[Math.min(errCount, BACKOFF.length - 1)];
+          return;
+        }
+        var data = await r.json();
+        errCount = 0;
+        pollMs = INTERVAL_OK;
+
+        // Si el DOM arrancó sin la UL del chat (lead sin mensajes) y
+        // ahora llegó el primero, un reload simple es más barato que
+        // reconstruir toda la sección en JS.
+        if (!chat) {
+          if (data.mensajes && data.mensajes.length) {
+            location.reload();
+          }
+          return;
+        }
+
+        var fijaAbajo = cercaDelFondo();
+        var huboNuevo = false;
+
+        // Mensajes nuevos (append).
+        if (data.mensajes && data.mensajes.length) {
+          for (var i = 0; i < data.mensajes.length; i++) {
+            var m = data.mensajes[i];
+            if (!chat.querySelector('li[data-mid="' + m.id + '"]')) {
+              chat.appendChild(renderMensaje(m));
+              huboNuevo = true;
+            }
+            if (m.id > ultimoId) ultimoId = m.id;
+          }
+        }
+
+        // Updates de chulos para OUT existentes.
+        if (data.updates && data.updates.length) {
+          for (var j = 0; j < data.updates.length; j++) {
+            var u = data.updates[j];
+            var li = chat.querySelector('li[data-mid="' + u.id + '"]');
+            if (li && li.classList.contains('out')) {
+              actualizarChulo(li, u);
+            }
+          }
+        }
+
+        if (huboNuevo && fijaAbajo) {
+          window.scrollTo({ top: document.documentElement.scrollHeight,
+                            behavior: 'instant' });
+        }
+      } catch (e) {
+        errCount++;
+        pollMs = BACKOFF[Math.min(errCount, BACKOFF.length - 1)];
+      } finally {
+        scheduleNext(pollMs);
+      }
+    }
+
+    var pollTimer = null;
+    function scheduleNext(ms) {
+      if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+      pollTimer = setTimeout(pollChat, ms);
+    }
+
+    document.addEventListener('visibilitychange', function(){
+      if (!document.hidden && !paused) scheduleNext(0);
+    });
+
+    // Primer tick después de un ratito para no competir con el load.
+    scheduleNext(1000);
   })();
 </script>
 
