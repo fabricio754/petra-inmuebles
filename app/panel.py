@@ -1516,11 +1516,37 @@ def panel_responder(telefono):
 
     from app import whatsapp as wa
     try:
-        wa.send_text(telefono, texto)
+        # log=False: evitamos que `whatsapp._log_out` escriba al pool
+        # compartido. Si el pool está saturado, log_mensaje cae al spool
+        # a disco (drain cada 10 min, PR #64) y el chat queda vacío hasta
+        # entonces. En su lugar insertamos directo via conn directa aquí.
+        wa.send_text(telefono, texto, log=False)
     except Exception as exc:
         log.exception("[Panel] Falló envío manual a %s", telefono)
         return redirect(url_for("panel.panel_detalle", telefono=telefono,
                                 token=token, flash=f"error:{exc}"[:120]))
+
+    # Log DIRECTO (bypass del pool) para que el OUT aparezca al instante
+    # en el chat tras el redirect. Si falla, no rompemos el envío — el
+    # mensaje ya se mandó por WhatsApp y lo peor que pasa es que no
+    # quede en la DB (muy raro: _conexion_directa abre una conn fresca
+    # a Postgres por request).
+    try:
+        with db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "INSERT INTO mensajes (telefono, direccion, tipo, resumen, payload) "
+                "VALUES (%s, 'out', 'text', %s, %s::jsonb)",
+                (
+                    str(telefono)[:150],
+                    (texto or "")[:4000],
+                    json.dumps({"origen": "panel_responder", "actor": "humano"}),
+                ),
+            )
+            conn.commit()
+    except Exception:
+        log.exception("[Panel] log directo falló para %s; el mensaje salió por "
+                      "WhatsApp pero puede no aparecer inmediatamente en el chat",
+                      telefono)
 
     return redirect(url_for("panel.panel_detalle", telefono=telefono,
                             token=token, flash="enviado"))

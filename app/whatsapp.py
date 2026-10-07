@@ -52,9 +52,14 @@ def _is_bsuid(to):
     return "." in to
 
 
-def _dispatch(payload, human_summary):
+def _dispatch(payload, human_summary, log_out=True):
     """Envía el payload a Meta, o lo simula en modo dry-run.
-    Devuelve un resumen legible (usado por el simulador de consola)."""
+    Devuelve un resumen legible (usado por el simulador de consola).
+
+    Si ``log_out`` es False, no persiste el OUT en la tabla ``mensajes``.
+    El caller se encarga del log (p. ej. ``panel_responder`` loguea directo
+    para evitar que un pool_timeout lo mande al spool y el chat aparezca
+    vacío por 10 min hasta el próximo drain)."""
     dest = payload["to"]
     if _is_bsuid(dest):
         # Meta no acepta un BSUID en "to": va en "recipient".
@@ -63,7 +68,8 @@ def _dispatch(payload, human_summary):
     tipo = payload.get("type", "text")
     if DRY_RUN:
         log.info("[DRY-RUN → %s] %s", dest, human_summary)
-        _log_out(dest, tipo, human_summary, payload, "dry-run")
+        if log_out:
+            _log_out(dest, tipo, human_summary, payload, "dry-run")
         return {"status": "dry-run", "summary": human_summary}
 
     headers = {
@@ -76,7 +82,8 @@ def _dispatch(payload, human_summary):
         log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
     else:
         log.info("[OK WhatsApp API] %s → %s: %s", resp.status_code, dest, human_summary)
-    _log_out(dest, tipo, human_summary, payload, resp.status_code)
+    if log_out:
+        _log_out(dest, tipo, human_summary, payload, resp.status_code)
     return {"status": resp.status_code, "summary": human_summary, "body": resp.text}
 
 
@@ -90,14 +97,18 @@ def _log_out(dest, tipo, resumen, payload, estado):
         pass
 
 
-def send_text(to, body):
+def send_text(to, body, log=True):
+    """Envía un texto. Si ``log`` es False, no persiste el OUT en ``mensajes``.
+
+    El caller que pasa ``log=False`` queda a cargo de loguear por su cuenta
+    (ver ``app.panel.panel_responder``)."""
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "text",
         "text": {"body": body},
     }
-    return _dispatch(payload, body)
+    return _dispatch(payload, body, log_out=log)
 
 
 def _botones(to, cuerpo, botones, resumen):
