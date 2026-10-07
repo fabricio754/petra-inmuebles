@@ -75,6 +75,7 @@ ACCIONES = {
         "descripcion": "Fuerza requiere_humano=true (ej. para re-disparar alerta).",
         "updates": {
             "requiere_humano": True,
+            "resultado_contacto": "lead_caliente",
         },
     },
     "otro": {
