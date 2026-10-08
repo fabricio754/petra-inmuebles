@@ -194,21 +194,27 @@
       <p class="vacio">Todavía no hay avalúo ni monto estimado en pipeline.</p>
     {% endif %}
   </div>
-  <button type="button" id="btn-cerrar-conv" class="btn-cerrar-conv">
-    Cerrar conversación / registrar acción
-  </button>
-  {# Botón para completar los Flows 1+2 EN NOMBRE del cliente mientras
-     el asesor habla con él por WA/teléfono. Se oculta si el lead ya
-     está cerrado (enviar_a_sureti) o si pidió no_contactar. #}
-  {% set _rc = (contacto and contacto.resultado_contacto) or '' %}
-  {% if not (contacto and contacto.no_contactar)
-        and _rc not in ('enviar_a_sureti', 'sureti', 'entregado',
-                        'broker', 'no_interesa') %}
-    <a href="/panel/{{ telefono }}/formulario-manual?token={{ token }}"
-       class="btn-cerrar-conv" style="background:#1a7f37;margin-left:6px;">
-      Completar formulario con el cliente
+  <div class="acciones-detalle" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+    <a href="https://wa.me/{{ telefono }}" target="_blank" rel="noopener"
+       class="btn-cerrar-conv" style="background:#25d366;text-decoration:none;display:inline-block;">
+      📞 Llamar por WhatsApp
     </a>
-  {% endif %}
+    <button type="button" id="btn-cerrar-conv" class="btn-cerrar-conv" style="margin-top:0;">
+      Cerrar conversación / registrar acción
+    </button>
+    {# Botón para completar los Flows 1+2 EN NOMBRE del cliente mientras
+       el asesor habla con él por WA/teléfono. Se oculta si el lead ya
+       está cerrado (enviar_a_sureti) o si pidió no_contactar. #}
+    {% set _rc = (contacto and contacto.resultado_contacto) or '' %}
+    {% if not (contacto and contacto.no_contactar)
+          and _rc not in ('enviar_a_sureti', 'sureti', 'entregado',
+                          'broker', 'no_interesa') %}
+      <a href="/panel/{{ telefono }}/formulario-manual?token={{ token }}"
+         class="btn-cerrar-conv" style="background:#1a7f37;text-decoration:none;display:inline-block;">
+        Completar formulario con el cliente
+      </a>
+    {% endif %}
+  </div>
 </section>
 
 <dialog id="modal-accion">
