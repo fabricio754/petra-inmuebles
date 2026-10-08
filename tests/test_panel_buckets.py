@@ -47,9 +47,43 @@ from app.panel import BUCKETS_LABELS, bucket_de  # noqa: E402
     # 6. default → nuevo
     ({"no_contactar": False, "contactado": False, "resultado_contacto": None},
      False, False, False, "nuevo"),
+    # 7. resultado_contacto='recontactar' → "recontactar"
+    ({"no_contactar": False, "contactado": True,
+      "resultado_contacto": "recontactar"},
+     False, False, False, "recontactar"),
 ])
 def test_bucket_de_reglas(contacto, tiene_in, autorizo, completo_flow, esperado):
     assert bucket_de(contacto, tiene_in, autorizo, completo_flow) == esperado
+
+
+def test_bucket_de_recontactar_tiene_precedencia_sobre_derivados():
+    """Un contacto cerrado con `resultado_contacto='recontactar'` que
+    además tiene IN (respondió) o completó el Flow debe aparecer en el
+    bucket "recontactar" — no diluirse en "respondio" ni en
+    "enviar_formulario"."""
+    contacto = {
+        "no_contactar": False,
+        "contactado": True,
+        "resultado_contacto": "recontactar",
+    }
+    # Tiene IN pero el cierre humano manda:
+    assert bucket_de(contacto, tiene_in=True, autorizo=False,
+                     completo_flow=False) == "recontactar"
+    # Incluso con Flow completo, el cierre "recontactar" tiene precedencia:
+    assert bucket_de(contacto, tiene_in=True, autorizo=True,
+                     completo_flow=True) == "recontactar"
+
+
+def test_bucket_recontactar_ignorado_si_no_contactar():
+    """`no_contactar=True` es precedencia 1 y gana incluso sobre un
+    cierre `recontactar` (coherencia con la regla pre-existente)."""
+    contacto = {
+        "no_contactar": True,
+        "contactado": True,
+        "resultado_contacto": "recontactar",
+    }
+    assert bucket_de(contacto, tiene_in=True, autorizo=False,
+                     completo_flow=False) == "no_contactar"
 
 
 def test_todos_los_buckets_tienen_label():

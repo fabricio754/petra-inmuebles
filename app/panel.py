@@ -111,10 +111,14 @@ def _scalar(conn, sql, params=()):
 #                        (resultado_contacto IN ('enviar_formulario','flow') ó
 #                         hay flow_reply en mensajes)
 #   enviar_a_sureti    — resultado_contacto IN ('sureti', 'entregado')
+#   recontactar        — resultado_contacto='recontactar' (asesor cerró
+#                        "No le interesa ahora — recontactar después").
+#                        Alta precedencia: gana sobre tiene_in / completo_flow
+#                        para que no se mezclen con los que están en flujo.
 #   no_contactar       — opt-out (gana sobre todo)
 BUCKETS_ORDEN = (
     "nuevo", "contactado", "respondio",
-    "enviar_formulario", "enviar_a_sureti", "no_contactar",
+    "enviar_formulario", "enviar_a_sureti", "recontactar", "no_contactar",
 )
 
 BUCKETS_LABELS = {
@@ -123,6 +127,7 @@ BUCKETS_LABELS = {
     "respondio": "respondió",
     "enviar_formulario": "enviar formulario",
     "enviar_a_sureti": "enviar a sureti",
+    "recontactar": "Recontactar",
     "no_contactar": "no contactar",
 }
 
@@ -131,12 +136,13 @@ def bucket_de(contacto, tiene_in: bool, autorizo: bool, completo_flow: bool) -> 
     """Reglas en orden (primero que matchea gana):
 
     1. no_contactar               → "no_contactar"
-    2. resultado_contacto in ('sureti','entregado') → "enviar_a_sureti"
-    3. completo_flow O resultado_contacto in ('enviar_formulario','flow')
+    2. resultado_contacto == 'recontactar' → "recontactar"
+    3. resultado_contacto in ('sureti','entregado') → "enviar_a_sureti"
+    4. completo_flow O resultado_contacto in ('enviar_formulario','flow')
                                    → "enviar_formulario"
-    4. tiene_in                   → "respondio"
-    5. contactado=True            → "contactado"
-    6. else                       → "nuevo"
+    5. tiene_in                   → "respondio"
+    6. contactado=True            → "contactado"
+    7. else                       → "nuevo"
 
     `autorizo` se calcula para el consumidor pero no entra en estas reglas:
     desde humano-first (sept-2026) la autorización ya no implica Flow —
@@ -146,6 +152,8 @@ def bucket_de(contacto, tiene_in: bool, autorizo: bool, completo_flow: bool) -> 
     if contacto and contacto.get("no_contactar"):
         return "no_contactar"
     rc = (contacto or {}).get("resultado_contacto") or ""
+    if rc == "recontactar":
+        return "recontactar"
     if rc in ("sureti", "entregado"):
         return "enviar_a_sureti"
     if completo_flow or rc in ("enviar_formulario", "flow"):
