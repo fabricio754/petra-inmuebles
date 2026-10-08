@@ -28,13 +28,15 @@
   td.tel a { color: #0969da; text-decoration: none; font-family: ui-monospace, monospace; }
   td.tel a:hover { text-decoration: underline; }
   .estado { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .78rem; font-weight: 500; }
-  .estado-nuevo { background: #ddf4ff; color: #0969da; }
-  .estado-contactado { background: #fff8c5; color: #7d4e00; }
-  .estado-en_flujo { background: #ddf4ff; color: #0969da; }
-  .estado-en_pipeline, .estado-en_sureti { background: #dafbe1; color: #116329; }
-  .estado-desembolsado { background: #116329; color: #fff; }
-  .estado-no_contactar, .estado-descartado { background: #ffebe9; color: #cf222e; }
-  .estado-pausado_paz_salvo { background: #fff1e5; color: #9a4b00; }
+  /* Buckets humano-first (PR #71): se usan como etiqueta principal en la
+     columna "Estado". El valor viejo (`contactos.estado` crudo) queda
+     visible como tooltip (atributo `title`) para debug. */
+  .bucket-nuevo { background: #ddf4ff; color: #0969da; }
+  .bucket-contactado { background: #fff8c5; color: #7d4e00; }
+  .bucket-respondio { background: #ddf4ff; color: #0969da; }
+  .bucket-enviar_formulario { background: #fff1e5; color: #9a4b00; }
+  .bucket-enviar_a_sureti { background: #dafbe1; color: #116329; }
+  .bucket-no_contactar { background: #ffebe9; color: #cf222e; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
   .dot-verde { background: #2da44e; }
   .dot-amarillo { background: #d4a72c; }
@@ -146,7 +148,11 @@
           {% endif %}
         {% else %}—{% endif %}
       </td>
-      <td><span class="estado estado-{{ f.estado.split(':')[0] }}">{{ f.estado }}</span></td>
+      <td>
+        {# "Estado" muestra el bucket humano-first (mismo que los chips de arriba).
+           El `estado` legacy (en_flujo, en_flujo:SURETI, …) queda como tooltip. #}
+        <span class="estado bucket-{{ f.bucket }}" title="estado interno: {{ f.estado }}">{{ f.bucket_label }}</span>
+      </td>
       <td>
         {# Solo contamos cierre humano cuando resultado_contacto_por está:
            la columna resultado_contacto preexiste con valores automáticos

@@ -573,15 +573,17 @@ def panel_lista():
         ultima = ((s or {}).get("ultima_actividad")
                   or c.get("fecha_contacto")
                   or c.get("fecha_scraping"))
+        bucket = bucket_de(
+            c,
+            bool(c.get("tiene_in")),
+            bool(c.get("autorizo")),
+            bool(c.get("completo_flow")),
+        )
         filas_all.append({
             **c,
             "estado": _estado_lead(c, s, p),
-            "bucket": bucket_de(
-                c,
-                bool(c.get("tiene_in")),
-                bool(c.get("autorizo")),
-                bool(c.get("completo_flow")),
-            ),
+            "bucket": bucket,
+            "bucket_label": BUCKETS_LABELS.get(bucket, bucket),
             "ultima_actividad": ultima,
             "ultima_actividad_hace": _hace(ultima),
             "ultima_actividad_semaforo": _semaforo(ultima),
