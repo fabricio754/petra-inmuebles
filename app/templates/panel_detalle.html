@@ -174,6 +174,11 @@
   <p class="nota err">No se pudo registrar la acción: {{ flash[11:] }}</p>
 {% elif flash == 'accion_requerida' %}
   <p class="nota err">Elegí una acción antes de guardar.</p>
+{% elif flash == 'guardado' %}
+  <p class="nota ok">Formulario manual guardado — lead listo para Sureti.</p>
+{% elif flash == 'guardado_warn_avaluo' %}
+  <p class="nota warn">Formulario manual guardado. Avalúo bajo (&lt; $50M);
+    revisá si el lead es viable para Sureti.</p>
 {% endif %}
 
 <section>
@@ -192,6 +197,18 @@
   <button type="button" id="btn-cerrar-conv" class="btn-cerrar-conv">
     Cerrar conversación / registrar acción
   </button>
+  {# Botón para completar los Flows 1+2 EN NOMBRE del cliente mientras
+     el asesor habla con él por WA/teléfono. Se oculta si el lead ya
+     está cerrado (enviar_a_sureti) o si pidió no_contactar. #}
+  {% set _rc = (contacto and contacto.resultado_contacto) or '' %}
+  {% if not (contacto and contacto.no_contactar)
+        and _rc not in ('enviar_a_sureti', 'sureti', 'entregado',
+                        'broker', 'no_interesa') %}
+    <a href="/panel/{{ telefono }}/formulario-manual?token={{ token }}"
+       class="btn-cerrar-conv" style="background:#1a7f37;margin-left:6px;">
+      Completar formulario con el cliente
+    </a>
+  {% endif %}
 </section>
 
 <dialog id="modal-accion">

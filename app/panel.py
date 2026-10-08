@@ -154,7 +154,7 @@ def bucket_de(contacto, tiene_in: bool, autorizo: bool, completo_flow: bool) -> 
     rc = (contacto or {}).get("resultado_contacto") or ""
     if rc == "recontactar":
         return "recontactar"
-    if rc in ("sureti", "entregado"):
+    if rc in ("sureti", "entregado", "enviar_a_sureti"):
         return "enviar_a_sureti"
     if completo_flow or rc in ("enviar_formulario", "flow"):
         return "enviar_formulario"
@@ -1798,6 +1798,247 @@ def panel_responder(telefono):
 
     return redirect(url_for("panel.panel_detalle", telefono=telefono,
                             token=token, flash="enviado"))
+
+
+# ---------------------------------------------------------------------------
+# Formulario manual: el asesor completa los Flows 1+2 EN NOMBRE del cliente
+# mientras habla con él por WhatsApp o teléfono. Al guardar queda igual que
+# un flow_reply completo (pipeline poblado, bucket pasa a "enviar a sureti",
+# chat sigue vivo para documentos pendientes).
+# ---------------------------------------------------------------------------
+
+# Mapas que replican la lógica del bot al procesar un flow_reply: ciudad
+# llega como id del Flow (BOGOTA, CAJICA, …) y acá la convertimos a nombre
+# humano para que el pipeline quede con el mismo shape que si lo hubiera
+# llenado el cliente.
+_CIUDADES_FORM_MANUAL = {
+    "BARRANQUILLA": "Barranquilla", "BOGOTA": "Bogotá", "CAJICA": "Cajicá",
+    "CARTAGENA": "Cartagena", "CHIA": "Chía", "CUCUTA": "Cúcuta",
+    "MEDELLIN": "Medellín", "SANTA_MARTA": "Santa Marta",
+    "ZIPAQUIRA": "Zipaquirá", "OTRA": "Otra",
+}
+
+_OBJETIVO_FORM_MANUAL = {
+    "OBJ_CAPITAL": "capital de trabajo",
+    "OBJ_DEUDAS": "pagar deudas",
+    "OBJ_INVERSION": "inversión",
+    "OBJ_GASTOS": "gastos personales",
+    "OBJ_OTRO": "otro",
+}
+
+
+def _limpiar_cedula_form_manual(valor):
+    """Idéntico a bot._limpiar_cedula pero local al panel para no acoplarnos
+    con el handler del bot. Devuelve la cédula normalizada o "" si no es
+    válida (solo dígitos, 5–12 caracteres)."""
+    valor = str(valor or "").strip()
+    if valor.endswith(".0"):
+        valor = valor[:-2]
+    valor = valor.replace(".", "").replace("-", "").replace(" ", "")
+    return valor if valor.isdigit() and 5 <= len(valor) <= 12 else ""
+
+
+def _correo_valido_form_manual(valor):
+    usuario, _, dominio = valor.partition("@")
+    return bool(usuario) and "." in dominio and " " not in valor
+
+
+@panel.get("/panel/<telefono>/formulario-manual")
+def formulario_manual_vista(telefono):
+    """Renderiza la vista del formulario manual con pre-llenado desde contactos.
+
+    El asesor abre esta vista cuando ya habló con el cliente por WA/teléfono
+    y quiere capturar los Flows 1 y 2 en nombre del cliente. Precarga lo que
+    ya tenemos (ciudad, barrio, nombre, tipo_inmueble, precio) y pide todo
+    lo demás, incluyendo el checkbox de autorización verbal (Ley 1581).
+    """
+    _check_token()
+    token = request.args.get("token", "")
+    try:
+        with _panel_conexion() as conn:
+            contactos = _rows(
+                conn, "SELECT * FROM contactos WHERE telefono = %s",
+                (telefono,))
+    except PoolTimeout:
+        return _pool_busy_response(f"/panel/{telefono}/formulario-manual")
+
+    contacto = contactos[0] if contactos else None
+    flash = request.args.get("flash", "")
+    return render_template(
+        "panel_formulario_manual.html",
+        telefono=telefono, token=token, contacto=contacto, flash=flash,
+    )
+
+
+@panel.post("/panel/<telefono>/formulario-manual")
+def formulario_manual_guardar(telefono):
+    """Guarda los datos del formulario manual como si fuera un Flow completo.
+
+    Al guardar:
+      1. `state.save_pipeline(...)` — mismo shape que bot._guardar.
+      2. Fila de audit en `panel_acciones` con accion
+         `completar_formulario_manual`.
+      3. `UPDATE contactos SET resultado_contacto='enviar_a_sureti',
+         requiere_humano=false, resultado_contacto_* = now/actor/nota`.
+      4. Mensaje sintético `tipo='flow_reply_manual'` en `mensajes` con un
+         resumen JSON para que aparezca en el chat del panel.
+
+    Validaciones: `avaluo`, `cedula`, `email`, `nombre` son obligatorios, el
+    checkbox `autorizacion_verbal` también. Si falta cualquiera → redirect
+    con flash=error_campos (nada se guarda). Si `avaluo < 50` → warning
+    pero igual guarda (flash=guardado_warn_avaluo).
+    """
+    _check_token()
+    token = request.args.get("token", "")
+    form = request.form
+
+    # Validaciones mínimas: sin estos campos el pipeline queda inútil.
+    requeridos = ("avaluo", "cedula", "email", "nombre")
+    faltan = [k for k in requeridos if not (form.get(k) or "").strip()]
+    if faltan or not form.get("autorizacion_verbal"):
+        return redirect(url_for(
+            "panel.formulario_manual_vista", telefono=telefono,
+            token=token, flash="error_campos"))
+
+    actor = (form.get("actor") or "").strip()
+    nota = (form.get("nota") or "").strip()
+
+    cedula = _limpiar_cedula_form_manual(form.get("cedula"))
+    email = (form.get("email") or "").strip().lower()
+    nombre = (form.get("nombre") or "").strip()
+    if not cedula or not _correo_valido_form_manual(email):
+        return redirect(url_for(
+            "panel.formulario_manual_vista", telefono=telefono,
+            token=token, flash="error_campos"))
+
+    # Avalúo viene en millones (como el Flow 1 lo pide).
+    try:
+        avaluo_m = int(re.sub(r"\D", "", form.get("avaluo") or "")) or 0
+    except (ValueError, TypeError):
+        avaluo_m = 0
+    if avaluo_m <= 0:
+        return redirect(url_for(
+            "panel.formulario_manual_vista", telefono=telefono,
+            token=token, flash="error_campos"))
+    avaluo_pesos = avaluo_m * 1_000_000
+    avaluo_bajo = avaluo_m < 50  # warning pero guarda igual.
+
+    # Flow 1 — inmueble.
+    direccion = (form.get("direccion") or "").strip()
+    apto = (form.get("apto") or "").strip()
+    barrio = (form.get("barrio") or "").strip()
+    ciudad_raw = (form.get("ciudad") or "").strip()
+    ciudad = _CIUDADES_FORM_MANUAL.get(ciudad_raw.upper(), ciudad_raw)
+    try:
+        estrato = int((form.get("estrato") or "").strip() or 0) or None
+    except (ValueError, TypeError):
+        estrato = None
+    es_ph = (form.get("es_ph") or "").upper() == "SI"
+    paz_salvo_si = (form.get("paz_salvo") or "").upper() == "SI"
+    hipoteca_si = (form.get("hipoteca") or "").upper() == "SI"
+    patrimonio_si = (form.get("patrimonio") or "").upper() == "SI"
+    edad_mayor_75 = (form.get("edad") or "").upper() == "SI"
+
+    # Flow 2 — propietario.
+    tipo_persona = (form.get("tipo_persona") or "NATURAL").upper()
+    objetivo_raw = (form.get("objetivo") or "").strip()
+    objetivo = _OBJETIVO_FORM_MANUAL.get(objetivo_raw.upper(), objetivo_raw)
+    try:
+        edad_propietario = int(form.get("edad_propietario") or 0) or None
+    except (ValueError, TypeError):
+        edad_propietario = None
+
+    direccion_inmueble = ", ".join(
+        p for p in (direccion, apto, barrio) if p)
+
+    # Shape de pipeline idéntico al que escribe el bot en _guardar().
+    data_pipeline = {
+        "telefono": telefono,
+        "nombre": nombre,
+        "cedula": cedula,
+        "email": email,
+        "edad": edad_propietario,
+        "direccion_inmueble": direccion_inmueble,
+        "ciudad": ciudad,
+        "estrato": estrato,
+        "es_ph": es_ph,
+        "objetivo_prestamo": objetivo,
+        "valor_solicitado": None,
+        "avaluo_comercial": avaluo_pesos,
+        "requiere_paz_salvo": paz_salvo_si,
+        "autorizacion_datos_en": None,  # verbal, no hay timestamp del Flow
+        "estado": "nuevo",
+    }
+
+    try:
+        from app import state as _state
+        _state.save_pipeline(data_pipeline)
+    except Exception:
+        log.exception("[FormManual] save_pipeline falló tel=%s", telefono)
+        return redirect(url_for(
+            "panel.formulario_manual_vista", telefono=telefono,
+            token=token, flash="error_db"))
+
+    # UPDATE contactos + INSERT en panel_acciones (misma conn/transacción).
+    try:
+        updates = {
+            "resultado_contacto": "enviar_a_sureti",
+            "resultado_contacto_at": "NOW()",
+            "resultado_contacto_por": actor or "",
+            "resultado_contacto_nota": nota or "",
+            "requiere_humano": False,
+        }
+        db.aplicar_accion_panel(
+            telefono, updates, "completar_formulario_manual",
+            nota, actor)
+    except Exception:
+        log.exception("[FormManual] aplicar_accion_panel falló tel=%s",
+                      telefono)
+        return redirect(url_for(
+            "panel.formulario_manual_vista", telefono=telefono,
+            token=token, flash="error_db"))
+
+    # Mensaje sintético para que el cierre aparezca en el chat del panel.
+    # Si el INSERT falla, no revertimos el guardado: el pipeline ya está
+    # escrito y el audit es la fuente de verdad del cierre humano.
+    resumen_flow = {
+        "nombre": nombre, "cedula": cedula, "email": email,
+        "ciudad": ciudad, "barrio": barrio, "direccion": direccion,
+        "apto": apto, "estrato": estrato,
+        "es_ph": "sí" if es_ph else "no",
+        "hipoteca": "sí" if hipoteca_si else "no",
+        "patrimonio": "sí" if patrimonio_si else "no",
+        "edad_mayor_75": "sí" if edad_mayor_75 else "no",
+        "paz_salvo": "sí" if paz_salvo_si else "no",
+        "avaluo": avaluo_m, "objetivo": objetivo,
+        "edad_propietario": edad_propietario,
+        "tipo_persona": tipo_persona,
+        "origen": "panel_formulario_manual", "actor": actor,
+    }
+    try:
+        with db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "INSERT INTO mensajes (telefono, direccion, tipo, resumen, "
+                "       payload) VALUES (%s, 'in', 'flow_reply_manual', "
+                "       %s, %s::jsonb)",
+                (
+                    str(telefono)[:150],
+                    json.dumps(resumen_flow, ensure_ascii=False)[:4000],
+                    json.dumps({
+                        "origen": "panel_formulario_manual",
+                        "actor": actor,
+                        "nota": nota,
+                    }),
+                ),
+            )
+            conn.commit()
+    except Exception:
+        log.exception("[FormManual] no se pudo insertar mensaje sintético "
+                      "tel=%s (el guardado principal ya ocurrió)", telefono)
+
+    flash = "guardado_warn_avaluo" if avaluo_bajo else "guardado"
+    return redirect(url_for(
+        "panel.panel_detalle", telefono=telefono, token=token, flash=flash))
 
 
 @panel.post("/panel/<telefono>/accion")
