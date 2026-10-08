@@ -102,15 +102,33 @@ def test_aplicar_otro_con_nota_ok(captura):
     assert call["updates"]["resultado_contacto_nota"] == "pide hablar en 2 semanas"
 
 
-def test_aplicar_mandar_al_flow_destraba_flags(captura):
-    """`mandar_al_flow` debe destrabar tanto no_contactar como requiere_humano
-    para que el bot pueda seguir el flujo normal en el próximo evento."""
-    res = panel_acciones.aplicar("57306", "mandar_al_flow", actor="Fab")
+def test_aplicar_enviar_formulario_destraba_flags_y_dispara_flow(captura, monkeypatch):
+    """`enviar_formulario` destraba no_contactar/requiere_humano, dispara el
+    Flow 1 al cliente y marca resultado_contacto='enviar_formulario'."""
+    envios = []
+    monkeypatch.setattr(
+        "app.whatsapp.send_form_requisitos",
+        lambda to: envios.append(to) or "<flow sent>",
+    )
+    res = panel_acciones.aplicar("57306", "enviar_formulario", actor="Fab")
     assert res["ok"] is True
+    # El Flow 1 se disparó al cliente.
+    assert envios == ["57306"]
     call = captura.llamadas[0]
     assert call["updates"]["no_contactar"] is False
     assert call["updates"]["requiere_humano"] is False
-    assert call["updates"]["resultado_contacto"] == "flow"
+    assert call["updates"]["resultado_contacto"] == "enviar_formulario"
+
+
+def test_aplicar_enviar_formulario_falla_envio_no_toca_flags(captura, monkeypatch):
+    """Si el send del Flow falla, no se aplican flags ni se inserta audit."""
+    def _boom(to):
+        raise RuntimeError("API meta down")
+
+    monkeypatch.setattr("app.whatsapp.send_form_requisitos", _boom)
+    res = panel_acciones.aplicar("57309", "enviar_formulario", actor="Fab")
+    assert res == {"ok": False, "error": "envio_flow_fallo"}
+    assert captura.llamadas == []  # nada se persiste si falla el envío
 
 
 def test_aplicar_marcar_lead_caliente_fuerza_requiere_humano(captura):

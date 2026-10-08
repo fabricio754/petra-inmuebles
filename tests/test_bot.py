@@ -113,64 +113,103 @@ def test_b3_fallo_db_no_rompe_bot(wa_stubs, state_stub, monkeypatch):
     bot.handle_incoming(phone, {"type": "text", "text": "hola"})
 
 
-# ---------- B1: BOTON_SI con sesión expirada --------------------------------
+# ---------- Humano-first: BOTON_SI y "Sí me interesa" ya no auto-disparan ----
 
-def test_b1_boton_si_sin_sesion_manda_form_requisitos(wa_stubs, state_stub, monkeypatch):
-    """Caso real: 573181716257 clickeó Sí tardío. El bot no debe decir
-    "no entendí": debe reconstruir estado y mandar FORM_REQUISITOS."""
+def test_boton_si_sin_sesion_pasa_a_humano_sin_form(wa_stubs, state_stub, monkeypatch):
+    """Humano-first (sept-2026): BOTON_SI sin sesión ya no reconstruye estado
+    ni dispara FORM_REQUISITOS. Debe prometer asesor + marcar requiere_humano."""
     phone = "573181716257"
 
     import app.db as _db
     monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
-    monkeypatch.setattr(_db, "get_contacto", lambda t: {"tipo_inmueble": "casa", "monto_hasta": 100})
-    # Forzamos USE_FLOWS=True para esperar FORM_REQUISITOS.
-    monkeypatch.setattr(bot.whatsapp, "USE_FLOWS", True)
+    marco_calls = []
+    monkeypatch.setattr(
+        _db, "marcar_requiere_humano",
+        lambda t, m: marco_calls.append((t, m)) or {"nuevo": True, "debe_alertar": True},
+    )
+    alerta_calls = []
+    monkeypatch.setattr(
+        bot, "_enviar_alerta_lead_caliente",
+        lambda p, t: alerta_calls.append((p, t)),
+    )
 
     out = bot.handle_incoming(phone, {"type": "button_reply", "id": "BOTON_SI"})
 
+    # No se disparó el Flow 1 ni ningún form.
+    assert wa_stubs["send_form_requisitos"].calls == []
+    assert wa_stubs["send_pregunta_si_no"].calls == []
+    # Sí se marcó requiere_humano + alerta.
+    assert len(marco_calls) == 1 and marco_calls[0][0] == phone
+    assert alerta_calls == [(phone, "BOTON_SI sin flujo activo (humano-first)")]
+    # Se mandó UN texto con "asesor te contactará".
     assert len(out) == 1
-    assert wa_stubs["send_form_requisitos"].calls, "no mandó FORM_REQUISITOS"
-    # Y la sesión quedó reconstruida.
-    s = state_stub["sessions"][phone]
-    assert s["flow"] == "SURETI"
-    assert s["flow_step"] == "FORM_REQUISITOS"
-    assert "autorizacion_en" in s["flow_data"]
-    assert s["flow_data"]["tipo_inmueble"] == "casa"
-    assert s["flow_data"]["valor_solicitado"] == 100 * 1_000_000
+    assert len(wa_stubs["send_text"].calls) == 1
+    (args, _kw) = wa_stubs["send_text"].calls[0]
+    assert args[0] == phone
+    assert "asesor" in args[1].lower()
 
 
-def test_b1_boton_si_sin_sesion_sin_flows_pregunta_hipoteca(wa_stubs, state_stub, monkeypatch):
-    """Si USE_FLOWS=False (modo chat), debe mandar la primera pregunta de
-    descarte (DESC_HIPOTECA), no "no entendí"."""
+def test_boton_si_con_sesion_autorizacion_pasa_a_humano_no_dispara_flow(
+    wa_stubs, state_stub, monkeypatch,
+):
+    """BOTON_SI con sesión activa en AUTORIZACION: humano-first dice que
+    el bot ya no manda FORM_REQUISITOS. Debe prometer asesor."""
     phone = "573181716257"
     import app.db as _db
     monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
-    monkeypatch.setattr(_db, "get_contacto", lambda t: None)
-    monkeypatch.setattr(bot.whatsapp, "USE_FLOWS", False)
-
-    out = bot.handle_incoming(phone, {"type": "button_reply", "id": "BOTON_SI"})
-
-    assert len(out) == 1
-    assert wa_stubs["send_pregunta_si_no"].calls, "no mandó pregunta de descarte"
-    s = state_stub["sessions"][phone]
-    assert s["flow"] == "SURETI"
-    assert s["flow_step"] == "DESC_HIPOTECA"
-
-
-def test_b1_boton_si_con_sesion_activa_sigue_flujo_normal(wa_stubs, state_stub, monkeypatch):
-    """Un BOTON_SI con sesión en AUTORIZACION debe seguir por el flujo normal
-    (no entra a la reconstrucción B1)."""
-    phone = "573181716257"
-    import app.db as _db
-    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+    monkeypatch.setattr(
+        _db, "marcar_requiere_humano",
+        lambda t, m: {"nuevo": True, "debe_alertar": False},
+    )
     monkeypatch.setattr(bot.whatsapp, "USE_FLOWS", True)
 
-    state_stub["sessions"][phone] = {"flow": "SURETI", "flow_step": "AUTORIZACION", "flow_data": {}}
+    state_stub["sessions"][phone] = {
+        "flow": "SURETI", "flow_step": "AUTORIZACION", "flow_data": {},
+    }
 
     bot.handle_incoming(phone, {"type": "button_reply", "id": "BOTON_SI"})
 
-    # El flujo normal manda form_requisitos cuando USE_FLOWS=True.
-    assert wa_stubs["send_form_requisitos"].calls, "flujo normal no corrió"
+    # El flujo YA NO dispara form_requisitos.
+    assert wa_stubs["send_form_requisitos"].calls == []
+    # En su lugar, texto humano-first.
+    assert len(wa_stubs["send_text"].calls) == 1
+    (args, _kw) = wa_stubs["send_text"].calls[0]
+    assert "asesor" in args[1].lower()
+
+
+def test_template_button_si_me_interesa_pasa_a_humano(wa_stubs, state_stub, monkeypatch):
+    """Humano-first: 'Sí me interesa' en template_button ya no inicia el
+    consent (`_iniciar`). Marca requiere_humano y promete asesor."""
+    phone = "573111222333"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+    marco_calls = []
+    monkeypatch.setattr(
+        _db, "marcar_requiere_humano",
+        lambda t, m: marco_calls.append((t, m)) or {"nuevo": True, "debe_alertar": True},
+    )
+    alerta_calls = []
+    monkeypatch.setattr(
+        bot, "_enviar_alerta_lead_caliente",
+        lambda p, t: alerta_calls.append((p, t)),
+    )
+
+    out = bot.handle_incoming(
+        phone, {"type": "template_button", "text": "Sí me interesa"},
+    )
+
+    # NO disparó consent (send_autorizacion_datos).
+    assert wa_stubs["send_autorizacion_datos"].calls == []
+    # Marcó requiere_humano.
+    assert len(marco_calls) == 1 and marco_calls[0][0] == phone
+    assert "post-template" in marco_calls[0][1]
+    # Disparó alerta WA.
+    assert alerta_calls == [(phone, "Cliente dijo que le interesa post-template")]
+    # UN out de texto humano-first.
+    assert len(out) == 1
+    assert len(wa_stubs["send_text"].calls) == 1
+    (args, _kw) = wa_stubs["send_text"].calls[0]
+    assert "asesor" in args[1].lower()
 
 
 # ---------- BOTON_NO sin flujo → opt-out ------------------------------------
@@ -202,16 +241,22 @@ def test_boton_no_sin_sesion_marca_opt_out(wa_stubs, state_stub, monkeypatch):
     assert wa_stubs["send_plantilla_apertura"].calls == []
 
 
-def test_b1_funcion_reconstruir_devuelve_algo(wa_stubs, state_stub, monkeypatch):
-    """Smoke test de la función auxiliar."""
+def test_reconstruir_sesion_para_boton_si_pasa_a_humano(wa_stubs, state_stub, monkeypatch):
+    """Smoke test humano-first: la función auxiliar ya no dispara el Flow;
+    responde con el texto humano-first y marca requiere_humano."""
     import app.db as _db
-    monkeypatch.setattr(_db, "get_contacto", lambda t: None)
-    monkeypatch.setattr(bot.whatsapp, "USE_FLOWS", True)
+    monkeypatch.setattr(
+        _db, "marcar_requiere_humano",
+        lambda t, m: {"nuevo": True, "debe_alertar": False},
+    )
 
     result = bot._reconstruir_sesion_para_boton_si("573000000002")
 
     assert result is not None
-    assert wa_stubs["send_form_requisitos"].calls
+    # No se dispara el Flow.
+    assert wa_stubs["send_form_requisitos"].calls == []
+    # Sí sale el texto humano-first.
+    assert wa_stubs["send_text"].calls
 
 
 # ---------- Pide llamada: lead caliente (piloto 6-oct) ----------------------
@@ -507,3 +552,102 @@ def test_alerta_lead_caliente_webhook_y_wa_coexisten(monkeypatch):
     assert len(posts) == 1
     assert posts[0][0] == "https://hook.example.com/alert"
     assert posts[0][1]["phone"] == "573508463133"
+
+
+# ---------- FAQ pre-grabadas (5 intents canónicos) --------------------------
+
+def test_bot_responde_faq_tasa(wa_stubs, state_stub, monkeypatch):
+    """Caso real: cliente pregunta 'cuanto cobran?'. Antes el bot caía al
+    clasificador y le mandaba la plantilla de apertura (consent). Ahora
+    debe responder la FAQ canónica de tasa_interes."""
+    phone = "573001234567"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "cuanto cobran?"})
+
+    assert len(out) == 1
+    assert wa_stubs["send_text"].calls, "no mandó la FAQ"
+    (args, _kwargs) = wa_stubs["send_text"].calls[0]
+    assert args[0] == phone
+    assert "tasa" in args[1].lower()
+    # No disparó el consent ni la plantilla de apertura.
+    assert wa_stubs["send_autorizacion_datos"].calls == []
+    assert wa_stubs["send_plantilla_apertura"].calls == []
+
+
+def test_bot_responde_faq_quienes_somos(wa_stubs, state_stub, monkeypatch):
+    """'quienes son?' debe mandar la respuesta canónica de quienes_somos,
+    no el consent."""
+    phone = "573001234568"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "quienes son?"})
+
+    assert len(out) == 1
+    assert wa_stubs["send_text"].calls
+    (args, _kwargs) = wa_stubs["send_text"].calls[0]
+    assert "Petra" in args[1]
+    assert wa_stubs["send_autorizacion_datos"].calls == []
+
+
+def test_bot_no_interrumpe_flow_activo_con_faq(wa_stubs, state_stub, monkeypatch):
+    """Si hay flow SURETI activo, la FAQ NO debe disparar — dejar que el
+    Flow siga su curso. Ej: usuario en DATOS_ESTRATO responde '2' pero
+    luego pregunta 'cuanto cobran?'; el handler normal debe correr."""
+    phone = "573001234569"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+
+    # Simulamos sesión con flow activo en un paso de texto libre.
+    state_stub["sessions"][phone] = {
+        "flow": "SURETI",
+        "flow_step": "DATOS_NOMBRE",
+        "flow_data": {},
+    }
+
+    bot.handle_incoming(phone, {"type": "text", "text": "cuanto cobran?"})
+
+    # La FAQ canónica NO debería haber salido. El flow debería seguir y
+    # pedir el nombre otra vez (o aceptar 'cuanto cobran?' como nombre).
+    # Lo clave: la respuesta canónica de tasa NO está entre los sends.
+    for args, _kwargs in wa_stubs["send_text"].calls:
+        assert "trabajamos en rangos competitivos" not in args[1]
+
+
+def test_bot_bloqueado_no_responde_faq(wa_stubs, state_stub, monkeypatch):
+    """Precedencia: si no_contactar=true, el guard esta_bloqueado gana y
+    el bot queda mudo aunque el texto sea FAQ pura."""
+    phone = "573001234570"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: True)
+
+    out = bot.handle_incoming(phone, {"type": "text", "text": "quienes son?"})
+
+    assert out == []
+    for name, f in wa_stubs.items():
+        assert f.calls == [], f"bloqueado pero se envió {name}"
+
+
+def test_bot_pide_llamada_tiene_prioridad_sobre_faq(wa_stubs, state_stub, monkeypatch):
+    """Precedencia: 'me pueden llamar?' es señal más caliente que una FAQ.
+    Debe ir a la rama de pide_llamada, no a FAQ."""
+    phone = "573001234571"
+    import app.db as _db
+    monkeypatch.setattr(_db, "esta_bloqueado", lambda t: False)
+    monkeypatch.setattr(
+        _db, "marcar_requiere_humano",
+        lambda p, m: {"nuevo": True, "debe_alertar": False},
+    )
+
+    bot.handle_incoming(phone, {"type": "text", "text": "me pueden llamar?"})
+
+    # Respondió la confirmación de pide_llamada, no la FAQ.
+    assert wa_stubs["send_text"].calls
+    textos = [a[1] for a, _ in wa_stubs["send_text"].calls]
+    assert any("asesor te contactar" in t.lower() for t in textos)
+    # NO salió una respuesta FAQ.
+    for t in textos:
+        assert "trabajamos en rangos competitivos" not in t
+        assert "Petra, una empresa" not in t

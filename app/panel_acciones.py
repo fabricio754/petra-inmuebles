@@ -4,8 +4,9 @@ El asesor que habla con un lead por teléfono necesita cerrar la conversación
 registrando qué pasó. Este módulo define el catálogo cerrado de acciones
 posibles y las aplica atómicamente:
 
-  1. UPDATE sobre `contactos` con los flags/campos que corresponden.
-  2. INSERT en `panel_acciones` para audit (quién, qué, cuándo, nota).
+  1. Side-effect opcional (ej. enviar Flow 1 al cliente).
+  2. UPDATE sobre `contactos` con los flags/campos que corresponden.
+  3. INSERT en `panel_acciones` para audit (quién, qué, cuándo, nota).
 
 Cada entrada en `ACCIONES` declara:
   - label       : texto para el humano (botón/radio).
@@ -13,6 +14,11 @@ Cada entrada en `ACCIONES` declara:
   - updates     : dict de columnas → valor para `UPDATE contactos`. Si
                   incluye `resultado_contacto`, el helper agrega `_at`,
                   `_por` y `_nota` automáticamente.
+
+Nota sobre backward-compat: el `resultado_contacto` guardado en DB para
+"Enviar formulario" se mantiene como `enviar_formulario` (valor nuevo),
+pero los rows legacy con `resultado_contacto='flow'` deben seguir
+contándose como la misma clase a nivel de UI/bucket.
 """
 import logging
 
@@ -20,14 +26,14 @@ log = logging.getLogger("petra")
 
 
 ACCIONES = {
-    "mandar_al_flow": {
-        "label": "Mandar al Flow",
-        "descripcion": "Habilita al cliente para seguir el flujo normal "
-                       "(bot le mandará FORM_REQUISITOS en próximo evento).",
+    "enviar_formulario": {
+        "label": "Enviar formulario",
+        "descripcion": "Dispara el Flow 1 (REQUISITOS) al cliente. "
+                       "Marca que estamos esperando que lo complete.",
         "updates": {
             "no_contactar": False,
             "requiere_humano": False,
-            "resultado_contacto": "flow",
+            "resultado_contacto": "enviar_formulario",
         },
     },
     "broker": {
@@ -56,7 +62,7 @@ ACCIONES = {
         },
     },
     "sureti": {
-        "label": "Lead calificado — pasó a Sureti",
+        "label": "Entregado a Sureti",
         "descripcion": "Marcar como entregado al equipo humano externo.",
         "updates": {
             "resultado_contacto": "sureti",
@@ -88,6 +94,18 @@ ACCIONES = {
 }
 
 
+def _enviar_flow_requisitos(telefono: str) -> None:
+    """Dispara el Flow 1 (REQUISITOS) al cliente desde el panel.
+
+    Reutiliza `whatsapp.send_form_requisitos`, la misma función con la que
+    el bot antes autodisparaba el Flow tras BOTON_SI. Ahora el disparo lo
+    hace el humano explícitamente. Si falla, levanta la excepción al caller
+    para que `aplicar()` NO toque las flags ni inserte audit.
+    """
+    from app import whatsapp
+    whatsapp.send_form_requisitos(telefono)
+
+
 def aplicar(telefono: str, accion_key: str, nota: str = "", actor: str = "") -> dict:
     """Aplica la acción al contacto y audita.
 
@@ -95,6 +113,10 @@ def aplicar(telefono: str, accion_key: str, nota: str = "", actor: str = "") -> 
     motivo. Si `ok=True`, incluye `accion` y `label`.
 
     La acción `otro` exige nota — sin nota el cierre es inútil para el audit.
+
+    La acción `enviar_formulario` tiene un side-effect: antes de tocar DB,
+    dispara el Flow 1 (REQUISITOS) al cliente. Si el envío falla, no se
+    aplica el UPDATE ni se inserta audit (volvemos con error).
     """
     from app import db
 
@@ -106,6 +128,16 @@ def aplicar(telefono: str, accion_key: str, nota: str = "", actor: str = "") -> 
     # Validación: "otro" sin nota no tiene sentido para audit.
     if accion_key == "otro" and not (nota or "").strip():
         return {"ok": False, "error": "nota_requerida"}
+
+    # Side-effect previo: Enviar formulario dispara el Flow al cliente.
+    # Si falla el envío, abortamos antes de tocar DB (nada de flags
+    # cambiadas sin que el cliente haya recibido el Flow).
+    if accion_key == "enviar_formulario":
+        try:
+            _enviar_flow_requisitos(telefono)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("[Panel] Error enviando Flow 1 a %s desde panel", telefono)
+            return {"ok": False, "error": "envio_flow_fallo"}
 
     updates = dict(cfg["updates"])
 
