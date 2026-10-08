@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel Massi — Formulario manual {{ telefono }}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; max-width: 760px; margin: 0 auto; background: #f6f8fa; color: #1f2328; }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; font-family: ui-monospace, monospace; }
+  .back { font-size: .9rem; color: #0969da; text-decoration: none; }
+  .back:hover { text-decoration: underline; }
+  section { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 12px 16px; margin-top: 12px; }
+  section h2 { font-size: 1rem; margin: 0 0 10px; color: #57606a; }
+  .lead-ctx { display: grid; grid-template-columns: 160px 1fr; gap: 4px 12px; font-size: .88rem; }
+  .lead-ctx dt { color: #57606a; }
+  .lead-ctx dd { margin: 0; word-break: break-word; }
+  form.manual label { display: block; font-size: .9rem; margin-top: 10px; }
+  form.manual label small { display: block; color: #57606a; font-size: .78rem; margin-top: 2px; font-weight: 400; }
+  form.manual input[type=text], form.manual input[type=number],
+  form.manual input[type=email], form.manual select, form.manual textarea {
+    width: 100%; padding: 7px 9px; font: inherit; border: 1px solid #d0d7de;
+    border-radius: 4px; background: #fff; margin-top: 4px; box-sizing: border-box;
+  }
+  form.manual .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 540px) { form.manual .fila { grid-template-columns: 1fr; } }
+  form.manual .radio-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+  form.manual .radio-row label { display: inline-flex; align-items: center; gap: 4px; margin: 0; font-weight: 400; }
+  form.manual .radio-row input { margin: 0 4px 0 0; }
+  .consent { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 10px 12px; margin-top: 14px; }
+  .consent label { font-weight: 500; display: flex; gap: 8px; align-items: flex-start; margin: 0; }
+  .consent input { margin-top: 3px; }
+  .acciones-fila { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .acciones-fila button, .acciones-fila a {
+    padding: 8px 16px; border-radius: 6px; font-weight: 500; cursor: pointer;
+    font-size: .9rem; text-decoration: none; border: 1px solid #d0d7de;
+    background: #f6f8fa; color: #1f2328;
+  }
+  .acciones-fila button[type=submit] { background: #1a7f37; color: #fff; border-color: #1a7f37; }
+  .acciones-fila button[type=submit]:hover { background: #116329; }
+  .nota { font-size: .85rem; color: #8c959f; margin-top: 10px; padding: 8px 12px; background: #f6f8fa; border-left: 3px solid #d0d7de; border-radius: 3px; }
+  .nota.err { border-color: #cf222e; background: #ffebe9; color: #82071e; }
+  fieldset { border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 14px 14px; margin: 10px 0 0; }
+  fieldset legend { font-size: .85rem; color: #57606a; padding: 0 6px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #e6edf3; }
+    section { background: #161b22; border-color: #30363d; }
+    section h2, .lead-ctx dt { color: #8b949e; }
+    .back { color: #58a6ff; }
+    form.manual input, form.manual select, form.manual textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
+    .acciones-fila button, .acciones-fila a { background: #262d36; color: #e6edf3; border-color: #30363d; }
+    .consent { background: #341a00; border-color: #d4a72c; color: #e8c547; }
+    fieldset { border-color: #30363d; }
+    fieldset legend { color: #8b949e; }
+    .nota { background: #161b22; border-color: #30363d; color: #8b949e; }
+    .nota.err { background: #3b0a0f; border-color: #cf222e; color: #ff7b72; }
+  }
+</style>
+</head>
+<body>
+<p><a class="back" href="/panel/{{ telefono }}?token={{ token }}">&larr; Volver al chat</a></p>
+<h1>Formulario manual — {{ telefono }}</h1>
+<p style="font-size:.9rem;color:#57606a;margin:4px 0 0;">
+  Completá los Flows 1 y 2 EN NOMBRE del cliente mientras hablás con él
+  por WhatsApp o teléfono. Al guardar queda igual que un flow_reply
+  completo: pipeline poblado y bucket pasa a "enviar a sureti".
+</p>
+
+{% if flash == 'error_campos' %}
+  <p class="nota err">Faltan campos obligatorios: avalúo, cédula, email,
+    nombre y la autorización verbal son requeridos.</p>
+{% elif flash == 'error_db' %}
+  <p class="nota err">No se pudo guardar en la base. Reintentá en unos segundos.</p>
+{% endif %}
+
+<section>
+  <h2>Contexto del lead</h2>
+  <dl class="lead-ctx">
+    <dt>Teléfono</dt><dd>{{ telefono }}</dd>
+    <dt>Ciudad (scraping)</dt><dd>{{ (contacto and contacto.ciudad) or '—' }}</dd>
+    <dt>Tipo inmueble</dt><dd>{{ (contacto and contacto.tipo_inmueble) or '—' }}</dd>
+    <dt>Precio publicado</dt><dd>
+      {% if contacto and contacto.precio_publicado %}
+        ${{ '{:,}'.format(contacto.precio_publicado).replace(',', '.') }}
+      {% else %}—{% endif %}
+    </dd>
+    <dt>Monto hasta</dt><dd>
+      {% if contacto and contacto.monto_hasta_millones %}
+        ${{ contacto.monto_hasta_millones }}M
+      {% else %}—{% endif %}
+    </dd>
+  </dl>
+</section>
+
+<form method="post"
+      action="/panel/{{ telefono }}/formulario-manual?token={{ token }}"
+      class="manual">
+  <section>
+    <h2>Asesor</h2>
+    <label>
+      Tu nombre
+      <input type="text" name="actor" id="actor-input" required
+             placeholder="Ej. Massi" autocomplete="off">
+    </label>
+    <label>
+      Nota (opcional)
+      <textarea name="nota" rows="2"
+                placeholder="Contexto de la llamada / chat (opcional)"></textarea>
+    </label>
+  </section>
+
+  <section>
+    <h2>Flow 1 — Requisitos del inmueble</h2>
+
+    <div class="fila">
+      <label>
+        Dirección
+        <input type="text" name="direccion"
+               placeholder="Ej: Cra 45 # 80-20">
+      </label>
+      <label>
+        Apto / torre
+        <input type="text" name="apto" placeholder="Opcional">
+      </label>
+    </div>
+
+    <div class="fila">
+      <label>
+        Barrio
+        <input type="text" name="barrio"
+               value="{{ (contacto and contacto.barrio) or '' }}">
+      </label>
+      <label>
+        Ciudad
+        <select name="ciudad">
+          {% set c_actual = (contacto and (contacto.ciudad or '')) or '' %}
+          <option value="">—</option>
+          {% for cid, cname in [
+              ('BARRANQUILLA', 'Barranquilla'),
+              ('BOGOTA', 'Bogotá'),
+              ('CAJICA', 'Cajicá'),
+              ('CARTAGENA', 'Cartagena'),
+              ('CHIA', 'Chía'),
+              ('CUCUTA', 'Cúcuta'),
+              ('MEDELLIN', 'Medellín'),
+              ('SANTA_MARTA', 'Santa Marta'),
+              ('ZIPAQUIRA', 'Zipaquirá'),
+              ('OTRA', 'Otra'),
+          ] %}
+            <option value="{{ cid }}"
+              {% if c_actual.lower() == cname.lower() %}selected{% endif %}>
+              {{ cname }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <div class="fila">
+      <label>
+        Estrato
+        <select name="estrato">
+          <option value="">—</option>
+          {% for e in [1, 2, 3, 4, 5, 6] %}
+            <option value="{{ e }}">{{ e }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <fieldset>
+        <legend>¿Es un conjunto o edificio? (PH)</legend>
+        <div class="radio-row">
+          <label><input type="radio" name="es_ph" value="SI"> Sí</label>
+          <label><input type="radio" name="es_ph" value="NO" checked> No</label>
+        </div>
+      </fieldset>
+    </div>
+
+    <fieldset>
+      <legend>¿Tiene hipoteca o embargo?</legend>
+      <div class="radio-row">
+        <label><input type="radio" name="hipoteca" value="SI"> Sí</label>
+        <label><input type="radio" name="hipoteca" value="NO" checked> No</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>¿Afectación a patrimonio de familia?</legend>
+      <div class="radio-row">
+        <label><input type="radio" name="patrimonio" value="SI"> Sí</label>
+        <label><input type="radio" name="patrimonio" value="NO" checked> No</label>
+        <label><input type="radio" name="patrimonio" value="NO_SE"> No sé</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>¿Propietario mayor de 75 años?</legend>
+      <div class="radio-row">
+        <label><input type="radio" name="edad" value="SI"> Sí</label>
+        <label><input type="radio" name="edad" value="NO" checked> No</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>¿Puede ponerse al día con pagos pendientes (paz y salvo)?</legend>
+      <div class="radio-row">
+        <label><input type="radio" name="paz_salvo" value="SI" checked> Sí</label>
+        <label><input type="radio" name="paz_salvo" value="NO"> No</label>
+      </div>
+    </fieldset>
+
+    <label>
+      Avalúo (en millones) <span style="color:#cf222e">*</span>
+      <input type="number" name="avaluo" min="1" step="1" required
+             placeholder="Ej: 350 = $350.000.000">
+      <small>Lo que creen que vale el inmueble. Si es menor a 50 el sistema
+        guarda igual pero advierte.</small>
+    </label>
+  </section>
+
+  <section>
+    <h2>Flow 2 — Datos del propietario</h2>
+
+    <fieldset>
+      <legend>Tipo de persona</legend>
+      <div class="radio-row">
+        <label><input type="radio" name="tipo_persona" value="NATURAL" checked> Persona natural</label>
+        <label><input type="radio" name="tipo_persona" value="JURIDICA"> Empresa / jurídica</label>
+      </div>
+    </fieldset>
+
+    <label>
+      Nombre <span style="color:#cf222e">*</span>
+      <input type="text" name="nombre" required
+             value="{{ (contacto and contacto.nombre) or '' }}">
+    </label>
+    <div class="fila">
+      <label>
+        Cédula / NIT <span style="color:#cf222e">*</span>
+        <input type="text" name="cedula" required
+               placeholder="Solo números">
+      </label>
+      <label>
+        Edad del propietario
+        <input type="number" name="edad_propietario" min="18" max="120">
+      </label>
+    </div>
+    <label>
+      Email <span style="color:#cf222e">*</span>
+      <input type="email" name="email" required>
+    </label>
+    <label>
+      Objetivo del crédito
+      <select name="objetivo">
+        <option value="">—</option>
+        <option value="OBJ_CAPITAL">Capital de trabajo</option>
+        <option value="OBJ_DEUDAS">Pagar deudas</option>
+        <option value="OBJ_INVERSION">Inversión</option>
+        <option value="OBJ_GASTOS">Gastos personales</option>
+        <option value="OBJ_OTRO">Otro</option>
+      </select>
+    </label>
+  </section>
+
+  <div class="consent">
+    <label>
+      <input type="checkbox" name="autorizacion_verbal" value="1" required>
+      <span>Confirmo que el cliente autorizó verbalmente el tratamiento
+        de sus datos (Ley 1581 de 2012).</span>
+    </label>
+  </div>
+
+  <div class="acciones-fila">
+    <a href="/panel/{{ telefono }}?token={{ token }}">Cancelar</a>
+    <button type="submit">Guardar formulario</button>
+  </div>
+</form>
+
+<script>
+  // Pre-llena el nombre del asesor desde localStorage (mismo pattern que
+  // el modal "Cerrar conversación" / PR #61). No usamos frameworks JS.
+  (function(){
+    var KEY = 'panel_actor_name';
+    var inp = document.getElementById('actor-input');
+    if (!inp) return;
+    try {
+      var saved = localStorage.getItem(KEY);
+      if (saved) inp.value = saved;
+    } catch (e) {}
+    inp.addEventListener('change', function(){
+      try { localStorage.setItem(KEY, inp.value); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>

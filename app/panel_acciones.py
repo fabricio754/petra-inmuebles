@@ -68,6 +68,19 @@ ACCIONES = {
             "resultado_contacto": "sureti",
         },
     },
+    # Nueva acción: el asesor completó los Flows 1 y 2 con el cliente por
+    # chat o llamada. El guardado real ocurre en panel.formulario_manual_guardar
+    # (necesita escribir pipeline + mensaje sintético + audit, no sólo flags),
+    # pero declaramos la entrada acá para que el label aparezca en el panel
+    # (historial de acciones) y los tests tengan algo con qué chequear.
+    "completar_formulario_manual": {
+        "label": "Completar formulario manual",
+        "descripcion": "Asesor completó los Flows 1+2 con el cliente por chat/llamada.",
+        "updates": {
+            "resultado_contacto": "enviar_a_sureti",
+            "requiere_humano": False,
+        },
+    },
     "levantar_no_contactar": {
         "label": "Levantar no_contactar",
         "descripcion": "Deshace el no_contactar (ej. opt-out falso positivo).",
