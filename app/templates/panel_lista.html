@@ -79,17 +79,18 @@
   </div>
 </div>
 <div class="totales">
-  {% for estado, n in por_estado %}
-    <a class="chip chip-link {% if f_estado == estado %}chip-active{% endif %}"
-       href="?token={{ token }}&estado={{ estado }}{% if f_ciudad %}&ciudad={{ f_ciudad }}{% endif %}{% if f_portal %}&portal={{ f_portal }}{% endif %}{% if q %}&q={{ q }}{% endif %}">{{ estado }}<strong>{{ n }}</strong></a>
+  {% for key, label, n in buckets_chips %}
+    <a class="chip chip-link {% if f_bucket == key %}chip-active{% endif %}"
+       href="?token={{ token }}&bucket={{ key }}{% if f_ciudad %}&ciudad={{ f_ciudad }}{% endif %}{% if f_portal %}&portal={{ f_portal }}{% endif %}{% if q %}&q={{ q }}{% endif %}">{{ label }}<strong>{{ n }}</strong></a>
   {% endfor %}
-  {% if f_estado or f_ciudad or f_portal or q %}
+  {% if f_bucket or f_estado or f_ciudad or f_portal or q %}
     <a class="chip chip-reset" href="?token={{ token }}">× quitar filtros</a>
   {% endif %}
 </div>
 
 <form class="filtros" method="get" action="/panel">
   <input type="hidden" name="token" value="{{ token }}">
+  {% if f_bucket %}<input type="hidden" name="bucket" value="{{ f_bucket }}">{% endif %}
   {% if f_estado %}<input type="hidden" name="estado" value="{{ f_estado }}">{% endif %}
   <input type="search" name="q" value="{{ q }}" placeholder="Buscar por teléfono o nombre…">
   <select name="ciudad">

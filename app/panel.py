@@ -97,6 +97,66 @@ def _scalar(conn, sql, params=()):
 # Humanización y formato
 # ---------------------------------------------------------------------------
 
+# Taxonomía de buckets (humano-first, sept-2026)
+# -----------------------------------------------
+# Derivada on-the-fly a partir del contacto + 3 flags EXISTS por teléfono
+# (tiene_in, autorizo, completo_flow). Reemplaza los chips viejos
+# (nuevo / contactado / en_flujo / en_flujo:SURETI / no_contactar) por una
+# vista accionable para el asesor humano:
+#
+#   nuevo              — todavía no se contactó
+#   contactado         — contactado=TRUE pero sin IN
+#   respondio          — hay IN (cliente respondió algo)
+#   enviar_formulario  — Flow enviado desde el panel, o cliente ya completó
+#                        (resultado_contacto IN ('enviar_formulario','flow') ó
+#                         hay flow_reply en mensajes)
+#   enviar_a_sureti    — resultado_contacto IN ('sureti', 'entregado')
+#   no_contactar       — opt-out (gana sobre todo)
+BUCKETS_ORDEN = (
+    "nuevo", "contactado", "respondio",
+    "enviar_formulario", "enviar_a_sureti", "no_contactar",
+)
+
+BUCKETS_LABELS = {
+    "nuevo": "nuevo",
+    "contactado": "contactado",
+    "respondio": "respondió",
+    "enviar_formulario": "enviar formulario",
+    "enviar_a_sureti": "enviar a sureti",
+    "no_contactar": "no contactar",
+}
+
+
+def bucket_de(contacto, tiene_in: bool, autorizo: bool, completo_flow: bool) -> str:
+    """Reglas en orden (primero que matchea gana):
+
+    1. no_contactar               → "no_contactar"
+    2. resultado_contacto in ('sureti','entregado') → "enviar_a_sureti"
+    3. completo_flow O resultado_contacto in ('enviar_formulario','flow')
+                                   → "enviar_formulario"
+    4. tiene_in                   → "respondio"
+    5. contactado=True            → "contactado"
+    6. else                       → "nuevo"
+
+    `autorizo` se calcula para el consumidor pero no entra en estas reglas:
+    desde humano-first (sept-2026) la autorización ya no implica Flow —
+    sólo señala interés. Si querés distinguir "autorizó pero no se le envió
+    Flow aún" quedate con el bucket "respondio".
+    """
+    if contacto and contacto.get("no_contactar"):
+        return "no_contactar"
+    rc = (contacto or {}).get("resultado_contacto") or ""
+    if rc in ("sureti", "entregado"):
+        return "enviar_a_sureti"
+    if completo_flow or rc in ("enviar_formulario", "flow"):
+        return "enviar_formulario"
+    if tiene_in:
+        return "respondio"
+    if contacto and contacto.get("contactado"):
+        return "contactado"
+    return "nuevo"
+
+
 def _estado_lead(c, s, p):
     """Deriva el estado actual del lead a partir de contacto, sesión y pipeline."""
     if p:
@@ -439,6 +499,7 @@ def panel_lista():
     _check_token()
     token = request.args.get("token", "")
     f_estado = (request.args.get("estado") or "").strip()
+    f_bucket = (request.args.get("bucket") or "").strip()
     f_ciudad = (request.args.get("ciudad") or "").strip()
     f_portal = (request.args.get("portal") or "").strip()
     f_pendientes = request.args.get("pendientes") == "1"
@@ -447,15 +508,35 @@ def panel_lista():
 
     try:
         with _panel_conexion() as conn:
+            # CTE que agrega 3 flags EXISTS por teléfono para derivar bucket:
+            #   tiene_in      — cliente respondió algo
+            #   autorizo      — dio BOTON_SI (interesado post-template)
+            #   completo_flow — mandó al menos un flow_reply (Flow completado)
             contactos = _rows(conn, """
-                SELECT telefono, nombre, ciudad, tipo_inmueble, portal,
-                       monto_hasta_millones AS monto_hasta,
-                       no_contactar, contactado, fecha_contacto, fecha_scraping,
-                       resultado_contacto, resultado_contacto_at,
-                       resultado_contacto_por,
-                       requiere_humano
-                FROM contactos
-                ORDER BY COALESCE(fecha_contacto, fecha_scraping) DESC NULLS LAST
+                SELECT c.telefono, c.nombre, c.ciudad, c.tipo_inmueble, c.portal,
+                       c.monto_hasta_millones AS monto_hasta,
+                       c.no_contactar, c.contactado, c.fecha_contacto,
+                       c.fecha_scraping,
+                       c.resultado_contacto, c.resultado_contacto_at,
+                       c.resultado_contacto_por,
+                       c.requiere_humano,
+                       EXISTS (
+                         SELECT 1 FROM mensajes m
+                         WHERE m.telefono = c.telefono AND m.direccion = 'in'
+                       ) AS tiene_in,
+                       EXISTS (
+                         SELECT 1 FROM mensajes m
+                         WHERE m.telefono = c.telefono
+                           AND ((m.tipo = 'button_reply' AND m.resumen = 'BOTON_SI')
+                                OR (m.tipo = 'template_button'
+                                    AND m.resumen ILIKE 'Sí me interesa%%'))
+                       ) AS autorizo,
+                       EXISTS (
+                         SELECT 1 FROM mensajes m
+                         WHERE m.telefono = c.telefono AND m.tipo = 'flow_reply'
+                       ) AS completo_flow
+                FROM contactos c
+                ORDER BY COALESCE(c.fecha_contacto, c.fecha_scraping) DESC NULLS LAST
                 LIMIT 2000
             """)
             sesiones = {r["telefono"]: r for r in _rows(conn, """
@@ -495,6 +576,12 @@ def panel_lista():
         filas_all.append({
             **c,
             "estado": _estado_lead(c, s, p),
+            "bucket": bucket_de(
+                c,
+                bool(c.get("tiene_in")),
+                bool(c.get("autorizo")),
+                bool(c.get("completo_flow")),
+            ),
             "ultima_actividad": ultima,
             "ultima_actividad_hace": _hace(ultima),
             "ultima_actividad_semaforo": _semaforo(ultima),
@@ -503,16 +590,26 @@ def panel_lista():
         })
 
     por_estado = {}
+    por_bucket = {k: 0 for k in BUCKETS_ORDEN}
     ciudades_set = set()
     portales_set = set()
     for f in filas_all:
         por_estado[f["estado"]] = por_estado.get(f["estado"], 0) + 1
+        por_bucket[f["bucket"]] = por_bucket.get(f["bucket"], 0) + 1
         if f.get("ciudad"):
             ciudades_set.add(f["ciudad"])
         if f.get("portal"):
             portales_set.add(f["portal"])
 
+    # Lista ordenada [(key, label, count)] para los chips del template.
+    buckets_chips = [
+        (k, BUCKETS_LABELS[k], por_bucket.get(k, 0))
+        for k in BUCKETS_ORDEN
+    ]
+
     def _match(f):
+        if f_bucket and f["bucket"] != f_bucket:
+            return False
         if f_estado and not f["estado"].startswith(f_estado):
             return False
         if f_ciudad and (f.get("ciudad") or "") != f_ciudad:
@@ -551,10 +648,12 @@ def panel_lista():
         filas=filas, por_estado=sorted(por_estado.items()), token=token,
         total=len(filas), total_sin_filtro=len(filas_all),
         ciudades=sorted(ciudades_set), portales=sorted(portales_set),
-        f_estado=f_estado, f_ciudad=f_ciudad, f_portal=f_portal, q=q,
+        f_estado=f_estado, f_bucket=f_bucket,
+        f_ciudad=f_ciudad, f_portal=f_portal, q=q,
         f_pendientes=f_pendientes,
         f_pendiente_humano=f_pendiente_humano,
         labels_resultado=labels_resultado,
+        buckets_chips=buckets_chips,
     )
 
 

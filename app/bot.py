@@ -281,6 +281,53 @@ def _iniciar(phone):
     return whatsapp.send_autorizacion_datos(phone)
 
 
+# Mensaje humano-first: desde el flujo humano-first (sept-2026), el bot ya no
+# dispara el Flow 1 por sí solo cuando el cliente dice "Sí me interesa" o
+# clickea BOTON_SI. En su lugar, promete que un asesor lo contactará, marca
+# `requiere_humano` y alerta al asesor por WA. El asesor califica por
+# chat/llamada y, cuando decide avanzar, dispara el Flow 1 desde el panel.
+_TEXTO_HUMANO_FIRST = (
+    "¡Perfecto! 🙌\n\n"
+    "Un asesor de Petra te contactará pronto para contarte "
+    "cómo funciona nuestro crédito con garantía inmobiliaria y "
+    "resolver tus dudas."
+)
+
+
+def _responder_humano_first(phone, motivo):
+    """Interés confirmado: pasamos el lead a humano (no auto-Flow).
+
+    1) Marca `requiere_humano = TRUE` (idempotente con cooldown).
+    2) Responde al cliente la confirmación "un asesor te contactará".
+    3) Si el cooldown no bloquea, dispara alerta WA al asesor.
+    4) Cierra la sesión del bot (el flujo lo retoma el humano).
+
+    Devuelve el out del `send_text` (ya envuelto en `[...]` por el caller
+    cuando corresponde).
+    """
+    try:
+        from app import db as _db
+        resultado = _db.marcar_requiere_humano(phone, motivo)
+    except Exception:
+        _log.exception("[Bot] Error marcando requiere_humano para %s", phone)
+        resultado = {"nuevo": False, "debe_alertar": False}
+
+    out = whatsapp.send_text(phone, _TEXTO_HUMANO_FIRST)
+
+    if resultado.get("debe_alertar"):
+        _enviar_alerta_lead_caliente(phone, motivo)
+
+    # Cerramos cualquier sesión en curso: el flujo lo retoma el humano desde
+    # el panel. Si quedara una sesión AUTORIZACION abierta, un siguiente SI
+    # volvería a entrar al legacy path. Mejor cortar limpio acá.
+    try:
+        _terminar(phone)
+    except Exception:
+        _log.exception("[Bot] Error cerrando sesión humano-first phone=%s", phone)
+
+    return out
+
+
 def _guardar(phone, data, estado):
     state.save_pipeline({
         "telefono": phone,
@@ -431,20 +478,16 @@ def _procesar(phone, session, event):
     if step == "AUTORIZACION":
         _log.info("[Bot] AUTORIZACION phone=%s resp=%r", phone, resp)
         if resp in SI:
+            # Humano-first: el bot ya no dispara Flow 1 automáticamente.
+            # Antes mandábamos FORM_REQUISITOS o DESC_HIPOTECA acá; ahora
+            # promete asesor y marca requiere_humano. El asesor dispara
+            # el Flow desde el panel cuando el lead está listo.
+            _log.info("[Bot] AUTORIZACION SI — humano-first, no auto-Flow")
             try:
-                data["autorizacion_en"] = state.now_iso()
-                _log.info("[Bot] AUTORIZACION SI — guardando no_contactar=False")
                 state.set_no_contactar(phone, False)
-                if whatsapp.USE_FLOWS:
-                    _log.info("[Bot] USE_FLOWS=True — enviando FORM_REQUISITOS")
-                    state.set_session(phone, flow_step="FORM_REQUISITOS", flow_data=data)
-                    return whatsapp.send_form_requisitos(phone)
-                _log.info("[Bot] USE_FLOWS=False — enviando DESC_HIPOTECA")
-                state.set_session(phone, flow_step="DESC_HIPOTECA", flow_data=data)
-                return whatsapp.send_pregunta_si_no(phone, PREGUNTAS_DESCARTE["DESC_HIPOTECA"])
             except Exception:
-                _log.exception("[Bot] ERROR en AUTORIZACION SI para %s", phone)
-                raise
+                _log.exception("[Bot] Error en set_no_contactar AUTORIZACION SI")
+            return _responder_humano_first(phone, "Autorizó datos (SI post-consent)")
         if resp in NO:
             state.set_no_contactar(phone, True)
             _terminar(phone)
@@ -693,8 +736,13 @@ def handle_incoming(phone, event):
             state.set_no_contactar(phone, True)
             _terminar(phone)
             return [whatsapp.send_no_contactar(phone)]
+        # Humano-first (sept-2026): "Sí me interesa" ya NO dispara el consent
+        # ni el Flow 1. Promete asesor, marca requiere_humano y alerta.
+        # El asesor dispara el Flow 1 desde el panel cuando el lead está listo.
         state.marcar_respuesta(phone, "interesado")
-        return [_iniciar(phone)]
+        return [_responder_humano_first(
+            phone, "Cliente dijo que le interesa post-template"
+        )]
 
     # Broker / inmobiliaria / auto-reply del otro lado: marcamos no_contactar
     # y dejamos la conversacion muerta (sin responder nada).
@@ -764,12 +812,12 @@ def handle_incoming(phone, event):
     if en_flujo:
         return [_procesar(phone, session, event)]
 
-    # B1: BOTON_SI (click en "Sí/Autorizo") con sesión expirada o inexistente.
-    # Antes caía a `_iniciar()` o a "no entendí" tras varias horas. Ahora
-    # reconstruimos el estado desde `contactos` y mandamos el consent /
-    # FORM_REQUISITOS que correspondería después de autorizar.
+    # B1 (humano-first): BOTON_SI (click en "Sí/Autorizo") con sesión expirada
+    # o inexistente. Antes reconstruíamos sesión y mandábamos FORM_REQUISITOS;
+    # ahora el bot ya no auto-dispara el Flow, así que respondemos con el
+    # texto humano-first y pasamos el lead a asesor.
     if event["type"] == "button_reply" and resp in SI:
-        _log.info("[Bot] BOTON_SI sin flujo activo — reconstruyendo estado phone=%s", phone)
+        _log.info("[Bot] BOTON_SI sin flujo activo — humano-first phone=%s", phone)
         return [_reconstruir_sesion_para_boton_si(phone)]
 
     # Sin conversación activa. "NO" como primera respuesta (p. ej. a nuestro
@@ -803,40 +851,22 @@ def handle_incoming(phone, event):
 
 
 def _reconstruir_sesion_para_boton_si(phone):
-    """B1: llega BOTON_SI y no hay sesión activa (expiró o nunca existió).
+    """B1 (humano-first): llega BOTON_SI y no hay sesión activa.
 
-    Reconstruimos un estado mínimo "ya autorizó" con los datos conocidos
-    del contacto (ciudad/tipo/monto) y mandamos el FORM_REQUISITOS
-    (o la primera pregunta por chat si USE_FLOWS=False), para no responder
-    "no entendí" a un click explícito de interés.
+    Antes reconstruíamos un estado "ya autorizó" y mandábamos FORM_REQUISITOS
+    (o DESC_HIPOTECA). Desde sept-2026 el bot ya no auto-dispara el Flow: en
+    su lugar promete asesor y marca `requiere_humano`. El asesor dispara el
+    Flow 1 desde el panel cuando el lead está listo.
     """
-    data = {"autorizacion_en": state.now_iso()}
-    try:
-        from app import db as _db
-        contacto = _db.get_contacto(phone)
-        if contacto:
-            if contacto.get("tipo_inmueble"):
-                data["tipo_inmueble"] = contacto["tipo_inmueble"]
-            if contacto.get("monto_hasta"):
-                try:
-                    data["valor_solicitado"] = int(contacto["monto_hasta"]) * 1_000_000
-                except (TypeError, ValueError):
-                    pass
-    except Exception:
-        _log.exception("[Bot] Error leyendo contacto para reconstruir BOTON_SI phone=%s", phone)
-
-    # Si el contacto existe pero quedó con no_contactar=False (post-SI anterior),
-    # no hace falta reafirmarlo acá. Si no existía, lo deja limpio.
+    # Si el contacto existe pero quedó con no_contactar=TRUE por mala vía,
+    # el humano-first implica que el cliente quiere avanzar: destrabamos.
     try:
         state.set_no_contactar(phone, False)
     except Exception:
-        _log.exception("[Bot] Error reseteando no_contactar en reconstrucción phone=%s", phone)
-
-    if whatsapp.USE_FLOWS:
-        state.set_session(phone, flow="SURETI", flow_step="FORM_REQUISITOS", flow_data=data)
-        return whatsapp.send_form_requisitos(phone)
-    state.set_session(phone, flow="SURETI", flow_step="DESC_HIPOTECA", flow_data=data)
-    return whatsapp.send_pregunta_si_no(phone, PREGUNTAS_DESCARTE["DESC_HIPOTECA"])
+        _log.exception("[Bot] Error reseteando no_contactar humano-first phone=%s", phone)
+    return _responder_humano_first(
+        phone, "BOTON_SI sin flujo activo (humano-first)"
+    )
 
 
 def _clasificar_texto_libre(phone, session, texto):
