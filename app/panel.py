@@ -1467,6 +1467,21 @@ def panel_detalle(telefono):
 
     estado = _estado_lead(contacto, sesion, pipeline)
 
+    # Bucket humano-first para el badge del header (mismo que los chips de
+    # /panel). Se deriva de 3 flags EXISTS sobre `mensajes` — en el detalle
+    # ya tenemos todos los mensajes del teléfono, así que las computamos
+    # inline en vez de hacer EXISTS en SQL.
+    tiene_in = any(m.get("direccion") == "in" for m in mensajes)
+    autorizo = any(
+        (m.get("tipo") == "button_reply" and m.get("resumen") == "BOTON_SI")
+        or (m.get("tipo") == "template_button"
+            and (m.get("resumen") or "").lower().startswith("sí me interesa"))
+        for m in mensajes
+    )
+    completo_flow = any(m.get("tipo") == "flow_reply" for m in mensajes)
+    bucket = bucket_de(contacto, tiene_in, autorizo, completo_flow)
+    bucket_label = BUCKETS_LABELS.get(bucket, bucket)
+
     # Avalúo / monto estimado para la caja superior.
     avaluo_m = None
     monto_estimado_m = None
@@ -1549,6 +1564,7 @@ def panel_detalle(telefono):
     return render_template(
         "panel_detalle.html",
         telefono=telefono, estado=estado, token=token,
+        bucket=bucket, bucket_label=bucket_label,
         contacto=contacto, sesion=sesion, pipeline=pipeline,
         documentos=documentos, remarketing=remarketing,
         eventos=eventos, mensajes=mensajes, mensajes_vista=mensajes_vista,

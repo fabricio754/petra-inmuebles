@@ -11,12 +11,16 @@
   .back { font-size: .9rem; color: #0969da; text-decoration: none; }
   .back:hover { text-decoration: underline; }
   .estado { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: .85rem; font-weight: 500; margin-left: 8px; vertical-align: middle; }
-  .estado-nuevo, .estado-en_flujo { background: #ddf4ff; color: #0969da; }
-  .estado-contactado { background: #fff8c5; color: #7d4e00; }
-  .estado-en_pipeline, .estado-en_sureti { background: #dafbe1; color: #116329; }
-  .estado-desembolsado { background: #116329; color: #fff; }
-  .estado-no_contactar, .estado-descartado { background: #ffebe9; color: #cf222e; }
-  .estado-pausado_paz_salvo { background: #fff1e5; color: #9a4b00; }
+  /* Badge del header: usa el bucket humano-first (mismo pattern que la
+     columna "Estado" de /panel) en vez del `contactos.estado` legacy.
+     Así "Regresar a contactado" refleja el cambio visualmente al instante. */
+  .bucket-nuevo { background: #ddf4ff; color: #0969da; }
+  .bucket-contactado { background: #fff8c5; color: #7d4e00; }
+  .bucket-respondio { background: #ddf4ff; color: #0969da; }
+  .bucket-enviar_formulario { background: #fff1e5; color: #9a4b00; }
+  .bucket-enviar_a_sureti { background: #dafbe1; color: #116329; }
+  .bucket-recontactar { background: #fff8c5; color: #7d4e00; }
+  .bucket-no_contactar { background: #ffebe9; color: #cf222e; }
   section { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 12px 16px; margin-top: 12px; }
   section h2 { font-size: 1rem; margin: 0 0 8px; color: #57606a; }
   dl { display: grid; grid-template-columns: 160px 1fr; gap: 4px 12px; margin: 0; font-size: .9rem; }
@@ -146,7 +150,10 @@
 <p><a class="back" href="/panel?token={{ token }}">← volver al listado</a></p>
 <h1>
   {{ telefono }}
-  <span class="estado estado-{{ estado.split(':')[0] }}">{{ estado }}</span>
+  {# Badge usa el bucket humano-first (igual que los chips/columna "Estado"
+     en /panel). El `estado` legacy derivado de `contactos.estado` /
+     `sesiones.estado` queda como tooltip para debug. #}
+  <span class="estado bucket-{{ bucket }}" title="estado interno: {{ estado }}">{{ bucket_label }}</span>
   {# Solo mostramos badge de cierre si hay cierre humano registrado
      (resultado_contacto_por != NULL). La columna resultado_contacto por sí
      sola puede traer valores viejos automáticos del bot. #}
