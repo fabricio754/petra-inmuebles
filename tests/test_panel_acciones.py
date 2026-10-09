@@ -117,25 +117,25 @@ def test_aplicar_enviar_formulario_marca_bucket_sin_disparar_flow(
     assert "requiere_humano" not in call["updates"]
 
 
-def test_aplicar_regresar_a_contactado_limpia_firma(captura):
-    """Nueva acción: resetea el cierre humano para que el bucket vuelva
-    a derivarse automáticamente (contactado/respondio según IN)."""
+def test_regresar_a_contactado_setea_resultado_contactado(captura):
+    """La acción "Regresar a contactado" fuerza el bucket `contactado`
+    aunque el cliente ya haya respondido (vence a la auto-derivación
+    `tiene_in → respondio`). Para eso escribe `resultado_contacto=
+    'contactado'` con firma humana, no NULL."""
     res = panel_acciones.aplicar("57312", "regresar_a_contactado",
                                  actor="Fab", nota="era falso positivo")
     assert res["ok"] is True
     call = captura.llamadas[0]
-    # La firma humana se limpia a None (bucket vuelve a auto-derivarse).
-    assert call["updates"]["resultado_contacto"] is None
-    assert call["updates"]["resultado_contacto_por"] is None
-    assert call["updates"]["resultado_contacto_at"] is None
-    assert call["updates"]["resultado_contacto_nota"] is None
+    # Firma humana explícita: resultado 'contactado' + metadatos.
+    assert call["updates"]["resultado_contacto"] == "contactado"
+    assert call["updates"]["resultado_contacto_at"] == "NOW()"
+    assert call["updates"]["resultado_contacto_por"] == "Fab"
+    assert call["updates"]["resultado_contacto_nota"] == "era falso positivo"
     # No toca no_contactar ni requiere_humano (del bot).
     assert "no_contactar" not in call["updates"]
     assert "requiere_humano" not in call["updates"]
     # Audit se escribe igual.
     assert call["accion_key"] == "regresar_a_contactado"
-    assert call["actor"] == "Fab"
-    assert call["nota"] == "era falso positivo"
 
 
 def test_acciones_modal_devuelve_6_opciones_en_orden():

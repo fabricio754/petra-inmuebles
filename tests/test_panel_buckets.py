@@ -140,6 +140,32 @@ def test_bucket_de_completo_flow_sin_firma_sigue_en_respondio():
                      completo_flow=True) == "respondio"
 
 
+def test_bucket_regresar_a_contactado_vence_auto_respondio():
+    """La acción humana "Regresar a contactado" (firma + resultado
+    'contactado') debe vencer a la auto-derivación `tiene_in → respondio`.
+    Si el humano dice "este lead sigue en 'contactado'", el panel lo
+    respeta aunque el cliente haya respondido alguna vez."""
+    contacto = {
+        "resultado_contacto": "contactado",
+        "resultado_contacto_por": "Fab",
+        "contactado": True,
+    }
+    assert bucket_de(contacto, tiene_in=True, autorizo=False,
+                     completo_flow=False) == "contactado"
+
+
+def test_bucket_sin_resultado_cae_a_auto_derivacion():
+    """Caso regresivo: sin firma humana, `tiene_in=True` sigue derivando
+    a `respondio` (comportamiento previo intacto)."""
+    contacto = {
+        "resultado_contacto": None,
+        "resultado_contacto_por": None,
+        "contactado": True,
+    }
+    assert bucket_de(contacto, tiene_in=True, autorizo=False,
+                     completo_flow=False) == "respondio"
+
+
 def test_bucket_de_resultado_contacto_sin_firma_cae_a_derivacion_automatica():
     """Si existe `resultado_contacto` pero NO hay firma (`_por` es None),
     es un valor huérfano (ej. legacy del bot) y NO debe producir bucket

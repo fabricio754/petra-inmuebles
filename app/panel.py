@@ -148,9 +148,11 @@ def bucket_de(contacto, tiene_in: bool, autorizo: bool, completo_flow: bool) -> 
        'enviar_a_sureti'/'entregado')
     4. firma humana + resultado == 'enviar_formulario' (o   → "enviar_formulario"
        legacy 'flow')
-    5. tiene_in                                             → "respondio"
-    6. contactado=True                                      → "contactado"
-    7. else                                                 → "nuevo"
+    5. firma humana + resultado == 'contactado'             → "contactado"
+       (acción "Regresar a contactado": vence a tiene_in)
+    6. tiene_in                                             → "respondio"
+    7. contactado=True                                      → "contactado"
+    8. else                                                 → "nuevo"
 
     `autorizo` y `completo_flow` se calculan para el consumidor pero no
     entran en estas reglas: desde humano-first (sept-2026) la autorización
@@ -168,8 +170,12 @@ def bucket_de(contacto, tiene_in: bool, autorizo: bool, completo_flow: bool) -> 
         return "enviar_a_sureti"
     if por and r in ("enviar_formulario", "flow"):
         return "enviar_formulario"
+    if por and r == "contactado":
+        # Acción "Regresar a contactado": firma humana explícita que
+        # vence a la auto-derivación `tiene_in → respondio`.
+        return "contactado"
 
-    # 5-7: derivaciones automáticas (ignoran flags del bot)
+    # 6-8: derivaciones automáticas (ignoran flags del bot)
     if tiene_in:
         return "respondio"
     if contacto and contacto.get("contactado"):

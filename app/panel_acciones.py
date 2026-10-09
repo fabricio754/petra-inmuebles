@@ -30,17 +30,16 @@ log = logging.getLogger("petra")
 
 
 ACCIONES = {
-    # 1) Resetear: vuelve a bucket auto-derivado (contactado/respondio).
+    # 1) Forzar bucket "contactado" aunque el cliente ya haya respondido.
+    #    Es una firma humana explícita que vence a la auto-derivación de
+    #    `tiene_in → respondio`: si un humano dice "este lead sigue en
+    #    'contactado'", el panel debe respetarlo.
     "regresar_a_contactado": {
         "label": "Regresar a contactado",
-        "descripcion": "Resetea el cierre humano. El bucket vuelve a "
-                       "derivarse automatico (contactado o respondio "
-                       "segun si hay IN).",
+        "descripcion": "Fuerza el bucket 'contactado' aunque el cliente "
+                       "ya haya respondido.",
         "updates": {
-            "resultado_contacto": None,
-            "resultado_contacto_por": None,
-            "resultado_contacto_at": None,
-            "resultado_contacto_nota": None,
+            "resultado_contacto": "contactado",
         },
     },
     # 2) Lead listo para llenar el formulario con un asesor.
@@ -142,11 +141,11 @@ def aplicar(telefono: str, accion_key: str, nota: str = "", actor: str = "") -> 
       - La acción setea las columnas declaradas en `updates`.
       - Si `updates` incluye `resultado_contacto` != None, también se
         setean `resultado_contacto_at` ('NOW()'), `_por` (actor) y
-        `_nota` (nota).
-      - Si `updates` incluye `resultado_contacto` == None (ej.
-        `regresar_a_contactado`), se limpia también la firma humana y
-        los metadatos pasan a None: así el bucket vuelve a derivarse de
-        forma automática.
+        `_nota` (nota). Esta firma humana vence a cualquier regla
+        automática del bucket (ver `panel.bucket_de`).
+      - Si `updates` incluye `resultado_contacto` == None, se limpia
+        también la firma humana (ningún acción vigente hace esto; se
+        mantiene por compat).
       - No hay side-effects a WhatsApp: `enviar_formulario` ya NO dispara
         el Flow (eso quedó atrás con el refactor humano-first).
     """
