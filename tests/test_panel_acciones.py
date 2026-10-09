@@ -3,8 +3,6 @@
 Cubre la lógica pura (mapping accion → updates, validaciones) sin tocar
 Postgres: `db.aplicar_accion_panel` se mockea con un capture simple.
 """
-from unittest.mock import patch
-
 import pytest
 
 from app import panel_acciones
@@ -53,6 +51,17 @@ def test_aplicar_broker_marca_no_contactar_e_inserta_audit(captura):
     assert call["updates"]["resultado_contacto_nota"] == "broker claro"
 
 
+def test_aplicar_no_interesa_marca_no_contactar_y_firma(captura):
+    res = panel_acciones.aplicar("57310", "no_interesa",
+                                 nota="no quiere", actor="Massi")
+    assert res["ok"] is True
+    call = captura.llamadas[0]
+    assert call["updates"]["no_contactar"] is True
+    assert call["updates"]["resultado_contacto"] == "no_interesa"
+    assert call["updates"]["resultado_contacto_por"] == "Massi"
+    assert call["updates"]["resultado_contacto_nota"] == "no quiere"
+
+
 def test_aplicar_sureti_setea_resultado_sin_tocar_no_contactar(captura):
     res = panel_acciones.aplicar("57301", "sureti", actor="Fab")
     assert res["ok"] is True
@@ -65,18 +74,13 @@ def test_aplicar_sureti_setea_resultado_sin_tocar_no_contactar(captura):
     assert call["updates"]["resultado_contacto_por"] == "Fab"
 
 
-def test_aplicar_levantar_no_contactar_no_cambia_resultado(captura):
-    """Levantar no_contactar es una corrección de opt-out: preserva el
-    historial de resultado_contacto previo (no setea `resultado_contacto`)."""
-    res = panel_acciones.aplicar("57302", "levantar_no_contactar",
-                                 actor="Fab")
+def test_aplicar_recontactar_firma_y_libera_no_contactar(captura):
+    res = panel_acciones.aplicar("57311", "recontactar", actor="Fab")
     assert res["ok"] is True
     call = captura.llamadas[0]
-    assert call["updates"] == {"no_contactar": False}
-    # No debe aparecer ningún campo de resultado.
-    assert "resultado_contacto" not in call["updates"]
-    assert "resultado_contacto_at" not in call["updates"]
-    assert "resultado_contacto_por" not in call["updates"]
+    assert call["updates"]["resultado_contacto"] == "recontactar"
+    assert call["updates"]["no_contactar"] is False
+    assert call["updates"]["resultado_contacto_por"] == "Fab"
 
 
 def test_aplicar_accion_desconocida_retorna_error(captura):
@@ -85,71 +89,87 @@ def test_aplicar_accion_desconocida_retorna_error(captura):
     assert captura.llamadas == []  # nada se persiste
 
 
-def test_aplicar_otro_requiere_nota(captura):
-    """La acción "otro" sin nota no tiene valor para el audit — se rechaza."""
-    res = panel_acciones.aplicar("57304", "otro", nota="", actor="Fab")
-    assert res == {"ok": False, "error": "nota_requerida"}
-    assert captura.llamadas == []
-
-
-def test_aplicar_otro_con_nota_ok(captura):
-    res = panel_acciones.aplicar("57305", "otro",
-                                 nota="pide hablar en 2 semanas",
-                                 actor="Fab")
-    assert res["ok"] is True
-    call = captura.llamadas[0]
-    assert call["updates"]["resultado_contacto"] == "otro"
-    assert call["updates"]["resultado_contacto_nota"] == "pide hablar en 2 semanas"
-
-
-def test_aplicar_enviar_formulario_destraba_flags_y_dispara_flow(captura, monkeypatch):
-    """`enviar_formulario` destraba no_contactar/requiere_humano, dispara el
-    Flow 1 al cliente y marca resultado_contacto='enviar_formulario'."""
+def test_aplicar_enviar_formulario_marca_bucket_sin_disparar_flow(
+        captura, monkeypatch):
+    """Refactor humano-first: `enviar_formulario` YA NO dispara el Flow,
+    sólo marca el bucket."""
     envios = []
-    monkeypatch.setattr(
-        "app.whatsapp.send_form_requisitos",
-        lambda to: envios.append(to) or "<flow sent>",
-    )
+
+    def _spy(to):
+        envios.append(to)
+        return "<flow sent>"
+
+    # Si por error se intentara llamar a send_form_requisitos, esto lo
+    # captura. Después de la acción, envios DEBE seguir vacío.
+    monkeypatch.setattr("app.whatsapp.send_form_requisitos", _spy)
+
     res = panel_acciones.aplicar("57306", "enviar_formulario", actor="Fab")
     assert res["ok"] is True
-    # El Flow 1 se disparó al cliente.
-    assert envios == ["57306"]
+    # El Flow NO se dispara desde la acción del panel.
+    assert envios == []
     call = captura.llamadas[0]
-    assert call["updates"]["no_contactar"] is False
-    assert call["updates"]["requiere_humano"] is False
+    # Marca de bucket: solo setea el resultado + firma.
     assert call["updates"]["resultado_contacto"] == "enviar_formulario"
-
-
-def test_aplicar_enviar_formulario_falla_envio_no_toca_flags(captura, monkeypatch):
-    """Si el send del Flow falla, no se aplican flags ni se inserta audit."""
-    def _boom(to):
-        raise RuntimeError("API meta down")
-
-    monkeypatch.setattr("app.whatsapp.send_form_requisitos", _boom)
-    res = panel_acciones.aplicar("57309", "enviar_formulario", actor="Fab")
-    assert res == {"ok": False, "error": "envio_flow_fallo"}
-    assert captura.llamadas == []  # nada se persiste si falla el envío
-
-
-def test_aplicar_marcar_lead_caliente_fuerza_requiere_humano(captura):
-    res = panel_acciones.aplicar("57307", "marcar_lead_caliente", actor="Fab")
-    assert res["ok"] is True
-    call = captura.llamadas[0]
-    assert call["updates"]["requiere_humano"] is True
-    assert call["updates"]["resultado_contacto"] == "lead_caliente"
-
-
-def test_aplicar_marcar_lead_caliente_setea_resultado(captura):
-    """El fix: `marcar_lead_caliente` también debe setear resultado_contacto
-    para que la columna 'Resultado' del panel no quede en '— pendiente —'."""
-    res = panel_acciones.aplicar("57308", "marcar_lead_caliente",
-                                 nota="pidió llamar ya", actor="Massi")
-    assert res["ok"] is True
-    call = captura.llamadas[0]
-    assert call["updates"]["resultado_contacto"] == "lead_caliente"
     assert call["updates"]["resultado_contacto_at"] == "NOW()"
-    assert call["updates"]["resultado_contacto_por"] == "Massi"
-    assert call["updates"]["resultado_contacto_nota"] == "pidió llamar ya"
+    assert call["updates"]["resultado_contacto_por"] == "Fab"
+    # No toca no_contactar ni requiere_humano (los dejó el bot si existían).
+    assert "no_contactar" not in call["updates"]
+    assert "requiere_humano" not in call["updates"]
+
+
+def test_aplicar_regresar_a_contactado_limpia_firma(captura):
+    """Nueva acción: resetea el cierre humano para que el bucket vuelva
+    a derivarse automáticamente (contactado/respondio según IN)."""
+    res = panel_acciones.aplicar("57312", "regresar_a_contactado",
+                                 actor="Fab", nota="era falso positivo")
+    assert res["ok"] is True
+    call = captura.llamadas[0]
+    # La firma humana se limpia a None (bucket vuelve a auto-derivarse).
+    assert call["updates"]["resultado_contacto"] is None
+    assert call["updates"]["resultado_contacto_por"] is None
+    assert call["updates"]["resultado_contacto_at"] is None
+    assert call["updates"]["resultado_contacto_nota"] is None
+    # No toca no_contactar ni requiere_humano (del bot).
+    assert "no_contactar" not in call["updates"]
+    assert "requiere_humano" not in call["updates"]
+    # Audit se escribe igual.
+    assert call["accion_key"] == "regresar_a_contactado"
+    assert call["actor"] == "Fab"
+    assert call["nota"] == "era falso positivo"
+
+
+def test_acciones_modal_devuelve_6_opciones_en_orden():
+    """El modal muestra sólo las 6 acciones humanas, en el orden fijado."""
+    modal = panel_acciones.acciones_modal()
+    assert list(modal.keys()) == [
+        "regresar_a_contactado",
+        "enviar_formulario",
+        "sureti",
+        "recontactar",
+        "no_interesa",
+        "broker",
+    ]
+    # completar_formulario_manual NO aparece en el modal (lo dispara el
+    # botón verde separado).
+    assert "completar_formulario_manual" not in modal
+
+
+def test_completar_formulario_manual_sigue_existiendo_fuera_del_modal():
+    """`completar_formulario_manual` sigue en ACCIONES (lo necesita
+    panel.formulario_manual_guardar y el historial de acciones), pero
+    no aparece en el modal manual."""
+    assert "completar_formulario_manual" in panel_acciones.ACCIONES
+    assert "completar_formulario_manual" not in panel_acciones.acciones_modal()
+
+
+@pytest.mark.parametrize("accion_removida", [
+    "marcar_lead_caliente",
+    "levantar_no_contactar",
+    "otro",
+])
+def test_acciones_removidas_no_existen(accion_removida):
+    """Las acciones viejas fueron eliminadas con el refactor humano-first."""
+    assert accion_removida not in panel_acciones.ACCIONES
 
 
 def test_todas_las_acciones_tienen_label_y_descripcion():

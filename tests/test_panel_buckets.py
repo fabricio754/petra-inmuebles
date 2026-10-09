@@ -1,10 +1,10 @@
 """Tests para la columna "Estado" (bucket humano-first) en /panel.
 
-Hotfix: la columna "Estado" de `panel_lista.html` seguía mostrando los
-labels viejos (`en_flujo:SURETI`, `en_flujo`, …) mientras que los chips
-de filtro arriba ya eran los nuevos (`enviar a sureti`, `respondió`, …).
-Esto verifica que el bucket que se muestra en la fila sea EXACTAMENTE
-el mismo que el que calculan los chips (via `bucket_de()`).
+Refactor sept/oct-2026: los buckets dependen SOLO de acciones humanas
+(firma `resultado_contacto_por NOT NULL`) o auto-derivación simple
+(`tiene_in`, `contactado`). Las flags que el bot setea
+(`no_contactar=true` por detección semántica, `requiere_humano=true` por
+pide-llamada) NO afectan el bucket del panel.
 """
 import os
 from unittest.mock import MagicMock
@@ -24,66 +24,135 @@ from app.panel import BUCKETS_LABELS, bucket_de  # noqa: E402
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("contacto,tiene_in,autorizo,completo_flow,esperado", [
-    # 1. no_contactar gana sobre todo
-    ({"no_contactar": True, "contactado": True, "resultado_contacto": "sureti"},
-     True, True, True, "no_contactar"),
-    # 2. resultado_contacto sureti/entregado → enviar_a_sureti
-    ({"no_contactar": False, "contactado": True, "resultado_contacto": "sureti"},
-     True, False, False, "enviar_a_sureti"),
-    ({"no_contactar": False, "contactado": True, "resultado_contacto": "entregado"},
-     True, False, False, "enviar_a_sureti"),
-    # 3. completo_flow o resultado flow/enviar_formulario
-    ({"no_contactar": False, "contactado": True, "resultado_contacto": None},
-     True, True, True, "enviar_formulario"),
-    ({"no_contactar": False, "contactado": True,
-      "resultado_contacto": "enviar_formulario"},
-     False, False, False, "enviar_formulario"),
-    # 4. tiene IN → respondio
-    ({"no_contactar": False, "contactado": True, "resultado_contacto": None},
+    # 1. Cierres humanos (requieren firma = resultado_contacto_por NOT NULL)
+    ({"resultado_contacto_por": "Massi", "resultado_contacto": "broker",
+      "contactado": True}, True, False, False, "no_contactar"),
+    ({"resultado_contacto_por": "Fab", "resultado_contacto": "no_interesa",
+      "contactado": True}, True, False, False, "no_contactar"),
+    ({"resultado_contacto_por": "Massi", "resultado_contacto": "recontactar",
+      "contactado": True}, True, False, False, "recontactar"),
+    ({"resultado_contacto_por": "Fab", "resultado_contacto": "sureti",
+      "contactado": True}, True, False, False, "enviar_a_sureti"),
+    ({"resultado_contacto_por": "Fab", "resultado_contacto": "enviar_formulario",
+      "contactado": True}, True, False, False, "enviar_formulario"),
+
+    # 2. Legacy / backward-compat: valores viejos siguen matcheando.
+    ({"resultado_contacto_por": "Fab", "resultado_contacto": "enviar_a_sureti",
+      "contactado": True}, True, False, False, "enviar_a_sureti"),
+    ({"resultado_contacto_por": "Fab", "resultado_contacto": "entregado",
+      "contactado": True}, True, False, False, "enviar_a_sureti"),
+    ({"resultado_contacto_por": "Fab", "resultado_contacto": "flow",
+      "contactado": True}, True, False, False, "enviar_formulario"),
+
+    # 3. Auto-derivaciones: tiene_in → respondio
+    ({"resultado_contacto": None, "contactado": True},
      True, False, False, "respondio"),
-    # 5. contactado sin IN → contactado
-    ({"no_contactar": False, "contactado": True, "resultado_contacto": None},
+    # 4. contactado sin IN → contactado
+    ({"resultado_contacto": None, "contactado": True},
      False, False, False, "contactado"),
-    # 6. default → nuevo
-    ({"no_contactar": False, "contactado": False, "resultado_contacto": None},
+    # 5. default → nuevo
+    ({"resultado_contacto": None, "contactado": False},
      False, False, False, "nuevo"),
-    # 7. resultado_contacto='recontactar' → "recontactar"
-    ({"no_contactar": False, "contactado": True,
-      "resultado_contacto": "recontactar"},
-     False, False, False, "recontactar"),
 ])
 def test_bucket_de_reglas(contacto, tiene_in, autorizo, completo_flow, esperado):
     assert bucket_de(contacto, tiene_in, autorizo, completo_flow) == esperado
 
 
-def test_bucket_de_recontactar_tiene_precedencia_sobre_derivados():
-    """Un contacto cerrado con `resultado_contacto='recontactar'` que
-    además tiene IN (respondió) o completó el Flow debe aparecer en el
-    bucket "recontactar" — no diluirse en "respondio" ni en
-    "enviar_formulario"."""
+def test_bucket_de_resultado_no_interesa_firmado_va_a_no_contactar():
+    """Un cierre humano `no_interesa` con firma debe caer en bucket
+    `no_contactar` (independientemente de que tenga IN)."""
     contacto = {
-        "no_contactar": False,
+        "resultado_contacto": "no_interesa",
+        "resultado_contacto_por": "Massi",
         "contactado": True,
-        "resultado_contacto": "recontactar",
-    }
-    # Tiene IN pero el cierre humano manda:
-    assert bucket_de(contacto, tiene_in=True, autorizo=False,
-                     completo_flow=False) == "recontactar"
-    # Incluso con Flow completo, el cierre "recontactar" tiene precedencia:
-    assert bucket_de(contacto, tiene_in=True, autorizo=True,
-                     completo_flow=True) == "recontactar"
-
-
-def test_bucket_recontactar_ignorado_si_no_contactar():
-    """`no_contactar=True` es precedencia 1 y gana incluso sobre un
-    cierre `recontactar` (coherencia con la regla pre-existente)."""
-    contacto = {
-        "no_contactar": True,
-        "contactado": True,
-        "resultado_contacto": "recontactar",
     }
     assert bucket_de(contacto, tiene_in=True, autorizo=False,
                      completo_flow=False) == "no_contactar"
+
+
+def test_bucket_de_no_contactar_flag_del_bot_sin_firma_cae_a_respondio():
+    """Regla clave del refactor humano-first: la flag `no_contactar=True`
+    que el bot setea por detección semántica (sin firma humana) YA NO
+    afecta el bucket. Si el bot marcó "no_contactar" por detectar
+    "no me interesa", el contacto sigue mostrándose en bucket
+    "respondio" hasta que un humano cierre con una acción."""
+    contacto = {
+        "no_contactar": True,            # el bot lo marcó por semántica
+        "resultado_contacto_por": None,  # pero NO hay firma humana
+        "resultado_contacto": None,
+        "contactado": True,
+    }
+    assert bucket_de(contacto, tiene_in=True, autorizo=False,
+                     completo_flow=False) == "respondio"
+
+
+def test_bucket_de_requiere_humano_flag_del_bot_sin_firma_cae_a_respondio():
+    """Igual que `no_contactar`: la flag `requiere_humano=True` del bot
+    (por detección "pide llamada") NO decide el bucket. Si no hay firma,
+    el bucket viene de la auto-derivación."""
+    contacto = {
+        "requiere_humano": True,         # el bot lo marcó
+        "resultado_contacto_por": None,  # pero NO hay firma humana
+        "resultado_contacto": None,
+        "contactado": True,
+    }
+    assert bucket_de(contacto, tiene_in=True, autorizo=False,
+                     completo_flow=False) == "respondio"
+
+
+def test_bucket_de_contactado_sin_in_sin_firma():
+    """Sin firma humana y sin IN, pero contactado=True → bucket
+    `contactado`."""
+    contacto = {
+        "resultado_contacto": None,
+        "resultado_contacto_por": None,
+        "contactado": True,
+    }
+    assert bucket_de(contacto, tiene_in=False, autorizo=False,
+                     completo_flow=False) == "contactado"
+
+
+def test_bucket_de_tiene_in_sin_firma_va_a_respondio():
+    """Con IN y sin firma humana → bucket `respondio` (incluso si el bot
+    marcó no_contactar o requiere_humano)."""
+    contacto = {
+        "no_contactar": True,
+        "requiere_humano": True,
+        "resultado_contacto": None,
+        "resultado_contacto_por": None,
+        "contactado": True,
+    }
+    assert bucket_de(contacto, tiene_in=True, autorizo=False,
+                     completo_flow=False) == "respondio"
+
+
+def test_bucket_de_completo_flow_sin_firma_sigue_en_respondio():
+    """Antes del refactor, `completo_flow=True` subía al bucket
+    `enviar_formulario`. Ahora, sin firma humana, queda en `respondio`
+    (el Flow completo señala interés, pero no es una acción humana).
+    """
+    contacto = {
+        "resultado_contacto": None,
+        "resultado_contacto_por": None,
+        "contactado": True,
+    }
+    assert bucket_de(contacto, tiene_in=True, autorizo=True,
+                     completo_flow=True) == "respondio"
+
+
+def test_bucket_de_resultado_contacto_sin_firma_cae_a_derivacion_automatica():
+    """Si existe `resultado_contacto` pero NO hay firma (`_por` es None),
+    es un valor huérfano (ej. legacy del bot) y NO debe producir bucket
+    humano. Cae a la auto-derivación."""
+    contacto = {
+        "resultado_contacto": "sureti",  # valor sin firma humana
+        "resultado_contacto_por": None,
+        "contactado": True,
+    }
+    assert bucket_de(contacto, tiene_in=True, autorizo=False,
+                     completo_flow=False) == "respondio"
+    assert bucket_de(contacto, tiene_in=False, autorizo=False,
+                     completo_flow=False) == "contactado"
 
 
 def test_todos_los_buckets_tienen_label():
@@ -174,22 +243,28 @@ def _make_conn(contactos_rows):
 def test_lista_muestra_bucket_coherente_con_chip(client, monkeypatch):
     """Cada fila muestra el mismo bucket que usa el chip del filtro.
 
-    Un contacto con `resultado_contacto='sureti'` debe aparecer con el
-    label "enviar a sureti" en la columna "Estado" — NO con el label
-    viejo "en_flujo:SURETI". Y debe filtrarse exactamente al clickear
-    el chip `?bucket=enviar_a_sureti`.
+    Un contacto con cierre humano `resultado_contacto='sureti'` (firmado)
+    debe aparecer con el label "enviar a sureti" en la columna "Estado".
+    Y debe filtrarse exactamente al clickear el chip
+    `?bucket=enviar_a_sureti`.
     """
     contactos = [
         _c(telefono="573000000001", nombre="Sureti Lead",
-           resultado_contacto="sureti", contactado=True),
+           resultado_contacto="sureti", resultado_contacto_por="Massi",
+           contactado=True),
         _c(telefono="573000000002", nombre="Respondió",
            contactado=True, tiene_in=True),
         _c(telefono="573000000003", nombre="Nuevo"),
         _c(telefono="573000000004", nombre="Flow Completo",
            contactado=True, tiene_in=True, completo_flow=True),
-        _c(telefono="573000000005", nombre="Opt-out",
-           no_contactar=True, contactado=True, tiene_in=True,
-           resultado_contacto="sureti"),
+        # Opt-out del bot (sin firma humana) → bucket "respondio",
+        # NO "no_contactar" (regla clave del refactor humano-first).
+        _c(telefono="573000000005", nombre="Opt-out bot",
+           no_contactar=True, contactado=True, tiene_in=True),
+        _c(telefono="573000000006", nombre="Form enviado",
+           contactado=True, tiene_in=True,
+           resultado_contacto="enviar_formulario",
+           resultado_contacto_por="Fab"),
     ]
     conn = _make_conn(contactos)
     monkeypatch.setattr(db, "_conexion_directa", lambda timeout=10: conn)
@@ -198,37 +273,57 @@ def test_lista_muestra_bucket_coherente_con_chip(client, monkeypatch):
     assert r.status_code == 200
     html = r.get_data(as_text=True)
 
-    # Los chips del PR #71 están en la página (nuevos labels, no viejos).
+    # Los chips tienen los labels humanos esperados.
     assert "enviar a sureti" in html
     assert "respondió" in html
     assert "enviar formulario" in html
-    # El label viejo `en_flujo:SURETI` NO debe salir como texto principal
-    # (puede quedar como tooltip, pero no como contenido visible del badge).
-    # El badge usa `bucket-<key>` como CSS class — chequear que esas estén.
+    # El badge usa `bucket-<key>` como CSS class — chequear que estén.
     assert "bucket-enviar_a_sureti" in html
     assert "bucket-respondio" in html
     assert "bucket-nuevo" in html
     assert "bucket-enviar_formulario" in html
-    assert "bucket-no_contactar" in html
 
     # Filtro por bucket: ?bucket=enviar_a_sureti deja sólo los que
-    # bucket_de() mapea a "enviar_a_sureti". El opt-out NO cuenta porque
-    # no_contactar gana sobre resultado_contacto.
+    # bucket_de() mapea a "enviar_a_sureti".
     r2 = client.get("/panel?token=test-token&bucket=enviar_a_sureti")
     assert r2.status_code == 200
     html2 = r2.get_data(as_text=True)
-    assert "573000000001" in html2  # el único enviar_a_sureti puro
-    assert "573000000005" not in html2  # opt-out → no_contactar bucket
+    assert "573000000001" in html2  # el único sureti firmado
+    assert "573000000005" not in html2  # opt-out del bot → respondio
     assert "573000000002" not in html2  # respondió, no sureti
     assert "573000000003" not in html2  # nuevo
 
 
-def test_lista_contacto_sureti_no_muestra_label_viejo(client, monkeypatch):
-    """Un contacto que antes salía como `en_flujo:SURETI` ahora debe
-    salir con el label humano "enviar a sureti" en la columna visible."""
+def test_lista_opt_out_del_bot_sin_firma_cae_a_respondio(client, monkeypatch):
+    """Caso regresivo: un contacto con `no_contactar=True` seteado por
+    el bot (sin firma humana) debe mostrarse en bucket `respondio`
+    cuando tiene IN. No debe aparecer en el bucket `no_contactar`."""
+    contactos = [
+        _c(telefono="573222222222", nombre="Bot Opt-out",
+           no_contactar=True, contactado=True, tiene_in=True),
+    ]
+    conn = _make_conn(contactos)
+    monkeypatch.setattr(db, "_conexion_directa", lambda timeout=10: conn)
+
+    r = client.get("/panel?token=test-token")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert "bucket-respondio" in html
+
+    # Chip `no_contactar` filtra 0 filas.
+    r2 = client.get("/panel?token=test-token&bucket=no_contactar")
+    assert r2.status_code == 200
+    html2 = r2.get_data(as_text=True)
+    assert "573222222222" not in html2
+
+
+def test_lista_contacto_sureti_firmado_muestra_label_humano(client, monkeypatch):
+    """Un contacto con cierre humano `sureti` debe salir con el label
+    'enviar a sureti' en la columna visible."""
     contactos = [
         _c(telefono="573111111111", nombre="X",
-           resultado_contacto="sureti", contactado=True),
+           resultado_contacto="sureti", resultado_contacto_por="Massi",
+           contactado=True),
     ]
     conn = _make_conn(contactos)
     monkeypatch.setattr(db, "_conexion_directa", lambda timeout=10: conn)

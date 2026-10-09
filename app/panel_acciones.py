@@ -4,21 +4,25 @@ El asesor que habla con un lead por teléfono necesita cerrar la conversación
 registrando qué pasó. Este módulo define el catálogo cerrado de acciones
 posibles y las aplica atómicamente:
 
-  1. Side-effect opcional (ej. enviar Flow 1 al cliente).
-  2. UPDATE sobre `contactos` con los flags/campos que corresponden.
-  3. INSERT en `panel_acciones` para audit (quién, qué, cuándo, nota).
+  1. UPDATE sobre `contactos` con los flags/campos que corresponden.
+  2. INSERT en `panel_acciones` para audit (quién, qué, cuándo, nota).
 
 Cada entrada en `ACCIONES` declara:
   - label       : texto para el humano (botón/radio).
   - descripcion : ayuda breve de qué hace.
   - updates     : dict de columnas → valor para `UPDATE contactos`. Si
-                  incluye `resultado_contacto`, el helper agrega `_at`,
-                  `_por` y `_nota` automáticamente.
+                  incluye `resultado_contacto` (!= None), el helper agrega
+                  `_at`, `_por` y `_nota` automáticamente.
 
-Nota sobre backward-compat: el `resultado_contacto` guardado en DB para
-"Enviar formulario" se mantiene como `enviar_formulario` (valor nuevo),
-pero los rows legacy con `resultado_contacto='flow'` deben seguir
-contándose como la misma clase a nivel de UI/bucket.
+Nota sobre buckets (sept-2026, refactor humano-first):
+Los buckets del panel se derivan 100% de acciones humanas (firma
+`resultado_contacto_por NOT NULL`). Las flags que el bot setea
+(`no_contactar=true` por detección semántica, `requiere_humano=true` por
+pide-llamada) ya NO afectan el bucket. El bot sigue seteándolas, pero
+sólo con fines internos / alertas.
+
+El orden en que se declaran las acciones acá es el que verá el asesor en
+el modal del panel (Python 3.7+ preserva orden de inserción en dict).
 """
 import logging
 
@@ -26,32 +30,39 @@ log = logging.getLogger("petra")
 
 
 ACCIONES = {
-    "enviar_formulario": {
-        "label": "Enviar formulario",
-        "descripcion": "Dispara el Flow 1 (REQUISITOS) al cliente. "
-                       "Marca que estamos esperando que lo complete.",
+    # 1) Resetear: vuelve a bucket auto-derivado (contactado/respondio).
+    "regresar_a_contactado": {
+        "label": "Regresar a contactado",
+        "descripcion": "Resetea el cierre humano. El bucket vuelve a "
+                       "derivarse automatico (contactado o respondio "
+                       "segun si hay IN).",
         "updates": {
-            "no_contactar": False,
-            "requiere_humano": False,
+            "resultado_contacto": None,
+            "resultado_contacto_por": None,
+            "resultado_contacto_at": None,
+            "resultado_contacto_nota": None,
+        },
+    },
+    # 2) Lead listo para llenar el formulario con un asesor.
+    #    IMPORTANTE: ya NO dispara el Flow (eso lo hacía antes). Hoy es
+    #    sólo un marcador de bucket.
+    "enviar_formulario": {
+        "label": "Marcar \"enviar formulario\"",
+        "descripcion": "Lead listo para llenar el formulario con un asesor. "
+                       "No dispara nada automatico.",
+        "updates": {
             "resultado_contacto": "enviar_formulario",
         },
     },
-    "broker": {
-        "label": "Es inmobiliaria / broker",
-        "descripcion": "El contacto es broker. No volver a contactar.",
+    # 3) Entregado al equipo humano externo.
+    "sureti": {
+        "label": "Entregado a Sureti",
+        "descripcion": "Marcar como entregado al equipo humano externo.",
         "updates": {
-            "no_contactar": True,
-            "resultado_contacto": "broker",
+            "resultado_contacto": "sureti",
         },
     },
-    "no_interesa": {
-        "label": "No le interesa",
-        "descripcion": "No le interesa el producto. No volver a contactar.",
-        "updates": {
-            "no_contactar": True,
-            "resultado_contacto": "no_interesa",
-        },
-    },
+    # 4) Dejarlo para una futura ronda.
     "recontactar": {
         "label": "No le interesa ahora — recontactar después",
         "descripcion": "Dejarlo activo para una futura ronda "
@@ -61,62 +72,64 @@ ACCIONES = {
             "resultado_contacto": "recontactar",
         },
     },
-    "sureti": {
-        "label": "Entregado a Sureti",
-        "descripcion": "Marcar como entregado al equipo humano externo.",
+    # 5) No le interesa (cierre). no_contactar=True sólo como marker.
+    "no_interesa": {
+        "label": "No le interesa",
+        "descripcion": "No le interesa el producto. No volver a contactar.",
         "updates": {
-            "resultado_contacto": "sureti",
+            "no_contactar": True,
+            "resultado_contacto": "no_interesa",
         },
     },
-    # Nueva acción: el asesor completó los Flows 1 y 2 con el cliente por
-    # chat o llamada. El guardado real ocurre en panel.formulario_manual_guardar
-    # (necesita escribir pipeline + mensaje sintético + audit, no sólo flags),
-    # pero declaramos la entrada acá para que el label aparezca en el panel
-    # (historial de acciones) y los tests tengan algo con qué chequear.
+    # 6) Es inmobiliaria / broker.
+    "broker": {
+        "label": "Es inmobiliaria / broker",
+        "descripcion": "El contacto es broker. No volver a contactar.",
+        "updates": {
+            "no_contactar": True,
+            "resultado_contacto": "broker",
+        },
+    },
+    # Acción "completar formulario manual": sigue existiendo porque la
+    # dispara el botón separado "📝 Completar formulario con el cliente"
+    # (vista detalle, no modal). El guardado real ocurre en
+    # panel.formulario_manual_guardar (necesita escribir pipeline +
+    # mensaje sintético + audit, no sólo flags); acá se declara para que
+    # el label aparezca en el historial de acciones.
+    #
+    # Esta entrada se filtra en el render del modal (ver panel.py:
+    # acciones_modal) para que NO aparezca como opción manual: el modal
+    # sólo muestra las 6 acciones de arriba, en ese orden.
     "completar_formulario_manual": {
         "label": "Completar formulario manual",
-        "descripcion": "Asesor completó los Flows 1+2 con el cliente por chat/llamada.",
+        "descripcion": "Asesor completó los Flows 1+2 con el cliente por "
+                       "chat/llamada.",
         "updates": {
             "resultado_contacto": "enviar_a_sureti",
             "requiere_humano": False,
         },
     },
-    "levantar_no_contactar": {
-        "label": "Levantar no_contactar",
-        "descripcion": "Deshace el no_contactar (ej. opt-out falso positivo).",
-        "updates": {
-            "no_contactar": False,
-            # No cambia resultado_contacto para preservar historial.
-        },
-    },
-    "marcar_lead_caliente": {
-        "label": "Marcar lead caliente (requiere humano)",
-        "descripcion": "Fuerza requiere_humano=true (ej. para re-disparar alerta).",
-        "updates": {
-            "requiere_humano": True,
-            "resultado_contacto": "lead_caliente",
-        },
-    },
-    "otro": {
-        "label": "Otro",
-        "descripcion": "Cerrar con nota libre, sin cambiar flags.",
-        "updates": {
-            "resultado_contacto": "otro",
-        },
-    },
 }
 
 
-def _enviar_flow_requisitos(telefono: str) -> None:
-    """Dispara el Flow 1 (REQUISITOS) al cliente desde el panel.
+# Subconjunto que se muestra en el modal "Registrar acción humana".
+# `completar_formulario_manual` se oculta porque se dispara desde el botón
+# verde separado "📝 Completar formulario con el cliente".
+_ACCIONES_MODAL_KEYS = (
+    "regresar_a_contactado",
+    "enviar_formulario",
+    "sureti",
+    "recontactar",
+    "no_interesa",
+    "broker",
+)
 
-    Reutiliza `whatsapp.send_form_requisitos`, la misma función con la que
-    el bot antes autodisparaba el Flow tras BOTON_SI. Ahora el disparo lo
-    hace el humano explícitamente. Si falla, levanta la excepción al caller
-    para que `aplicar()` NO toque las flags ni inserte audit.
-    """
-    from app import whatsapp
-    whatsapp.send_form_requisitos(telefono)
+
+def acciones_modal() -> dict:
+    """Devuelve el dict de acciones que renderea el modal del panel, en el
+    orden pre-establecido. Es lo que `panel_detalle.html` itera con
+    ``{% for key, cfg in acciones.items() %}``."""
+    return {k: ACCIONES[k] for k in _ACCIONES_MODAL_KEYS if k in ACCIONES}
 
 
 def aplicar(telefono: str, accion_key: str, nota: str = "", actor: str = "") -> dict:
@@ -125,11 +138,17 @@ def aplicar(telefono: str, accion_key: str, nota: str = "", actor: str = "") -> 
     Retorna un dict con `ok` (bool). Si `ok=False`, incluye `error` con el
     motivo. Si `ok=True`, incluye `accion` y `label`.
 
-    La acción `otro` exige nota — sin nota el cierre es inútil para el audit.
-
-    La acción `enviar_formulario` tiene un side-effect: antes de tocar DB,
-    dispara el Flow 1 (REQUISITOS) al cliente. Si el envío falla, no se
-    aplica el UPDATE ni se inserta audit (volvemos con error).
+    Reglas:
+      - La acción setea las columnas declaradas en `updates`.
+      - Si `updates` incluye `resultado_contacto` != None, también se
+        setean `resultado_contacto_at` ('NOW()'), `_por` (actor) y
+        `_nota` (nota).
+      - Si `updates` incluye `resultado_contacto` == None (ej.
+        `regresar_a_contactado`), se limpia también la firma humana y
+        los metadatos pasan a None: así el bucket vuelve a derivarse de
+        forma automática.
+      - No hay side-effects a WhatsApp: `enviar_formulario` ya NO dispara
+        el Flow (eso quedó atrás con el refactor humano-first).
     """
     from app import db
 
@@ -137,29 +156,21 @@ def aplicar(telefono: str, accion_key: str, nota: str = "", actor: str = "") -> 
         return {"ok": False, "error": "accion_desconocida"}
 
     cfg = ACCIONES[accion_key]
-
-    # Validación: "otro" sin nota no tiene sentido para audit.
-    if accion_key == "otro" and not (nota or "").strip():
-        return {"ok": False, "error": "nota_requerida"}
-
-    # Side-effect previo: Enviar formulario dispara el Flow al cliente.
-    # Si falla el envío, abortamos antes de tocar DB (nada de flags
-    # cambiadas sin que el cliente haya recibido el Flow).
-    if accion_key == "enviar_formulario":
-        try:
-            _enviar_flow_requisitos(telefono)
-        except Exception as exc:  # noqa: BLE001
-            log.exception("[Panel] Error enviando Flow 1 a %s desde panel", telefono)
-            return {"ok": False, "error": "envio_flow_fallo"}
-
     updates = dict(cfg["updates"])
 
-    # Si la acción setea resultado_contacto, agregamos los metadatos de cierre.
-    # El helper de db reconoce "NOW()" como literal SQL (sin cast de parámetro).
+    # Si la acción setea resultado_contacto a un valor concreto, agregamos
+    # los metadatos de cierre (firma humana).
+    # Si lo setea a None (reset), limpiamos también los metadatos para
+    # que el bucket vuelva a derivarse de forma automática.
     if "resultado_contacto" in updates:
-        updates["resultado_contacto_at"] = "NOW()"
-        updates["resultado_contacto_por"] = actor or ""
-        updates["resultado_contacto_nota"] = nota or ""
+        if updates["resultado_contacto"] is None:
+            updates.setdefault("resultado_contacto_at", None)
+            updates.setdefault("resultado_contacto_por", None)
+            updates.setdefault("resultado_contacto_nota", None)
+        else:
+            updates["resultado_contacto_at"] = "NOW()"
+            updates["resultado_contacto_por"] = actor or ""
+            updates["resultado_contacto_nota"] = nota or ""
 
     db.aplicar_accion_panel(telefono, updates, accion_key, nota, actor)
     log.info("[Panel] accion=%s telefono=%s actor=%s nota=%s",
