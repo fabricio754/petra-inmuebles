@@ -128,7 +128,6 @@
       <th>Portal</th>
       <th>Avalúo ($M)</th>
       <th>Estado</th>
-      <th>Resultado</th>
       <th>Última actividad</th>
     </tr>
   </thead>
@@ -153,20 +152,6 @@
         {# "Estado" muestra el bucket humano-first (mismo que los chips de arriba).
            El `estado` legacy (en_flujo, en_flujo:SURETI, …) queda como tooltip. #}
         <span class="estado bucket-{{ f.bucket }}" title="estado interno: {{ f.estado }}">{{ f.bucket_label }}</span>
-      </td>
-      <td>
-        {# Solo contamos cierre humano cuando resultado_contacto_por está:
-           la columna resultado_contacto preexiste con valores automáticos
-           del bot (plantilla_enviada, en_flujo, …) que no son un cierre. #}
-        {% if f.resultado_contacto_por %}
-          <span class="badge-resultado badge-{{ f.resultado_contacto }}">
-            {{ labels_resultado.get(f.resultado_contacto, f.resultado_contacto) }}
-          </span>
-        {% elif f.contactado %}
-          <span class="pendiente-txt">— pendiente —</span>
-        {% else %}
-          —
-        {% endif %}
       </td>
       <td>
         <span class="dot dot-{{ f.ultima_actividad_semaforo }}"></span>{{ f.ultima_actividad_hace }}
