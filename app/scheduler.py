@@ -16,6 +16,23 @@ log = logging.getLogger("petra")
 
 _scheduler = None
 
+# Retención de `webhook_queue` en días. Default 90 — alineado con la
+# necesidad de trazabilidad del piloto (6-oct perdimos data raw anterior
+# a las 15:30 UTC). Configurable via env var por si en algún deploy hace
+# falta ajustarlo (ej. presión de disco en Render o auditoría más larga).
+# El valor se lee una sola vez al arrancar el scheduler.
+def _retencion_dias_default():
+    try:
+        valor = int(os.environ.get("WEBHOOK_QUEUE_RETENCION_DIAS", "90"))
+    except ValueError:
+        valor = 90
+    # Clamp defensivo: nunca menos de 1 día (evita wipe accidental si
+    # alguien exporta "0" por error).
+    return max(1, valor)
+
+
+WEBHOOK_QUEUE_RETENCION_DIAS = _retencion_dias_default()
+
 
 def iniciar():
     global _scheduler
@@ -45,9 +62,14 @@ def iniciar():
     _scheduler.add_job(_drenar_log_mensaje_spool, "interval", minutes=10,
                        id="log_mensaje_spool_drain",
                        max_instances=1, coalesce=True)
+    _scheduler.add_job(_purgar_webhook_queue, "cron", hour=4, minute=17,
+                       id="webhook_queue_purge",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
-             "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
+             "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min, "
+             "purga webhook_queue diaria 04:17 Bogotá (retención %dd).",
+             WEBHOOK_QUEUE_RETENCION_DIAS)
 
     # Drenaje inicial del spool de OUTs: en background para no bloquear el
     # arranque si hay cientos de archivos acumulados (bloquearia health
@@ -124,6 +146,35 @@ def _drenar_log_mensaje_spool_background():
             log.info("[LogMensajeSpool] Drenaje inicial: %d fila(s) recuperadas.", total)
     except Exception:
         log.exception("[LogMensajeSpool] Error en drenaje inicial.")
+
+
+def _purgar_webhook_queue():
+    """Purga filas de `webhook_queue` más viejas que WEBHOOK_QUEUE_RETENCION_DIAS.
+
+    Antes del PR #? no había purga explícita a nivel aplicación; el piloto
+    6-oct perdimos la data raw anterior a las 15:30 UTC (causa aún no
+    confirmada, posiblemente auto-vacuum / mantenimiento de Render). Este
+    job pone la retención bajo control explícito.
+
+    Solo borra filas ya terminadas (`estado IN ('ok','error')`) para no
+    tocar jamás un pendiente/procesando huérfano que todavía deba drenarse.
+    """
+    from app import db
+    dias = WEBHOOK_QUEUE_RETENCION_DIAS
+    try:
+        with db._conexion() as conn:
+            n = conn.execute(
+                "DELETE FROM webhook_queue "
+                "WHERE recibido_at < NOW() - make_interval(days => %s) "
+                "AND estado IN ('ok', 'error')",
+                (dias,),
+            ).rowcount
+        if n:
+            log.info("[WebhookQueue] Purga: %d filas eliminadas (>%dd).", n, dias)
+        else:
+            log.debug("[WebhookQueue] Purga: nada que borrar (>%dd).", dias)
+    except Exception:
+        log.exception("[WebhookQueue] Error en purga (>%dd).", dias)
 
 
 def _webhook_queue_health():
