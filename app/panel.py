@@ -135,29 +135,41 @@ BUCKETS_LABELS = {
 def bucket_de(contacto, tiene_in: bool, autorizo: bool, completo_flow: bool) -> str:
     """Reglas en orden (primero que matchea gana):
 
-    1. no_contactar               → "no_contactar"
-    2. resultado_contacto == 'recontactar' → "recontactar"
-    3. resultado_contacto in ('sureti','entregado') → "enviar_a_sureti"
-    4. completo_flow O resultado_contacto in ('enviar_formulario','flow')
-                                   → "enviar_formulario"
-    5. tiene_in                   → "respondio"
-    6. contactado=True            → "contactado"
-    7. else                       → "nuevo"
+    Los buckets dependen SOLO de acciones humanas (firma
+    `resultado_contacto_por NOT NULL`) o auto-derivación simple
+    (`tiene_in`, `contactado`). Las flags que el bot setea
+    (`no_contactar=true` por detección semántica, `requiere_humano=true`
+    por "pide llamada") NO afectan el bucket del panel — el bot sigue
+    funcionando igual, pero no decide la clasificación.
 
-    `autorizo` se calcula para el consumidor pero no entra en estas reglas:
-    desde humano-first (sept-2026) la autorización ya no implica Flow —
-    sólo señala interés. Si querés distinguir "autorizó pero no se le envió
-    Flow aún" quedate con el bucket "respondio".
+    1. firma humana + resultado in ('broker','no_interesa') → "no_contactar"
+    2. firma humana + resultado == 'recontactar'            → "recontactar"
+    3. firma humana + resultado == 'sureti' (o legacy       → "enviar_a_sureti"
+       'enviar_a_sureti'/'entregado')
+    4. firma humana + resultado == 'enviar_formulario' (o   → "enviar_formulario"
+       legacy 'flow')
+    5. tiene_in                                             → "respondio"
+    6. contactado=True                                      → "contactado"
+    7. else                                                 → "nuevo"
+
+    `autorizo` y `completo_flow` se calculan para el consumidor pero no
+    entran en estas reglas: desde humano-first (sept-2026) la autorización
+    y el Flow completado ya no implican bucket — sólo señalan actividad.
     """
-    if contacto and contacto.get("no_contactar"):
+    por = (contacto or {}).get("resultado_contacto_por")
+    r = (contacto or {}).get("resultado_contacto") or ""
+
+    # 1-4: cierres humanos explícitos (requieren firma: resultado_contacto_por)
+    if por and r in ("broker", "no_interesa"):
         return "no_contactar"
-    rc = (contacto or {}).get("resultado_contacto") or ""
-    if rc == "recontactar":
+    if por and r == "recontactar":
         return "recontactar"
-    if rc in ("sureti", "entregado", "enviar_a_sureti"):
+    if por and r in ("sureti", "enviar_a_sureti", "entregado"):
         return "enviar_a_sureti"
-    if completo_flow or rc in ("enviar_formulario", "flow"):
+    if por and r in ("enviar_formulario", "flow"):
         return "enviar_formulario"
+
+    # 5-7: derivaciones automáticas (ignoran flags del bot)
     if tiene_in:
         return "respondio"
     if contacto and contacto.get("contactado"):
@@ -1531,6 +1543,9 @@ def panel_detalle(telefono):
     flash = request.args.get("flash", "")
     from app import panel_acciones as _pa
     labels_resultado = {k: v["label"] for k, v in _pa.ACCIONES.items()}
+    # El modal muestra solo el subconjunto de 6 acciones humanas (ver
+    # panel_acciones.acciones_modal). `completar_formulario_manual` queda
+    # fuera del modal porque se dispara desde su botón verde separado.
     return render_template(
         "panel_detalle.html",
         telefono=telefono, estado=estado, token=token,
@@ -1542,7 +1557,7 @@ def panel_detalle(telefono):
         avaluo_m=avaluo_m, monto_estimado_m=monto_estimado_m,
         datos_tabla=datos_tabla, flows=flows,
         sesion_hace=sesion_hace,
-        acciones=_pa.ACCIONES,
+        acciones=_pa.acciones_modal(),
         acciones_historial=acciones_historial,
         labels_resultado=labels_resultado,
     )
