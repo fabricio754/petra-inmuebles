@@ -37,13 +37,6 @@ FAQ = [
             r"que es petra",
             r"cuentenm?e mas",
             r"informacion de (?:la empresa|petra|ustedes)",
-            # Variantes reales que no matcheaban los patrones de arriba:
-            # "quien es ustedes" (gramaticalmente mal, pero típico en WA).
-            r"\bqui[ei]n es\b",
-            # "cuentame mas" (sin 'n': "cuentame" en vez de "cuentenme").
-            r"cuentam?[ei] mas",
-            # "son un banco" sin la preposición "de" ("son de un banco" ya cubierto arriba).
-            r"\bson un banco\b",
         ],
         "respuesta": (
             "Somos Petra, una empresa de credito con garantia inmobiliaria 🏛️\n\n"
