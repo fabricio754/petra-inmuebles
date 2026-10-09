@@ -402,6 +402,13 @@ def _invocar_logica(payload):
     for s in statuses:
         _procesar_status(s)
 
+    # Llamadas entrantes de WhatsApp: cuando el cliente abre el chat y toca
+    # el icono de telefono, Meta manda un item en `calls[]`. No hay audio ni
+    # SIP — solo el evento. Lo loggeamos y notificamos al asesor.
+    calls = change.get("calls") or []
+    for call in calls:
+        _procesar_llamada_entrante(call)
+
     messages = change.get("messages")
     if not messages:
         # Eventos de status y preferencias puras: ya tratados arriba.
@@ -453,6 +460,87 @@ def _procesar_status(s):
     except Exception:
         log.exception("[WebhookQueue] fallo actualizando estado %s para %s",
                       estado, wa_msg_id)
+
+
+def _procesar_llamada_entrante(call):
+    """Procesa un item del array `calls` del webhook de Meta.
+
+    Formato tipico:
+      {
+        "id": "wacid.XXXX",
+        "from": "573001112233",
+        "event": "connect" | "terminate" | ...,
+        "timestamp": "1760000000"
+      }
+
+    Cuando el cliente abre el chat de Massi y toca el icono de telefono,
+    Meta manda `event=connect` (cliente llamando AHORA). Notificamos al
+    asesor con un ping WA y link al panel del contacto, y guardamos un
+    registro sintetico en `mensajes` (tipo='call_in') para que aparezca
+    en el chat del panel.
+
+    NO forwardea la llamada (eso requeriria SIP + Twilio, Fase 3). Es
+    solo notificacion al asesor para que vea el panel y llame al cliente
+    de vuelta por WhatsApp.
+
+    Las llamadas se notifican SIEMPRE (sin cooldown), incluso si el
+    contacto tiene `no_contactar=true` — un lead que esta llamando hay
+    que atenderlo.
+    """
+    telefono = call.get("from") or ""
+    evento = call.get("event") or "unknown"
+    call_id = call.get("id") or ""
+    log.info("[WebhookQueue] Llamada entrante de %s evento=%s", telefono, evento)
+
+    if not telefono:
+        return
+
+    # Persistir row sintetica en `mensajes` para que la llamada aparezca
+    # en el chat del panel del contacto.
+    try:
+        db.log_mensaje(
+            telefono, "in", "call_in",
+            f"[Llamada entrante — {evento}]",
+            {"call_id": call_id, "evento": evento},
+        )
+    except Exception:
+        log.exception("[WebhookQueue] No se pudo registrar llamada entrante de %s", telefono)
+
+    # Solo notificamos al asesor cuando el cliente esta llamando AHORA
+    # (`connect`). Para `terminate` y otros solo logueamos.
+    if evento != "connect":
+        return
+
+    try:
+        from app import bot, whatsapp as wa
+        panel_url = os.environ.get("PANEL_URL", "").strip().rstrip("/")
+        panel_token = os.environ.get("PANEL_TOKEN", "").strip()
+        asesores_csv = os.environ.get("ALERTAS_WHATSAPP", bot.ALERTAS_WHATSAPP).strip()
+        asesores = [n.strip() for n in asesores_csv.split(",") if n.strip()]
+        if not asesores:
+            log.info("[WebhookQueue] ALERTAS_WHATSAPP no seteado; sin ping WA por llamada de %s",
+                     telefono)
+            return
+        link = ""
+        if panel_url and panel_token:
+            link = f"{panel_url}/panel/{telefono}?token={panel_token}"
+        else:
+            link = "(configurar PANEL_URL/PANEL_TOKEN)"
+        mensaje = (
+            f"📞 Llamada entrante de {telefono}\n\n"
+            f"El cliente te está llamando por WhatsApp AHORA.\n"
+            f"Abrilo en el panel para ver su conversación:\n{link}"
+        )
+        for asesor in asesores:
+            try:
+                wa.send_text(asesor, mensaje)
+                log.info("[WebhookQueue] WA enviado a asesor %s por llamada de %s",
+                         asesor, telefono)
+            except Exception:
+                log.exception("[WebhookQueue] fallo WA a asesor %s por llamada de %s",
+                              asesor, telefono)
+    except Exception:
+        log.exception("[WebhookQueue] Error disparando alerta de llamada para %s", telefono)
 
 
 def _procesar_mensaje(phone, event, message=None):
