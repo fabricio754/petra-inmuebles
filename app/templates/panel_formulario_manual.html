@@ -74,10 +74,10 @@
 {% endif %}
 
 <section>
-  <h2>Contexto del lead</h2>
+  <h2>Datos del scraping</h2>
   <dl class="lead-ctx">
     <dt>Teléfono</dt><dd>{{ telefono }}</dd>
-    <dt>Ciudad (scraping)</dt><dd>{{ (contacto and contacto.ciudad) or '—' }}</dd>
+    <dt>Ciudad</dt><dd>{{ (contacto and contacto.ciudad) or '—' }}</dd>
     <dt>Tipo inmueble</dt><dd>{{ (contacto and contacto.tipo_inmueble) or '—' }}</dd>
     <dt>Precio publicado</dt><dd>
       {% if contacto and contacto.precio_publicado %}
@@ -87,6 +87,14 @@
     <dt>Monto hasta</dt><dd>
       {% if contacto and contacto.monto_hasta_millones %}
         ${{ contacto.monto_hasta_millones }}M
+      {% else %}—{% endif %}
+    </dd>
+    <dt>Portal</dt><dd>{{ (contacto and contacto.portal) or '—' }}</dd>
+    <dt>URL del anuncio</dt><dd>
+      {% if contacto and contacto.url_listing %}
+        <a href="{{ contacto.url_listing }}" target="_blank" rel="noopener noreferrer">
+          {{ contacto.url_listing }}
+        </a>
       {% else %}—{% endif %}
     </dd>
   </dl>
@@ -116,6 +124,7 @@
       <label>
         Dirección
         <input type="text" name="direccion"
+               value="{{ (contacto and contacto.direccion) or '' }}"
                placeholder="Ej: Cra 45 # 80-20">
       </label>
       <label>

@@ -20,6 +20,10 @@ def test_detectar_quienes_somos():
         "¿Son de un banco?",
         "¿Son legales?",
         "son serios?",
+        # Variantes reales que no matcheaban antes:
+        "¿Quién es ustedes?",   # "quien es" (no "quien son" / "quienes son").
+        "Cuentame mas",         # sin la 'n' de "cuentenme".
+        "¿Son un banco?",       # sin "de" ("son un banco" vs "son de un banco").
     ]:
         res = faq.detectar(texto)
         assert res is not None, f"no detectó: {texto!r}"
