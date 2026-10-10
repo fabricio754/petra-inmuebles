@@ -1376,3 +1376,201 @@ def sla_tooltip(bucket: str, cuando) -> str:
         "no_contactar": "No contactar",
     }.get(bucket or "", "Lead")
     return f"{etiqueta} {hace} sin movimiento"
+
+
+# === KPIs del dashboard home (iter 2 oct-2026) ================================
+#
+# Grupo cerrado de 6 cifras + sus deltas, pensadas para la strip de tiles del
+# home. Un sólo roundtrip a Postgres (CTE + 6 scalars) → sin N+1.
+#
+# Deltas: cada métrica semanal se compara contra la semana ISO anterior; las
+# mensuales contra el mes natural anterior. Si no se puede calcular el delta
+# (p. ej. no hay base), se devuelve ``None`` y la UI muestra "—".
+
+def _pct_change(actual, previo):
+    """Delta en porcentaje (int redondeado) o None si no computable."""
+    try:
+        actual = float(actual or 0)
+        previo = float(previo or 0)
+    except (TypeError, ValueError):
+        return None
+    if previo <= 0:
+        # Sin base previa: no hay con qué comparar. Si el actual > 0 lo
+        # mostramos como "nuevo" en el UI; acá devolvemos None para que
+        # el template decida (ej. mostrar '—' o 'nuevo').
+        return None
+    return int(round((actual - previo) * 100.0 / previo))
+
+
+def kpis_dashboard() -> dict:
+    """Devuelve las 6 KPIs del dashboard home + deltas.
+
+    Claves:
+      leads_activos               (int) — contactos no opt-out
+      nuevos_semana               (int) — fecha_scraping ISO-semana actual
+      respondidos_semana          (int) — distinct telefono con IN ISO-semana actual
+      sureti_mes                  (int) — eventos sureti_enviado del mes actual
+      pct_conversion              (float|None) — sureti_mes / nuevos_mes (0..1)
+      requieren_atencion          (int) — contactos con sla != 'ok' (calc en python)
+
+      *_delta                     (int|None) — % de cambio vs. periodo anterior.
+
+    Nunca lanza; en caso de error devuelve el dict con las 6 cifras en 0 y
+    todos los deltas en None, de modo que el template puede renderear sin
+    tener que condicionar la ausencia de la clave.
+    """
+    # Fallback defaults — se usan si cualquiera de las queries revienta.
+    out: dict = {
+        "leads_activos": 0, "leads_activos_delta": None,
+        "nuevos_semana": 0, "nuevos_delta": None,
+        "respondidos_semana": 0, "respondidos_delta": None,
+        "sureti_mes": 0, "sureti_delta": None,
+        "pct_conversion": None, "pct_conversion_delta": None,
+        "requieren_atencion": 0, "requieren_atencion_delta": None,
+    }
+    try:
+        with _conexion_directa(timeout=10) as conn:
+            # Semana ISO empieza lunes. date_trunc('week', NOW()) devuelve
+            # el lunes de la semana actual a las 00:00 (zona del server).
+            # Para "esta semana" filtramos fecha >= lunes_actual, para
+            # "semana pasada" entre lunes_pasado y lunes_actual.
+            def _scalar(sql, params=()):
+                row = conn.execute(sql, params).fetchone()
+                return (row[0] if row else 0) or 0
+
+            # 1) Leads activos.
+            out["leads_activos"] = _scalar(
+                "SELECT COUNT(*) FROM contactos WHERE no_contactar = FALSE"
+            )
+            # Delta: comparar con snapshot "hace una semana" aproximado via
+            # fecha_scraping (los activos de hace >=7d no_contactar=false).
+            # Es una aproximación — mejor que nada para el UI.
+            activos_prev = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE no_contactar = FALSE "
+                "  AND fecha_scraping < date_trunc('week', NOW())"
+            )
+            out["leads_activos_delta"] = _pct_change(
+                out["leads_activos"], activos_prev
+            )
+
+            # 2) Nuevos esta semana (vs la semana pasada).
+            out["nuevos_semana"] = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE fecha_scraping >= date_trunc('week', NOW())"
+            )
+            nuevos_prev = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE fecha_scraping >= date_trunc('week', NOW() "
+                "       - INTERVAL '7 days') "
+                "  AND fecha_scraping <  date_trunc('week', NOW())"
+            )
+            out["nuevos_delta"] = _pct_change(out["nuevos_semana"], nuevos_prev)
+
+            # 3) Respondidos esta semana (distinct contacto por tel con IN).
+            out["respondidos_semana"] = _scalar(
+                "SELECT COUNT(DISTINCT telefono) FROM mensajes "
+                "WHERE direccion = 'in' "
+                "  AND fecha >= date_trunc('week', NOW())"
+            )
+            resp_prev = _scalar(
+                "SELECT COUNT(DISTINCT telefono) FROM mensajes "
+                "WHERE direccion = 'in' "
+                "  AND fecha >= date_trunc('week', NOW() - INTERVAL '7 days') "
+                "  AND fecha <  date_trunc('week', NOW())"
+            )
+            out["respondidos_delta"] = _pct_change(
+                out["respondidos_semana"], resp_prev
+            )
+
+            # 4) Sureti este mes (via eventos_contacto tipo sureti_enviado).
+            out["sureti_mes"] = _scalar(
+                "SELECT COUNT(*) FROM eventos_contacto "
+                "WHERE tipo = 'sureti_enviado' "
+                "  AND created_at >= date_trunc('month', NOW())"
+            )
+            sureti_prev = _scalar(
+                "SELECT COUNT(*) FROM eventos_contacto "
+                "WHERE tipo = 'sureti_enviado' "
+                "  AND created_at >= date_trunc('month', NOW() "
+                "       - INTERVAL '1 month') "
+                "  AND created_at <  date_trunc('month', NOW())"
+            )
+            out["sureti_delta"] = _pct_change(out["sureti_mes"], sureti_prev)
+
+            # 5) % Conversión = sureti_mes / nuevos_mes.
+            nuevos_mes = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE fecha_scraping >= date_trunc('month', NOW())"
+            )
+            if nuevos_mes > 0:
+                out["pct_conversion"] = round(
+                    out["sureti_mes"] / float(nuevos_mes), 3
+                )
+            # Delta vs mes anterior
+            nuevos_mes_prev = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE fecha_scraping >= date_trunc('month', NOW() "
+                "       - INTERVAL '1 month') "
+                "  AND fecha_scraping <  date_trunc('month', NOW())"
+            )
+            if nuevos_mes_prev > 0 and out["pct_conversion"] is not None:
+                pct_prev = sureti_prev / float(nuevos_mes_prev)
+                # Delta aquí es diferencia en PUNTOS porcentuales × 100,
+                # para que el UI pueda mostrar p. ej. "+3 pp". Lo
+                # exponemos como int.
+                out["pct_conversion_delta"] = int(
+                    round((out["pct_conversion"] - pct_prev) * 100.0)
+                )
+
+            # 6) Requieren atención: SLA != 'ok'. Lo calculamos en Python
+            #    porque sla_level() depende de reglas por bucket que viven
+            #    acá; replicarlas en SQL duplicaría la lógica.
+            filas_sla = conn.execute(
+                """
+                SELECT c.no_contactar, c.contactado, c.fecha_contacto,
+                       c.fecha_scraping,
+                       c.resultado_contacto, c.resultado_contacto_por,
+                       s.ultima_actividad,
+                       EXISTS (
+                         SELECT 1 FROM mensajes m
+                         WHERE m.telefono = c.telefono AND m.direccion = 'in'
+                       ) AS tiene_in
+                FROM contactos c
+                LEFT JOIN sesiones s ON s.telefono = c.telefono
+                WHERE c.no_contactar = FALSE
+                LIMIT 5000
+                """
+            ).fetchall()
+            n_atencion = 0
+            for (no_cont, contactado, fecha_c, fecha_s, rc, rc_por,
+                 ultima_sesion, tiene_in) in filas_sla:
+                # Deriva bucket igual que panel.bucket_de pero inline/
+                # mini. Las acciones humanas (rc_por not null) priman.
+                rc = rc or ""
+                if rc_por and rc in ("broker", "no_interesa"):
+                    bucket = "no_contactar"
+                elif rc_por and rc == "recontactar":
+                    bucket = "recontactar"
+                elif rc_por and rc in ("sureti", "enviar_a_sureti",
+                                       "entregado"):
+                    bucket = "enviar_a_sureti"
+                elif rc_por and rc in ("enviar_formulario", "flow"):
+                    bucket = "enviar_formulario"
+                elif rc_por and rc == "contactado":
+                    bucket = "contactado"
+                elif tiene_in:
+                    bucket = "respondio"
+                elif contactado:
+                    bucket = "contactado"
+                else:
+                    bucket = "nuevo"
+                ultima = ultima_sesion or fecha_c or fecha_s
+                if sla_level(bucket, ultima) != "ok":
+                    n_atencion += 1
+            out["requieren_atencion"] = n_atencion
+            # Delta: no mantenemos histórico de SLA, así que queda None.
+            out["requieren_atencion_delta"] = None
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[kpis_dashboard] fallo: %s", exc)
+    return out

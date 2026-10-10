@@ -1733,3 +1733,74 @@ tr.unread .tel a {
 }
 .detalle-header h1 { margin: 0; }
 
+/* ---- Dashboard home: KPIs strip ------------------------------------------ */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+@media (max-width: 1024px) {
+  .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.kpi-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-sm);
+  text-decoration: none;
+  color: var(--text);
+  transition: background .15s, border-color .15s, transform .15s, box-shadow .15s;
+}
+.kpi-tile-link { cursor: pointer; }
+.kpi-tile-link:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
+  text-decoration: none;
+}
+.kpi-tile-link:active { transform: translateY(1px); }
+
+.kpi-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+}
+.kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-value-muted { color: var(--text-subtle); }
+.kpi-delta {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.kpi-delta-up    { color: var(--success-strong); }
+.kpi-delta-down  { color: var(--danger-strong); }
+.kpi-delta-flat  { color: var(--text-muted); }
+
+/* Tile de "requieren atención" tiñe sutilmente en warning cuando hay algún
+   lead en alerta — así salta a la vista sin ser agresivo. */
+.kpi-tile-warning {
+  background: color-mix(in srgb, var(--warning-soft) 60%, var(--surface));
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
+}
+.kpi-tile-warning .kpi-value { color: var(--warning-strong); }
+.kpi-tile-warning:hover {
+  background: color-mix(in srgb, var(--warning-soft) 80%, var(--surface));
+}
+
