@@ -20,10 +20,19 @@ from flask import (Blueprint, Response, abort, jsonify, redirect,
                    render_template, request, send_file, url_for)
 from psycopg_pool import PoolTimeout
 
-from app import db
+from app import avatares, db
 
 log = logging.getLogger("petra")
 panel = Blueprint("panel", __name__)
+
+
+# Filtro Jinja: {{ contacto | avatar }} y {{ contacto | avatar('sm') }}.
+# Registrado como `app_template_filter` para que esté disponible en TODAS
+# las plantillas (no sólo las del blueprint). Fail-silent: si el contacto
+# es None o viene mal, el helper devuelve iniciales '?' sin lanzar.
+@panel.app_template_filter("avatar")
+def _jinja_filter_avatar(contacto, size: str = ""):
+    return avatares.avatar_html(contacto, size=size)
 
 # Fallback para ordenar eventos/tarjetas cuyo timestamp es None.
 # Usamos datetime.min aware (UTC) para que pueda compararse con otros
@@ -530,7 +539,17 @@ def panel_lista():
     f_portal = (request.args.get("portal") or "").strip()
     f_pendientes = request.args.get("pendientes") == "1"
     f_pendiente_humano = request.args.get("pendiente_humano") == "1"
+    f_sla = request.args.get("sla") == "1"
     q = (request.args.get("q") or "").strip()
+    # Iter 2 (oct-2026): la ruta ahora es un "dashboard home" con KPIs
+    # + toggle Table/Kanban. Default = table (preserva comportamiento
+    # previo). "kanban" renderea cards agrupadas por bucket. "nc"
+    # (opcional, sólo tiene efecto en kanban) muestra también la
+    # columna no_contactar.
+    view = (request.args.get("view") or "table").strip()
+    if view not in ("table", "kanban"):
+        view = "table"
+    kanban_show_nc = request.args.get("nc") == "1"
 
     try:
         with _panel_conexion() as conn:
@@ -546,6 +565,7 @@ def panel_lista():
                        c.resultado_contacto, c.resultado_contacto_at,
                        c.resultado_contacto_por,
                        c.requiere_humano,
+                       c.visto_at,
                        EXISTS (
                          SELECT 1 FROM mensajes m
                          WHERE m.telefono = c.telefono AND m.direccion = 'in'
@@ -578,6 +598,32 @@ def panel_lista():
     except PoolTimeout:
         return _pool_busy_response("/panel")
 
+    # Último mensaje IN por teléfono, usado tanto para "última actividad"
+    # como para calcular `no_leido` y, en vista Kanban, el preview del
+    # último mensaje. Una sola query (DISTINCT ON) devuelve ambos: la
+    # fecha y el texto del último IN por teléfono.
+    try:
+        with _panel_conexion() as conn:
+            ultimos_in: dict = {}
+            ultimos_in_texto: dict = {}
+            for r in _rows(conn, """
+                SELECT DISTINCT ON (telefono)
+                       telefono, fecha AS ultimo_in,
+                       COALESCE(resumen, '') AS resumen
+                FROM mensajes
+                WHERE direccion = 'in'
+                ORDER BY telefono, fecha DESC
+            """):
+                ultimos_in[r["telefono"]] = r["ultimo_in"]
+                ultimos_in_texto[r["telefono"]] = r["resumen"]
+    except PoolTimeout:
+        return _pool_busy_response("/panel")
+    except Exception:
+        log.exception("[Panel] no_leido: no se pudo cargar ultimos_in; "
+                      "se asume vacío (todo leído).")
+        ultimos_in = {}
+        ultimos_in_texto = {}
+
     filas_all = []
     for c in contactos:
         s = sesiones.get(c["telefono"])
@@ -605,6 +651,30 @@ def panel_lista():
             bool(c.get("autorizo")),
             bool(c.get("completo_flow")),
         )
+        # No leído: visto_at es NULL o anterior a la última actividad
+        # relevante (sesión del bot o último mensaje IN del cliente).
+        visto_at = c.get("visto_at")
+        ultimo_in = ultimos_in.get(c["telefono"])
+        candidatos = [t for t in ((s or {}).get("ultima_actividad"),
+                                   ultimo_in) if t]
+        no_leido = False
+        if candidatos:
+            ultima_act = max(candidatos)
+            no_leido = (visto_at is None) or (visto_at < ultima_act)
+        # SLA (iter 1 oct-2026): nivel de alerta por antigüedad en el
+        # bucket. `ultima` es COALESCE(sesion.ultima_actividad,
+        # fecha_contacto, fecha_scraping) — misma base que usa el
+        # semáforo verde/amarillo/gris.
+        sla = db.sla_level(bucket, ultima)
+        sla_text = db.sla_tooltip(bucket, ultima) if sla != "ok" else ""
+        # Preview del último mensaje IN para Kanban. Se corta a 80 chars
+        # para que entre en la card sin romper el layout. En vista table
+        # se ignora.
+        ultimo_texto_raw = ultimos_in_texto.get(c["telefono"], "") or ""
+        if len(ultimo_texto_raw) > 80:
+            ultimo_mensaje_preview = ultimo_texto_raw[:77].rstrip() + "…"
+        else:
+            ultimo_mensaje_preview = ultimo_texto_raw
         filas_all.append({
             **c,
             "estado": _estado_lead(c, s, p),
@@ -615,6 +685,10 @@ def panel_lista():
             "ultima_actividad_semaforo": _semaforo(ultima),
             "avaluo_m": avaluo_m,
             "avaluo_fuente": avaluo_fuente,
+            "no_leido": no_leido,
+            "sla": sla,
+            "sla_tooltip": sla_text,
+            "ultimo_mensaje_preview": ultimo_mensaje_preview,
         })
 
     por_estado = {}
@@ -656,6 +730,10 @@ def panel_lista():
             # no hay cierre humano (resultado_contacto_por sin setear).
             if not f.get("requiere_humano") or f.get("resultado_contacto_por"):
                 return False
+        if f_sla:
+            # Leads que requieren atención: SLA en warning o danger.
+            if f.get("sla", "ok") == "ok":
+                return False
         if q:
             hay = " ".join([
                 str(f.get("telefono") or ""),
@@ -667,12 +745,114 @@ def panel_lista():
 
     filas = [f for f in filas_all if _match(f)][:500]
 
+    # Count global de leads que requieren atención (para el chip).
+    sla_count = sum(1 for f in filas_all if f.get("sla", "ok") != "ok")
+
     # Labels de resultado_contacto para el badge en la lista.
     from app import panel_acciones as _pa
     labels_resultado = {k: v["label"] for k, v in _pa.ACCIONES.items()}
 
+    # --- Kanban: agrupar `filas` por bucket (iter 2 oct-2026) ---------------
+    # Mismo orden que `BUCKETS_ORDEN` para que las columnas aparezcan en
+    # el flujo humano-first. `no_contactar` se emite al final sólo si el
+    # usuario pidió verla (``nc=1``).
+    kanban_order = [k for k in BUCKETS_ORDEN if k != "no_contactar"]
+    if kanban_show_nc:
+        kanban_order.append("no_contactar")
+
+    # Icons para los headers de las columnas Kanban.
+    kanban_icons = {
+        "nuevo": "🆕",
+        "contactado": "📞",
+        "respondio": "💬",
+        "enviar_formulario": "📝",
+        "enviar_a_sureti": "✅",
+        "recontactar": "🔁",
+        "no_contactar": "❌",
+    }
+    # Para el Kanban usamos `filas_all` (no `filas`) porque cuando el
+    # usuario está en vista Kanban queremos ver todo el pipeline aunque
+    # haya filtros de bucket aplicados — el bucket se expresa visualmente
+    # como "columna". Igualmente respetamos ciudad/portal/q/pendientes
+    # para que el filtro de arriba siga haciendo algo útil.
+    def _match_kanban(f):
+        if f_ciudad and (f.get("ciudad") or "") != f_ciudad:
+            return False
+        if f_portal and (f.get("portal") or "") != f_portal:
+            return False
+        if f_pendientes and (
+            not f.get("contactado") or f.get("resultado_contacto_por")
+        ):
+            return False
+        if f_pendiente_humano and (
+            not f.get("requiere_humano") or f.get("resultado_contacto_por")
+        ):
+            return False
+        if f_sla and f.get("sla", "ok") == "ok":
+            return False
+        if q:
+            hay = " ".join([
+                str(f.get("telefono") or ""),
+                str(f.get("nombre") or ""),
+            ]).lower()
+            if q.lower() not in hay:
+                return False
+        return True
+
+    kanban_columnas: list[dict] = []
+    if view == "kanban":
+        por_bucket_filas: dict[str, list] = {k: [] for k in kanban_order}
+        for f in filas_all:
+            if not _match_kanban(f):
+                continue
+            b = f.get("bucket")
+            if b not in por_bucket_filas:
+                continue  # no_contactar se descarta si no se pidió
+            # Tope por columna: 100 cards para no ahogar al navegador.
+            if len(por_bucket_filas[b]) < 100:
+                por_bucket_filas[b].append(f)
+        for k in kanban_order:
+            kanban_columnas.append({
+                "key": k,
+                "label": BUCKETS_LABELS[k],
+                "icon": kanban_icons.get(k, "•"),
+                "count": por_bucket.get(k, 0),  # total global, no sólo mostrado
+                "filas": por_bucket_filas[k],
+                "shown": len(por_bucket_filas[k]),
+            })
+
+    # --- Acciones disponibles para "Mover a:" en cada card ------------------
+    # Mapeo bucket destino → acción humana. Son las mismas acciones que
+    # usa el modal del detalle. Si el bucket no tiene acción directa
+    # (p. ej. "nuevo" o "respondio" son derivados), lo omitimos del menú.
+    mover_acciones = [
+        ("contactado", "regresar_a_contactado", "Regresar a contactado"),
+        ("enviar_formulario", "enviar_formulario", "Enviar formulario"),
+        ("enviar_a_sureti", "sureti", "Enviar a Sureti"),
+        ("recontactar", "recontactar", "Recontactar"),
+        ("no_contactar", "no_interesa", "No le interesa"),
+    ]
+
+    # --- KPIs del dashboard home --------------------------------------------
+    try:
+        kpis = db.kpis_dashboard()
+    except Exception:
+        log.exception("[Panel] kpis_dashboard falló; se usan ceros.")
+        kpis = {
+            "leads_activos": 0, "leads_activos_delta": None,
+            "nuevos_semana": 0, "nuevos_delta": None,
+            "respondidos_semana": 0, "respondidos_delta": None,
+            "sureti_mes": 0, "sureti_delta": None,
+            "pct_conversion": None, "pct_conversion_delta": None,
+            "requieren_atencion": sla_count, "requieren_atencion_delta": None,
+        }
+    # Overridemos requieren_atencion con `sla_count` ya calculado — es el
+    # mismo cálculo, y evitamos divergencias con el chip "⚠ Requieren
+    # atención" que apunta a `?sla=1`.
+    kpis["requieren_atencion"] = sla_count
+
     return render_template(
-        "panel_lista.html",
+        "panel_home.html",
         filas=filas, por_estado=sorted(por_estado.items()), token=token,
         total=len(filas), total_sin_filtro=len(filas_all),
         ciudades=sorted(ciudades_set), portales=sorted(portales_set),
@@ -680,8 +860,16 @@ def panel_lista():
         f_ciudad=f_ciudad, f_portal=f_portal, q=q,
         f_pendientes=f_pendientes,
         f_pendiente_humano=f_pendiente_humano,
+        f_sla=f_sla,
+        sla_count=sla_count,
         labels_resultado=labels_resultado,
         buckets_chips=buckets_chips,
+        # iter 2 extras
+        view=view,
+        kanban_show_nc=kanban_show_nc,
+        kanban_columnas=kanban_columnas,
+        mover_acciones=mover_acciones,
+        kpis=kpis,
     )
 
 
@@ -1172,37 +1360,96 @@ def panel_respuestas():
     Muestra, agrupado por teléfono, el hilo entero (IN del usuario + OUT del
     bot cercanos) tal cual fue, con un tag de clasificación arriba.
     Útil para leer letra por letra qué contestó la gente a la plantilla de
-    apertura. Query param ``?dias=N`` extiende la ventana.
+    apertura.
+
+    Rango temporal (iter 3 — oct-2026): selector de fecha en el topbar.
+    Query params (mutuamente excluyentes; precedencia: ``fecha`` > ``rango``
+    > ``dias`` legacy):
+      - ``?rango=hoy|ayer|7d``  — atajos.
+      - ``?fecha=YYYY-MM-DD``   — fecha específica (zona Bogotá).
+      - ``?dias=N``             — legacy, últimos N días. Preservado para
+                                   que links viejos no se rompan.
+    Default: ``rango=hoy`` (mismo comportamiento que la versión anterior).
     """
     _check_token()
     token = request.args.get("token", "")
 
-    try:
-        dias = int(request.args.get("dias", "1"))
-    except (TypeError, ValueError):
-        dias = 1
-    if dias < 1:
-        dias = 1
-    if dias > 30:
-        dias = 30
+    # --- Rango temporal -----------------------------------------------------
+    # Precedencia: fecha específica > rango atajo > dias legacy > default hoy.
+    rango_raw = (request.args.get("rango") or "").strip().lower()
+    fecha_raw = (request.args.get("fecha") or "").strip()
+    dias_raw = request.args.get("dias")
+
+    RANGOS_VALIDOS = {"hoy", "ayer", "7d"}
+    fecha_valida = None
+    if fecha_raw:
+        try:
+            fecha_valida = datetime.strptime(fecha_raw, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            fecha_valida = None
+
+    # Default + resolución.
+    if fecha_valida is not None:
+        rango_activo = "custom"
+        dias_vista = 1
+    elif rango_raw in RANGOS_VALIDOS:
+        rango_activo = rango_raw
+        dias_vista = 7 if rango_raw == "7d" else 1
+    elif dias_raw is not None:
+        # Compat legacy: ?dias=N.
+        try:
+            n = int(dias_raw)
+        except (TypeError, ValueError):
+            n = 1
+        if n <= 1:
+            rango_activo = "hoy"
+            dias_vista = 1
+        elif n == 7:
+            rango_activo = "7d"
+            dias_vista = 7
+        else:
+            rango_activo = "custom_dias"
+            dias_vista = max(1, min(n, 30))
+    else:
+        rango_activo = "hoy"
+        dias_vista = 1
+
+    # Label legible para el topbar.
+    if rango_activo == "hoy":
+        rango_label = "Hoy"
+        fecha_seleccionada = ""
+    elif rango_activo == "ayer":
+        rango_label = "Ayer"
+        fecha_seleccionada = ""
+    elif rango_activo == "7d":
+        rango_label = "Últimos 7 días"
+        fecha_seleccionada = ""
+    elif rango_activo == "custom":
+        rango_label = fecha_valida.strftime("%Y-%m-%d")
+        fecha_seleccionada = fecha_valida.strftime("%Y-%m-%d")
+    else:  # custom_dias (legacy)
+        rango_label = f"Últimos {dias_vista} días"
+        fecha_seleccionada = ""
+
+    # Compat: `dias` sigue existiendo para el label debajo del H1.
+    dias = dias_vista
 
     f_tag = (request.args.get("tag") or "").strip()
 
+    # --- SQL según rango activo --------------------------------------------
+    # Para cada caso: primero sacamos los teléfonos que escribieron en el
+    # rango (direccion='in'), luego traemos todos sus mensajes en el mismo
+    # rango para armar el hilo.
     try:
         with _panel_conexion() as conn:
-            if dias == 1:
+            if rango_activo == "hoy":
                 sql = """
                     SELECT
-                      m.telefono,
-                      m.direccion,
-                      m.tipo,
-                      COALESCE(m.resumen, '') AS resumen,
-                      m.fecha,
-                      c.tipo_inmueble,
-                      c.ciudad,
-                      c.barrio,
-                      c.no_contactar,
-                      c.monto_hasta_millones AS monto_hasta
+                      m.telefono, m.direccion, m.tipo,
+                      COALESCE(m.resumen, '') AS resumen, m.fecha,
+                      c.tipo_inmueble, c.ciudad, c.barrio,
+                      c.no_contactar, c.monto_hasta_millones AS monto_hasta,
+                      c.visto_at
                     FROM mensajes m
                     LEFT JOIN contactos c ON c.telefono = m.telefono
                     WHERE m.telefono IN (
@@ -1216,19 +1463,57 @@ def panel_respuestas():
                     ORDER BY m.telefono, m.fecha
                 """
                 filas = _rows(conn, sql)
-            else:
+            elif rango_activo == "ayer":
                 sql = """
                     SELECT
-                      m.telefono,
-                      m.direccion,
-                      m.tipo,
-                      COALESCE(m.resumen, '') AS resumen,
-                      m.fecha,
-                      c.tipo_inmueble,
-                      c.ciudad,
-                      c.barrio,
-                      c.no_contactar,
-                      c.monto_hasta_millones AS monto_hasta
+                      m.telefono, m.direccion, m.tipo,
+                      COALESCE(m.resumen, '') AS resumen, m.fecha,
+                      c.tipo_inmueble, c.ciudad, c.barrio,
+                      c.no_contactar, c.monto_hasta_millones AS monto_hasta,
+                      c.visto_at
+                    FROM mensajes m
+                    LEFT JOIN contactos c ON c.telefono = m.telefono
+                    WHERE m.telefono IN (
+                      SELECT DISTINCT telefono FROM mensajes
+                      WHERE direccion='in'
+                        AND (fecha AT TIME ZONE 'America/Bogota')::date
+                            = ((NOW() AT TIME ZONE 'America/Bogota')::date - INTERVAL '1 day')::date
+                    )
+                    AND (m.fecha AT TIME ZONE 'America/Bogota')::date
+                        = ((NOW() AT TIME ZONE 'America/Bogota')::date - INTERVAL '1 day')::date
+                    ORDER BY m.telefono, m.fecha
+                """
+                filas = _rows(conn, sql)
+            elif rango_activo == "custom":
+                # Día específico en zona Bogotá.
+                fecha_str = fecha_valida.strftime("%Y-%m-%d")
+                sql = """
+                    SELECT
+                      m.telefono, m.direccion, m.tipo,
+                      COALESCE(m.resumen, '') AS resumen, m.fecha,
+                      c.tipo_inmueble, c.ciudad, c.barrio,
+                      c.no_contactar, c.monto_hasta_millones AS monto_hasta,
+                      c.visto_at
+                    FROM mensajes m
+                    LEFT JOIN contactos c ON c.telefono = m.telefono
+                    WHERE m.telefono IN (
+                      SELECT DISTINCT telefono FROM mensajes
+                      WHERE direccion='in'
+                        AND (fecha AT TIME ZONE 'America/Bogota')::date = %s::date
+                    )
+                    AND (m.fecha AT TIME ZONE 'America/Bogota')::date = %s::date
+                    ORDER BY m.telefono, m.fecha
+                """
+                filas = _rows(conn, sql, (fecha_str, fecha_str))
+            else:
+                # 7d o custom_dias (legacy).
+                sql = """
+                    SELECT
+                      m.telefono, m.direccion, m.tipo,
+                      COALESCE(m.resumen, '') AS resumen, m.fecha,
+                      c.tipo_inmueble, c.ciudad, c.barrio,
+                      c.no_contactar, c.monto_hasta_millones AS monto_hasta,
+                      c.visto_at
                     FROM mensajes m
                     LEFT JOIN contactos c ON c.telefono = m.telefono
                     WHERE m.telefono IN (
@@ -1239,7 +1524,7 @@ def panel_respuestas():
                     AND m.fecha >= NOW() - make_interval(days => %s)
                     ORDER BY m.telefono, m.fecha
                 """
-                filas = _rows(conn, sql, (dias, dias))
+                filas = _rows(conn, sql, (dias_vista, dias_vista))
     except PoolTimeout:
         return _pool_busy_response("/panel/respuestas")
 
@@ -1255,6 +1540,7 @@ def panel_respuestas():
                 "barrio": r.get("barrio"),
                 "no_contactar": r.get("no_contactar"),
                 "monto_hasta": r.get("monto_hasta"),
+                "visto_at": r.get("visto_at"),
                 "mensajes": [],
             }
         por_tel[tel]["mensajes"].append(r)
@@ -1296,6 +1582,17 @@ def panel_respuestas():
             if m.get("fecha") and (ult is None or m["fecha"] > ult):
                 ult = m["fecha"]
 
+        # No leído: visto_at es NULL o anterior al último IN del cliente.
+        ultimo_in_tel = None
+        for m in mensajes_hilo:
+            if m.get("direccion") == "in" and m.get("fecha"):
+                if ultimo_in_tel is None or m["fecha"] > ultimo_in_tel:
+                    ultimo_in_tel = m["fecha"]
+        visto_at = info.get("visto_at")
+        no_leido_card = False
+        if ultimo_in_tel:
+            no_leido_card = (visto_at is None) or (visto_at < ultimo_in_tel)
+
         tarjetas.append({
             "telefono": tel,
             "tipo_inmueble": info["tipo_inmueble"],
@@ -1308,6 +1605,7 @@ def panel_respuestas():
             "tag_color": _TAG_META.get(tag, {}).get("color", "gris"),
             "mensajes": mensajes_vista,
             "ultima": ult,
+            "no_leido": no_leido_card,
         })
 
     # Orden: más reciente arriba.
@@ -1351,6 +1649,9 @@ def panel_respuestas():
         chips=chips,
         f_tag=f_tag,
         dias=dias,
+        rango_activo=rango_activo,
+        rango_label=rango_label,
+        fecha_seleccionada=fecha_seleccionada,
     )
 
 
@@ -1564,6 +1865,46 @@ def panel_detalle(telefono):
     flash = request.args.get("flash", "")
     from app import panel_acciones as _pa
     labels_resultado = {k: v["label"] for k, v in _pa.ACCIONES.items()}
+
+    # Pausar bot per lead (iter 1 oct-2026). `bot_pausa_info` consulta
+    # `contactos.bot_pausado_hasta` y devuelve {pausado, hasta, indefinida}.
+    try:
+        pausa_info = db.bot_pausa_info(telefono)
+    except Exception:
+        log.exception("[Panel] bot_pausa_info falló tel=%s", telefono)
+        pausa_info = {"pausado": False, "hasta": None, "indefinida": False}
+
+    # Notas internas sobre el lead (iter 1 oct-2026). Pre-calculamos la
+    # fecha relativa para que el template no haga filtros Jinja custom.
+    notas = []
+    if contacto and contacto.get("id"):
+        try:
+            notas_raw = db.listar_notas(contacto["id"])
+            for n in notas_raw:
+                n = dict(n)
+                n["hace"] = _hace(n.get("created_at"))
+                notas.append(n)
+        except Exception:
+            log.exception("[Panel] listar_notas falló tel=%s", telefono)
+
+    # Marcar leído al abrir el detalle (iter 1 oct-2026). Idempotente.
+    # `marcar_visto` ya es fail-silent, pero igual lo envolvemos: una
+    # falla acá no debe romper el render del detalle.
+    if contacto and contacto.get("id"):
+        try:
+            db.marcar_visto(contacto["id"])
+        except Exception:
+            log.exception("[Panel] marcar_visto falló tel=%s", telefono)
+
+    # Timeline unificado (iter 1 oct-2026): mezcla mensajes + eventos.
+    timeline_vista = {"items": [], "total": 0, "hay_mas": False}
+    if contacto and contacto.get("id"):
+        try:
+            items_raw = db.listar_timeline(contacto["id"], limit=200)
+            timeline_vista = _timeline_vista(items_raw, limit=50)
+        except Exception:
+            log.exception("[Panel] listar_timeline falló tel=%s", telefono)
+
     # El modal muestra solo el subconjunto de 6 acciones humanas (ver
     # panel_acciones.acciones_modal). `completar_formulario_manual` queda
     # fuera del modal porque se dispara desde su botón verde separado.
@@ -1582,7 +1923,117 @@ def panel_detalle(telefono):
         acciones=_pa.acciones_modal(),
         acciones_historial=acciones_historial,
         labels_resultado=labels_resultado,
+        pausa_info=pausa_info,
+        notas=notas,
+        timeline_items=timeline_vista["items"],
+        timeline_total=timeline_vista["total"],
+        timeline_hay_mas=timeline_vista["hay_mas"],
     )
+
+
+# Mapa de tipos de evento → (icono, etiqueta) para el timeline unificado.
+_TIMELINE_META = {
+    "bucket_cambio":                 ("🔄", "Bucket cambió"),
+    "nota_agregada":                 ("📝", "Nota"),
+    "bot_pausado":                   ("⏸", "Bot pausado"),
+    "bot_reactivado":                ("▶", "Bot reactivado"),
+    "no_contactar":                  ("🚫", "No contactar"),
+    "sureti_enviado":                ("📤", "Enviado a Sureti"),
+    "formulario_enviado":            ("📋", "Formulario marcado"),
+    "llamada_recibida":              ("📞", "Llamada WhatsApp"),
+    "template_remarketing_enviado":  ("💬", "Remarketing"),
+    "requiere_humano_marcado":       ("🔥", "Requiere humano"),
+}
+
+
+def _timeline_formatear_evento(ev):
+    """Devuelve dict con las claves que el template consume para un item
+    de tipo 'evento': icono, etiqueta, detalle_texto, autor."""
+    tipo = ev.get("tipo") or ""
+    meta = _TIMELINE_META.get(tipo, ("•", tipo))
+    icono, etiqueta = meta
+    detalle = ev.get("detalle") or {}
+    if isinstance(detalle, str):
+        try:
+            detalle = json.loads(detalle)
+        except (ValueError, TypeError):
+            detalle = {}
+    if not isinstance(detalle, dict):
+        detalle = {}
+    partes = []
+    if tipo == "bucket_cambio" and "from" in detalle and "to" in detalle:
+        partes.append(f'de "{detalle["from"]}" a "{detalle["to"]}"')
+    elif tipo == "nota_agregada" and detalle.get("texto_corto"):
+        partes.append(f'"{detalle["texto_corto"]}"')
+    elif tipo == "bot_pausado":
+        if detalle.get("indefinido"):
+            partes.append("indefinido")
+        elif detalle.get("horas"):
+            partes.append(f'{detalle["horas"]}h')
+    elif tipo == "template_remarketing_enviado" and detalle.get("template_name"):
+        partes.append(detalle["template_name"])
+    elif tipo == "requiere_humano_marcado" and detalle.get("motivo"):
+        partes.append(detalle["motivo"][:120])
+    elif tipo == "sureti_enviado" and detalle.get("sureti_lead_id"):
+        partes.append(f'ID {detalle["sureti_lead_id"]}')
+    elif tipo == "no_contactar" and detalle.get("motivo"):
+        partes.append(detalle["motivo"])
+    detalle_texto = " · ".join(partes) if partes else ""
+    return {
+        "kind": "evento",
+        "cuando": ev.get("cuando"),
+        "icono": icono,
+        "etiqueta": etiqueta,
+        "detalle_texto": detalle_texto,
+        "autor": ev.get("autor") or "sistema",
+    }
+
+
+def _timeline_formatear_mensaje(m):
+    """Devuelve dict con las claves que el template consume para un item
+    de tipo 'mensaje'."""
+    direccion = m.get("direccion") or "in"
+    tipo = m.get("tipo") or ""
+    resumen = m.get("resumen") or ""
+    if direccion == "out":
+        icono = "📨"
+        etiqueta = "Mensaje enviado"
+        resumen_render = _humanizar_resumen_salida(resumen)
+    else:
+        if tipo == "call_in":
+            icono = "📞"
+            etiqueta = "Llamada WhatsApp"
+            resumen_render = resumen or "[llamada entrante]"
+        elif tipo == "flow_reply":
+            icono = "📋"
+            etiqueta = "Formulario recibido"
+            resumen_render = "(flow_reply)"
+        else:
+            icono = "💬"
+            etiqueta = "Mensaje recibido"
+            resumen_render = resumen or "—"
+    return {
+        "kind": "mensaje",
+        "cuando": m.get("cuando"),
+        "icono": icono,
+        "etiqueta": etiqueta,
+        "detalle_texto": (resumen_render or "")[:200],
+        "autor": "cliente" if direccion == "in" else "bot",
+    }
+
+
+def _timeline_vista(items, limit=50):
+    """Convierte la lista cruda de `db.listar_timeline` en estructuras
+    listas para el template, y recorta a `limit` con el botón "Ver más"."""
+    out = []
+    for it in items:
+        if it.get("kind") == "evento":
+            out.append(_timeline_formatear_evento(it))
+        else:
+            out.append(_timeline_formatear_mensaje(it))
+    total = len(out)
+    hay_mas = total > limit
+    return {"items": out[:limit], "total": total, "hay_mas": hay_mas}
 
 
 @panel.get("/panel/media/<int:mensaje_id>")
@@ -1835,6 +2286,170 @@ def panel_responder(telefono):
 
     return redirect(url_for("panel.panel_detalle", telefono=telefono,
                             token=token, flash="enviado"))
+
+
+# ---------------------------------------------------------------------------
+# Quick replies (iter 3 — oct-2026)
+#
+# CRUD de respuestas pre-escritas + endpoint JSON para el modal del detalle
+# que devuelve el texto interpolado para un contacto específico. El modal
+# vive en `panel_detalle.html` (hay textarea de respuesta manual) y en
+# `panel_quick_replies.html` como preview + copy-to-clipboard.
+# ---------------------------------------------------------------------------
+
+def _contacto_para_qr(telefono: str | None,
+                     contacto_id: int | None) -> dict:
+    """Devuelve un dict minimal con los campos que `interpolar_variables`
+    necesita (nombre, ciudad, portal, precio_publicado, estrato, bucket).
+    Si no encuentra el contacto, devuelve {} — la interpolación aplica
+    fallbacks suaves."""
+    if not telefono and not contacto_id:
+        return {}
+    try:
+        with _panel_conexion() as conn:
+            if telefono:
+                fila = _rows(conn,
+                    "SELECT id, telefono, nombre, ciudad, portal, "
+                    "       precio_publicado, estrato "
+                    "FROM contactos WHERE telefono = %s", (telefono,))
+            else:
+                fila = _rows(conn,
+                    "SELECT id, telefono, nombre, ciudad, portal, "
+                    "       precio_publicado, estrato "
+                    "FROM contactos WHERE id = %s", (contacto_id,))
+    except Exception:
+        log.exception("[QR] no se pudo cargar contacto tel=%s id=%s",
+                      telefono, contacto_id)
+        return {}
+    if not fila:
+        return {}
+    c = dict(fila[0])
+    # Añadir bucket: lo deriva un helper pesado (ver bucket_de); como
+    # heurística liviana usamos resultado_contacto / contactado. Si falla,
+    # omitimos — el fallback vacío aplica.
+    c["bucket"] = ""
+    return c
+
+
+@panel.get("/panel/quick-replies")
+def panel_quick_replies():
+    """CRUD de la biblioteca de quick replies."""
+    _check_token()
+    token = request.args.get("token", "")
+    flash = request.args.get("flash", "")
+    editar_id = request.args.get("editar")
+    editar = None
+    if editar_id:
+        try:
+            editar = db.obtener_quick_reply(int(editar_id))
+        except (TypeError, ValueError):
+            editar = None
+    quick_replies = db.listar_quick_replies()
+    return render_template(
+        "panel_quick_replies.html",
+        token=token, flash=flash,
+        quick_replies=quick_replies,
+        editar=editar,
+    )
+
+
+@panel.post("/panel/quick-replies")
+def panel_quick_replies_crear():
+    _check_token()
+    token = request.args.get("token", "")
+    shortcut = (request.form.get("shortcut") or "").strip()
+    titulo = (request.form.get("titulo") or "").strip()
+    texto = request.form.get("texto") or ""
+    if not shortcut or not titulo or not texto.strip():
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_vacio"))
+    # Shortcut: solo [a-z0-9_-], lowercase.
+    shortcut_clean = re.sub(r"[^a-z0-9_\-]+", "_", shortcut.lower())[:50]
+    if not shortcut_clean:
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_shortcut_invalido"))
+    try:
+        db.agregar_quick_reply(shortcut_clean, titulo, texto)
+    except Exception as exc:
+        log.exception("[QR] crear falló")
+        # Error típico: shortcut UNIQUE duplicado.
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash=f"qr_err"))
+    return redirect(url_for("panel.panel_quick_replies",
+                            token=token, flash="qr_creado"))
+
+
+@panel.post("/panel/quick-replies/<int:qr_id>/editar")
+def panel_quick_replies_editar(qr_id):
+    _check_token()
+    token = request.args.get("token", "")
+    shortcut = (request.form.get("shortcut") or "").strip()
+    titulo = (request.form.get("titulo") or "").strip()
+    texto = request.form.get("texto") or ""
+    if not shortcut or not titulo or not texto.strip():
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_vacio",
+                                editar=qr_id))
+    shortcut_clean = re.sub(r"[^a-z0-9_\-]+", "_", shortcut.lower())[:50]
+    try:
+        db.actualizar_quick_reply(qr_id, shortcut_clean, titulo, texto)
+    except Exception:
+        log.exception("[QR] editar falló id=%s", qr_id)
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_err"))
+    return redirect(url_for("panel.panel_quick_replies",
+                            token=token, flash="qr_actualizado"))
+
+
+@panel.post("/panel/quick-replies/<int:qr_id>/borrar")
+def panel_quick_replies_borrar(qr_id):
+    _check_token()
+    token = request.args.get("token", "")
+    try:
+        db.borrar_quick_reply(qr_id)
+    except Exception:
+        log.exception("[QR] borrar falló id=%s", qr_id)
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_err"))
+    return redirect(url_for("panel.panel_quick_replies",
+                            token=token, flash="qr_borrada"))
+
+
+@panel.get("/panel/quick-replies/preview")
+def panel_quick_replies_preview():
+    """Devuelve el texto interpolado para un contacto específico.
+
+    Query params:
+      - id          : id de la quick reply (obligatorio).
+      - contacto_id : (opcional) id del contacto.
+      - telefono    : (opcional, alternativa a contacto_id) teléfono.
+    Devuelve JSON {texto, shortcut, titulo}. Usado por el modal del
+    detalle para rellenar el textarea del asesor con el texto ya listo.
+    """
+    _check_token()
+    try:
+        qr_id = int(request.args.get("id") or 0)
+    except (TypeError, ValueError):
+        qr_id = 0
+    if not qr_id:
+        return jsonify({"error": "id requerido"}), 400
+    qr = db.obtener_quick_reply(qr_id)
+    if not qr:
+        return jsonify({"error": "quick reply no existe"}), 404
+    telefono = (request.args.get("telefono") or "").strip() or None
+    try:
+        contacto_id = int(request.args.get("contacto_id") or 0) or None
+    except (TypeError, ValueError):
+        contacto_id = None
+    contacto = _contacto_para_qr(telefono, contacto_id)
+    texto_interp = db.interpolar_variables(qr["texto"], contacto)
+    return jsonify({
+        "id": qr["id"],
+        "shortcut": qr["shortcut"],
+        "titulo": qr["titulo"],
+        "texto": texto_interp,
+        "texto_raw": qr["texto"],
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -2125,3 +2740,142 @@ def ejecutar_accion(telefono):
             return jsonify({"ok": False, "error": "server_error"}), 500
         return redirect(url_for("panel.panel_detalle", telefono=telefono,
                                 token=token, flash="accion_err:server"))
+
+
+# ---------------------------------------------------------------------------
+# Feature: Pausar bot per lead
+# ---------------------------------------------------------------------------
+
+_HORAS_PAUSA_VALIDAS = (1, 4, 24)
+
+
+@panel.post("/panel/<telefono>/bot/pausar")
+def panel_bot_pausar(telefono):
+    """Pausa el bot para este lead. El asesor elige 1h / 4h / 24h o
+    indefinido via el campo ``horas`` del form (vacío = indefinido).
+    """
+    _check_token()
+    token = request.args.get("token", "")
+    horas_raw = (request.form.get("horas") or "").strip()
+    actor = (request.form.get("actor") or "").strip() or "asesor"
+    horas = None
+    if horas_raw:
+        try:
+            h = int(horas_raw)
+        except (TypeError, ValueError):
+            return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                    token=token, flash="bot_pausar_err"))
+        if h in _HORAS_PAUSA_VALIDAS:
+            horas = h
+        else:
+            return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                    token=token, flash="bot_pausar_err"))
+    try:
+        db.pausar_bot(telefono, horas=horas, autor=actor)
+    except Exception:
+        log.exception("[Panel] pausar_bot falló tel=%s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="bot_pausar_err"))
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="bot_pausado"))
+
+
+@panel.post("/panel/<telefono>/bot/reactivar")
+def panel_bot_reactivar(telefono):
+    """Reactiva el bot para este lead."""
+    _check_token()
+    token = request.args.get("token", "")
+    actor = (request.form.get("actor") or "").strip() or "asesor"
+    try:
+        db.reactivar_bot(telefono, autor=actor)
+    except Exception:
+        log.exception("[Panel] reactivar_bot falló tel=%s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="bot_reactivar_err"))
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="bot_reactivado"))
+
+
+# ---------------------------------------------------------------------------
+# Feature: Notas internas sobre el lead
+# ---------------------------------------------------------------------------
+
+@panel.post("/panel/<telefono>/notas")
+def panel_notas_agregar(telefono):
+    """Agrega una nota interna al contacto. Si el contacto no existe en
+    `contactos`, redirige con flash de error (no inventamos contactos
+    desde acá — hay que capturarlos primero por el flujo normal)."""
+    _check_token()
+    token = request.args.get("token", "")
+    texto = (request.form.get("texto") or "").strip()
+    autor = (request.form.get("actor") or "").strip() or "asesor"
+    if not texto:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_vacia"))
+    try:
+        with _panel_conexion() as conn:
+            fila = conn.execute(
+                "SELECT id FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+    except PoolTimeout:
+        return _pool_busy_response(f"/panel/{telefono}/notas")
+    if not fila:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_sin_contacto"))
+    try:
+        db.agregar_nota(fila[0], texto, autor=autor)
+    except Exception:
+        log.exception("[Panel] agregar_nota falló tel=%s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_err"))
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="nota_guardada"))
+
+
+@panel.post("/panel/<telefono>/no-leido")
+def panel_marcar_no_leido(telefono):
+    """Marca el lead como no leído desde el header del detalle. El panel
+    marca "leído" automáticamente al abrir el detalle, así que este botón
+    sirve para volver a destacar el lead en la lista."""
+    _check_token()
+    token = request.args.get("token", "")
+    try:
+        with _panel_conexion() as conn:
+            fila = conn.execute(
+                "SELECT id FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+    except PoolTimeout:
+        return _pool_busy_response(f"/panel/{telefono}/no-leido")
+    if not fila:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_sin_contacto"))
+    try:
+        db.marcar_no_visto(fila[0])
+    except Exception:
+        log.exception("[Panel] marcar_no_visto falló tel=%s", telefono)
+    # No redirigimos al mismo detalle porque abrirlo re-marcaría leído
+    # (hook en `panel_detalle`). Volvemos al listado.
+    return redirect(url_for("panel.panel_lista", token=token))
+
+
+@panel.post("/panel/notas/<int:nota_id>/borrar")
+def panel_notas_borrar(nota_id):
+    """Borra una nota interna. Toma el telefono del form (para redirigir
+    de vuelta al detalle correcto)."""
+    _check_token()
+    token = request.args.get("token", "")
+    telefono = (request.form.get("telefono") or "").strip()
+    try:
+        db.borrar_nota(nota_id)
+    except Exception:
+        log.exception("[Panel] borrar_nota falló nota_id=%s", nota_id)
+        if telefono:
+            return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                    token=token, flash="nota_err"))
+        return redirect(url_for("panel.panel_lista", token=token))
+    if telefono:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_borrada"))
+    return redirect(url_for("panel.panel_lista", token=token))

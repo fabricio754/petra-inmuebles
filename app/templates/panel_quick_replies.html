@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel Massi — quick replies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
+<style>
+  body { max-width: 1100px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>⚡ Quick replies</h1>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <a class="stats-link" href="/panel?token={{ token }}">← Volver al panel</a>
+    <a class="stats-link" href="/panel/respuestas?token={{ token }}">💬 Respuestas</a>
+  </div>
+</div>
+
+<p class="sub">
+  Biblioteca de respuestas pre-escritas que podés insertar al responder a un
+  lead desde su detalle. Usa variables entre llaves dobles — se reemplazan
+  con datos del contacto antes de enviarlas.
+</p>
+
+<p class="sub">
+  <strong>Variables soportadas:</strong>
+  <code>{{ '{{nombre}}' }}</code>
+  <code>{{ '{{ciudad}}' }}</code>
+  <code>{{ '{{portal}}' }}</code>
+  <code>{{ '{{avaluo}}' }}</code>
+  <code>{{ '{{estrato}}' }}</code>
+  <code>{{ '{{bucket}}' }}</code>
+</p>
+
+{% if flash == 'qr_creado' %}
+  <p class="nota ok">Quick reply creada.</p>
+{% elif flash == 'qr_actualizado' %}
+  <p class="nota ok">Quick reply actualizada.</p>
+{% elif flash == 'qr_borrada' %}
+  <p class="nota ok">Quick reply eliminada.</p>
+{% elif flash == 'qr_vacio' %}
+  <p class="nota err">Shortcut, título y texto son obligatorios.</p>
+{% elif flash == 'qr_shortcut_invalido' %}
+  <p class="nota err">El shortcut debe contener letras, números, guiones o _.</p>
+{% elif flash == 'qr_err' %}
+  <p class="nota err">No se pudo guardar — revisá que el shortcut no esté duplicado.</p>
+{% endif %}
+
+<section class="qr-form-wrap">
+  <h2>{% if editar %}Editar quick reply{% else %}Agregar quick reply{% endif %}</h2>
+  <form method="post"
+        action="{% if editar %}/panel/quick-replies/{{ editar.id }}/editar{% else %}/panel/quick-replies{% endif %}?token={{ token }}"
+        class="qr-form">
+    <label>
+      <span>Shortcut</span>
+      <input type="text" name="shortcut" required maxlength="50"
+             placeholder="ej: precalificar"
+             value="{{ editar.shortcut if editar else '' }}">
+    </label>
+    <label>
+      <span>Título</span>
+      <input type="text" name="titulo" required maxlength="200"
+             placeholder="ej: Precalificación — pedir 3 datos"
+             value="{{ editar.titulo if editar else '' }}">
+    </label>
+    <label>
+      <span>Texto (con variables)</span>
+      <textarea name="texto" rows="5" required
+                placeholder="Hola {{ '{{nombre}}' }}, vi tu inmueble en {{ '{{ciudad}}' }}…">{% if editar %}{{ editar.texto }}{% endif %}</textarea>
+    </label>
+    <div class="qr-form-actions">
+      <button type="submit">
+        {% if editar %}Guardar cambios{% else %}Agregar{% endif %}
+      </button>
+      {% if editar %}
+        <a class="stats-link" href="/panel/quick-replies?token={{ token }}">Cancelar</a>
+      {% endif %}
+    </div>
+  </form>
+</section>
+
+<section>
+  <h2>Biblioteca ({{ quick_replies|length }})</h2>
+  {% if quick_replies %}
+    <table class="qr-table">
+      <thead>
+        <tr>
+          <th>Shortcut</th>
+          <th>Título</th>
+          <th>Texto</th>
+          <th style="width: 220px;">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for qr in quick_replies %}
+          <tr data-qr-id="{{ qr.id }}">
+            <td class="qr-shortcut"><code>{{ qr.shortcut }}</code></td>
+            <td>{{ qr.titulo }}</td>
+            <td class="qr-texto-preview">{{ qr.texto }}</td>
+            <td class="qr-acciones">
+              <button type="button" class="qr-copy" data-qr-id="{{ qr.id }}"
+                      title="Copiar texto interpolado">
+                📋 Copiar
+              </button>
+              <a class="chip chip-link"
+                 href="/panel/quick-replies?token={{ token }}&editar={{ qr.id }}">
+                Editar
+              </a>
+              <form method="post" style="display:inline;"
+                    action="/panel/quick-replies/{{ qr.id }}/borrar?token={{ token }}"
+                    onsubmit="return confirm('¿Borrar la quick reply &quot;{{ qr.shortcut }}&quot;?');">
+                <button type="submit" class="btn-borrar-nota">Borrar</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="vacio">No hay quick replies todavía. Agrega la primera arriba.</p>
+  {% endif %}
+</section>
+
+<script>
+  // Copy-to-clipboard: pide el texto interpolado al endpoint preview
+  // (sin contacto específico → aplican fallbacks "amigo" / "tu ciudad"),
+  // y lo copia al portapapeles del asesor.
+  (function () {
+    var token = {{ token|tojson }};
+    document.querySelectorAll('.qr-copy').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var id = btn.getAttribute('data-qr-id');
+        try {
+          var r = await fetch('/panel/quick-replies/preview?id=' + id
+                             + '&token=' + encodeURIComponent(token));
+          if (!r.ok) throw new Error('http ' + r.status);
+          var data = await r.json();
+          var texto = data.texto || '';
+          await navigator.clipboard.writeText(texto);
+          var orig = btn.textContent;
+          btn.textContent = '✓ Copiado';
+          setTimeout(function () { btn.textContent = orig; }, 1500);
+        } catch (e) {
+          console.error(e);
+          alert('No se pudo copiar: ' + e.message);
+        }
+      });
+    });
+  })();
+</script>
+</body>
+</html>

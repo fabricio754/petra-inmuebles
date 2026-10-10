@@ -835,6 +835,19 @@ def marcar_requiere_humano(
                 (motivo, telefono),
             )
 
+    # Hook timeline (sólo en la primera vez: `nuevo=True`). En
+    # reintentos post-cooldown no re-emitimos el evento para no
+    # ensuciar el historial.
+    if nuevo:
+        try:
+            registrar_evento_por_telefono(
+                telefono, "requiere_humano_marcado",
+                {"motivo": (motivo or "")[:200]},
+                autor="sistema",
+            )
+        except NameError:
+            pass
+
     return {"nuevo": nuevo, "debe_alertar": debe_alertar}
 
 
@@ -929,3 +942,807 @@ def historial_acciones_panel(telefono, limite=20):
         )
         cols = [c.name for c in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+# === Pausar bot per lead (take-over humano, iter 1 oct-2026) ================
+#
+# Sentinel para "pausa indefinida": fecha muy en el futuro. Permite usar
+# siempre la misma columna TIMESTAMPTZ y el mismo guard (`> NOW()`) tanto
+# para pausas por N horas como para pausas indefinidas, sin agregar una
+# columna booleana extra.
+_PAUSA_INDEFINIDA_SENTINEL = "2999-01-01 00:00:00+00"
+
+
+def pausar_bot(telefono: str, horas: int | None = None,
+               autor: str = "asesor") -> None:
+    """Pausa el bot para `telefono` durante `horas` (o indefinido si None).
+
+    Si el contacto no existe, lo inserta (misma lógica que `set_no_contactar`:
+    algún día un asesor querrá pausar a alguien que no está en `contactos` —
+    p. ej. porque escribió por su cuenta).
+
+    Nota: `autor` se acepta y propaga a `eventos_contacto` cuando ese hook se
+    conecta (feature timeline). Se registra sólo si contacto existe y la
+    función `registrar_evento` está disponible — por ahora se deja como
+    extensión futura (lazy import en el commit del timeline).
+    """
+    with _conexion_directa(timeout=10) as conn:
+        if horas is None:
+            conn.execute(
+                "INSERT INTO contactos (telefono, bot_pausado_hasta) "
+                "VALUES (%s, %s::timestamptz) "
+                "ON CONFLICT (telefono) DO UPDATE SET "
+                "  bot_pausado_hasta = EXCLUDED.bot_pausado_hasta",
+                (telefono, _PAUSA_INDEFINIDA_SENTINEL),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO contactos (telefono, bot_pausado_hasta) "
+                "VALUES (%s, NOW() + make_interval(hours => %s)) "
+                "ON CONFLICT (telefono) DO UPDATE SET "
+                "  bot_pausado_hasta = NOW() + make_interval(hours => %s)",
+                (telefono, int(horas), int(horas)),
+            )
+    # Hook de timeline: el commit `feat(panel): timeline unificado` conecta
+    # este helper para que las pausas aparezcan en el historial del lead.
+    try:
+        detalle = {"horas": horas} if horas is not None else {"indefinido": True}
+        registrar_evento_por_telefono(
+            telefono, "bot_pausado", detalle, autor=autor)
+    except NameError:
+        pass
+
+
+def reactivar_bot(telefono: str, autor: str = "asesor") -> None:
+    """Reactiva el bot para `telefono`. Si no estaba pausado, es un no-op."""
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE contactos SET bot_pausado_hasta = NULL "
+            "WHERE telefono = %s",
+            (telefono,),
+        )
+    try:
+        registrar_evento_por_telefono(telefono, "bot_reactivado", {}, autor=autor)
+    except NameError:
+        pass
+
+
+def bot_esta_pausado(telefono: str) -> bool:
+    """True si el bot está pausado AHORA para `telefono`.
+
+    No lanza: si la DB falla devuelve False (fail-open, igual que
+    `esta_bloqueado` — una pausa fallida no debe romper el flujo del bot).
+    """
+    try:
+        with _conexion() as conn:
+            fila = conn.execute(
+                "SELECT bot_pausado_hasta > NOW() FROM contactos "
+                "WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+        return bool(fila and fila[0])
+    except Exception as exc:
+        log.warning("[bot_esta_pausado] no se pudo consultar (%s): %s",
+                    telefono, exc)
+        return False
+
+
+def bot_pausa_info(telefono: str) -> dict:
+    """Devuelve info de la pausa de un lead: {pausado: bool, hasta:
+    datetime|None, indefinida: bool}. Útil para la UI del detalle.
+    """
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            fila = conn.execute(
+                "SELECT bot_pausado_hasta, bot_pausado_hasta > NOW() "
+                "FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+    except Exception as exc:
+        log.warning("[bot_pausa_info] fallo (%s): %s", telefono, exc)
+        return {"pausado": False, "hasta": None, "indefinida": False}
+    if not fila:
+        return {"pausado": False, "hasta": None, "indefinida": False}
+    hasta, pausado = fila[0], bool(fila[1])
+    indefinida = False
+    if hasta is not None:
+        try:
+            # Si está después del año 2900 es nuestro sentinel.
+            indefinida = hasta.year >= 2900
+        except Exception:
+            indefinida = False
+    return {"pausado": pausado, "hasta": hasta, "indefinida": indefinida}
+
+
+# === Notas internas sobre el lead (iter 1 oct-2026) =========================
+
+def agregar_nota(contacto_id: int, texto: str,
+                 autor: str = "asesor") -> int:
+    """Inserta una nota interna sobre el contacto. Devuelve el id de la nota.
+
+    `autor` se guarda tal cual venga (sin fallback vacío) y también en el
+    hook de timeline, que se conecta en el commit de "timeline unificado".
+    """
+    autor_final = autor or "asesor"
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "INSERT INTO notas_contacto (contacto_id, texto, autor) "
+            "VALUES (%s, %s, %s) RETURNING id",
+            (contacto_id, texto, autor_final),
+        ).fetchone()
+        nota_id = fila[0] if fila else None
+    # Hook de timeline (opcional; se activa cuando `registrar_evento`
+    # existe en este módulo).
+    try:
+        detalle = {"texto_corto": (texto or "")[:80]}
+        registrar_evento(contacto_id, "nota_agregada", detalle, autor=autor_final)
+    except NameError:
+        pass
+    return nota_id
+
+
+def listar_notas(contacto_id: int) -> list[dict]:
+    """Lista las notas internas de un contacto, más recientes primero."""
+    with _conexion_directa(timeout=10) as conn:
+        cur = conn.execute(
+            "SELECT id, contacto_id, texto, autor, created_at "
+            "FROM notas_contacto WHERE contacto_id = %s "
+            "ORDER BY created_at DESC",
+            (contacto_id,),
+        )
+        cols = [c.name for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def borrar_nota(nota_id: int) -> None:
+    """Borra una nota por id. No lanza si no existe."""
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute("DELETE FROM notas_contacto WHERE id = %s", (nota_id,))
+
+
+# === Marcar leído / no leído (iter 1 oct-2026) ==============================
+#
+# `contactos.visto_at` guarda la última vez que un asesor abrió el detalle
+# del lead. Un lead está "no leído" cuando su visto_at es NULL (nunca lo
+# miramos) o es anterior a la última actividad del lead. La "última
+# actividad" la miramos contra el GREATEST de:
+#   - sesiones.ultima_actividad (sesión del bot)
+#   - MAX(fecha) sobre mensajes del teléfono con direccion='in'
+# Esto evita que una ida del asesor "lea" un lead que luego recibió más
+# mensajes del cliente — hay que volverlo a abrir para que vuelva a leído.
+
+def marcar_visto(contacto_id: int) -> None:
+    """Marca el contacto como visto AHORA (leído). Idempotente."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            conn.execute(
+                "UPDATE contactos SET visto_at = NOW() WHERE id = %s",
+                (contacto_id,),
+            )
+    except Exception as exc:
+        log.warning("[marcar_visto] fallo (%s): %s", contacto_id, exc)
+
+
+def marcar_no_visto(contacto_id: int) -> None:
+    """Marca el contacto como no visto (visto_at = NULL)."""
+    with _conexion_directa(timeout=5) as conn:
+        conn.execute(
+            "UPDATE contactos SET visto_at = NULL WHERE id = %s",
+            (contacto_id,),
+        )
+
+
+def esta_no_leido(contacto_id: int) -> bool:
+    """True si el contacto está "no leído": visto_at es NULL o es anterior
+    a la última actividad (sesión o último IN).
+    """
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            fila = conn.execute(
+                """
+                SELECT
+                  c.visto_at,
+                  GREATEST(
+                    COALESCE(s.ultima_actividad, 'epoch'::timestamptz),
+                    COALESCE((SELECT MAX(fecha) FROM mensajes
+                              WHERE telefono = c.telefono AND direccion = 'in'),
+                             'epoch'::timestamptz)
+                  ) AS ultima
+                FROM contactos c
+                LEFT JOIN sesiones s ON s.telefono = c.telefono
+                WHERE c.id = %s
+                """,
+                (contacto_id,),
+            ).fetchone()
+    except Exception as exc:
+        log.warning("[esta_no_leido] fallo (%s): %s", contacto_id, exc)
+        return False
+    if not fila:
+        return False
+    visto, ultima = fila[0], fila[1]
+    if not ultima:
+        return False
+    return (visto is None) or (visto < ultima)
+
+
+# === Timeline unificado del lead (iter 1 oct-2026) ==========================
+#
+# `eventos_contacto` guarda cualquier evento de workflow (cambio de bucket,
+# nota agregada, bot pausado/reactivado, no_contactar marcado, Sureti
+# enviado, formulario, llamada, template de remarketing,
+# requiere_humano_marcado). El timeline del panel los mezcla con los
+# mensajes (tabla `mensajes`) para armar una línea cronológica única.
+#
+# `registrar_evento` nunca lanza: un evento perdido no debe romper la
+# acción principal del caller.
+
+def registrar_evento(contacto_id: int, tipo: str,
+                     detalle: dict | None = None,
+                     autor: str = "sistema") -> None:
+    """Registra un evento en `eventos_contacto`."""
+    if not contacto_id or not tipo:
+        return
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            conn.execute(
+                "INSERT INTO eventos_contacto "
+                "(contacto_id, tipo, detalle, autor) "
+                "VALUES (%s, %s, %s::jsonb, %s)",
+                (contacto_id, tipo[:50],
+                 json.dumps(detalle or {}, default=str), autor or "sistema"),
+            )
+    except Exception as exc:
+        log.warning("[registrar_evento] no se pudo registrar %s/%s: %s",
+                    tipo, contacto_id, exc)
+
+
+def registrar_evento_por_telefono(telefono: str, tipo: str,
+                                   detalle: dict | None = None,
+                                   autor: str = "sistema") -> None:
+    """Variante que resuelve `contacto_id` desde el telefono. Útil para
+    callers que no cargan el contacto (bot, webhook_worker). Si el contacto
+    no existe, el evento se descarta silenciosamente — no inventamos
+    contactos desde el bot."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            fila = conn.execute(
+                "SELECT id FROM contactos WHERE telefono = %s", (telefono,)
+            ).fetchone()
+            if not fila:
+                return
+            conn.execute(
+                "INSERT INTO eventos_contacto "
+                "(contacto_id, tipo, detalle, autor) "
+                "VALUES (%s, %s, %s::jsonb, %s)",
+                (fila[0], tipo[:50],
+                 json.dumps(detalle or {}, default=str), autor or "sistema"),
+            )
+    except Exception as exc:
+        log.warning("[registrar_evento_por_telefono] fallo %s/%s: %s",
+                    tipo, telefono, exc)
+
+
+def listar_eventos(contacto_id: int, limit: int = 100) -> list[dict]:
+    """Lista los eventos del contacto, más recientes primero."""
+    with _conexion_directa(timeout=10) as conn:
+        cur = conn.execute(
+            "SELECT id, contacto_id, tipo, detalle, autor, created_at "
+            "FROM eventos_contacto WHERE contacto_id = %s "
+            "ORDER BY created_at DESC LIMIT %s",
+            (contacto_id, int(limit)),
+        )
+        cols = [c.name for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def listar_timeline(contacto_id: int, limit: int = 100) -> list[dict]:
+    """Mezcla mensajes (de `mensajes`) + eventos (de `eventos_contacto`)
+    para armar la línea de tiempo unificada del lead, más reciente primero.
+
+    Cada item lleva: `kind` ('mensaje' | 'evento'), `cuando`, y campos
+    específicos según el kind. El template se encarga de renderizar.
+    """
+    with _conexion_directa(timeout=10) as conn:
+        tel_row = conn.execute(
+            "SELECT telefono FROM contactos WHERE id = %s", (contacto_id,)
+        ).fetchone()
+        telefono = tel_row[0] if tel_row else None
+
+        items = []
+        if telefono:
+            cur = conn.execute(
+                "SELECT id, fecha, direccion, tipo, resumen "
+                "FROM mensajes WHERE telefono = %s "
+                "ORDER BY fecha DESC LIMIT %s",
+                (telefono, int(limit)),
+            )
+            cols = [c.name for c in cur.description]
+            for r in cur.fetchall():
+                m = dict(zip(cols, r))
+                items.append({
+                    "kind": "mensaje",
+                    "cuando": m.get("fecha"),
+                    "direccion": m.get("direccion"),
+                    "tipo": m.get("tipo"),
+                    "resumen": m.get("resumen"),
+                    "id": m.get("id"),
+                })
+
+        cur = conn.execute(
+            "SELECT id, tipo, detalle, autor, created_at "
+            "FROM eventos_contacto WHERE contacto_id = %s "
+            "ORDER BY created_at DESC LIMIT %s",
+            (contacto_id, int(limit)),
+        )
+        cols = [c.name for c in cur.description]
+        for r in cur.fetchall():
+            e = dict(zip(cols, r))
+            items.append({
+                "kind": "evento",
+                "cuando": e.get("created_at"),
+                "tipo": e.get("tipo"),
+                "detalle": e.get("detalle") or {},
+                "autor": e.get("autor"),
+                "id": e.get("id"),
+            })
+
+    # Ordenar por fecha desc, defendiéndose de None (datetime.min aware).
+    from datetime import datetime as _dt, timezone as _tz
+    _min = _dt.min.replace(tzinfo=_tz.utc)
+    items.sort(key=lambda x: x["cuando"] or _min, reverse=True)
+    return items[:limit]
+
+
+# === SLA timers / alertas de inactividad (iter 1 oct-2026) ==================
+#
+# Reglas SLA aplicadas en vivo en la query del listado (`panel_lista`):
+#   nuevo              > 48h → danger ; > 12h → warning
+#   contactado         > 72h → warning (lead no respondió)
+#   enviar_formulario  > 24h → warning
+#   enviar_a_sureti    > 48h → warning
+#   recontactar        > 7d  → warning
+#   no_contactar       → ok (terminal, nunca alerta)
+#
+# El bucket se calcula desde Python (`panel.bucket_de`) usando flags que
+# necesitan JOIN con `mensajes`, así que acá devolvemos un helper que
+# recibe bucket + cuando (datetime) y devuelve 'ok' / 'warning' / 'danger'.
+
+def sla_level(bucket: str, cuando) -> str:
+    """Devuelve 'ok' | 'warning' | 'danger' según antigüedad y bucket.
+
+    `cuando` es la última actividad relevante del lead (típicamente
+    `COALESCE(sesiones.ultima_actividad, contactos.fecha_contacto,
+    contactos.fecha_scraping)`).
+    """
+    from datetime import datetime, timezone as _tz
+    if not bucket or bucket == "no_contactar":
+        return "ok"
+    if not cuando:
+        return "ok"
+    ahora = datetime.now(_tz.utc)
+    try:
+        delta = ahora - cuando
+    except TypeError:
+        delta = ahora - cuando.replace(tzinfo=_tz.utc)
+    horas = delta.total_seconds() / 3600.0
+    if bucket == "nuevo":
+        if horas > 48:
+            return "danger"
+        if horas > 12:
+            return "warning"
+    elif bucket == "contactado":
+        if horas > 72:
+            return "warning"
+    elif bucket == "enviar_formulario":
+        if horas > 24:
+            return "warning"
+    elif bucket == "enviar_a_sureti":
+        if horas > 48:
+            return "warning"
+    elif bucket == "recontactar":
+        if horas > 24 * 7:
+            return "warning"
+    return "ok"
+
+
+def sla_tooltip(bucket: str, cuando) -> str:
+    """Texto corto para el tooltip del indicador SLA. Describe cuánto
+    tiempo lleva el lead en su bucket (ej. "Nuevo hace 60h sin
+    movimiento").
+    """
+    from datetime import datetime, timezone as _tz
+    if not cuando:
+        return "Sin actividad registrada"
+    try:
+        delta = datetime.now(_tz.utc) - cuando
+    except TypeError:
+        delta = datetime.now(_tz.utc) - cuando.replace(tzinfo=_tz.utc)
+    seg = int(delta.total_seconds())
+    if seg < 0:
+        hace = "hace unos segundos"
+    elif seg < 3600:
+        hace = f"hace {seg // 60} min"
+    elif seg < 86400:
+        hace = f"hace {seg // 3600}h"
+    else:
+        hace = f"hace {seg // 86400}d"
+    etiqueta = {
+        "nuevo": "Nuevo",
+        "contactado": "Contactado",
+        "respondio": "Respondió",
+        "enviar_formulario": "Enviar formulario",
+        "enviar_a_sureti": "Enviar a Sureti",
+        "recontactar": "Recontactar",
+        "no_contactar": "No contactar",
+    }.get(bucket or "", "Lead")
+    return f"{etiqueta} {hace} sin movimiento"
+
+
+# === KPIs del dashboard home (iter 2 oct-2026) ================================
+#
+# Grupo cerrado de 6 cifras + sus deltas, pensadas para la strip de tiles del
+# home. Un sólo roundtrip a Postgres (CTE + 6 scalars) → sin N+1.
+#
+# Deltas: cada métrica semanal se compara contra la semana ISO anterior; las
+# mensuales contra el mes natural anterior. Si no se puede calcular el delta
+# (p. ej. no hay base), se devuelve ``None`` y la UI muestra "—".
+
+def _pct_change(actual, previo):
+    """Delta en porcentaje (int redondeado) o None si no computable."""
+    try:
+        actual = float(actual or 0)
+        previo = float(previo or 0)
+    except (TypeError, ValueError):
+        return None
+    if previo <= 0:
+        # Sin base previa: no hay con qué comparar. Si el actual > 0 lo
+        # mostramos como "nuevo" en el UI; acá devolvemos None para que
+        # el template decida (ej. mostrar '—' o 'nuevo').
+        return None
+    return int(round((actual - previo) * 100.0 / previo))
+
+
+def kpis_dashboard() -> dict:
+    """Devuelve las 6 KPIs del dashboard home + deltas.
+
+    Claves:
+      leads_activos               (int) — contactos no opt-out
+      nuevos_semana               (int) — fecha_scraping ISO-semana actual
+      respondidos_semana          (int) — distinct telefono con IN ISO-semana actual
+      sureti_mes                  (int) — eventos sureti_enviado del mes actual
+      pct_conversion              (float|None) — sureti_mes / nuevos_mes (0..1)
+      requieren_atencion          (int) — contactos con sla != 'ok' (calc en python)
+
+      *_delta                     (int|None) — % de cambio vs. periodo anterior.
+
+    Nunca lanza; en caso de error devuelve el dict con las 6 cifras en 0 y
+    todos los deltas en None, de modo que el template puede renderear sin
+    tener que condicionar la ausencia de la clave.
+    """
+    # Fallback defaults — se usan si cualquiera de las queries revienta.
+    out: dict = {
+        "leads_activos": 0, "leads_activos_delta": None,
+        "nuevos_semana": 0, "nuevos_delta": None,
+        "respondidos_semana": 0, "respondidos_delta": None,
+        "sureti_mes": 0, "sureti_delta": None,
+        "pct_conversion": None, "pct_conversion_delta": None,
+        "requieren_atencion": 0, "requieren_atencion_delta": None,
+    }
+    try:
+        with _conexion_directa(timeout=10) as conn:
+            # Semana ISO empieza lunes. date_trunc('week', NOW()) devuelve
+            # el lunes de la semana actual a las 00:00 (zona del server).
+            # Para "esta semana" filtramos fecha >= lunes_actual, para
+            # "semana pasada" entre lunes_pasado y lunes_actual.
+            def _scalar(sql, params=()):
+                row = conn.execute(sql, params).fetchone()
+                return (row[0] if row else 0) or 0
+
+            # 1) Leads activos.
+            out["leads_activos"] = _scalar(
+                "SELECT COUNT(*) FROM contactos WHERE no_contactar = FALSE"
+            )
+            # Delta: comparar con snapshot "hace una semana" aproximado via
+            # fecha_scraping (los activos de hace >=7d no_contactar=false).
+            # Es una aproximación — mejor que nada para el UI.
+            activos_prev = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE no_contactar = FALSE "
+                "  AND fecha_scraping < date_trunc('week', NOW())"
+            )
+            out["leads_activos_delta"] = _pct_change(
+                out["leads_activos"], activos_prev
+            )
+
+            # 2) Nuevos esta semana (vs la semana pasada).
+            out["nuevos_semana"] = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE fecha_scraping >= date_trunc('week', NOW())"
+            )
+            nuevos_prev = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE fecha_scraping >= date_trunc('week', NOW() "
+                "       - INTERVAL '7 days') "
+                "  AND fecha_scraping <  date_trunc('week', NOW())"
+            )
+            out["nuevos_delta"] = _pct_change(out["nuevos_semana"], nuevos_prev)
+
+            # 3) Respondidos esta semana (distinct contacto por tel con IN).
+            out["respondidos_semana"] = _scalar(
+                "SELECT COUNT(DISTINCT telefono) FROM mensajes "
+                "WHERE direccion = 'in' "
+                "  AND fecha >= date_trunc('week', NOW())"
+            )
+            resp_prev = _scalar(
+                "SELECT COUNT(DISTINCT telefono) FROM mensajes "
+                "WHERE direccion = 'in' "
+                "  AND fecha >= date_trunc('week', NOW() - INTERVAL '7 days') "
+                "  AND fecha <  date_trunc('week', NOW())"
+            )
+            out["respondidos_delta"] = _pct_change(
+                out["respondidos_semana"], resp_prev
+            )
+
+            # 4) Sureti este mes (via eventos_contacto tipo sureti_enviado).
+            out["sureti_mes"] = _scalar(
+                "SELECT COUNT(*) FROM eventos_contacto "
+                "WHERE tipo = 'sureti_enviado' "
+                "  AND created_at >= date_trunc('month', NOW())"
+            )
+            sureti_prev = _scalar(
+                "SELECT COUNT(*) FROM eventos_contacto "
+                "WHERE tipo = 'sureti_enviado' "
+                "  AND created_at >= date_trunc('month', NOW() "
+                "       - INTERVAL '1 month') "
+                "  AND created_at <  date_trunc('month', NOW())"
+            )
+            out["sureti_delta"] = _pct_change(out["sureti_mes"], sureti_prev)
+
+            # 5) % Conversión = sureti_mes / nuevos_mes.
+            nuevos_mes = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE fecha_scraping >= date_trunc('month', NOW())"
+            )
+            if nuevos_mes > 0:
+                out["pct_conversion"] = round(
+                    out["sureti_mes"] / float(nuevos_mes), 3
+                )
+            # Delta vs mes anterior
+            nuevos_mes_prev = _scalar(
+                "SELECT COUNT(*) FROM contactos "
+                "WHERE fecha_scraping >= date_trunc('month', NOW() "
+                "       - INTERVAL '1 month') "
+                "  AND fecha_scraping <  date_trunc('month', NOW())"
+            )
+            if nuevos_mes_prev > 0 and out["pct_conversion"] is not None:
+                pct_prev = sureti_prev / float(nuevos_mes_prev)
+                # Delta aquí es diferencia en PUNTOS porcentuales × 100,
+                # para que el UI pueda mostrar p. ej. "+3 pp". Lo
+                # exponemos como int.
+                out["pct_conversion_delta"] = int(
+                    round((out["pct_conversion"] - pct_prev) * 100.0)
+                )
+
+            # 6) Requieren atención: SLA != 'ok'. Lo calculamos en Python
+            #    porque sla_level() depende de reglas por bucket que viven
+            #    acá; replicarlas en SQL duplicaría la lógica.
+            filas_sla = conn.execute(
+                """
+                SELECT c.no_contactar, c.contactado, c.fecha_contacto,
+                       c.fecha_scraping,
+                       c.resultado_contacto, c.resultado_contacto_por,
+                       s.ultima_actividad,
+                       EXISTS (
+                         SELECT 1 FROM mensajes m
+                         WHERE m.telefono = c.telefono AND m.direccion = 'in'
+                       ) AS tiene_in
+                FROM contactos c
+                LEFT JOIN sesiones s ON s.telefono = c.telefono
+                WHERE c.no_contactar = FALSE
+                LIMIT 5000
+                """
+            ).fetchall()
+            n_atencion = 0
+            for (no_cont, contactado, fecha_c, fecha_s, rc, rc_por,
+                 ultima_sesion, tiene_in) in filas_sla:
+                # Deriva bucket igual que panel.bucket_de pero inline/
+                # mini. Las acciones humanas (rc_por not null) priman.
+                rc = rc or ""
+                if rc_por and rc in ("broker", "no_interesa"):
+                    bucket = "no_contactar"
+                elif rc_por and rc == "recontactar":
+                    bucket = "recontactar"
+                elif rc_por and rc in ("sureti", "enviar_a_sureti",
+                                       "entregado"):
+                    bucket = "enviar_a_sureti"
+                elif rc_por and rc in ("enviar_formulario", "flow"):
+                    bucket = "enviar_formulario"
+                elif rc_por and rc == "contactado":
+                    bucket = "contactado"
+                elif tiene_in:
+                    bucket = "respondio"
+                elif contactado:
+                    bucket = "contactado"
+                else:
+                    bucket = "nuevo"
+                ultima = ultima_sesion or fecha_c or fecha_s
+                if sla_level(bucket, ultima) != "ok":
+                    n_atencion += 1
+            out["requieren_atencion"] = n_atencion
+            # Delta: no mantenemos histórico de SLA, así que queda None.
+            out["requieren_atencion_delta"] = None
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[kpis_dashboard] fallo: %s", exc)
+    return out
+
+
+# === Quick replies (iter 3 — oct-2026) ======================================
+# Biblioteca de respuestas pre-escritas que el asesor inserta al responder
+# manualmente a un lead. El texto puede contener variables entre llaves
+# dobles ({{nombre}}, {{ciudad}}, {{portal}}, {{avaluo}}, {{estrato}},
+# {{bucket}}) que `interpolar_variables` reemplaza desde los datos del
+# contacto. Si una variable no tiene valor se usa un fallback suave (ej.
+# "amigo" para nombre, "tu ciudad" para ciudad) o se omite elegantemente.
+
+def listar_quick_replies() -> list[dict]:
+    """Lista todas las quick replies, ordenadas por shortcut asc."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT id, shortcut, titulo, texto, autor, "
+                "       created_at, updated_at "
+                "FROM quick_replies ORDER BY shortcut ASC"
+            )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_quick_replies] fallo: %s", exc)
+        return []
+
+
+def obtener_quick_reply(id: int) -> dict | None:
+    """Devuelve una quick reply por id, o None si no existe."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT id, shortcut, titulo, texto, autor, "
+                "       created_at, updated_at "
+                "FROM quick_replies WHERE id = %s",
+                (id,),
+            )
+            cols = [c.name for c in cur.description]
+            fila = cur.fetchone()
+            return dict(zip(cols, fila)) if fila else None
+    except Exception as exc:
+        log.warning("[obtener_quick_reply] fallo (%s): %s", id, exc)
+        return None
+
+
+def agregar_quick_reply(shortcut: str, titulo: str, texto: str,
+                        autor: str = "asesor") -> int:
+    """Crea una quick reply nueva. Devuelve el id."""
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "INSERT INTO quick_replies (shortcut, titulo, texto, autor) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (
+                (shortcut or "").strip()[:50],
+                (titulo or "").strip()[:200],
+                texto or "",
+                autor or "asesor",
+            ),
+        ).fetchone()
+        return fila[0] if fila else None
+
+
+def actualizar_quick_reply(id: int, shortcut: str, titulo: str,
+                           texto: str) -> None:
+    """Actualiza una quick reply existente. No lanza si no existe."""
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE quick_replies "
+            "SET shortcut = %s, titulo = %s, texto = %s, updated_at = NOW() "
+            "WHERE id = %s",
+            (
+                (shortcut or "").strip()[:50],
+                (titulo or "").strip()[:200],
+                texto or "",
+                id,
+            ),
+        )
+
+
+def borrar_quick_reply(id: int) -> None:
+    """Borra una quick reply por id. No lanza si no existe."""
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute("DELETE FROM quick_replies WHERE id = %s", (id,))
+
+
+# Fallbacks suaves por variable: cuando el contacto NO tiene valor, la
+# interpolación usa el fallback (sin dejar `{{xxx}}` suelto). Se pueden
+# dejar vacíos para "omitir sin reemplazo" — en ese caso usamos el string
+# vacío y el texto queda sin la mención.
+_QR_FALLBACKS = {
+    "nombre": "amigo",
+    "ciudad": "tu ciudad",
+    "portal": "",
+    "avaluo": "",
+    "estrato": "",
+    "bucket": "",
+}
+
+# Labels humanos para los buckets (usados sólo acá para interpolar
+# {{bucket}}). Se mantienen en sincronía con `BUCKETS_LABELS` de panel.py.
+_QR_BUCKETS_LABEL = {
+    "nuevo": "nuevo",
+    "contactado": "contactado",
+    "respondio": "respondió",
+    "enviar_formulario": "enviar formulario",
+    "enviar_a_sureti": "enviar a sureti",
+    "recontactar": "recontactar",
+    "no_contactar": "no contactar",
+}
+
+
+def _formatear_avaluo(precio) -> str:
+    """Devuelve el precio en millones de forma legible, ej. '450 millones'.
+    Si no se puede, devuelve "" (y el fallback de la variable aplica)."""
+    try:
+        n = int(precio)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    if n >= 1_000_000:
+        m = n // 1_000_000
+        return f"{m} millones"
+    return str(n)
+
+
+def interpolar_variables(texto: str, contacto: dict | None) -> str:
+    """Reemplaza variables {{xxx}} con datos del contacto.
+
+    Soporta: {{nombre}}, {{ciudad}}, {{portal}}, {{avaluo}}, {{estrato}},
+    {{bucket}}. Si una variable no tiene valor, usa un fallback suave
+    (ver `_QR_FALLBACKS`); si el fallback es vacío, elimina la variable
+    y los espacios colgantes alrededor para que el texto no quede
+    descosido.
+    """
+    import re as _re
+    if not texto:
+        return ""
+    c = contacto or {}
+
+    # Pre-calcular cada variable.
+    valores = {}
+    valores["nombre"] = (c.get("nombre") or "").strip() or _QR_FALLBACKS["nombre"]
+    valores["ciudad"] = (c.get("ciudad") or "").strip() or _QR_FALLBACKS["ciudad"]
+    valores["portal"] = (c.get("portal") or "").strip() or _QR_FALLBACKS["portal"]
+    valores["avaluo"] = (
+        _formatear_avaluo(c.get("precio_publicado"))
+        or _QR_FALLBACKS["avaluo"]
+    )
+    estrato_raw = c.get("estrato")
+    if estrato_raw is not None and estrato_raw != "":
+        valores["estrato"] = str(estrato_raw).strip()
+    else:
+        valores["estrato"] = _QR_FALLBACKS["estrato"]
+    bucket_raw = (c.get("bucket") or "").strip()
+    valores["bucket"] = (
+        _QR_BUCKETS_LABEL.get(bucket_raw, bucket_raw)
+        if bucket_raw
+        else _QR_FALLBACKS["bucket"]
+    )
+
+    def _reemplazar(match):
+        var = match.group(1).strip().lower()
+        return valores.get(var, match.group(0))
+
+    out = _re.sub(r"\{\{\s*(\w+)\s*\}\}", _reemplazar, texto)
+
+    # Si quedan variables con fallback vacío (="") dejaron un hueco con
+    # espacios dobles o espacios al final de línea. Normalizamos.
+    out = _re.sub(r"[ \t]{2,}", " ", out)
+    out = _re.sub(r"[ \t]+(?=\n)", "", out)
+    out = _re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()

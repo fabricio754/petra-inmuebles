@@ -4,150 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel Massi — {{ telefono }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; max-width: 980px; margin: 0 auto; background: #f6f8fa; color: #1f2328; }
-  h1 { font-size: 1.3rem; margin: 0 0 4px; font-family: ui-monospace, monospace; }
-  .back { font-size: .9rem; color: #0969da; text-decoration: none; }
-  .back:hover { text-decoration: underline; }
-  .estado { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: .85rem; font-weight: 500; margin-left: 8px; vertical-align: middle; }
-  /* Badge del header: usa el bucket humano-first (mismo pattern que la
-     columna "Estado" de /panel) en vez del `contactos.estado` legacy.
-     Así "Regresar a contactado" refleja el cambio visualmente al instante. */
-  .bucket-nuevo { background: #ddf4ff; color: #0969da; }
-  .bucket-contactado { background: #fff8c5; color: #7d4e00; }
-  .bucket-respondio { background: #ddf4ff; color: #0969da; }
-  .bucket-enviar_formulario { background: #fff1e5; color: #9a4b00; }
-  .bucket-enviar_a_sureti { background: #dafbe1; color: #116329; }
-  .bucket-recontactar { background: #fff8c5; color: #7d4e00; }
-  .bucket-no_contactar { background: #ffebe9; color: #cf222e; }
-  section { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 12px 16px; margin-top: 12px; }
-  section h2 { font-size: 1rem; margin: 0 0 8px; color: #57606a; }
-  dl { display: grid; grid-template-columns: 160px 1fr; gap: 4px 12px; margin: 0; font-size: .9rem; }
-  dt { color: #57606a; }
-  dd { margin: 0; word-break: break-word; }
-  .destacado { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; }
-  .destacado .cifra { background: #ddf4ff; color: #0969da; padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 1rem; }
-  .destacado .cifra small { display: block; font-size: .7rem; color: #57606a; font-weight: 400; }
-  .tabla-kv { width: 100%; border-collapse: collapse; font-size: .88rem; }
-  .tabla-kv th, .tabla-kv td { padding: 4px 8px; text-align: left; border-bottom: 1px solid #eaeef2; }
-  .tabla-kv th { color: #57606a; font-weight: 500; width: 180px; }
-  .flows-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
-  @media (max-width: 640px) { .flows-grid { grid-template-columns: 1fr; } }
-  .flow-box { border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px; background: #f6f8fa; }
-  .flow-box.pendiente { opacity: 0.65; }
-  .flow-box h3 { margin: 0 0 6px; font-size: .9rem; color: #57606a; }
-  .flow-box.completo h3 { color: #116329; }
-  .flow-box .pendiente-txt { font-style: italic; color: #8c959f; font-size: .85rem; }
-  .flow-box ul { margin: 0; padding-left: 16px; font-size: .85rem; }
-  .timeline { list-style: none; padding: 0; margin: 0; }
-  .timeline li { padding: 8px 0; border-bottom: 1px solid #eaeef2; font-size: .9rem; }
-  .timeline li:last-child { border: 0; }
-  .timeline time { color: #57606a; font-family: ui-monospace, monospace; font-size: .82rem; margin-right: 8px; }
-  .timeline .tag { display: inline-block; background: #ddf4ff; color: #0969da; border-radius: 4px; padding: 1px 6px; font-size: .75rem; margin-right: 6px; font-weight: 500; }
-  .vacio { color: #8c959f; font-style: italic; }
-  .chat { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-  .chat li { display: flex; max-width: 85%; }
-  .chat li.in { align-self: flex-start; }
-  .chat li.out { align-self: flex-end; }
-  .chat .bubble { padding: 8px 12px; border-radius: 12px; background: #eef2f6; font-size: .9rem; line-height: 1.4; }
-  .chat li.out .bubble { background: #dcf8c6; }
-  .chat .bubble ul { margin: 4px 0 0; padding-left: 16px; font-size: .85rem; }
-  .chat .meta { display: block; font-size: .72rem; color: #8c959f; margin-top: 2px; font-family: ui-monospace, monospace; }
-  .chulo { font-weight: 600; margin-left: 4px; letter-spacing: -1px; }
-  .chulo-pending { color: #c8ced6; }
-  .chulo-sent { color: #8c959f; }
-  .chulo-delivered { color: #8c959f; }
-  .chulo-read { color: #0969da; }
-  .chulo-failed { color: #cf222e; letter-spacing: 0; }
-  .chulo-error-txt { color: #cf222e; margin-left: 4px; font-style: italic; }
-  .dia-sep { align-self: center; font-size: .72rem; color: #8c959f; background: #eaeef2; border-radius: 999px; padding: 2px 10px; margin: 8px 0 2px; text-transform: uppercase; letter-spacing: .5px; }
-  .responder { display: flex; gap: 8px; margin-top: 12px; }
-  .responder textarea { flex: 1; min-height: 60px; font: inherit; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; resize: vertical; }
-  .responder button { padding: 8px 18px; cursor: pointer; background: #0969da; color: #fff; border: 0; border-radius: 6px; font-weight: 500; }
-  .responder button:disabled { background: #8c959f; cursor: not-allowed; }
-  .nota { font-size: .85rem; color: #8c959f; margin-top: 10px; padding: 8px 12px; background: #f6f8fa; border-left: 3px solid #d0d7de; border-radius: 3px; }
-  .nota.warn { border-color: #d4a72c; background: #fff8c5; color: #633c01; }
-  .nota.ok { border-color: #2da44e; background: #dafbe1; color: #1a7f37; }
-  .nota.err { border-color: #cf222e; background: #ffebe9; color: #82071e; }
-  .refresh-ctl { position: fixed; bottom: 12px; right: 12px; background: #fff; border: 1px solid #d0d7de; border-radius: 999px; padding: 6px 12px; font-size: .8rem; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.08); z-index: 10; }
-  .refresh-ctl.paused { background: #fff8c5; color: #7d4e00; border-color: #d4a72c; }
-  .badge-resultado { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: .8rem; font-weight: 500; margin-left: 8px; vertical-align: middle; background: #eaeef2; color: #57606a; }
-  .badge-resultado small { font-weight: 400; opacity: .8; margin-left: 4px; }
-  .badge-flow { background: #ddf4ff; color: #0969da; }
-  .badge-broker, .badge-no_interesa { background: #ffebe9; color: #cf222e; }
-  .badge-sureti { background: #dafbe1; color: #116329; }
-  .badge-recontactar { background: #fff8c5; color: #7d4e00; }
-  .badge-otro { background: #fff1e5; color: #9a4b00; }
-  .btn-cerrar-conv { background: #0969da; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 500; cursor: pointer; font-size: .9rem; margin-top: 8px; }
-  .btn-cerrar-conv:hover { background: #0860c7; }
-  dialog#modal-accion { border: 1px solid #d0d7de; border-radius: 8px; padding: 20px; max-width: 560px; width: 92%; background: #fff; color: #1f2328; }
-  dialog#modal-accion::backdrop { background: rgba(0,0,0,.4); }
-  dialog#modal-accion h3 { margin: 0 0 12px; font-size: 1.05rem; }
-  dialog#modal-accion fieldset { border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 12px; margin: 10px 0; }
-  dialog#modal-accion fieldset legend { font-size: .85rem; color: #57606a; padding: 0 6px; }
-  dialog#modal-accion fieldset label { display: block; padding: 4px 0; cursor: pointer; font-size: .9rem; }
-  dialog#modal-accion fieldset label small { display: block; color: #57606a; font-size: .78rem; margin-left: 20px; }
-  dialog#modal-accion label.linea { display: block; font-size: .9rem; margin-top: 10px; }
-  dialog#modal-accion input[type=text], dialog#modal-accion textarea { width: 100%; padding: 6px 8px; font: inherit; border: 1px solid #d0d7de; border-radius: 4px; background: #fff; margin-top: 4px; box-sizing: border-box; }
-  dialog#modal-accion .acciones-fila { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
-  dialog#modal-accion button[type=submit] { background: #0969da; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 500; cursor: pointer; }
-  dialog#modal-accion button[type=button] { background: #f6f8fa; color: #1f2328; border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 16px; cursor: pointer; }
-  #historial-acciones ul { list-style: none; padding: 0; margin: 0; }
-  #historial-acciones li { padding: 6px 0; border-bottom: 1px solid #eaeef2; font-size: .88rem; }
-  #historial-acciones li:last-child { border: 0; }
-  #historial-acciones time { color: #57606a; font-family: ui-monospace, monospace; font-size: .8rem; margin-right: 8px; }
-  #historial-acciones .accion-key { display: inline-block; background: #ddf4ff; color: #0969da; border-radius: 4px; padding: 1px 6px; font-size: .72rem; margin-right: 6px; font-weight: 500; }
-  @media (prefers-color-scheme: dark) {
-    .badge-resultado { background: #262d36; color: #8b949e; }
-    .badge-flow { background: #0c2d6b; color: #58a6ff; }
-    .badge-broker, .badge-no_interesa { background: #3b0a0f; color: #ff7b72; }
-    .badge-sureti { background: #0a2d16; color: #7ee787; }
-    .badge-recontactar { background: #341a00; color: #e8c547; }
-    .badge-otro { background: #341a00; color: #ffa657; }
-    dialog#modal-accion { background: #161b22; color: #e6edf3; border-color: #30363d; }
-    dialog#modal-accion fieldset { border-color: #30363d; }
-    dialog#modal-accion fieldset legend, dialog#modal-accion fieldset label small { color: #8b949e; }
-    dialog#modal-accion input[type=text], dialog#modal-accion textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
-    dialog#modal-accion button[type=button] { background: #262d36; color: #e6edf3; border-color: #30363d; }
-    #historial-acciones li { border-color: #30363d; }
-    #historial-acciones time { color: #8b949e; }
-    #historial-acciones .accion-key { background: #0c2d6b; color: #58a6ff; }
-  }
-  @media (prefers-color-scheme: dark) {
-    body { background: #0d1117; color: #e6edf3; }
-    section { background: #161b22; border-color: #30363d; }
-    section h2, dt, .timeline time { color: #8b949e; }
-    .timeline li { border-color: #30363d; }
-    .back { color: #58a6ff; }
-    .timeline .tag { background: #0c2d6b; color: #58a6ff; }
-    .chat .bubble { background: #262d36; }
-    .chat li.out .bubble { background: #1f6e32; color: #e6edf3; }
-    .chat .meta { color: #6e7681; }
-    .chulo-pending { color: #484f58; }
-    .chulo-sent { color: #8b949e; }
-    .chulo-delivered { color: #8b949e; }
-    .chulo-read { color: #58a6ff; }
-    .chulo-failed { color: #ff7b72; }
-    .chulo-error-txt { color: #ff7b72; }
-    .dia-sep { background: #262d36; color: #8b949e; }
-    .destacado .cifra { background: #0c2d6b; color: #58a6ff; }
-    .destacado .cifra small { color: #8b949e; }
-    .tabla-kv th, .tabla-kv td { border-color: #30363d; }
-    .tabla-kv th { color: #8b949e; }
-    .flow-box { background: #0d1117; border-color: #30363d; }
-    .responder textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
-    .nota { background: #161b22; border-color: #30363d; color: #8b949e; }
-    .nota.warn { background: #341a00; border-color: #d4a72c; color: #e8c547; }
-    .nota.ok { background: #0a2d16; border-color: #2da44e; color: #7ee787; }
-    .nota.err { background: #3b0a0f; border-color: #cf222e; color: #ff7b72; }
-    .refresh-ctl { background: #161b22; border-color: #30363d; color: #e6edf3; }
-    .refresh-ctl.paused { background: #341a00; color: #e8c547; border-color: #d4a72c; }
-  }
+  /* Overrides específicos de /panel/<tel> — el resto vive en panel.css */
+  body { max-width: 980px; margin: 0 auto; }
+  h1 { font-family: var(--font-mono); font-size: var(--fs-xl); font-weight: 700; margin: 0 0 var(--space-1); }
+  h1 .estado,
+  h1 .badge-resultado { margin-left: var(--space-2); }
+  /* media viewer helpers que solo aparecen en esta vista */
+  .media-nd { color: var(--text-subtle); font-style: italic; font-size: var(--fs-sm); }
+  .media-caption { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
 </style>
 </head>
 <body>
 <p><a class="back" href="/panel?token={{ token }}">← volver al listado</a></p>
+<div class="detalle-header">
+  {{ (contacto or {'telefono': telefono}) | avatar('lg') }}
 <h1>
   {{ telefono }}
   {# Badge usa el bucket humano-first (igual que los chips/columna "Estado"
@@ -167,6 +42,7 @@
     </span>
   {% endif %}
 </h1>
+</div>
 {% if contacto and contacto.resultado_contacto and not contacto.resultado_contacto_por %}
   <p class="nota">
     <small>Estado automático del bot:
@@ -186,7 +62,77 @@
 {% elif flash == 'guardado_warn_avaluo' %}
   <p class="nota warn">Formulario manual guardado. Avalúo bajo (&lt; $50M);
     revisá si el lead es viable para Sureti.</p>
+{% elif flash == 'bot_pausado' %}
+  <p class="nota ok">Bot pausado para este lead. Las respuestas automáticas quedan suspendidas.</p>
+{% elif flash == 'bot_reactivado' %}
+  <p class="nota ok">Bot reactivado. Volverá a responder automáticamente.</p>
+{% elif flash == 'bot_pausar_err' or flash == 'bot_reactivar_err' %}
+  <p class="nota err">No se pudo cambiar el estado del bot — revisá los logs.</p>
+{% elif flash == 'nota_guardada' %}
+  <p class="nota ok">Nota interna guardada.</p>
+{% elif flash == 'nota_vacia' %}
+  <p class="nota err">La nota está vacía.</p>
+{% elif flash == 'nota_borrada' %}
+  <p class="nota ok">Nota eliminada.</p>
+{% elif flash == 'nota_err' %}
+  <p class="nota err">No se pudo guardar/borrar la nota — revisá los logs.</p>
+{% elif flash == 'nota_sin_contacto' %}
+  <p class="nota err">Este teléfono no está en <code>contactos</code>, no se puede agregar nota todavía.</p>
 {% endif %}
+
+<section class="card bot-state">
+  <div class="bot-state-row">
+    <form method="post"
+          action="/panel/{{ telefono }}/no-leido?token={{ token }}"
+          class="bot-state-form">
+      <button type="submit" class="btn btn-ghost">Marcar no leído</button>
+    </form>
+    <small class="sub">Al abrir el detalle lo marcamos como leído automáticamente.</small>
+  </div>
+</section>
+
+<section class="card bot-state">
+  <div class="bot-state-row">
+    {% if pausa_info and pausa_info.pausado %}
+      <span class="bot-state-badge bot-state-paused">
+        <span class="dot dot-amarillo"></span>
+        Bot pausado
+        {% if pausa_info.indefinida %}
+          · indefinido
+        {% elif pausa_info.hasta %}
+          · hasta {{ pausa_info.hasta.strftime('%Y-%m-%d %H:%M') }}
+        {% endif %}
+      </span>
+      <form method="post"
+            action="/panel/{{ telefono }}/bot/reactivar?token={{ token }}"
+            class="bot-state-form">
+        <input type="hidden" name="actor" class="bot-state-actor-input" value="">
+        <button type="submit" class="btn btn-ghost">Reactivar bot</button>
+      </form>
+    {% else %}
+      <span class="bot-state-badge bot-state-active">
+        <span class="dot dot-verde"></span>
+        Bot activo
+      </span>
+      <form method="post"
+            action="/panel/{{ telefono }}/bot/pausar?token={{ token }}"
+            class="bot-state-form">
+        <input type="hidden" name="actor" class="bot-state-actor-input" value="">
+        <label>
+          Pausar por:
+          <select name="horas">
+            <option value="1">1 hora</option>
+            <option value="4" selected>4 horas</option>
+            <option value="24">24 horas</option>
+            <option value="">Indefinido</option>
+          </select>
+        </label>
+        <button type="submit" class="btn btn-ghost">Pausar bot</button>
+      </form>
+      <small class="sub">Mientras el bot esté pausado no envía respuestas automáticas a este lead.</small>
+    {% endif %}
+  </div>
+</section>
 
 <section>
   <h2>Estado del lead</h2>
@@ -455,10 +401,39 @@
     <p class="nota err">Error al enviar: {{ flash[6:] }}</p>
   {% endif %}
 
+  <div class="responder-tools">
+    <button type="button" id="btn-qr-abrir" class="chip chip-link"
+            {% if not puede_responder %}disabled{% endif %}>
+      ⚡ Quick replies
+    </button>
+  </div>
   <form class="responder" method="post" action="/panel/{{ telefono }}/responder?token={{ token }}" id="responder-form">
     <textarea name="texto" id="responder-texto" placeholder="Responder como Massi…" maxlength="1500" {% if not puede_responder %}disabled{% endif %}></textarea>
     <button type="submit" {% if not puede_responder %}disabled{% endif %}>Enviar</button>
   </form>
+
+  {# Modal de quick replies (iter 3). Lista las QRs con preview interpolado
+     para este contacto; click en una → cierra el modal y llena el textarea
+     del formulario de respuesta. #}
+  <dialog id="modal-qr" class="modal-qr">
+    <div class="modal-qr-header">
+      <h3>⚡ Quick replies</h3>
+      <button type="button" id="btn-qr-cerrar" class="modal-qr-cerrar"
+              title="Cerrar">×</button>
+    </div>
+    <input type="search" id="qr-filter"
+           placeholder="Buscar por shortcut o título…"
+           class="qr-filter-input">
+    <div id="qr-list" class="qr-list">
+      <div class="vacio">Cargando…</div>
+    </div>
+    <div class="modal-qr-footer">
+      <a class="stats-link"
+         href="/panel/quick-replies?token={{ token }}" target="_blank" rel="noopener">
+        Administrar biblioteca ↗
+      </a>
+    </div>
+  </dialog>
   {% if not puede_responder %}
     <p class="nota warn">
       {% if ultimo_inbound %}
@@ -470,8 +445,88 @@
   {% endif %}
 </section>
 
+<section class="card">
+  <h2>Notas internas ({{ notas|length }})</h2>
+  <small class="sub">Visibles sólo para el equipo. Nunca se envían al cliente.</small>
+  {% if contacto and contacto.id %}
+    <form class="notas-form" method="post"
+          action="/panel/{{ telefono }}/notas?token={{ token }}">
+      <input type="hidden" name="actor" class="nota-actor-input" value="">
+      <textarea name="texto" rows="3" maxlength="4000"
+                placeholder="Escribí una nota interna sobre este lead…"
+                required></textarea>
+      <div class="acciones-fila">
+        <button type="submit">Guardar nota</button>
+      </div>
+    </form>
+    {% if notas %}
+      <ul class="notas-lista">
+        {% for n in notas %}
+          <li>
+            <div class="nota-meta">
+              <span>{{ n.hace }}</span>
+              {% if n.autor %}<em>{{ n.autor }}</em>{% endif %}
+              <form method="post"
+                    action="/panel/notas/{{ n.id }}/borrar?token={{ token }}">
+                <input type="hidden" name="telefono" value="{{ telefono }}">
+                <button type="submit" class="btn-borrar-nota"
+                        onclick="return confirm('¿Borrar esta nota interna?')">
+                  Borrar
+                </button>
+              </form>
+            </div>
+            <div class="nota-texto">{{ n.texto }}</div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="vacio">Sin notas internas todavía. Agrega la primera arriba.</p>
+    {% endif %}
+  {% else %}
+    <p class="vacio">
+      Para agregar notas, el teléfono tiene que estar en <code>contactos</code>.
+    </p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Timeline del lead ({{ timeline_total }})</h2>
+  <small class="sub">Mensajes + eventos de workflow en orden cronológico inverso.</small>
+  {% if timeline_items %}
+    <ul class="timeline-unificado">
+      {% for it in timeline_items %}
+        <li class="timeline-item {{ it.kind }}">
+          <span class="timeline-icono">{{ it.icono }}</span>
+          <span class="timeline-cuando">
+            {{ it.cuando.strftime('%Y-%m-%d %H:%M') if it.cuando else '—' }}
+          </span>
+          <span class="timeline-cuerpo">
+            <strong>{{ it.etiqueta }}</strong>
+            {% if it.detalle_texto %}
+              <span class="timeline-detalle">· {{ it.detalle_texto }}</span>
+            {% endif %}
+          </span>
+          <span class="timeline-autor">{{ it.autor }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+    {% if timeline_hay_mas %}
+      <p class="timeline-ver-mas">
+        Se muestran los primeros 50 de {{ timeline_total }} eventos.
+        (La vista "Ver más" se agregará cuando acumulemos suficientes
+        leads con historial largo.)
+      </p>
+    {% endif %}
+  {% else %}
+    <p class="vacio">Sin eventos todavía.</p>
+  {% endif %}
+</section>
+
+{# Línea de tiempo legacy (eventos "ad-hoc" de captación/pipeline/remarketing
+   calculados on-the-fly por panel.py). Se mantiene en paralelo mientras
+   migramos todo a `eventos_contacto`. #}
 <section>
-  <h2>Línea de tiempo</h2>
+  <h2>Hitos (legacy)</h2>
   {% if eventos %}
   <ul class="timeline">
     {% for e in eventos %}
@@ -541,6 +596,21 @@
     if (btnCancelar) {
       btnCancelar.addEventListener('click', function(){ dlg.close(); });
     }
+  })();
+
+  // Precargar el nombre del asesor (localStorage key panel_actor_name) en
+  // los campos hidden `actor` de los forms secundarios (pausar/reactivar
+  // bot, notas, marcar no leído). Si nunca lo tipearon, queda vacío y el
+  // backend usa el default ("asesor").
+  (function(){
+    var KEY = 'panel_actor_name';
+    var actor = '';
+    try { actor = localStorage.getItem(KEY) || ''; } catch(e) {}
+    if (!actor) return;
+    var inputs = document.querySelectorAll('.bot-state-actor-input');
+    for (var i = 0; i < inputs.length; i++) inputs[i].value = actor;
+    var inputsNota = document.querySelectorAll('.nota-actor-input');
+    for (var j = 0; j < inputsNota.length; j++) inputsNota[j].value = actor;
   })();
 
   // Auto-refresh por polling incremental cada 1 s.
@@ -780,6 +850,172 @@
 
     // Primer tick después de un ratito para no competir con el load.
     scheduleNext(1000);
+  })();
+
+  // Modal de quick replies (iter 3).
+  //
+  // Click en "⚡ Quick replies" → abre <dialog>, fetchea la lista de QRs
+  // disponibles y para cada una pide /quick-replies/preview?id=X&telefono=Y
+  // (interpoladas con los datos de ESTE contacto). Click en una → rellena
+  // el textarea del form de respuesta y cierra. Vanilla, sin frameworks.
+  (function(){
+    var telefono = {{ telefono|tojson }};
+    var token = {{ token|tojson }};
+    var dlg = document.getElementById('modal-qr');
+    var btnAbrir = document.getElementById('btn-qr-abrir');
+    var btnCerrar = document.getElementById('btn-qr-cerrar');
+    var txt = document.getElementById('responder-texto');
+    var listEl = document.getElementById('qr-list');
+    var filtroEl = document.getElementById('qr-filter');
+    if (!dlg || !btnAbrir || !txt) return;
+
+    var cache = null;  // lista cruda [{id, shortcut, titulo, texto_interp}]
+
+    function escHtml(s) {
+      if (s == null) return '';
+      var d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    async function cargar() {
+      listEl.innerHTML = '<div class="vacio">Cargando…</div>';
+      try {
+        // Pedimos la lista desde /panel/quick-replies/preview para cada
+        // QR; para evitar N requests, primero pedimos la lista completa
+        // desde /panel/quick-replies/preview?... pero no existe un
+        // endpoint "list". Usamos uno simple: /panel/quick-replies?...
+        // devuelve HTML. En vez, iteramos sobre un listado embebido.
+        // Workaround: hacemos un GET al endpoint preview que acepta
+        // list (futuro); por ahora fetchamos primero el HTML de la vista
+        // y extraemos las filas — demasiado frágil. Vamos a cargar la
+        // vista de preview por id en bulk: hacemos un fetch separado
+        // por cada id. Para la primera versión, obtenemos los ids desde
+        // un GET al listado (más abajo).
+        //
+        // Implementación: usamos el endpoint `preview` con un modo
+        // "lista" (si no está implementado, caerá al modo item).
+        var r = await fetch('/panel/quick-replies?token=' +
+                           encodeURIComponent(token) + '&json=1', {
+          headers: {'Accept': 'application/json'}
+        });
+        // Fallback: parseamos el HTML.
+        var html = await r.text();
+        // Extraemos las filas con data-qr-id.
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+        var rows = doc.querySelectorAll('tr[data-qr-id]');
+        var ids = [];
+        rows.forEach(function(tr){
+          var id = tr.getAttribute('data-qr-id');
+          var short = tr.querySelector('.qr-shortcut');
+          var tit = tr.querySelectorAll('td')[1];
+          var tex = tr.querySelector('.qr-texto-preview');
+          ids.push({
+            id: id,
+            shortcut: short ? short.textContent.trim() : '',
+            titulo: tit ? tit.textContent.trim() : '',
+            texto_raw: tex ? tex.textContent.trim() : ''
+          });
+        });
+        if (ids.length === 0) {
+          cache = [];
+          renderLista();
+          return;
+        }
+        // Para cada id, fetch /preview con el telefono — interpolamos.
+        var previews = await Promise.all(ids.map(async function(it){
+          try {
+            var pr = await fetch('/panel/quick-replies/preview?id=' +
+                                 encodeURIComponent(it.id) +
+                                 '&telefono=' + encodeURIComponent(telefono) +
+                                 '&token=' + encodeURIComponent(token));
+            if (!pr.ok) throw new Error('http ' + pr.status);
+            var data = await pr.json();
+            return Object.assign({}, it, {
+              texto_interp: data.texto || it.texto_raw
+            });
+          } catch (e) {
+            return Object.assign({}, it, {texto_interp: it.texto_raw});
+          }
+        }));
+        cache = previews;
+        renderLista();
+      } catch (e) {
+        listEl.innerHTML = '<div class="nota err">Error al cargar: ' +
+                           escHtml(e.message) + '</div>';
+      }
+    }
+
+    function renderLista() {
+      var q = (filtroEl.value || '').toLowerCase().trim();
+      var items = cache || [];
+      if (q) {
+        items = items.filter(function(it){
+          return (it.shortcut || '').toLowerCase().indexOf(q) >= 0 ||
+                 (it.titulo || '').toLowerCase().indexOf(q) >= 0 ||
+                 (it.texto_interp || '').toLowerCase().indexOf(q) >= 0;
+        });
+      }
+      if (items.length === 0) {
+        listEl.innerHTML = '<div class="vacio">' +
+          (cache && cache.length ? 'Sin resultados.' : 'No hay quick replies — agregá la primera desde "Administrar biblioteca".') +
+          '</div>';
+        return;
+      }
+      listEl.innerHTML = items.map(function(it){
+        return '<div class="qr-item" data-id="' + escHtml(it.id) + '">' +
+          '<div class="qr-item-head">' +
+            '<code class="qr-item-shortcut">' + escHtml(it.shortcut) + '</code>' +
+            '<span class="qr-item-titulo">' + escHtml(it.titulo) + '</span>' +
+          '</div>' +
+          '<div class="qr-item-preview">' + escHtml(it.texto_interp) + '</div>' +
+        '</div>';
+      }).join('');
+      listEl.querySelectorAll('.qr-item').forEach(function(el){
+        el.addEventListener('click', function(){
+          var id = el.getAttribute('data-id');
+          var found = (cache || []).find(function(x){ return String(x.id) === String(id); });
+          if (!found) return;
+          // Insertar en el textarea (reemplaza selección si hay).
+          var start = txt.selectionStart || 0;
+          var end = txt.selectionEnd || 0;
+          var cur = txt.value || '';
+          txt.value = cur.slice(0, start) + found.texto_interp + cur.slice(end);
+          txt.focus();
+          // Mover el cursor al final del texto insertado.
+          var pos = start + found.texto_interp.length;
+          try { txt.setSelectionRange(pos, pos); } catch(e) {}
+          cerrar();
+        });
+      });
+    }
+
+    function abrir() {
+      if (typeof dlg.showModal === 'function') dlg.showModal();
+      else dlg.setAttribute('open', '');
+      if (filtroEl) filtroEl.value = '';
+      cargar();
+      setTimeout(function(){
+        if (filtroEl) filtroEl.focus();
+      }, 50);
+    }
+    function cerrar() {
+      try { dlg.close(); } catch(e) { dlg.removeAttribute('open'); }
+    }
+
+    btnAbrir.addEventListener('click', abrir);
+    if (btnCerrar) btnCerrar.addEventListener('click', cerrar);
+    if (filtroEl) filtroEl.addEventListener('input', renderLista);
+
+    // Click fuera del contenido (sobre el backdrop) cierra.
+    dlg.addEventListener('click', function(ev){
+      var r = dlg.getBoundingClientRect();
+      if (ev.clientX < r.left || ev.clientX > r.right ||
+          ev.clientY < r.top  || ev.clientY > r.bottom) {
+        cerrar();
+      }
+    });
   })();
 </script>
 

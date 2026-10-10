@@ -506,6 +506,19 @@ def _procesar_llamada_entrante(call):
     except Exception:
         log.exception("[WebhookQueue] No se pudo registrar llamada entrante de %s", telefono)
 
+    # Evento de timeline (iter 1 oct-2026). Sólo `connect` significa "me
+    # llamó ahora"; `terminate` y demás son del ciclo de vida y los
+    # dejamos solo en `mensajes` (ya está la row sintética).
+    if evento == "connect":
+        try:
+            db.registrar_evento_por_telefono(
+                telefono, "llamada_recibida",
+                {"call_id": call_id, "evento": evento}, autor="sistema",
+            )
+        except Exception:
+            log.exception("[WebhookQueue] fallo evento timeline llamada %s",
+                          telefono)
+
     # Solo notificamos al asesor cuando el cliente esta llamando AHORA
     # (`connect`). Para `terminate` y otros solo logueamos.
     if evento != "connect":
@@ -566,8 +579,28 @@ def _procesar_mensaje(phone, event, message=None):
     except Exception:
         log.exception("No se pudo registrar mensaje entrante.")
 
+    # Bot pausado por un asesor humano para este lead (take-over humano):
+    # el bot sigue corriendo toda su lógica interna (clasificación,
+    # requiere_humano, cambios de sesión, filtros, remarketing marks) pero
+    # NO envía respuestas al cliente. Esto lo hacemos envolviendo el
+    # handle_incoming con `whatsapp.pausar_sends_temporalmente()`, un
+    # context manager thread-local que apaga `whatsapp._dispatch` solo en
+    # este thread.
+    pausado = False
+    try:
+        pausado = db.bot_esta_pausado(phone)
+    except Exception:
+        log.exception("[WebhookQueue] Error consultando bot_esta_pausado(%s)",
+                      phone)
+
     from app import bot
-    bot.handle_incoming(phone, event)
+    if pausado:
+        log.info("[bot pausado] skip autoreply for %s", phone)
+        from app import whatsapp as _wa
+        with _wa.pausar_sends_temporalmente():
+            bot.handle_incoming(phone, event)
+    else:
+        bot.handle_incoming(phone, event)
 
 
 # ----------------------------------------------------------------------------
