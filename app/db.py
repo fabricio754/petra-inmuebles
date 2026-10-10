@@ -1574,3 +1574,175 @@ def kpis_dashboard() -> dict:
     except Exception as exc:  # noqa: BLE001
         log.warning("[kpis_dashboard] fallo: %s", exc)
     return out
+
+
+# === Quick replies (iter 3 — oct-2026) ======================================
+# Biblioteca de respuestas pre-escritas que el asesor inserta al responder
+# manualmente a un lead. El texto puede contener variables entre llaves
+# dobles ({{nombre}}, {{ciudad}}, {{portal}}, {{avaluo}}, {{estrato}},
+# {{bucket}}) que `interpolar_variables` reemplaza desde los datos del
+# contacto. Si una variable no tiene valor se usa un fallback suave (ej.
+# "amigo" para nombre, "tu ciudad" para ciudad) o se omite elegantemente.
+
+def listar_quick_replies() -> list[dict]:
+    """Lista todas las quick replies, ordenadas por shortcut asc."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT id, shortcut, titulo, texto, autor, "
+                "       created_at, updated_at "
+                "FROM quick_replies ORDER BY shortcut ASC"
+            )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_quick_replies] fallo: %s", exc)
+        return []
+
+
+def obtener_quick_reply(id: int) -> dict | None:
+    """Devuelve una quick reply por id, o None si no existe."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT id, shortcut, titulo, texto, autor, "
+                "       created_at, updated_at "
+                "FROM quick_replies WHERE id = %s",
+                (id,),
+            )
+            cols = [c.name for c in cur.description]
+            fila = cur.fetchone()
+            return dict(zip(cols, fila)) if fila else None
+    except Exception as exc:
+        log.warning("[obtener_quick_reply] fallo (%s): %s", id, exc)
+        return None
+
+
+def agregar_quick_reply(shortcut: str, titulo: str, texto: str,
+                        autor: str = "asesor") -> int:
+    """Crea una quick reply nueva. Devuelve el id."""
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "INSERT INTO quick_replies (shortcut, titulo, texto, autor) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (
+                (shortcut or "").strip()[:50],
+                (titulo or "").strip()[:200],
+                texto or "",
+                autor or "asesor",
+            ),
+        ).fetchone()
+        return fila[0] if fila else None
+
+
+def actualizar_quick_reply(id: int, shortcut: str, titulo: str,
+                           texto: str) -> None:
+    """Actualiza una quick reply existente. No lanza si no existe."""
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE quick_replies "
+            "SET shortcut = %s, titulo = %s, texto = %s, updated_at = NOW() "
+            "WHERE id = %s",
+            (
+                (shortcut or "").strip()[:50],
+                (titulo or "").strip()[:200],
+                texto or "",
+                id,
+            ),
+        )
+
+
+def borrar_quick_reply(id: int) -> None:
+    """Borra una quick reply por id. No lanza si no existe."""
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute("DELETE FROM quick_replies WHERE id = %s", (id,))
+
+
+# Fallbacks suaves por variable: cuando el contacto NO tiene valor, la
+# interpolación usa el fallback (sin dejar `{{xxx}}` suelto). Se pueden
+# dejar vacíos para "omitir sin reemplazo" — en ese caso usamos el string
+# vacío y el texto queda sin la mención.
+_QR_FALLBACKS = {
+    "nombre": "amigo",
+    "ciudad": "tu ciudad",
+    "portal": "",
+    "avaluo": "",
+    "estrato": "",
+    "bucket": "",
+}
+
+# Labels humanos para los buckets (usados sólo acá para interpolar
+# {{bucket}}). Se mantienen en sincronía con `BUCKETS_LABELS` de panel.py.
+_QR_BUCKETS_LABEL = {
+    "nuevo": "nuevo",
+    "contactado": "contactado",
+    "respondio": "respondió",
+    "enviar_formulario": "enviar formulario",
+    "enviar_a_sureti": "enviar a sureti",
+    "recontactar": "recontactar",
+    "no_contactar": "no contactar",
+}
+
+
+def _formatear_avaluo(precio) -> str:
+    """Devuelve el precio en millones de forma legible, ej. '450 millones'.
+    Si no se puede, devuelve "" (y el fallback de la variable aplica)."""
+    try:
+        n = int(precio)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    if n >= 1_000_000:
+        m = n // 1_000_000
+        return f"{m} millones"
+    return str(n)
+
+
+def interpolar_variables(texto: str, contacto: dict | None) -> str:
+    """Reemplaza variables {{xxx}} con datos del contacto.
+
+    Soporta: {{nombre}}, {{ciudad}}, {{portal}}, {{avaluo}}, {{estrato}},
+    {{bucket}}. Si una variable no tiene valor, usa un fallback suave
+    (ver `_QR_FALLBACKS`); si el fallback es vacío, elimina la variable
+    y los espacios colgantes alrededor para que el texto no quede
+    descosido.
+    """
+    import re as _re
+    if not texto:
+        return ""
+    c = contacto or {}
+
+    # Pre-calcular cada variable.
+    valores = {}
+    valores["nombre"] = (c.get("nombre") or "").strip() or _QR_FALLBACKS["nombre"]
+    valores["ciudad"] = (c.get("ciudad") or "").strip() or _QR_FALLBACKS["ciudad"]
+    valores["portal"] = (c.get("portal") or "").strip() or _QR_FALLBACKS["portal"]
+    valores["avaluo"] = (
+        _formatear_avaluo(c.get("precio_publicado"))
+        or _QR_FALLBACKS["avaluo"]
+    )
+    estrato_raw = c.get("estrato")
+    if estrato_raw is not None and estrato_raw != "":
+        valores["estrato"] = str(estrato_raw).strip()
+    else:
+        valores["estrato"] = _QR_FALLBACKS["estrato"]
+    bucket_raw = (c.get("bucket") or "").strip()
+    valores["bucket"] = (
+        _QR_BUCKETS_LABEL.get(bucket_raw, bucket_raw)
+        if bucket_raw
+        else _QR_FALLBACKS["bucket"]
+    )
+
+    def _reemplazar(match):
+        var = match.group(1).strip().lower()
+        return valores.get(var, match.group(0))
+
+    out = _re.sub(r"\{\{\s*(\w+)\s*\}\}", _reemplazar, texto)
+
+    # Si quedan variables con fallback vacío (="") dejaron un hueco con
+    # espacios dobles o espacios al final de línea. Normalizamos.
+    out = _re.sub(r"[ \t]{2,}", " ", out)
+    out = _re.sub(r"[ \t]+(?=\n)", "", out)
+    out = _re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()

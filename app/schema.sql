@@ -244,6 +244,23 @@ CREATE TABLE IF NOT EXISTS eventos_contacto (
 CREATE INDEX IF NOT EXISTS eventos_contacto_idx
   ON eventos_contacto (contacto_id, created_at DESC);
 
+-- === Nuevas features (iter 3 — oct-2026) =====================================
+-- Quick replies: biblioteca de respuestas pre-escritas que el asesor inserta
+-- al responder manualmente a un lead. El texto puede contener variables entre
+-- llaves dobles ({{nombre}}, {{ciudad}}, ...) que se interpolan desde los
+-- datos del contacto antes de insertarlas en el textarea.
+CREATE TABLE IF NOT EXISTS quick_replies (
+  id SERIAL PRIMARY KEY,
+  shortcut VARCHAR(50) NOT NULL UNIQUE,
+  titulo VARCHAR(200) NOT NULL,
+  texto TEXT NOT NULL,
+  autor VARCHAR(100) DEFAULT 'asesor',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS quick_replies_shortcut_idx
+  ON quick_replies (shortcut);
+
 -- Cola persistente de webhooks de WhatsApp. El handler HTTP solo
 -- INSERTa aquí y responde 200 OK; un worker (app/webhook_worker.py)
 -- drena las filas pendientes. Si el proceso muere a mitad de camino,
