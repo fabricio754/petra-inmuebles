@@ -4,73 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel Massi — leads</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #f6f8fa; color: #1f2328; }
-  h1 { font-size: 1.3rem; margin: 0 0 12px; }
-  .topbar { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
-  .topbar a.stats-link { font-size: .9rem; color: #0969da; text-decoration: none; padding: 4px 10px; border: 1px solid #0969da; border-radius: 6px; }
-  .topbar a.stats-link:hover { background: #0969da; color: #fff; }
-  .totales { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-  .chip { background: #fff; border: 1px solid #d0d7de; border-radius: 999px; padding: 4px 10px; font-size: .85rem; text-decoration: none; color: inherit; }
-  .chip strong { margin-left: 4px; }
-  .chip-link:hover { background: #eaeef2; }
-  .chip-active { background: #0969da; color: #fff; border-color: #0969da; }
-  .chip-reset { color: #cf222e; border-color: #ffebe9; }
-  .filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }
-  .filtros input, .filtros select, .filtros button { font: inherit; padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; }
-  .filtros input[type=search] { flex: 1; min-width: 180px; }
-  .filtros button { cursor: pointer; background: #0969da; color: #fff; border-color: #0969da; }
-  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; overflow: hidden; }
-  th, td { padding: 8px 10px; text-align: left; font-size: .9rem; border-bottom: 1px solid #eaeef2; }
-  th { background: #f6f8fa; font-weight: 600; position: sticky; top: 0; }
-  tr:hover { background: #f6f8fa; }
-  td.tel a { color: #0969da; text-decoration: none; font-family: ui-monospace, monospace; }
-  td.tel a:hover { text-decoration: underline; }
-  .estado { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .78rem; font-weight: 500; }
-  /* Buckets humano-first (PR #71): se usan como etiqueta principal en la
-     columna "Estado". El valor viejo (`contactos.estado` crudo) queda
-     visible como tooltip (atributo `title`) para debug. */
-  .bucket-nuevo { background: #ddf4ff; color: #0969da; }
-  .bucket-contactado { background: #fff8c5; color: #7d4e00; }
-  .bucket-respondio { background: #ddf4ff; color: #0969da; }
-  .bucket-enviar_formulario { background: #fff1e5; color: #9a4b00; }
-  .bucket-enviar_a_sureti { background: #dafbe1; color: #116329; }
-  .bucket-recontactar { background: #fff8c5; color: #7d4e00; }
-  .bucket-no_contactar { background: #ffebe9; color: #cf222e; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-  .dot-verde { background: #2da44e; }
-  .dot-amarillo { background: #d4a72c; }
-  .dot-gris { background: #8c959f; }
-  .avaluo-aprox { color: #8c959f; }
-  .badge-resultado { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: .72rem; font-weight: 500; background: #eaeef2; color: #57606a; }
-  .badge-flow { background: #ddf4ff; color: #0969da; }
-  .badge-broker, .badge-no_interesa { background: #ffebe9; color: #cf222e; }
-  .badge-sureti { background: #dafbe1; color: #116329; }
-  .badge-recontactar { background: #fff8c5; color: #7d4e00; }
-  .badge-otro { background: #fff1e5; color: #9a4b00; }
-  .pendiente-txt { color: #8c959f; font-style: italic; font-size: .78rem; }
-  label.chk-pendientes { font-size: .9rem; display: inline-flex; align-items: center; gap: 4px; }
-  @media (prefers-color-scheme: dark) {
-    .badge-resultado { background: #262d36; color: #8b949e; }
-    .badge-flow { background: #0c2d6b; color: #58a6ff; }
-    .badge-broker, .badge-no_interesa { background: #3b0a0f; color: #ff7b72; }
-    .badge-sureti { background: #0a2d16; color: #7ee787; }
-    .badge-recontactar { background: #341a00; color: #e8c547; }
-    .badge-otro { background: #341a00; color: #ffa657; }
-    .pendiente-txt { color: #6e7681; }
-    body { background: #0d1117; color: #e6edf3; }
-    .chip, table, .filtros input, .filtros select { background: #161b22; border-color: #30363d; color: #e6edf3; }
-    .chip-link:hover { background: #1c2128; }
-    .chip-reset { color: #ff7b72; border-color: #490202; }
-    th { background: #0d1117; }
-    th, td { border-color: #30363d; }
-    tr:hover { background: #1c2128; }
-    td.tel a { color: #58a6ff; }
-    .avaluo-aprox { color: #6e7681; }
-    .topbar a.stats-link { color: #58a6ff; border-color: #58a6ff; }
-    .topbar a.stats-link:hover { background: #58a6ff; color: #0d1117; }
-  }
+  /* Overrides específicos de /panel (listado) — el resto vive en panel.css */
 </style>
 </head>
 <body>
