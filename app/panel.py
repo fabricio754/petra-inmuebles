@@ -546,6 +546,7 @@ def panel_lista():
                        c.resultado_contacto, c.resultado_contacto_at,
                        c.resultado_contacto_por,
                        c.requiere_humano,
+                       c.visto_at,
                        EXISTS (
                          SELECT 1 FROM mensajes m
                          WHERE m.telefono = c.telefono AND m.direccion = 'in'
@@ -578,6 +579,25 @@ def panel_lista():
     except PoolTimeout:
         return _pool_busy_response("/panel")
 
+    # Último mensaje IN por teléfono, usado tanto para "última actividad"
+    # como para calcular `no_leido`. Lo pedimos una sola vez para todos
+    # los contactos del listado (evita N+1 subquery del CTE).
+    try:
+        with _panel_conexion() as conn:
+            ultimos_in = {
+                r["telefono"]: r["ultimo_in"]
+                for r in _rows(conn, """
+                    SELECT telefono, MAX(fecha) AS ultimo_in
+                    FROM mensajes WHERE direccion = 'in' GROUP BY telefono
+                """)
+            }
+    except PoolTimeout:
+        return _pool_busy_response("/panel")
+    except Exception:
+        log.exception("[Panel] no_leido: no se pudo cargar ultimos_in; "
+                      "se asume vacío (todo leído).")
+        ultimos_in = {}
+
     filas_all = []
     for c in contactos:
         s = sesiones.get(c["telefono"])
@@ -605,6 +625,16 @@ def panel_lista():
             bool(c.get("autorizo")),
             bool(c.get("completo_flow")),
         )
+        # No leído: visto_at es NULL o anterior a la última actividad
+        # relevante (sesión del bot o último mensaje IN del cliente).
+        visto_at = c.get("visto_at")
+        ultimo_in = ultimos_in.get(c["telefono"])
+        candidatos = [t for t in ((s or {}).get("ultima_actividad"),
+                                   ultimo_in) if t]
+        no_leido = False
+        if candidatos:
+            ultima_act = max(candidatos)
+            no_leido = (visto_at is None) or (visto_at < ultima_act)
         filas_all.append({
             **c,
             "estado": _estado_lead(c, s, p),
@@ -615,6 +645,7 @@ def panel_lista():
             "ultima_actividad_semaforo": _semaforo(ultima),
             "avaluo_m": avaluo_m,
             "avaluo_fuente": avaluo_fuente,
+            "no_leido": no_leido,
         })
 
     por_estado = {}
@@ -1202,7 +1233,8 @@ def panel_respuestas():
                       c.ciudad,
                       c.barrio,
                       c.no_contactar,
-                      c.monto_hasta_millones AS monto_hasta
+                      c.monto_hasta_millones AS monto_hasta,
+                      c.visto_at
                     FROM mensajes m
                     LEFT JOIN contactos c ON c.telefono = m.telefono
                     WHERE m.telefono IN (
@@ -1228,7 +1260,8 @@ def panel_respuestas():
                       c.ciudad,
                       c.barrio,
                       c.no_contactar,
-                      c.monto_hasta_millones AS monto_hasta
+                      c.monto_hasta_millones AS monto_hasta,
+                      c.visto_at
                     FROM mensajes m
                     LEFT JOIN contactos c ON c.telefono = m.telefono
                     WHERE m.telefono IN (
@@ -1255,6 +1288,7 @@ def panel_respuestas():
                 "barrio": r.get("barrio"),
                 "no_contactar": r.get("no_contactar"),
                 "monto_hasta": r.get("monto_hasta"),
+                "visto_at": r.get("visto_at"),
                 "mensajes": [],
             }
         por_tel[tel]["mensajes"].append(r)
@@ -1296,6 +1330,17 @@ def panel_respuestas():
             if m.get("fecha") and (ult is None or m["fecha"] > ult):
                 ult = m["fecha"]
 
+        # No leído: visto_at es NULL o anterior al último IN del cliente.
+        ultimo_in_tel = None
+        for m in mensajes_hilo:
+            if m.get("direccion") == "in" and m.get("fecha"):
+                if ultimo_in_tel is None or m["fecha"] > ultimo_in_tel:
+                    ultimo_in_tel = m["fecha"]
+        visto_at = info.get("visto_at")
+        no_leido_card = False
+        if ultimo_in_tel:
+            no_leido_card = (visto_at is None) or (visto_at < ultimo_in_tel)
+
         tarjetas.append({
             "telefono": tel,
             "tipo_inmueble": info["tipo_inmueble"],
@@ -1308,6 +1353,7 @@ def panel_respuestas():
             "tag_color": _TAG_META.get(tag, {}).get("color", "gris"),
             "mensajes": mensajes_vista,
             "ultima": ult,
+            "no_leido": no_leido_card,
         })
 
     # Orden: más reciente arriba.
@@ -1585,6 +1631,15 @@ def panel_detalle(telefono):
                 notas.append(n)
         except Exception:
             log.exception("[Panel] listar_notas falló tel=%s", telefono)
+
+    # Marcar leído al abrir el detalle (iter 1 oct-2026). Idempotente.
+    # `marcar_visto` ya es fail-silent, pero igual lo envolvemos: una
+    # falla acá no debe romper el render del detalle.
+    if contacto and contacto.get("id"):
+        try:
+            db.marcar_visto(contacto["id"])
+        except Exception:
+            log.exception("[Panel] marcar_visto falló tel=%s", telefono)
 
     # El modal muestra solo el subconjunto de 6 acciones humanas (ver
     # panel_acciones.acciones_modal). `completar_formulario_manual` queda
@@ -2240,6 +2295,33 @@ def panel_notas_agregar(telefono):
                                 token=token, flash="nota_err"))
     return redirect(url_for("panel.panel_detalle", telefono=telefono,
                             token=token, flash="nota_guardada"))
+
+
+@panel.post("/panel/<telefono>/no-leido")
+def panel_marcar_no_leido(telefono):
+    """Marca el lead como no leído desde el header del detalle. El panel
+    marca "leído" automáticamente al abrir el detalle, así que este botón
+    sirve para volver a destacar el lead en la lista."""
+    _check_token()
+    token = request.args.get("token", "")
+    try:
+        with _panel_conexion() as conn:
+            fila = conn.execute(
+                "SELECT id FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+    except PoolTimeout:
+        return _pool_busy_response(f"/panel/{telefono}/no-leido")
+    if not fila:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_sin_contacto"))
+    try:
+        db.marcar_no_visto(fila[0])
+    except Exception:
+        log.exception("[Panel] marcar_no_visto falló tel=%s", telefono)
+    # No redirigimos al mismo detalle porque abrirlo re-marcaría leído
+    # (hook en `panel_detalle`). Volvemos al listado.
+    return redirect(url_for("panel.panel_lista", token=token))
 
 
 @panel.post("/panel/notas/<int:nota_id>/borrar")

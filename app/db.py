@@ -1085,3 +1085,68 @@ def borrar_nota(nota_id: int) -> None:
     """Borra una nota por id. No lanza si no existe."""
     with _conexion_directa(timeout=10) as conn:
         conn.execute("DELETE FROM notas_contacto WHERE id = %s", (nota_id,))
+
+
+# === Marcar leído / no leído (iter 1 oct-2026) ==============================
+#
+# `contactos.visto_at` guarda la última vez que un asesor abrió el detalle
+# del lead. Un lead está "no leído" cuando su visto_at es NULL (nunca lo
+# miramos) o es anterior a la última actividad del lead. La "última
+# actividad" la miramos contra el GREATEST de:
+#   - sesiones.ultima_actividad (sesión del bot)
+#   - MAX(fecha) sobre mensajes del teléfono con direccion='in'
+# Esto evita que una ida del asesor "lea" un lead que luego recibió más
+# mensajes del cliente — hay que volverlo a abrir para que vuelva a leído.
+
+def marcar_visto(contacto_id: int) -> None:
+    """Marca el contacto como visto AHORA (leído). Idempotente."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            conn.execute(
+                "UPDATE contactos SET visto_at = NOW() WHERE id = %s",
+                (contacto_id,),
+            )
+    except Exception as exc:
+        log.warning("[marcar_visto] fallo (%s): %s", contacto_id, exc)
+
+
+def marcar_no_visto(contacto_id: int) -> None:
+    """Marca el contacto como no visto (visto_at = NULL)."""
+    with _conexion_directa(timeout=5) as conn:
+        conn.execute(
+            "UPDATE contactos SET visto_at = NULL WHERE id = %s",
+            (contacto_id,),
+        )
+
+
+def esta_no_leido(contacto_id: int) -> bool:
+    """True si el contacto está "no leído": visto_at es NULL o es anterior
+    a la última actividad (sesión o último IN).
+    """
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            fila = conn.execute(
+                """
+                SELECT
+                  c.visto_at,
+                  GREATEST(
+                    COALESCE(s.ultima_actividad, 'epoch'::timestamptz),
+                    COALESCE((SELECT MAX(fecha) FROM mensajes
+                              WHERE telefono = c.telefono AND direccion = 'in'),
+                             'epoch'::timestamptz)
+                  ) AS ultima
+                FROM contactos c
+                LEFT JOIN sesiones s ON s.telefono = c.telefono
+                WHERE c.id = %s
+                """,
+                (contacto_id,),
+            ).fetchone()
+    except Exception as exc:
+        log.warning("[esta_no_leido] fallo (%s): %s", contacto_id, exc)
+        return False
+    if not fila:
+        return False
+    visto, ultima = fila[0], fila[1]
+    if not ultima:
+        return False
+    return (visto is None) or (visto < ultima)

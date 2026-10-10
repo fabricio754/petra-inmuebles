@@ -79,6 +79,17 @@
 
 <section class="card bot-state">
   <div class="bot-state-row">
+    <form method="post"
+          action="/panel/{{ telefono }}/no-leido?token={{ token }}"
+          class="bot-state-form">
+      <button type="submit" class="btn btn-ghost">Marcar no leído</button>
+    </form>
+    <small class="sub">Al abrir el detalle lo marcamos como leído automáticamente.</small>
+  </div>
+</section>
+
+<section class="card bot-state">
+  <div class="bot-state-row">
     {% if pausa_info and pausa_info.pausado %}
       <span class="bot-state-badge bot-state-paused">
         <span class="dot dot-amarillo"></span>

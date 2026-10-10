@@ -72,8 +72,11 @@
   </thead>
   <tbody>
     {% for f in filas %}
-    <tr>
-      <td class="tel"><a href="/panel/{{ f.telefono }}?token={{ token }}">{{ f.telefono }}</a></td>
+    <tr{% if f.no_leido %} class="unread"{% endif %}>
+      <td class="tel">
+        {% if f.no_leido %}<span class="unread-dot" title="No leído"></span>{% endif %}
+        <a href="/panel/{{ f.telefono }}?token={{ token }}">{{ f.telefono }}</a>
+      </td>
       <td>{{ f.nombre or '—' }}</td>
       <td>{{ f.ciudad or '—' }}</td>
       <td>{{ f.tipo_inmueble or '—' }}</td>

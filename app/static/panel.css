@@ -1563,3 +1563,21 @@ fieldset legend {
   color: var(--danger-strong);
   border-color: var(--danger);
 }
+
+/* ---- Marcar no leído (listado + respuestas) ------------------------------ */
+tr.unread,
+.card.unread {
+  font-weight: 600;
+}
+tr.unread .tel a {
+  font-weight: 700;
+}
+.unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--info);
+  margin-right: 6px;
+  vertical-align: middle;
+}
