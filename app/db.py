@@ -1291,3 +1291,88 @@ def listar_timeline(contacto_id: int, limit: int = 100) -> list[dict]:
     _min = _dt.min.replace(tzinfo=_tz.utc)
     items.sort(key=lambda x: x["cuando"] or _min, reverse=True)
     return items[:limit]
+
+
+# === SLA timers / alertas de inactividad (iter 1 oct-2026) ==================
+#
+# Reglas SLA aplicadas en vivo en la query del listado (`panel_lista`):
+#   nuevo              > 48h → danger ; > 12h → warning
+#   contactado         > 72h → warning (lead no respondió)
+#   enviar_formulario  > 24h → warning
+#   enviar_a_sureti    > 48h → warning
+#   recontactar        > 7d  → warning
+#   no_contactar       → ok (terminal, nunca alerta)
+#
+# El bucket se calcula desde Python (`panel.bucket_de`) usando flags que
+# necesitan JOIN con `mensajes`, así que acá devolvemos un helper que
+# recibe bucket + cuando (datetime) y devuelve 'ok' / 'warning' / 'danger'.
+
+def sla_level(bucket: str, cuando) -> str:
+    """Devuelve 'ok' | 'warning' | 'danger' según antigüedad y bucket.
+
+    `cuando` es la última actividad relevante del lead (típicamente
+    `COALESCE(sesiones.ultima_actividad, contactos.fecha_contacto,
+    contactos.fecha_scraping)`).
+    """
+    from datetime import datetime, timezone as _tz
+    if not bucket or bucket == "no_contactar":
+        return "ok"
+    if not cuando:
+        return "ok"
+    ahora = datetime.now(_tz.utc)
+    try:
+        delta = ahora - cuando
+    except TypeError:
+        delta = ahora - cuando.replace(tzinfo=_tz.utc)
+    horas = delta.total_seconds() / 3600.0
+    if bucket == "nuevo":
+        if horas > 48:
+            return "danger"
+        if horas > 12:
+            return "warning"
+    elif bucket == "contactado":
+        if horas > 72:
+            return "warning"
+    elif bucket == "enviar_formulario":
+        if horas > 24:
+            return "warning"
+    elif bucket == "enviar_a_sureti":
+        if horas > 48:
+            return "warning"
+    elif bucket == "recontactar":
+        if horas > 24 * 7:
+            return "warning"
+    return "ok"
+
+
+def sla_tooltip(bucket: str, cuando) -> str:
+    """Texto corto para el tooltip del indicador SLA. Describe cuánto
+    tiempo lleva el lead en su bucket (ej. "Nuevo hace 60h sin
+    movimiento").
+    """
+    from datetime import datetime, timezone as _tz
+    if not cuando:
+        return "Sin actividad registrada"
+    try:
+        delta = datetime.now(_tz.utc) - cuando
+    except TypeError:
+        delta = datetime.now(_tz.utc) - cuando.replace(tzinfo=_tz.utc)
+    seg = int(delta.total_seconds())
+    if seg < 0:
+        hace = "hace unos segundos"
+    elif seg < 3600:
+        hace = f"hace {seg // 60} min"
+    elif seg < 86400:
+        hace = f"hace {seg // 3600}h"
+    else:
+        hace = f"hace {seg // 86400}d"
+    etiqueta = {
+        "nuevo": "Nuevo",
+        "contactado": "Contactado",
+        "respondio": "Respondió",
+        "enviar_formulario": "Enviar formulario",
+        "enviar_a_sureti": "Enviar a Sureti",
+        "recontactar": "Recontactar",
+        "no_contactar": "No contactar",
+    }.get(bucket or "", "Lead")
+    return f"{etiqueta} {hace} sin movimiento"

@@ -25,15 +25,25 @@
     <a class="chip chip-link {% if f_bucket == key %}chip-active{% endif %}"
        href="?token={{ token }}&bucket={{ key }}{% if f_ciudad %}&ciudad={{ f_ciudad }}{% endif %}{% if f_portal %}&portal={{ f_portal }}{% endif %}{% if q %}&q={{ q }}{% endif %}">{{ label }}<strong>{{ n }}</strong></a>
   {% endfor %}
-  {% if f_bucket or f_estado or f_ciudad or f_portal or q %}
+  {% if f_bucket or f_estado or f_ciudad or f_portal or q or f_sla %}
     <a class="chip chip-reset" href="?token={{ token }}">× quitar filtros</a>
   {% endif %}
 </div>
+
+{% if sla_count or f_sla %}
+<div class="totales">
+  <a class="chip chip-sla {% if f_sla %}chip-active{% endif %}"
+     href="?token={{ token }}{% if f_bucket %}&bucket={{ f_bucket }}{% endif %}{% if f_sla %}{% else %}&sla=1{% endif %}">
+    ⚠ Leads que requieren atención<strong>{{ sla_count }}</strong>
+  </a>
+</div>
+{% endif %}
 
 <form class="filtros" method="get" action="/panel">
   <input type="hidden" name="token" value="{{ token }}">
   {% if f_bucket %}<input type="hidden" name="bucket" value="{{ f_bucket }}">{% endif %}
   {% if f_estado %}<input type="hidden" name="estado" value="{{ f_estado }}">{% endif %}
+  {% if f_sla %}<input type="hidden" name="sla" value="1">{% endif %}
   <input type="search" name="q" value="{{ q }}" placeholder="Buscar por teléfono o nombre…">
   <select name="ciudad">
     <option value="">Todas las ciudades</option>
@@ -94,6 +104,10 @@
         {# "Estado" muestra el bucket humano-first (mismo que los chips de arriba).
            El `estado` legacy (en_flujo, en_flujo:SURETI, …) queda como tooltip. #}
         <span class="estado bucket-{{ f.bucket }}" title="estado interno: {{ f.estado }}">{{ f.bucket_label }}</span>
+        {% if f.sla and f.sla != 'ok' %}
+          <span class="sla-dot sla-dot-{{ f.sla }}"
+                title="{{ f.sla_tooltip }}"></span>
+        {% endif %}
       </td>
       <td>
         <span class="dot dot-{{ f.ultima_actividad_semaforo }}"></span>{{ f.ultima_actividad_hace }}

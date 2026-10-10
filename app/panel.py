@@ -530,6 +530,7 @@ def panel_lista():
     f_portal = (request.args.get("portal") or "").strip()
     f_pendientes = request.args.get("pendientes") == "1"
     f_pendiente_humano = request.args.get("pendiente_humano") == "1"
+    f_sla = request.args.get("sla") == "1"
     q = (request.args.get("q") or "").strip()
 
     try:
@@ -635,6 +636,12 @@ def panel_lista():
         if candidatos:
             ultima_act = max(candidatos)
             no_leido = (visto_at is None) or (visto_at < ultima_act)
+        # SLA (iter 1 oct-2026): nivel de alerta por antigüedad en el
+        # bucket. `ultima` es COALESCE(sesion.ultima_actividad,
+        # fecha_contacto, fecha_scraping) — misma base que usa el
+        # semáforo verde/amarillo/gris.
+        sla = db.sla_level(bucket, ultima)
+        sla_text = db.sla_tooltip(bucket, ultima) if sla != "ok" else ""
         filas_all.append({
             **c,
             "estado": _estado_lead(c, s, p),
@@ -646,6 +653,8 @@ def panel_lista():
             "avaluo_m": avaluo_m,
             "avaluo_fuente": avaluo_fuente,
             "no_leido": no_leido,
+            "sla": sla,
+            "sla_tooltip": sla_text,
         })
 
     por_estado = {}
@@ -687,6 +696,10 @@ def panel_lista():
             # no hay cierre humano (resultado_contacto_por sin setear).
             if not f.get("requiere_humano") or f.get("resultado_contacto_por"):
                 return False
+        if f_sla:
+            # Leads que requieren atención: SLA en warning o danger.
+            if f.get("sla", "ok") == "ok":
+                return False
         if q:
             hay = " ".join([
                 str(f.get("telefono") or ""),
@@ -697,6 +710,9 @@ def panel_lista():
         return True
 
     filas = [f for f in filas_all if _match(f)][:500]
+
+    # Count global de leads que requieren atención (para el chip).
+    sla_count = sum(1 for f in filas_all if f.get("sla", "ok") != "ok")
 
     # Labels de resultado_contacto para el badge en la lista.
     from app import panel_acciones as _pa
@@ -711,6 +727,8 @@ def panel_lista():
         f_ciudad=f_ciudad, f_portal=f_portal, q=q,
         f_pendientes=f_pendientes,
         f_pendiente_humano=f_pendiente_humano,
+        f_sla=f_sla,
+        sla_count=sla_count,
         labels_resultado=labels_resultado,
         buckets_chips=buckets_chips,
     )

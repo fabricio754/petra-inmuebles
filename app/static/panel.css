@@ -1641,3 +1641,31 @@ tr.unread .tel a {
     grid-column: 2;
   }
 }
+
+/* ---- SLA timers / alertas de inactividad --------------------------------- */
+.sla-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: help;
+}
+.sla-dot-ok      { background: var(--success); }
+.sla-dot-warning { background: var(--warning); }
+.sla-dot-danger  { background: var(--danger); }
+
+.chip-sla {
+  background: var(--warning-soft);
+  color: var(--warning-strong);
+  border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
+}
+.chip-sla:hover {
+  background: color-mix(in srgb, var(--warning) 25%, transparent);
+}
+.chip-sla.chip-active {
+  background: var(--warning);
+  color: var(--primary-contrast);
+  border-color: var(--warning);
+}
