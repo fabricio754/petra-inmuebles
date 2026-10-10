@@ -2333,3 +2333,448 @@ dialog.modal-qr::backdrop {
   background: var(--surface-2);
 }
 
+/* ============================================================================
+   Iter 3 (oct-2026) — Responsive mobile
+   ----------------------------------------------------------------------------
+   Breakpoints:
+     ≤ 768px  — tablet / handheld landscape. Reduce columnas, apila topbar.
+     ≤ 480px  — mobile portrait. Prioriza el flujo "responder desde el
+                teléfono": tabla → cards, inputs full-width, textarea con
+                font-size 16px (anti-zoom iOS), modal QR full-screen.
+   Todo con CSS puro, sin JavaScript.
+   ============================================================================ */
+
+/* ---- Tablet (≤ 768px) ----------------------------------------------------- */
+@media (max-width: 768px) {
+  body {
+    padding: 0 16px;
+  }
+  .topbar {
+    gap: var(--space-2);
+  }
+  .topbar h1 {
+    font-size: var(--fs-lg);
+  }
+  .topbar a.stats-link,
+  .topbar .back {
+    min-height: 36px;
+    padding: 8px 12px;
+  }
+  /* KPI strip: 3 cols en tablet (override del 1024px existente). */
+  .kpi-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .kpi-value { font-size: 22px; }
+
+  /* Chips: wrap + espacio para touch. */
+  .totales, .chips, .fecha-chips {
+    gap: 6px;
+  }
+  .chip {
+    min-height: 36px;
+    padding: 8px 12px;
+  }
+
+  /* Filtros: inputs ocupan todo el ancho útil. */
+  .filtros {
+    gap: var(--space-2);
+  }
+  .filtros input[type=search] {
+    min-width: 150px;
+  }
+
+  /* Date picker: form abajo del grupo de chips. */
+  .fecha-picker {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  .fecha-form {
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  /* Kanban: scroll horizontal con columnas angostas. */
+  .kanban-board,
+  .kanban-board.with-no-contactar {
+    grid-auto-columns: 260px;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    overflow-x: auto;
+  }
+
+  /* Formulario manual: labels encima en lugar de al lado. */
+  form.manual label {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* Stats: barras-dia hacen scroll horizontal. */
+  .barras-dia {
+    overflow-x: auto;
+    padding-bottom: var(--space-2);
+  }
+
+  /* Detalle: tablas de datos (dt/dd) con padding reducido. */
+  section {
+    padding: var(--space-3);
+    margin-top: var(--space-3);
+  }
+
+  /* Modal QR: casi full-width. */
+  dialog.modal-qr {
+    width: calc(100vw - 32px);
+    max-height: calc(100vh - 64px);
+  }
+
+  /* Quick replies CRUD: tabla preview con fuente más chica. */
+  .qr-table th, .qr-table td { padding: 10px 8px; font-size: var(--fs-xs); }
+  .qr-table .qr-texto-preview { max-width: 300px; }
+}
+
+/* ---- Mobile (≤ 480px) ----------------------------------------------------- */
+@media (max-width: 480px) {
+  :root {
+    /* 15px base en móvil mejora legibilidad sin crecer demasiado. */
+    --fs-base: 15px;
+    --fs-sm: 14px;
+    --fs-xs: 12px;
+    --fs-md: 16px;
+    --fs-lg: 18px;
+    --fs-xl: 20px;
+    --fs-2xl: 22px;
+  }
+  body {
+    padding: 0 12px;
+    max-width: none !important;
+  }
+
+  /* ---- Topbar: todo apilado --------------------------------------------- */
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  .topbar h1 {
+    font-size: 18px;
+    line-height: 1.3;
+  }
+  .topbar > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .topbar a.stats-link,
+  .topbar .back {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 12px;
+  }
+
+  /* ---- KPI strip: 2 cols en mobile ------------------------------------- */
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .kpi-tile {
+    padding: var(--space-2) var(--space-3);
+  }
+  .kpi-value { font-size: 20px; }
+  .kpi-label { font-size: 11px; }
+
+  /* ---- Chips / filtros: touch target ≥44px ----------------------------- */
+  .chip {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+  .filtros {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filtros input,
+  .filtros select,
+  .filtros button {
+    width: 100%;
+    min-height: 44px;
+    font-size: 16px;  /* anti-zoom iOS */
+  }
+  .filtros input[type=search] {
+    min-width: 0;
+    width: 100%;
+  }
+  label.chk-pendientes {
+    padding: 10px var(--space-2);
+    min-height: 44px;
+  }
+
+  /* ---- Date picker en respuestas: full width --------------------------- */
+  .fecha-picker { padding: var(--space-2); }
+  .fecha-chips { width: 100%; }
+  .fecha-chips .chip { flex: 1; justify-content: center; }
+  .fecha-form { width: 100%; }
+  .fecha-form input[type=date] {
+    width: 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  /* ---- Tabla de leads → cards verticales ------------------------------- */
+  /* panel_lista.html y panel_home.html usan la misma estructura. En
+     mobile, convertimos <thead> + <tr> en cards apiladas. */
+  table {
+    display: block;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+  table thead { display: none; }
+  table tbody {
+    display: block;
+    width: 100%;
+  }
+  table tbody tr {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+    box-shadow: var(--shadow-sm);
+  }
+  table tbody tr.unread { border-left: 3px solid var(--info); }
+  table tbody td {
+    display: block;
+    padding: 4px 0;
+    border-bottom: 0;
+    font-size: var(--fs-sm);
+  }
+  table tbody td.tel {
+    font-size: var(--fs-base);
+    font-weight: 600;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--border);
+  }
+  /* Pseudo-labels para las celdas no-telefono: data-label se setea en
+     línea con ::before, pero como no podemos tocar los templates para
+     agregar data-label, usamos los :nth-child selectors — frágil pero
+     documentado al lado del template. */
+  table tbody td:nth-of-type(2)::before { content: "👤 "; }
+  table tbody td:nth-of-type(3)::before { content: "📍 "; }
+  table tbody td:nth-of-type(4)::before { content: "🏠 "; }
+  table tbody td:nth-of-type(5)::before { content: "🌐 "; }
+  table tbody td:nth-of-type(6)::before { content: "💲 "; }
+  table tbody td:nth-of-type(7)::before { content: ""; }
+  table tbody td:nth-of-type(8)::before { content: "⏱ "; }
+  /* QR table en mobile mantiene formato más simple. */
+  .qr-table tbody td:nth-of-type(1)::before,
+  .qr-table tbody td:nth-of-type(2)::before,
+  .qr-table tbody td:nth-of-type(3)::before,
+  .qr-table tbody td:nth-of-type(4)::before { content: ""; }
+
+  /* ---- Kanban: columnas más angostas, cards más compactas ------------- */
+  .kanban-board,
+  .kanban-board.with-no-contactar {
+    grid-auto-columns: 240px;
+  }
+  .kanban-column {
+    min-height: 150px;
+    max-height: calc(100vh - 240px);
+  }
+  .kanban-card {
+    padding: 6px 10px;
+  }
+  .kanban-card-nombre { font-size: var(--fs-xs); }
+  .kanban-card-msg { -webkit-line-clamp: 1; }
+
+  /* ---- Vista detalle del lead ------------------------------------------ */
+  .detalle-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+  h1 {
+    font-size: 18px !important;
+    word-break: break-all;
+  }
+  h1 .estado,
+  h1 .badge-resultado {
+    display: inline-block;
+    margin-left: 0 !important;
+    margin-top: var(--space-1);
+  }
+
+  /* dt/dd en el detalle: single column apilado. */
+  dl {
+    display: block !important;
+    grid-template-columns: none !important;
+  }
+  dl dt {
+    margin-top: var(--space-2);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  dl dd {
+    margin: 2px 0 0;
+    padding-left: 0;
+  }
+
+  /* Chat bubbles: casi full-width. */
+  .chat .row,
+  .chat li {
+    max-width: 92%;
+  }
+  .bubble {
+    font-size: var(--fs-base);
+    line-height: 1.45;
+  }
+
+  /* Textarea responder: anti-zoom iOS + botón grande. */
+  .responder {
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .responder textarea {
+    width: 100%;
+    font-size: 16px;
+    min-height: 80px;
+  }
+  .responder button {
+    width: 100%;
+    min-height: 48px;
+    font-size: var(--fs-md);
+  }
+  .responder-tools {
+    width: 100%;
+  }
+  .responder-tools button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  /* Notas form: full-width inputs. */
+  .notas-form textarea {
+    width: 100%;
+    font-size: 16px;
+  }
+
+  /* ---- Modal Quick Replies: full-screen en mobile --------------------- */
+  dialog.modal-qr {
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    margin: 0;
+    inset: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+  .qr-list {
+    max-height: calc(100vh - 220px);
+  }
+  .qr-filter-input {
+    font-size: 16px;  /* anti-zoom iOS */
+    min-height: 44px;
+  }
+
+  /* ---- Vista respuestas: cards más compactas --------------------------- */
+  .card-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .card-head > span[style*="margin-left:auto"] {
+    margin-left: 0 !important;
+  }
+
+  /* ---- Vista stats: tiles 2 cols, barras scroll ----------------------- */
+  .cifras {
+    grid-template-columns: 1fr;
+  }
+  .flows-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* ---- Formulario manual: inputs full-width, labels encima ----------- */
+  form.manual {
+    gap: var(--space-3);
+  }
+  form.manual label {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  form.manual input,
+  form.manual select,
+  form.manual textarea {
+    width: 100%;
+    font-size: 16px;  /* anti-zoom iOS */
+    min-height: 44px;
+  }
+  form.manual textarea {
+    min-height: 80px;
+  }
+  form.manual button {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  /* ---- Quick replies CRUD: tabla a cards ----------------------------- */
+  .qr-table tbody tr {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+  .qr-table .qr-shortcut,
+  .qr-table .qr-texto-preview {
+    display: block;
+    margin-top: 4px;
+  }
+  .qr-table .qr-texto-preview {
+    max-width: none;
+  }
+  .qr-acciones {
+    margin-top: var(--space-2);
+  }
+  .qr-acciones .qr-copy,
+  .qr-acciones .chip,
+  .qr-acciones button {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  /* ---- Quick reply form inputs full-width ---------------------------- */
+  .qr-form input[type=text],
+  .qr-form textarea {
+    width: 100%;
+    font-size: 16px;
+  }
+  .qr-form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .qr-form-actions button {
+    width: 100%;
+  }
+}
+
+/* ---- Micro-breakpoint: pantallas muy angostas (≤ 360px) ------------------ */
+@media (max-width: 360px) {
+  .kpi-strip {
+    grid-template-columns: 1fr;
+  }
+  .kpi-value { font-size: 22px; }
+}
+
