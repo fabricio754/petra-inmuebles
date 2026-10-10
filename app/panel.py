@@ -2289,6 +2289,170 @@ def panel_responder(telefono):
 
 
 # ---------------------------------------------------------------------------
+# Quick replies (iter 3 — oct-2026)
+#
+# CRUD de respuestas pre-escritas + endpoint JSON para el modal del detalle
+# que devuelve el texto interpolado para un contacto específico. El modal
+# vive en `panel_detalle.html` (hay textarea de respuesta manual) y en
+# `panel_quick_replies.html` como preview + copy-to-clipboard.
+# ---------------------------------------------------------------------------
+
+def _contacto_para_qr(telefono: str | None,
+                     contacto_id: int | None) -> dict:
+    """Devuelve un dict minimal con los campos que `interpolar_variables`
+    necesita (nombre, ciudad, portal, precio_publicado, estrato, bucket).
+    Si no encuentra el contacto, devuelve {} — la interpolación aplica
+    fallbacks suaves."""
+    if not telefono and not contacto_id:
+        return {}
+    try:
+        with _panel_conexion() as conn:
+            if telefono:
+                fila = _rows(conn,
+                    "SELECT id, telefono, nombre, ciudad, portal, "
+                    "       precio_publicado, estrato "
+                    "FROM contactos WHERE telefono = %s", (telefono,))
+            else:
+                fila = _rows(conn,
+                    "SELECT id, telefono, nombre, ciudad, portal, "
+                    "       precio_publicado, estrato "
+                    "FROM contactos WHERE id = %s", (contacto_id,))
+    except Exception:
+        log.exception("[QR] no se pudo cargar contacto tel=%s id=%s",
+                      telefono, contacto_id)
+        return {}
+    if not fila:
+        return {}
+    c = dict(fila[0])
+    # Añadir bucket: lo deriva un helper pesado (ver bucket_de); como
+    # heurística liviana usamos resultado_contacto / contactado. Si falla,
+    # omitimos — el fallback vacío aplica.
+    c["bucket"] = ""
+    return c
+
+
+@panel.get("/panel/quick-replies")
+def panel_quick_replies():
+    """CRUD de la biblioteca de quick replies."""
+    _check_token()
+    token = request.args.get("token", "")
+    flash = request.args.get("flash", "")
+    editar_id = request.args.get("editar")
+    editar = None
+    if editar_id:
+        try:
+            editar = db.obtener_quick_reply(int(editar_id))
+        except (TypeError, ValueError):
+            editar = None
+    quick_replies = db.listar_quick_replies()
+    return render_template(
+        "panel_quick_replies.html",
+        token=token, flash=flash,
+        quick_replies=quick_replies,
+        editar=editar,
+    )
+
+
+@panel.post("/panel/quick-replies")
+def panel_quick_replies_crear():
+    _check_token()
+    token = request.args.get("token", "")
+    shortcut = (request.form.get("shortcut") or "").strip()
+    titulo = (request.form.get("titulo") or "").strip()
+    texto = request.form.get("texto") or ""
+    if not shortcut or not titulo or not texto.strip():
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_vacio"))
+    # Shortcut: solo [a-z0-9_-], lowercase.
+    shortcut_clean = re.sub(r"[^a-z0-9_\-]+", "_", shortcut.lower())[:50]
+    if not shortcut_clean:
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_shortcut_invalido"))
+    try:
+        db.agregar_quick_reply(shortcut_clean, titulo, texto)
+    except Exception as exc:
+        log.exception("[QR] crear falló")
+        # Error típico: shortcut UNIQUE duplicado.
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash=f"qr_err"))
+    return redirect(url_for("panel.panel_quick_replies",
+                            token=token, flash="qr_creado"))
+
+
+@panel.post("/panel/quick-replies/<int:qr_id>/editar")
+def panel_quick_replies_editar(qr_id):
+    _check_token()
+    token = request.args.get("token", "")
+    shortcut = (request.form.get("shortcut") or "").strip()
+    titulo = (request.form.get("titulo") or "").strip()
+    texto = request.form.get("texto") or ""
+    if not shortcut or not titulo or not texto.strip():
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_vacio",
+                                editar=qr_id))
+    shortcut_clean = re.sub(r"[^a-z0-9_\-]+", "_", shortcut.lower())[:50]
+    try:
+        db.actualizar_quick_reply(qr_id, shortcut_clean, titulo, texto)
+    except Exception:
+        log.exception("[QR] editar falló id=%s", qr_id)
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_err"))
+    return redirect(url_for("panel.panel_quick_replies",
+                            token=token, flash="qr_actualizado"))
+
+
+@panel.post("/panel/quick-replies/<int:qr_id>/borrar")
+def panel_quick_replies_borrar(qr_id):
+    _check_token()
+    token = request.args.get("token", "")
+    try:
+        db.borrar_quick_reply(qr_id)
+    except Exception:
+        log.exception("[QR] borrar falló id=%s", qr_id)
+        return redirect(url_for("panel.panel_quick_replies",
+                                token=token, flash="qr_err"))
+    return redirect(url_for("panel.panel_quick_replies",
+                            token=token, flash="qr_borrada"))
+
+
+@panel.get("/panel/quick-replies/preview")
+def panel_quick_replies_preview():
+    """Devuelve el texto interpolado para un contacto específico.
+
+    Query params:
+      - id          : id de la quick reply (obligatorio).
+      - contacto_id : (opcional) id del contacto.
+      - telefono    : (opcional, alternativa a contacto_id) teléfono.
+    Devuelve JSON {texto, shortcut, titulo}. Usado por el modal del
+    detalle para rellenar el textarea del asesor con el texto ya listo.
+    """
+    _check_token()
+    try:
+        qr_id = int(request.args.get("id") or 0)
+    except (TypeError, ValueError):
+        qr_id = 0
+    if not qr_id:
+        return jsonify({"error": "id requerido"}), 400
+    qr = db.obtener_quick_reply(qr_id)
+    if not qr:
+        return jsonify({"error": "quick reply no existe"}), 404
+    telefono = (request.args.get("telefono") or "").strip() or None
+    try:
+        contacto_id = int(request.args.get("contacto_id") or 0) or None
+    except (TypeError, ValueError):
+        contacto_id = None
+    contacto = _contacto_para_qr(telefono, contacto_id)
+    texto_interp = db.interpolar_variables(qr["texto"], contacto)
+    return jsonify({
+        "id": qr["id"],
+        "shortcut": qr["shortcut"],
+        "titulo": qr["titulo"],
+        "texto": texto_interp,
+        "texto_raw": qr["texto"],
+    })
+
+
+# ---------------------------------------------------------------------------
 # Formulario manual: el asesor completa los Flows 1+2 EN NOMBRE del cliente
 # mientras habla con él por WhatsApp o teléfono. Al guardar queda igual que
 # un flow_reply completo (pipeline poblado, bucket pasa a "enviar a sureti",

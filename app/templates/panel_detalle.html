@@ -401,10 +401,39 @@
     <p class="nota err">Error al enviar: {{ flash[6:] }}</p>
   {% endif %}
 
+  <div class="responder-tools">
+    <button type="button" id="btn-qr-abrir" class="chip chip-link"
+            {% if not puede_responder %}disabled{% endif %}>
+      ⚡ Quick replies
+    </button>
+  </div>
   <form class="responder" method="post" action="/panel/{{ telefono }}/responder?token={{ token }}" id="responder-form">
     <textarea name="texto" id="responder-texto" placeholder="Responder como Massi…" maxlength="1500" {% if not puede_responder %}disabled{% endif %}></textarea>
     <button type="submit" {% if not puede_responder %}disabled{% endif %}>Enviar</button>
   </form>
+
+  {# Modal de quick replies (iter 3). Lista las QRs con preview interpolado
+     para este contacto; click en una → cierra el modal y llena el textarea
+     del formulario de respuesta. #}
+  <dialog id="modal-qr" class="modal-qr">
+    <div class="modal-qr-header">
+      <h3>⚡ Quick replies</h3>
+      <button type="button" id="btn-qr-cerrar" class="modal-qr-cerrar"
+              title="Cerrar">×</button>
+    </div>
+    <input type="search" id="qr-filter"
+           placeholder="Buscar por shortcut o título…"
+           class="qr-filter-input">
+    <div id="qr-list" class="qr-list">
+      <div class="vacio">Cargando…</div>
+    </div>
+    <div class="modal-qr-footer">
+      <a class="stats-link"
+         href="/panel/quick-replies?token={{ token }}" target="_blank" rel="noopener">
+        Administrar biblioteca ↗
+      </a>
+    </div>
+  </dialog>
   {% if not puede_responder %}
     <p class="nota warn">
       {% if ultimo_inbound %}
@@ -821,6 +850,172 @@
 
     // Primer tick después de un ratito para no competir con el load.
     scheduleNext(1000);
+  })();
+
+  // Modal de quick replies (iter 3).
+  //
+  // Click en "⚡ Quick replies" → abre <dialog>, fetchea la lista de QRs
+  // disponibles y para cada una pide /quick-replies/preview?id=X&telefono=Y
+  // (interpoladas con los datos de ESTE contacto). Click en una → rellena
+  // el textarea del form de respuesta y cierra. Vanilla, sin frameworks.
+  (function(){
+    var telefono = {{ telefono|tojson }};
+    var token = {{ token|tojson }};
+    var dlg = document.getElementById('modal-qr');
+    var btnAbrir = document.getElementById('btn-qr-abrir');
+    var btnCerrar = document.getElementById('btn-qr-cerrar');
+    var txt = document.getElementById('responder-texto');
+    var listEl = document.getElementById('qr-list');
+    var filtroEl = document.getElementById('qr-filter');
+    if (!dlg || !btnAbrir || !txt) return;
+
+    var cache = null;  // lista cruda [{id, shortcut, titulo, texto_interp}]
+
+    function escHtml(s) {
+      if (s == null) return '';
+      var d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    async function cargar() {
+      listEl.innerHTML = '<div class="vacio">Cargando…</div>';
+      try {
+        // Pedimos la lista desde /panel/quick-replies/preview para cada
+        // QR; para evitar N requests, primero pedimos la lista completa
+        // desde /panel/quick-replies/preview?... pero no existe un
+        // endpoint "list". Usamos uno simple: /panel/quick-replies?...
+        // devuelve HTML. En vez, iteramos sobre un listado embebido.
+        // Workaround: hacemos un GET al endpoint preview que acepta
+        // list (futuro); por ahora fetchamos primero el HTML de la vista
+        // y extraemos las filas — demasiado frágil. Vamos a cargar la
+        // vista de preview por id en bulk: hacemos un fetch separado
+        // por cada id. Para la primera versión, obtenemos los ids desde
+        // un GET al listado (más abajo).
+        //
+        // Implementación: usamos el endpoint `preview` con un modo
+        // "lista" (si no está implementado, caerá al modo item).
+        var r = await fetch('/panel/quick-replies?token=' +
+                           encodeURIComponent(token) + '&json=1', {
+          headers: {'Accept': 'application/json'}
+        });
+        // Fallback: parseamos el HTML.
+        var html = await r.text();
+        // Extraemos las filas con data-qr-id.
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+        var rows = doc.querySelectorAll('tr[data-qr-id]');
+        var ids = [];
+        rows.forEach(function(tr){
+          var id = tr.getAttribute('data-qr-id');
+          var short = tr.querySelector('.qr-shortcut');
+          var tit = tr.querySelectorAll('td')[1];
+          var tex = tr.querySelector('.qr-texto-preview');
+          ids.push({
+            id: id,
+            shortcut: short ? short.textContent.trim() : '',
+            titulo: tit ? tit.textContent.trim() : '',
+            texto_raw: tex ? tex.textContent.trim() : ''
+          });
+        });
+        if (ids.length === 0) {
+          cache = [];
+          renderLista();
+          return;
+        }
+        // Para cada id, fetch /preview con el telefono — interpolamos.
+        var previews = await Promise.all(ids.map(async function(it){
+          try {
+            var pr = await fetch('/panel/quick-replies/preview?id=' +
+                                 encodeURIComponent(it.id) +
+                                 '&telefono=' + encodeURIComponent(telefono) +
+                                 '&token=' + encodeURIComponent(token));
+            if (!pr.ok) throw new Error('http ' + pr.status);
+            var data = await pr.json();
+            return Object.assign({}, it, {
+              texto_interp: data.texto || it.texto_raw
+            });
+          } catch (e) {
+            return Object.assign({}, it, {texto_interp: it.texto_raw});
+          }
+        }));
+        cache = previews;
+        renderLista();
+      } catch (e) {
+        listEl.innerHTML = '<div class="nota err">Error al cargar: ' +
+                           escHtml(e.message) + '</div>';
+      }
+    }
+
+    function renderLista() {
+      var q = (filtroEl.value || '').toLowerCase().trim();
+      var items = cache || [];
+      if (q) {
+        items = items.filter(function(it){
+          return (it.shortcut || '').toLowerCase().indexOf(q) >= 0 ||
+                 (it.titulo || '').toLowerCase().indexOf(q) >= 0 ||
+                 (it.texto_interp || '').toLowerCase().indexOf(q) >= 0;
+        });
+      }
+      if (items.length === 0) {
+        listEl.innerHTML = '<div class="vacio">' +
+          (cache && cache.length ? 'Sin resultados.' : 'No hay quick replies — agregá la primera desde "Administrar biblioteca".') +
+          '</div>';
+        return;
+      }
+      listEl.innerHTML = items.map(function(it){
+        return '<div class="qr-item" data-id="' + escHtml(it.id) + '">' +
+          '<div class="qr-item-head">' +
+            '<code class="qr-item-shortcut">' + escHtml(it.shortcut) + '</code>' +
+            '<span class="qr-item-titulo">' + escHtml(it.titulo) + '</span>' +
+          '</div>' +
+          '<div class="qr-item-preview">' + escHtml(it.texto_interp) + '</div>' +
+        '</div>';
+      }).join('');
+      listEl.querySelectorAll('.qr-item').forEach(function(el){
+        el.addEventListener('click', function(){
+          var id = el.getAttribute('data-id');
+          var found = (cache || []).find(function(x){ return String(x.id) === String(id); });
+          if (!found) return;
+          // Insertar en el textarea (reemplaza selección si hay).
+          var start = txt.selectionStart || 0;
+          var end = txt.selectionEnd || 0;
+          var cur = txt.value || '';
+          txt.value = cur.slice(0, start) + found.texto_interp + cur.slice(end);
+          txt.focus();
+          // Mover el cursor al final del texto insertado.
+          var pos = start + found.texto_interp.length;
+          try { txt.setSelectionRange(pos, pos); } catch(e) {}
+          cerrar();
+        });
+      });
+    }
+
+    function abrir() {
+      if (typeof dlg.showModal === 'function') dlg.showModal();
+      else dlg.setAttribute('open', '');
+      if (filtroEl) filtroEl.value = '';
+      cargar();
+      setTimeout(function(){
+        if (filtroEl) filtroEl.focus();
+      }, 50);
+    }
+    function cerrar() {
+      try { dlg.close(); } catch(e) { dlg.removeAttribute('open'); }
+    }
+
+    btnAbrir.addEventListener('click', abrir);
+    if (btnCerrar) btnCerrar.addEventListener('click', cerrar);
+    if (filtroEl) filtroEl.addEventListener('input', renderLista);
+
+    // Click fuera del contenido (sobre el backdrop) cierra.
+    dlg.addEventListener('click', function(ev){
+      var r = dlg.getBoundingClientRect();
+      if (ev.clientX < r.left || ev.clientX > r.right ||
+          ev.clientY < r.top  || ev.clientY > r.bottom) {
+        cerrar();
+      }
+    });
   })();
 </script>
 

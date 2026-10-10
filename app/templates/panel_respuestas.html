@@ -17,7 +17,10 @@
 <body>
 <div class="topbar">
   <h1>💬 Respuestas · {{ rango_label }}</h1>
-  <a class="back" href="/panel?token={{ token }}">← Volver al panel</a>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <a class="stats-link" href="/panel?token={{ token }}">← Volver al panel</a>
+    <a class="stats-link" href="/panel/quick-replies?token={{ token }}">⚡ Quick replies</a>
+  </div>
 </div>
 <p class="sub">
   {{ total }} de {{ total_sin_filtro }} conversación{% if total_sin_filtro != 1 %}es{% endif %}
