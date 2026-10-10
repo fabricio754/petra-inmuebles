@@ -1804,6 +1804,51 @@ tr.unread .tel a {
   background: color-mix(in srgb, var(--warning-soft) 80%, var(--surface));
 }
 
+/* ---- View toggle (Table | Kanban) ---------------------------------------- */
+.view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.view-toggle a {
+  padding: 6px 14px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  background: transparent;
+  border-right: 1px solid var(--border);
+  transition: background .15s, color .15s;
+}
+.view-toggle a:last-child { border-right: 0; }
+.view-toggle a:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.view-toggle a.active {
+  background: var(--primary);
+  color: var(--primary-contrast);
+}
+.view-toggle a.active:hover {
+  background: var(--primary-hover);
+}
+
+/* ---- Dashboard home layout ----------------------------------------------- */
+.dashboard-home { }
+.dashboard-home .view-switch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
 /* ---- Kanban -------------------------------------------------------------- */
 .kanban-board {
   display: grid;

@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel Massi — leads</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
+<style>
+  /* Overrides específicos de /panel (dashboard home) — el resto vive en panel.css */
+</style>
+</head>
+<body class="dashboard-home">
+<div class="topbar">
+  <h1>Panel Massi · {{ total }} de {{ total_sin_filtro }} leads</h1>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <a class="stats-link" href="/panel/respuestas?token={{ token }}">💬 Respuestas</a>
+    <a class="stats-link" href="/panel/stats?token={{ token }}">📊 Ver estadísticas</a>
+  </div>
+</div>
+
+{# ============================= KPI STRIP ===================================
+   6 tiles con los números del dashboard. Deltas se renderan como "↑ 12%",
+   "↓ 4%" o "—" si no se pudo calcular (periodo previo = 0). "Requieren
+   atención" es un link al filtro ?sla=1 de la tabla.
+#}
+{% macro delta_badge(delta) -%}
+  {%- if delta is none -%}
+    <span class="kpi-delta kpi-delta-flat">—</span>
+  {%- elif delta > 0 -%}
+    <span class="kpi-delta kpi-delta-up">↑ {{ delta }}%</span>
+  {%- elif delta < 0 -%}
+    <span class="kpi-delta kpi-delta-down">↓ {{ -delta }}%</span>
+  {%- else -%}
+    <span class="kpi-delta kpi-delta-flat">= 0%</span>
+  {%- endif -%}
+{%- endmacro %}
+
+<div class="kpi-strip">
+  <div class="kpi-tile">
+    <span class="kpi-label">Leads activos</span>
+    <span class="kpi-value">{{ kpis.leads_activos }}</span>
+    {{ delta_badge(kpis.leads_activos_delta) }}
+  </div>
+  <div class="kpi-tile">
+    <span class="kpi-label">Nuevos esta semana</span>
+    <span class="kpi-value">{{ kpis.nuevos_semana }}</span>
+    {{ delta_badge(kpis.nuevos_delta) }}
+  </div>
+  <div class="kpi-tile">
+    <span class="kpi-label">Respondidos esta semana</span>
+    <span class="kpi-value">{{ kpis.respondidos_semana }}</span>
+    {{ delta_badge(kpis.respondidos_delta) }}
+  </div>
+  <div class="kpi-tile">
+    <span class="kpi-label">Enviados a Sureti (mes)</span>
+    <span class="kpi-value">{{ kpis.sureti_mes }}</span>
+    {{ delta_badge(kpis.sureti_delta) }}
+  </div>
+  <div class="kpi-tile">
+    <span class="kpi-label">Conversión mes</span>
+    {% if kpis.pct_conversion is not none %}
+      <span class="kpi-value">{{ (kpis.pct_conversion * 100) | round(1) }}%</span>
+    {% else %}
+      <span class="kpi-value kpi-value-muted">—</span>
+    {% endif %}
+    {# El delta de conversión viene en puntos porcentuales (int) #}
+    {%- if kpis.pct_conversion_delta is none -%}
+      <span class="kpi-delta kpi-delta-flat">—</span>
+    {%- elif kpis.pct_conversion_delta > 0 -%}
+      <span class="kpi-delta kpi-delta-up">↑ {{ kpis.pct_conversion_delta }} pp</span>
+    {%- elif kpis.pct_conversion_delta < 0 -%}
+      <span class="kpi-delta kpi-delta-down">↓ {{ -kpis.pct_conversion_delta }} pp</span>
+    {%- else -%}
+      <span class="kpi-delta kpi-delta-flat">= 0 pp</span>
+    {%- endif -%}
+  </div>
+  <a class="kpi-tile kpi-tile-link {% if kpis.requieren_atencion %}kpi-tile-warning{% endif %}"
+     href="?token={{ token }}&sla=1">
+    <span class="kpi-label">⚠ Requieren atención</span>
+    <span class="kpi-value">{{ kpis.requieren_atencion }}</span>
+    <span class="kpi-delta kpi-delta-flat">
+      {% if kpis.requieren_atencion %}click para filtrar{% else %}todo al día{% endif %}
+    </span>
+  </a>
+</div>
+
+{# ============================= CHIPS / FILTROS =============================
+   Mismos chips de bucket que tenía /panel. Mantienen el param `view` para
+   que el toggle Table/Kanban no se pierda al cliquear un chip.
+#}
+<div class="totales">
+  {% for key, label, n in buckets_chips %}
+    <a class="chip chip-link {% if f_bucket == key %}chip-active{% endif %}"
+       href="?token={{ token }}&bucket={{ key }}&view={{ view }}{% if f_ciudad %}&ciudad={{ f_ciudad }}{% endif %}{% if f_portal %}&portal={{ f_portal }}{% endif %}{% if q %}&q={{ q }}{% endif %}">{{ label }}<strong>{{ n }}</strong></a>
+  {% endfor %}
+  {% if f_bucket or f_estado or f_ciudad or f_portal or q or f_sla %}
+    <a class="chip chip-reset" href="?token={{ token }}&view={{ view }}">× quitar filtros</a>
+  {% endif %}
+</div>
+
+{% if sla_count or f_sla %}
+<div class="totales">
+  <a class="chip chip-sla {% if f_sla %}chip-active{% endif %}"
+     href="?token={{ token }}&view={{ view }}{% if f_bucket %}&bucket={{ f_bucket }}{% endif %}{% if f_sla %}{% else %}&sla=1{% endif %}">
+    ⚠ Leads que requieren atención<strong>{{ sla_count }}</strong>
+  </a>
+</div>
+{% endif %}
+
+<form class="filtros" method="get" action="/panel">
+  <input type="hidden" name="token" value="{{ token }}">
+  <input type="hidden" name="view" value="{{ view }}">
+  {% if f_bucket %}<input type="hidden" name="bucket" value="{{ f_bucket }}">{% endif %}
+  {% if f_estado %}<input type="hidden" name="estado" value="{{ f_estado }}">{% endif %}
+  {% if f_sla %}<input type="hidden" name="sla" value="1">{% endif %}
+  {% if kanban_show_nc %}<input type="hidden" name="nc" value="1">{% endif %}
+  <input type="search" name="q" value="{{ q }}" placeholder="Buscar por teléfono o nombre…">
+  <select name="ciudad">
+    <option value="">Todas las ciudades</option>
+    {% for c in ciudades %}
+      <option value="{{ c }}" {% if c == f_ciudad %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+  <select name="portal">
+    <option value="">Todos los portales</option>
+    {% for p in portales %}
+      <option value="{{ p }}" {% if p == f_portal %}selected{% endif %}>{{ p }}</option>
+    {% endfor %}
+  </select>
+  <label class="chk-pendientes">
+    <input type="checkbox" name="pendientes" value="1" {% if f_pendientes %}checked{% endif %}>
+    Pendientes de cerrar
+  </label>
+  <label class="chk-pendientes">
+    <input type="checkbox" name="pendiente_humano" value="1" {% if f_pendiente_humano %}checked{% endif %}>
+    Pendiente humano
+  </label>
+  <button type="submit">Filtrar</button>
+</form>
+
+{# ============================= VIEW TOGGLE =================================
+   Table | Kanban. Preservamos todos los params en el link, excepto `view`
+   que se reemplaza.
+#}
+{% set base_qs = '?token=' ~ token
+   ~ ('&bucket=' ~ f_bucket if f_bucket else '')
+   ~ ('&estado=' ~ f_estado if f_estado else '')
+   ~ ('&ciudad=' ~ f_ciudad if f_ciudad else '')
+   ~ ('&portal=' ~ f_portal if f_portal else '')
+   ~ ('&q=' ~ q if q else '')
+   ~ ('&pendientes=1' if f_pendientes else '')
+   ~ ('&pendiente_humano=1' if f_pendiente_humano else '')
+   ~ ('&sla=1' if f_sla else '')
+%}
+<div class="view-switch-row">
+  <div class="view-toggle">
+    <a href="{{ base_qs }}&view=table"
+       class="{% if view == 'table' %}active{% endif %}">Table</a>
+    <a href="{{ base_qs }}&view=kanban"
+       class="{% if view == 'kanban' %}active{% endif %}">Kanban</a>
+  </div>
+  {% if view == 'kanban' %}
+    <div class="kanban-header">
+      <a href="{{ base_qs }}&view=kanban{% if not kanban_show_nc %}&nc=1{% endif %}"
+         class="chip chip-link {% if kanban_show_nc %}chip-active{% endif %}">
+        {% if kanban_show_nc %}✓{% endif %} Mostrar también no_contactar
+      </a>
+    </div>
+  {% endif %}
+</div>
+
+{# ============================= TABLE / KANBAN ============================= #}
+{% if view == 'table' %}
+<table>
+  <thead>
+    <tr>
+      <th>Teléfono</th>
+      <th>Nombre</th>
+      <th>Ciudad</th>
+      <th>Tipo</th>
+      <th>Portal</th>
+      <th>Avalúo ($M)</th>
+      <th>Estado</th>
+      <th>Última actividad</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in filas %}
+    <tr{% if f.no_leido %} class="unread"{% endif %}>
+      <td class="tel">
+        {% if f.no_leido %}<span class="unread-dot" title="No leído"></span>{% endif %}
+        {{ f | avatar('sm') }}
+        <a href="/panel/{{ f.telefono }}?token={{ token }}">{{ f.telefono }}</a>
+      </td>
+      <td>{{ f.nombre or '—' }}</td>
+      <td>{{ f.ciudad or '—' }}</td>
+      <td>{{ f.tipo_inmueble or '—' }}</td>
+      <td>{{ f.portal or '—' }}</td>
+      <td>
+        {% if f.avaluo_m %}
+          {% if f.avaluo_fuente == 'pipeline' %}
+            {{ f.avaluo_m }}
+          {% else %}
+            <span class="avaluo-aprox" title="Aproximación por monto_hasta — todavía sin pipeline">~{{ f.avaluo_m }}</span>
+          {% endif %}
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        {# "Estado" muestra el bucket humano-first (mismo que los chips de arriba).
+           El `estado` legacy (en_flujo, en_flujo:SURETI, …) queda como tooltip. #}
+        <span class="estado bucket-{{ f.bucket }}" title="estado interno: {{ f.estado }}">{{ f.bucket_label }}</span>
+        {% if f.sla and f.sla != 'ok' %}
+          <span class="sla-dot sla-dot-{{ f.sla }}"
+                title="{{ f.sla_tooltip }}"></span>
+        {% endif %}
+      </td>
+      <td>
+        <span class="dot dot-{{ f.ultima_actividad_semaforo }}"></span>{{ f.ultima_actividad_hace }}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{# =============================== KANBAN =================================== #}
+<div class="kanban-board{% if kanban_show_nc %} with-no-contactar{% endif %}">
+  {% for col in kanban_columnas %}
+    <div class="kanban-column">
+      <div class="kanban-col-head">
+        <span class="kanban-col-title">{{ col.icon }} {{ col.label }}</span>
+        <span class="kanban-col-count">{{ col.count }}</span>
+      </div>
+      <div class="kanban-col-body">
+        {% for f in col.filas %}
+          <div class="kanban-card-wrap" style="position:relative;">
+            <a class="kanban-card{% if f.no_leido %} unread{% endif %}"
+               href="/panel/{{ f.telefono }}?token={{ token }}">
+              <div class="kanban-card-head">
+                {% if f.no_leido %}<span class="unread-dot" title="No leído"></span>{% endif %}
+                {{ f | avatar('sm') }}
+                <span class="kanban-card-nombre">{{ f.nombre or f.telefono }}</span>
+                {% if f.sla and f.sla != 'ok' %}
+                  <span class="sla-dot sla-dot-{{ f.sla }} kanban-card-sla"
+                        title="{{ f.sla_tooltip }}"></span>
+                {% endif %}
+              </div>
+              {% if f.nombre %}
+                <div class="kanban-card-tel">{{ f.telefono }}</div>
+              {% endif %}
+              {% if f.ultimo_mensaje_preview %}
+                <div class="kanban-card-msg">"{{ f.ultimo_mensaje_preview }}"</div>
+              {% endif %}
+              <div class="kanban-card-foot">
+                <span>{{ f.ultima_actividad_hace }}</span>
+                {% if f.ciudad %}<span>· 📍 {{ f.ciudad }}</span>{% endif %}
+              </div>
+            </a>
+            <a class="kanban-card-move" href="#"
+               data-tel="{{ f.telefono }}"
+               title="Mover a otro bucket">⋮</a>
+            <div class="kanban-card-move-menu" data-tel="{{ f.telefono }}">
+              {% for bkey, akey, alabel in mover_acciones %}
+                {% if bkey != f.bucket %}
+                  <form method="post"
+                        action="/panel/{{ f.telefono }}/accion?token={{ token }}">
+                    <input type="hidden" name="accion" value="{{ akey }}">
+                    <input type="hidden" name="actor" value="asesor">
+                    <button type="submit">→ {{ alabel }}</button>
+                  </form>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+        {% else %}
+          <div class="kanban-col-vacio">Vacío</div>
+        {% endfor %}
+        {% if col.count > col.shown %}
+          <div class="kanban-col-vacio">
+            + {{ col.count - col.shown }} más (filtrá por bucket para verlos)
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+<script>
+  // Toggle del menú "mover a bucket" sin frameworks.
+  // Un click en ⋮ abre su menú; otro click en cualquier lado lo cierra.
+  (function () {
+    document.querySelectorAll('.kanban-card-move').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var tel = btn.getAttribute('data-tel');
+        document.querySelectorAll('.kanban-card-move-menu').forEach(function (m) {
+          if (m.getAttribute('data-tel') === tel) {
+            m.classList.toggle('open');
+          } else {
+            m.classList.remove('open');
+          }
+        });
+      });
+    });
+    document.addEventListener('click', function () {
+      document.querySelectorAll('.kanban-card-move-menu.open').forEach(function (m) {
+        m.classList.remove('open');
+      });
+    });
+    document.querySelectorAll('.kanban-card-move-menu').forEach(function (m) {
+      m.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    });
+  })();
+</script>
+{% endif %}
+</body>
+</html>

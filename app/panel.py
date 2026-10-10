@@ -541,6 +541,15 @@ def panel_lista():
     f_pendiente_humano = request.args.get("pendiente_humano") == "1"
     f_sla = request.args.get("sla") == "1"
     q = (request.args.get("q") or "").strip()
+    # Iter 2 (oct-2026): la ruta ahora es un "dashboard home" con KPIs
+    # + toggle Table/Kanban. Default = table (preserva comportamiento
+    # previo). "kanban" renderea cards agrupadas por bucket. "nc"
+    # (opcional, sólo tiene efecto en kanban) muestra también la
+    # columna no_contactar.
+    view = (request.args.get("view") or "table").strip()
+    if view not in ("table", "kanban"):
+        view = "table"
+    kanban_show_nc = request.args.get("nc") == "1"
 
     try:
         with _panel_conexion() as conn:
@@ -590,23 +599,30 @@ def panel_lista():
         return _pool_busy_response("/panel")
 
     # Último mensaje IN por teléfono, usado tanto para "última actividad"
-    # como para calcular `no_leido`. Lo pedimos una sola vez para todos
-    # los contactos del listado (evita N+1 subquery del CTE).
+    # como para calcular `no_leido` y, en vista Kanban, el preview del
+    # último mensaje. Una sola query (DISTINCT ON) devuelve ambos: la
+    # fecha y el texto del último IN por teléfono.
     try:
         with _panel_conexion() as conn:
-            ultimos_in = {
-                r["telefono"]: r["ultimo_in"]
-                for r in _rows(conn, """
-                    SELECT telefono, MAX(fecha) AS ultimo_in
-                    FROM mensajes WHERE direccion = 'in' GROUP BY telefono
-                """)
-            }
+            ultimos_in: dict = {}
+            ultimos_in_texto: dict = {}
+            for r in _rows(conn, """
+                SELECT DISTINCT ON (telefono)
+                       telefono, fecha AS ultimo_in,
+                       COALESCE(resumen, '') AS resumen
+                FROM mensajes
+                WHERE direccion = 'in'
+                ORDER BY telefono, fecha DESC
+            """):
+                ultimos_in[r["telefono"]] = r["ultimo_in"]
+                ultimos_in_texto[r["telefono"]] = r["resumen"]
     except PoolTimeout:
         return _pool_busy_response("/panel")
     except Exception:
         log.exception("[Panel] no_leido: no se pudo cargar ultimos_in; "
                       "se asume vacío (todo leído).")
         ultimos_in = {}
+        ultimos_in_texto = {}
 
     filas_all = []
     for c in contactos:
@@ -651,6 +667,14 @@ def panel_lista():
         # semáforo verde/amarillo/gris.
         sla = db.sla_level(bucket, ultima)
         sla_text = db.sla_tooltip(bucket, ultima) if sla != "ok" else ""
+        # Preview del último mensaje IN para Kanban. Se corta a 80 chars
+        # para que entre en la card sin romper el layout. En vista table
+        # se ignora.
+        ultimo_texto_raw = ultimos_in_texto.get(c["telefono"], "") or ""
+        if len(ultimo_texto_raw) > 80:
+            ultimo_mensaje_preview = ultimo_texto_raw[:77].rstrip() + "…"
+        else:
+            ultimo_mensaje_preview = ultimo_texto_raw
         filas_all.append({
             **c,
             "estado": _estado_lead(c, s, p),
@@ -664,6 +688,7 @@ def panel_lista():
             "no_leido": no_leido,
             "sla": sla,
             "sla_tooltip": sla_text,
+            "ultimo_mensaje_preview": ultimo_mensaje_preview,
         })
 
     por_estado = {}
@@ -727,8 +752,107 @@ def panel_lista():
     from app import panel_acciones as _pa
     labels_resultado = {k: v["label"] for k, v in _pa.ACCIONES.items()}
 
+    # --- Kanban: agrupar `filas` por bucket (iter 2 oct-2026) ---------------
+    # Mismo orden que `BUCKETS_ORDEN` para que las columnas aparezcan en
+    # el flujo humano-first. `no_contactar` se emite al final sólo si el
+    # usuario pidió verla (``nc=1``).
+    kanban_order = [k for k in BUCKETS_ORDEN if k != "no_contactar"]
+    if kanban_show_nc:
+        kanban_order.append("no_contactar")
+
+    # Icons para los headers de las columnas Kanban.
+    kanban_icons = {
+        "nuevo": "🆕",
+        "contactado": "📞",
+        "respondio": "💬",
+        "enviar_formulario": "📝",
+        "enviar_a_sureti": "✅",
+        "recontactar": "🔁",
+        "no_contactar": "❌",
+    }
+    # Para el Kanban usamos `filas_all` (no `filas`) porque cuando el
+    # usuario está en vista Kanban queremos ver todo el pipeline aunque
+    # haya filtros de bucket aplicados — el bucket se expresa visualmente
+    # como "columna". Igualmente respetamos ciudad/portal/q/pendientes
+    # para que el filtro de arriba siga haciendo algo útil.
+    def _match_kanban(f):
+        if f_ciudad and (f.get("ciudad") or "") != f_ciudad:
+            return False
+        if f_portal and (f.get("portal") or "") != f_portal:
+            return False
+        if f_pendientes and (
+            not f.get("contactado") or f.get("resultado_contacto_por")
+        ):
+            return False
+        if f_pendiente_humano and (
+            not f.get("requiere_humano") or f.get("resultado_contacto_por")
+        ):
+            return False
+        if f_sla and f.get("sla", "ok") == "ok":
+            return False
+        if q:
+            hay = " ".join([
+                str(f.get("telefono") or ""),
+                str(f.get("nombre") or ""),
+            ]).lower()
+            if q.lower() not in hay:
+                return False
+        return True
+
+    kanban_columnas: list[dict] = []
+    if view == "kanban":
+        por_bucket_filas: dict[str, list] = {k: [] for k in kanban_order}
+        for f in filas_all:
+            if not _match_kanban(f):
+                continue
+            b = f.get("bucket")
+            if b not in por_bucket_filas:
+                continue  # no_contactar se descarta si no se pidió
+            # Tope por columna: 100 cards para no ahogar al navegador.
+            if len(por_bucket_filas[b]) < 100:
+                por_bucket_filas[b].append(f)
+        for k in kanban_order:
+            kanban_columnas.append({
+                "key": k,
+                "label": BUCKETS_LABELS[k],
+                "icon": kanban_icons.get(k, "•"),
+                "count": por_bucket.get(k, 0),  # total global, no sólo mostrado
+                "filas": por_bucket_filas[k],
+                "shown": len(por_bucket_filas[k]),
+            })
+
+    # --- Acciones disponibles para "Mover a:" en cada card ------------------
+    # Mapeo bucket destino → acción humana. Son las mismas acciones que
+    # usa el modal del detalle. Si el bucket no tiene acción directa
+    # (p. ej. "nuevo" o "respondio" son derivados), lo omitimos del menú.
+    mover_acciones = [
+        ("contactado", "regresar_a_contactado", "Regresar a contactado"),
+        ("enviar_formulario", "enviar_formulario", "Enviar formulario"),
+        ("enviar_a_sureti", "sureti", "Enviar a Sureti"),
+        ("recontactar", "recontactar", "Recontactar"),
+        ("no_contactar", "no_interesa", "No le interesa"),
+    ]
+
+    # --- KPIs del dashboard home --------------------------------------------
+    try:
+        kpis = db.kpis_dashboard()
+    except Exception:
+        log.exception("[Panel] kpis_dashboard falló; se usan ceros.")
+        kpis = {
+            "leads_activos": 0, "leads_activos_delta": None,
+            "nuevos_semana": 0, "nuevos_delta": None,
+            "respondidos_semana": 0, "respondidos_delta": None,
+            "sureti_mes": 0, "sureti_delta": None,
+            "pct_conversion": None, "pct_conversion_delta": None,
+            "requieren_atencion": sla_count, "requieren_atencion_delta": None,
+        }
+    # Overridemos requieren_atencion con `sla_count` ya calculado — es el
+    # mismo cálculo, y evitamos divergencias con el chip "⚠ Requieren
+    # atención" que apunta a `?sla=1`.
+    kpis["requieren_atencion"] = sla_count
+
     return render_template(
-        "panel_lista.html",
+        "panel_home.html",
         filas=filas, por_estado=sorted(por_estado.items()), token=token,
         total=len(filas), total_sin_filtro=len(filas_all),
         ciudades=sorted(ciudades_set), portales=sorted(portales_set),
@@ -740,6 +864,12 @@ def panel_lista():
         sla_count=sla_count,
         labels_resultado=labels_resultado,
         buckets_chips=buckets_chips,
+        # iter 2 extras
+        view=view,
+        kanban_show_nc=kanban_show_nc,
+        kanban_columnas=kanban_columnas,
+        mover_acciones=mover_acciones,
+        kpis=kpis,
     )
 
 
