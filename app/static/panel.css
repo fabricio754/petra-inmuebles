@@ -1497,3 +1497,69 @@ fieldset legend {
   background: var(--warning-soft);
   color: var(--warning-strong);
 }
+
+/* ---- Notas internas ------------------------------------------------------ */
+.notas-form textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  resize: vertical;
+  box-sizing: border-box;
+}
+.notas-form .acciones-fila {
+  margin-top: var(--space-2);
+  justify-content: flex-end;
+}
+.notas-lista {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.notas-lista li {
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.notas-lista .nota-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.notas-lista .nota-texto {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.notas-lista form {
+  margin-left: auto;
+  margin-bottom: 0;
+}
+.notas-lista .btn-borrar-nota {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.notas-lista .btn-borrar-nota:hover {
+  color: var(--danger-strong);
+  border-color: var(--danger);
+}

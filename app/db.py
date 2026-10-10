@@ -1039,3 +1039,49 @@ def bot_pausa_info(telefono: str) -> dict:
         except Exception:
             indefinida = False
     return {"pausado": pausado, "hasta": hasta, "indefinida": indefinida}
+
+
+# === Notas internas sobre el lead (iter 1 oct-2026) =========================
+
+def agregar_nota(contacto_id: int, texto: str,
+                 autor: str = "asesor") -> int:
+    """Inserta una nota interna sobre el contacto. Devuelve el id de la nota.
+
+    `autor` se guarda tal cual venga (sin fallback vacío) y también en el
+    hook de timeline, que se conecta en el commit de "timeline unificado".
+    """
+    autor_final = autor or "asesor"
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "INSERT INTO notas_contacto (contacto_id, texto, autor) "
+            "VALUES (%s, %s, %s) RETURNING id",
+            (contacto_id, texto, autor_final),
+        ).fetchone()
+        nota_id = fila[0] if fila else None
+    # Hook de timeline (opcional; se activa cuando `registrar_evento`
+    # existe en este módulo).
+    try:
+        detalle = {"texto_corto": (texto or "")[:80]}
+        registrar_evento(contacto_id, "nota_agregada", detalle, autor=autor_final)
+    except NameError:
+        pass
+    return nota_id
+
+
+def listar_notas(contacto_id: int) -> list[dict]:
+    """Lista las notas internas de un contacto, más recientes primero."""
+    with _conexion_directa(timeout=10) as conn:
+        cur = conn.execute(
+            "SELECT id, contacto_id, texto, autor, created_at "
+            "FROM notas_contacto WHERE contacto_id = %s "
+            "ORDER BY created_at DESC",
+            (contacto_id,),
+        )
+        cols = [c.name for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def borrar_nota(nota_id: int) -> None:
+    """Borra una nota por id. No lanza si no existe."""
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute("DELETE FROM notas_contacto WHERE id = %s", (nota_id,))

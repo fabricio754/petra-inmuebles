@@ -65,6 +65,16 @@
   <p class="nota ok">Bot reactivado. Volverá a responder automáticamente.</p>
 {% elif flash == 'bot_pausar_err' or flash == 'bot_reactivar_err' %}
   <p class="nota err">No se pudo cambiar el estado del bot — revisá los logs.</p>
+{% elif flash == 'nota_guardada' %}
+  <p class="nota ok">Nota interna guardada.</p>
+{% elif flash == 'nota_vacia' %}
+  <p class="nota err">La nota está vacía.</p>
+{% elif flash == 'nota_borrada' %}
+  <p class="nota ok">Nota eliminada.</p>
+{% elif flash == 'nota_err' %}
+  <p class="nota err">No se pudo guardar/borrar la nota — revisá los logs.</p>
+{% elif flash == 'nota_sin_contacto' %}
+  <p class="nota err">Este teléfono no está en <code>contactos</code>, no se puede agregar nota todavía.</p>
 {% endif %}
 
 <section class="card bot-state">
@@ -388,6 +398,50 @@
       {% else %}
         Este contacto todavía no escribió al bot. Para iniciar la conversación hay que enviarle una plantilla aprobada.
       {% endif %}
+    </p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Notas internas ({{ notas|length }})</h2>
+  <small class="sub">Visibles sólo para el equipo. Nunca se envían al cliente.</small>
+  {% if contacto and contacto.id %}
+    <form class="notas-form" method="post"
+          action="/panel/{{ telefono }}/notas?token={{ token }}">
+      <input type="hidden" name="actor" class="nota-actor-input" value="">
+      <textarea name="texto" rows="3" maxlength="4000"
+                placeholder="Escribí una nota interna sobre este lead…"
+                required></textarea>
+      <div class="acciones-fila">
+        <button type="submit">Guardar nota</button>
+      </div>
+    </form>
+    {% if notas %}
+      <ul class="notas-lista">
+        {% for n in notas %}
+          <li>
+            <div class="nota-meta">
+              <span>{{ n.hace }}</span>
+              {% if n.autor %}<em>{{ n.autor }}</em>{% endif %}
+              <form method="post"
+                    action="/panel/notas/{{ n.id }}/borrar?token={{ token }}">
+                <input type="hidden" name="telefono" value="{{ telefono }}">
+                <button type="submit" class="btn-borrar-nota"
+                        onclick="return confirm('¿Borrar esta nota interna?')">
+                  Borrar
+                </button>
+              </form>
+            </div>
+            <div class="nota-texto">{{ n.texto }}</div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="vacio">Sin notas internas todavía. Agrega la primera arriba.</p>
+    {% endif %}
+  {% else %}
+    <p class="vacio">
+      Para agregar notas, el teléfono tiene que estar en <code>contactos</code>.
     </p>
   {% endif %}
 </section>

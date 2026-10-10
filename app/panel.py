@@ -1573,6 +1573,19 @@ def panel_detalle(telefono):
         log.exception("[Panel] bot_pausa_info falló tel=%s", telefono)
         pausa_info = {"pausado": False, "hasta": None, "indefinida": False}
 
+    # Notas internas sobre el lead (iter 1 oct-2026). Pre-calculamos la
+    # fecha relativa para que el template no haga filtros Jinja custom.
+    notas = []
+    if contacto and contacto.get("id"):
+        try:
+            notas_raw = db.listar_notas(contacto["id"])
+            for n in notas_raw:
+                n = dict(n)
+                n["hace"] = _hace(n.get("created_at"))
+                notas.append(n)
+        except Exception:
+            log.exception("[Panel] listar_notas falló tel=%s", telefono)
+
     # El modal muestra solo el subconjunto de 6 acciones humanas (ver
     # panel_acciones.acciones_modal). `completar_formulario_manual` queda
     # fuera del modal porque se dispara desde su botón verde separado.
@@ -1592,6 +1605,7 @@ def panel_detalle(telefono):
         acciones_historial=acciones_historial,
         labels_resultado=labels_resultado,
         pausa_info=pausa_info,
+        notas=notas,
     )
 
 
@@ -2189,3 +2203,61 @@ def panel_bot_reactivar(telefono):
                                 token=token, flash="bot_reactivar_err"))
     return redirect(url_for("panel.panel_detalle", telefono=telefono,
                             token=token, flash="bot_reactivado"))
+
+
+# ---------------------------------------------------------------------------
+# Feature: Notas internas sobre el lead
+# ---------------------------------------------------------------------------
+
+@panel.post("/panel/<telefono>/notas")
+def panel_notas_agregar(telefono):
+    """Agrega una nota interna al contacto. Si el contacto no existe en
+    `contactos`, redirige con flash de error (no inventamos contactos
+    desde acá — hay que capturarlos primero por el flujo normal)."""
+    _check_token()
+    token = request.args.get("token", "")
+    texto = (request.form.get("texto") or "").strip()
+    autor = (request.form.get("actor") or "").strip() or "asesor"
+    if not texto:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_vacia"))
+    try:
+        with _panel_conexion() as conn:
+            fila = conn.execute(
+                "SELECT id FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+    except PoolTimeout:
+        return _pool_busy_response(f"/panel/{telefono}/notas")
+    if not fila:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_sin_contacto"))
+    try:
+        db.agregar_nota(fila[0], texto, autor=autor)
+    except Exception:
+        log.exception("[Panel] agregar_nota falló tel=%s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_err"))
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="nota_guardada"))
+
+
+@panel.post("/panel/notas/<int:nota_id>/borrar")
+def panel_notas_borrar(nota_id):
+    """Borra una nota interna. Toma el telefono del form (para redirigir
+    de vuelta al detalle correcto)."""
+    _check_token()
+    token = request.args.get("token", "")
+    telefono = (request.form.get("telefono") or "").strip()
+    try:
+        db.borrar_nota(nota_id)
+    except Exception:
+        log.exception("[Panel] borrar_nota falló nota_id=%s", nota_id)
+        if telefono:
+            return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                    token=token, flash="nota_err"))
+        return redirect(url_for("panel.panel_lista", token=token))
+    if telefono:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="nota_borrada"))
+    return redirect(url_for("panel.panel_lista", token=token))
