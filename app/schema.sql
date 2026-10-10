@@ -197,6 +197,53 @@ ALTER TABLE mensajes
 CREATE INDEX IF NOT EXISTS idx_mensajes_wa_msg_id
     ON mensajes(wa_msg_id) WHERE wa_msg_id IS NOT NULL;
 
+-- === Nuevas features (iter 1 — oct-2026) =====================================
+-- Pausar bot per lead: cuando el asesor "toma" la conversación de un lead,
+-- el bot deja de responderle. NULL = bot activo. Un TIMESTAMP futuro = bot
+-- pausado hasta ese momento. Un TIMESTAMP pasado = la pausa expiró y el bot
+-- vuelve a responder.
+-- Para pausa indefinida se usa el sentinel '2999-01-01'.
+ALTER TABLE contactos
+    ADD COLUMN IF NOT EXISTS bot_pausado_hasta TIMESTAMPTZ;
+
+-- Marcar leído/no leído del lead en el panel. NULL (default) o
+-- visto_at < última_actividad del contacto → no leído. visto_at >= última
+-- actividad → leído. La última actividad se obtiene de
+-- sesiones.ultima_actividad por telefono (o del último mensaje).
+ALTER TABLE contactos
+    ADD COLUMN IF NOT EXISTS visto_at TIMESTAMPTZ;
+
+-- Notas internas sobre el lead que escribe el asesor. Nunca se envían al
+-- cliente — son solo para contexto del equipo.
+CREATE TABLE IF NOT EXISTS notas_contacto (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES contactos(id) ON DELETE CASCADE,
+  texto TEXT NOT NULL,
+  autor VARCHAR(100) DEFAULT 'asesor',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS notas_contacto_idx
+  ON notas_contacto (contacto_id, created_at DESC);
+
+-- Eventos del timeline del lead. Mezcla acciones humanas, estados del bot
+-- y señales externas (bucket cambió, nota agregada, bot pausado, no_contactar
+-- marcado, Sureti enviado, formulario enviado, llamada recibida, template de
+-- remarketing, requiere_humano marcado). El panel combina estos eventos con
+-- los mensajes (tabla `mensajes`) para armar la línea de tiempo unificada.
+--
+-- `detalle` es un JSONB con metadatos del evento (ej.
+-- {from: 'nuevo', to: 'contactado'} para bucket_cambio).
+CREATE TABLE IF NOT EXISTS eventos_contacto (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES contactos(id) ON DELETE CASCADE,
+  tipo VARCHAR(50) NOT NULL,
+  detalle JSONB NOT NULL DEFAULT '{}',
+  autor VARCHAR(100) DEFAULT 'sistema',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS eventos_contacto_idx
+  ON eventos_contacto (contacto_id, created_at DESC);
+
 -- Cola persistente de webhooks de WhatsApp. El handler HTTP solo
 -- INSERTa aquí y responde 200 OK; un worker (app/webhook_worker.py)
 -- drena las filas pendientes. Si el proceso muere a mitad de camino,
