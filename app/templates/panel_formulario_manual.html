@@ -4,63 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel Massi — Formulario manual {{ telefono }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; max-width: 760px; margin: 0 auto; background: #f6f8fa; color: #1f2328; }
-  h1 { font-size: 1.2rem; margin: 0 0 4px; font-family: ui-monospace, monospace; }
-  .back { font-size: .9rem; color: #0969da; text-decoration: none; }
-  .back:hover { text-decoration: underline; }
-  section { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 12px 16px; margin-top: 12px; }
-  section h2 { font-size: 1rem; margin: 0 0 10px; color: #57606a; }
-  .lead-ctx { display: grid; grid-template-columns: 160px 1fr; gap: 4px 12px; font-size: .88rem; }
-  .lead-ctx dt { color: #57606a; }
-  .lead-ctx dd { margin: 0; word-break: break-word; }
-  form.manual label { display: block; font-size: .9rem; margin-top: 10px; }
-  form.manual label small { display: block; color: #57606a; font-size: .78rem; margin-top: 2px; font-weight: 400; }
-  form.manual input[type=text], form.manual input[type=number],
-  form.manual input[type=email], form.manual select, form.manual textarea {
-    width: 100%; padding: 7px 9px; font: inherit; border: 1px solid #d0d7de;
-    border-radius: 4px; background: #fff; margin-top: 4px; box-sizing: border-box;
-  }
-  form.manual .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  @media (max-width: 540px) { form.manual .fila { grid-template-columns: 1fr; } }
-  form.manual .radio-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
-  form.manual .radio-row label { display: inline-flex; align-items: center; gap: 4px; margin: 0; font-weight: 400; }
-  form.manual .radio-row input { margin: 0 4px 0 0; }
-  .consent { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 10px 12px; margin-top: 14px; }
-  .consent label { font-weight: 500; display: flex; gap: 8px; align-items: flex-start; margin: 0; }
-  .consent input { margin-top: 3px; }
-  .acciones-fila { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
-  .acciones-fila button, .acciones-fila a {
-    padding: 8px 16px; border-radius: 6px; font-weight: 500; cursor: pointer;
-    font-size: .9rem; text-decoration: none; border: 1px solid #d0d7de;
-    background: #f6f8fa; color: #1f2328;
-  }
-  .acciones-fila button[type=submit] { background: #1a7f37; color: #fff; border-color: #1a7f37; }
-  .acciones-fila button[type=submit]:hover { background: #116329; }
-  .nota { font-size: .85rem; color: #8c959f; margin-top: 10px; padding: 8px 12px; background: #f6f8fa; border-left: 3px solid #d0d7de; border-radius: 3px; }
-  .nota.err { border-color: #cf222e; background: #ffebe9; color: #82071e; }
-  fieldset { border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 14px 14px; margin: 10px 0 0; }
-  fieldset legend { font-size: .85rem; color: #57606a; padding: 0 6px; }
-  @media (prefers-color-scheme: dark) {
-    body { background: #0d1117; color: #e6edf3; }
-    section { background: #161b22; border-color: #30363d; }
-    section h2, .lead-ctx dt { color: #8b949e; }
-    .back { color: #58a6ff; }
-    form.manual input, form.manual select, form.manual textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
-    .acciones-fila button, .acciones-fila a { background: #262d36; color: #e6edf3; border-color: #30363d; }
-    .consent { background: #341a00; border-color: #d4a72c; color: #e8c547; }
-    fieldset { border-color: #30363d; }
-    fieldset legend { color: #8b949e; }
-    .nota { background: #161b22; border-color: #30363d; color: #8b949e; }
-    .nota.err { background: #3b0a0f; border-color: #cf222e; color: #ff7b72; }
-  }
+  /* Overrides específicos del formulario manual — el resto vive en panel.css */
+  body { max-width: 760px; margin: 0 auto; }
+  h1 { font-family: var(--font-mono); font-size: var(--fs-lg); font-weight: 700; margin: 0 0 var(--space-1); }
+  .req { color: var(--danger); }
 </style>
 </head>
 <body>
 <p><a class="back" href="/panel/{{ telefono }}?token={{ token }}">&larr; Volver al chat</a></p>
 <h1>Formulario manual — {{ telefono }}</h1>
-<p style="font-size:.9rem;color:#57606a;margin:4px 0 0;">
+<p class="sub">
   Completá los Flows 1 y 2 EN NOMBRE del cliente mientras hablás con él
   por WhatsApp o teléfono. Al guardar queda igual que un flow_reply
   completo: pipeline poblado y bucket pasa a "enviar a sureti".
@@ -218,7 +176,7 @@
     </fieldset>
 
     <label>
-      Avalúo (en millones) <span style="color:#cf222e">*</span>
+      Avalúo (en millones) <span class="req">*</span>
       <input type="number" name="avaluo" min="1" step="1" required
              placeholder="Ej: 350 = $350.000.000">
       <small>Lo que creen que vale el inmueble. Si es menor a 50 el sistema
@@ -238,13 +196,13 @@
     </fieldset>
 
     <label>
-      Nombre <span style="color:#cf222e">*</span>
+      Nombre <span class="req">*</span>
       <input type="text" name="nombre" required
              value="{{ (contacto and contacto.nombre) or '' }}">
     </label>
     <div class="fila">
       <label>
-        Cédula / NIT <span style="color:#cf222e">*</span>
+        Cédula / NIT <span class="req">*</span>
         <input type="text" name="cedula" required
                placeholder="Solo números">
       </label>
@@ -254,7 +212,7 @@
       </label>
     </div>
     <label>
-      Email <span style="color:#cf222e">*</span>
+      Email <span class="req">*</span>
       <input type="email" name="email" required>
     </label>
     <label>
