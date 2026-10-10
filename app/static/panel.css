@@ -1445,3 +1445,55 @@ fieldset legend {
   th, td { padding: 10px 10px; font-size: var(--fs-xs); }
   section { padding: var(--space-3) var(--space-3); }
 }
+
+/* ======================================================================== */
+/* Nuevas features (iter 1 oct-2026). Cada bloque corresponde a una feature  */
+/* y usa tokens del design system (var(--...)) sin inventar paleta nueva.    */
+/* ======================================================================== */
+
+/* ---- Bot state (pausar/reactivar bot per lead) --------------------------- */
+.bot-state {
+  padding: var(--space-3) var(--space-4);
+}
+.bot-state-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.bot-state-row .sub {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  flex-basis: 100%;
+}
+.bot-state-form {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+.bot-state-form select {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.bot-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.bot-state-active {
+  background: var(--success-soft);
+  color: var(--success-strong);
+}
+.bot-state-paused {
+  background: var(--warning-soft);
+  color: var(--warning-strong);
+}

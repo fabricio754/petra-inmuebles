@@ -59,7 +59,56 @@
 {% elif flash == 'guardado_warn_avaluo' %}
   <p class="nota warn">Formulario manual guardado. Avalúo bajo (&lt; $50M);
     revisá si el lead es viable para Sureti.</p>
+{% elif flash == 'bot_pausado' %}
+  <p class="nota ok">Bot pausado para este lead. Las respuestas automáticas quedan suspendidas.</p>
+{% elif flash == 'bot_reactivado' %}
+  <p class="nota ok">Bot reactivado. Volverá a responder automáticamente.</p>
+{% elif flash == 'bot_pausar_err' or flash == 'bot_reactivar_err' %}
+  <p class="nota err">No se pudo cambiar el estado del bot — revisá los logs.</p>
 {% endif %}
+
+<section class="card bot-state">
+  <div class="bot-state-row">
+    {% if pausa_info and pausa_info.pausado %}
+      <span class="bot-state-badge bot-state-paused">
+        <span class="dot dot-amarillo"></span>
+        Bot pausado
+        {% if pausa_info.indefinida %}
+          · indefinido
+        {% elif pausa_info.hasta %}
+          · hasta {{ pausa_info.hasta.strftime('%Y-%m-%d %H:%M') }}
+        {% endif %}
+      </span>
+      <form method="post"
+            action="/panel/{{ telefono }}/bot/reactivar?token={{ token }}"
+            class="bot-state-form">
+        <input type="hidden" name="actor" class="bot-state-actor-input" value="">
+        <button type="submit" class="btn btn-ghost">Reactivar bot</button>
+      </form>
+    {% else %}
+      <span class="bot-state-badge bot-state-active">
+        <span class="dot dot-verde"></span>
+        Bot activo
+      </span>
+      <form method="post"
+            action="/panel/{{ telefono }}/bot/pausar?token={{ token }}"
+            class="bot-state-form">
+        <input type="hidden" name="actor" class="bot-state-actor-input" value="">
+        <label>
+          Pausar por:
+          <select name="horas">
+            <option value="1">1 hora</option>
+            <option value="4" selected>4 horas</option>
+            <option value="24">24 horas</option>
+            <option value="">Indefinido</option>
+          </select>
+        </label>
+        <button type="submit" class="btn btn-ghost">Pausar bot</button>
+      </form>
+      <small class="sub">Mientras el bot esté pausado no envía respuestas automáticas a este lead.</small>
+    {% endif %}
+  </div>
+</section>
 
 <section>
   <h2>Estado del lead</h2>
@@ -414,6 +463,21 @@
     if (btnCancelar) {
       btnCancelar.addEventListener('click', function(){ dlg.close(); });
     }
+  })();
+
+  // Precargar el nombre del asesor (localStorage key panel_actor_name) en
+  // los campos hidden `actor` de los forms secundarios (pausar/reactivar
+  // bot, notas, marcar no leído). Si nunca lo tipearon, queda vacío y el
+  // backend usa el default ("asesor").
+  (function(){
+    var KEY = 'panel_actor_name';
+    var actor = '';
+    try { actor = localStorage.getItem(KEY) || ''; } catch(e) {}
+    if (!actor) return;
+    var inputs = document.querySelectorAll('.bot-state-actor-input');
+    for (var i = 0; i < inputs.length; i++) inputs[i].value = actor;
+    var inputsNota = document.querySelectorAll('.nota-actor-input');
+    for (var j = 0; j < inputsNota.length; j++) inputsNota[j].value = actor;
   })();
 
   // Auto-refresh por polling incremental cada 1 s.

@@ -52,6 +52,35 @@ def _is_bsuid(to):
     return "." in to
 
 
+import threading as _threading
+# Thread-local: cuando `_tls.suppress_sends` está True, `_dispatch` NO envía
+# el OUT al cliente ni lo loguea — solo lo deja en el log del servidor. Se
+# usa para "pausar bot per lead" (feature take-over humano): el webhook
+# worker setea el flag antes de llamar a bot.handle_incoming cuando el lead
+# tiene `bot_pausado_hasta > NOW()`. De este modo mantenemos toda la lógica
+# interna del bot (marcar requiere_humano, actualizar sesión, filtros,
+# clasificación) pero no respondemos al cliente.
+_tls = _threading.local()
+
+
+def send_sends_pausado() -> bool:
+    """True si en este thread los sends de WhatsApp están pausados."""
+    return bool(getattr(_tls, "suppress_sends", False))
+
+
+class pausar_sends_temporalmente:
+    """Context manager: dentro del `with`, cualquier send_* no envía nada
+    al cliente ni loguea el OUT. Pensado para take-over humano."""
+
+    def __enter__(self):
+        self._anterior = getattr(_tls, "suppress_sends", False)
+        _tls.suppress_sends = True
+        return self
+
+    def __exit__(self, *_):
+        _tls.suppress_sends = self._anterior
+
+
 def _dispatch(payload, human_summary, log_out=True):
     """Envía el payload a Meta, o lo simula en modo dry-run.
     Devuelve un resumen legible (usado por el simulador de consola).
@@ -59,7 +88,14 @@ def _dispatch(payload, human_summary, log_out=True):
     Si ``log_out`` es False, no persiste el OUT en la tabla ``mensajes``.
     El caller se encarga del log (p. ej. ``panel_responder`` loguea directo
     para evitar que un pool_timeout lo mande al spool y el chat aparezca
-    vacío por 10 min hasta el próximo drain)."""
+    vacío por 10 min hasta el próximo drain).
+
+    Si el thread tiene activo `pausar_sends_temporalmente` (bot pausado per
+    lead), devolvemos sin tocar la Cloud API ni loguear OUT: solo stub."""
+    if getattr(_tls, "suppress_sends", False):
+        log.info("[bot pausado] skip send → %s: %s",
+                 payload.get("to"), human_summary)
+        return {"status": "paused", "summary": human_summary}
     dest = payload["to"]
     if _is_bsuid(dest):
         # Meta no acepta un BSUID en "to": va en "recipient".

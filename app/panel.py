@@ -1564,6 +1564,15 @@ def panel_detalle(telefono):
     flash = request.args.get("flash", "")
     from app import panel_acciones as _pa
     labels_resultado = {k: v["label"] for k, v in _pa.ACCIONES.items()}
+
+    # Pausar bot per lead (iter 1 oct-2026). `bot_pausa_info` consulta
+    # `contactos.bot_pausado_hasta` y devuelve {pausado, hasta, indefinida}.
+    try:
+        pausa_info = db.bot_pausa_info(telefono)
+    except Exception:
+        log.exception("[Panel] bot_pausa_info falló tel=%s", telefono)
+        pausa_info = {"pausado": False, "hasta": None, "indefinida": False}
+
     # El modal muestra solo el subconjunto de 6 acciones humanas (ver
     # panel_acciones.acciones_modal). `completar_formulario_manual` queda
     # fuera del modal porque se dispara desde su botón verde separado.
@@ -1582,6 +1591,7 @@ def panel_detalle(telefono):
         acciones=_pa.acciones_modal(),
         acciones_historial=acciones_historial,
         labels_resultado=labels_resultado,
+        pausa_info=pausa_info,
     )
 
 
@@ -2125,3 +2135,57 @@ def ejecutar_accion(telefono):
             return jsonify({"ok": False, "error": "server_error"}), 500
         return redirect(url_for("panel.panel_detalle", telefono=telefono,
                                 token=token, flash="accion_err:server"))
+
+
+# ---------------------------------------------------------------------------
+# Feature: Pausar bot per lead
+# ---------------------------------------------------------------------------
+
+_HORAS_PAUSA_VALIDAS = (1, 4, 24)
+
+
+@panel.post("/panel/<telefono>/bot/pausar")
+def panel_bot_pausar(telefono):
+    """Pausa el bot para este lead. El asesor elige 1h / 4h / 24h o
+    indefinido via el campo ``horas`` del form (vacío = indefinido).
+    """
+    _check_token()
+    token = request.args.get("token", "")
+    horas_raw = (request.form.get("horas") or "").strip()
+    actor = (request.form.get("actor") or "").strip() or "asesor"
+    horas = None
+    if horas_raw:
+        try:
+            h = int(horas_raw)
+        except (TypeError, ValueError):
+            return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                    token=token, flash="bot_pausar_err"))
+        if h in _HORAS_PAUSA_VALIDAS:
+            horas = h
+        else:
+            return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                    token=token, flash="bot_pausar_err"))
+    try:
+        db.pausar_bot(telefono, horas=horas, autor=actor)
+    except Exception:
+        log.exception("[Panel] pausar_bot falló tel=%s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="bot_pausar_err"))
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="bot_pausado"))
+
+
+@panel.post("/panel/<telefono>/bot/reactivar")
+def panel_bot_reactivar(telefono):
+    """Reactiva el bot para este lead."""
+    _check_token()
+    token = request.args.get("token", "")
+    actor = (request.form.get("actor") or "").strip() or "asesor"
+    try:
+        db.reactivar_bot(telefono, autor=actor)
+    except Exception:
+        log.exception("[Panel] reactivar_bot falló tel=%s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="bot_reactivar_err"))
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="bot_reactivado"))

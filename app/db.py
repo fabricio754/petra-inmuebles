@@ -929,3 +929,113 @@ def historial_acciones_panel(telefono, limite=20):
         )
         cols = [c.name for c in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+# === Pausar bot per lead (take-over humano, iter 1 oct-2026) ================
+#
+# Sentinel para "pausa indefinida": fecha muy en el futuro. Permite usar
+# siempre la misma columna TIMESTAMPTZ y el mismo guard (`> NOW()`) tanto
+# para pausas por N horas como para pausas indefinidas, sin agregar una
+# columna booleana extra.
+_PAUSA_INDEFINIDA_SENTINEL = "2999-01-01 00:00:00+00"
+
+
+def pausar_bot(telefono: str, horas: int | None = None,
+               autor: str = "asesor") -> None:
+    """Pausa el bot para `telefono` durante `horas` (o indefinido si None).
+
+    Si el contacto no existe, lo inserta (misma lógica que `set_no_contactar`:
+    algún día un asesor querrá pausar a alguien que no está en `contactos` —
+    p. ej. porque escribió por su cuenta).
+
+    Nota: `autor` se acepta y propaga a `eventos_contacto` cuando ese hook se
+    conecta (feature timeline). Se registra sólo si contacto existe y la
+    función `registrar_evento` está disponible — por ahora se deja como
+    extensión futura (lazy import en el commit del timeline).
+    """
+    with _conexion_directa(timeout=10) as conn:
+        if horas is None:
+            conn.execute(
+                "INSERT INTO contactos (telefono, bot_pausado_hasta) "
+                "VALUES (%s, %s::timestamptz) "
+                "ON CONFLICT (telefono) DO UPDATE SET "
+                "  bot_pausado_hasta = EXCLUDED.bot_pausado_hasta",
+                (telefono, _PAUSA_INDEFINIDA_SENTINEL),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO contactos (telefono, bot_pausado_hasta) "
+                "VALUES (%s, NOW() + make_interval(hours => %s)) "
+                "ON CONFLICT (telefono) DO UPDATE SET "
+                "  bot_pausado_hasta = NOW() + make_interval(hours => %s)",
+                (telefono, int(horas), int(horas)),
+            )
+    # Hook de timeline: el commit `feat(panel): timeline unificado` conecta
+    # este helper para que las pausas aparezcan en el historial del lead.
+    try:
+        detalle = {"horas": horas} if horas is not None else {"indefinido": True}
+        registrar_evento_por_telefono(
+            telefono, "bot_pausado", detalle, autor=autor)
+    except NameError:
+        pass
+
+
+def reactivar_bot(telefono: str, autor: str = "asesor") -> None:
+    """Reactiva el bot para `telefono`. Si no estaba pausado, es un no-op."""
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE contactos SET bot_pausado_hasta = NULL "
+            "WHERE telefono = %s",
+            (telefono,),
+        )
+    try:
+        registrar_evento_por_telefono(telefono, "bot_reactivado", {}, autor=autor)
+    except NameError:
+        pass
+
+
+def bot_esta_pausado(telefono: str) -> bool:
+    """True si el bot está pausado AHORA para `telefono`.
+
+    No lanza: si la DB falla devuelve False (fail-open, igual que
+    `esta_bloqueado` — una pausa fallida no debe romper el flujo del bot).
+    """
+    try:
+        with _conexion() as conn:
+            fila = conn.execute(
+                "SELECT bot_pausado_hasta > NOW() FROM contactos "
+                "WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+        return bool(fila and fila[0])
+    except Exception as exc:
+        log.warning("[bot_esta_pausado] no se pudo consultar (%s): %s",
+                    telefono, exc)
+        return False
+
+
+def bot_pausa_info(telefono: str) -> dict:
+    """Devuelve info de la pausa de un lead: {pausado: bool, hasta:
+    datetime|None, indefinida: bool}. Útil para la UI del detalle.
+    """
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            fila = conn.execute(
+                "SELECT bot_pausado_hasta, bot_pausado_hasta > NOW() "
+                "FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+    except Exception as exc:
+        log.warning("[bot_pausa_info] fallo (%s): %s", telefono, exc)
+        return {"pausado": False, "hasta": None, "indefinida": False}
+    if not fila:
+        return {"pausado": False, "hasta": None, "indefinida": False}
+    hasta, pausado = fila[0], bool(fila[1])
+    indefinida = False
+    if hasta is not None:
+        try:
+            # Si está después del año 2900 es nuestro sentinel.
+            indefinida = hasta.year >= 2900
+        except Exception:
+            indefinida = False
+    return {"pausado": pausado, "hasta": hasta, "indefinida": indefinida}
