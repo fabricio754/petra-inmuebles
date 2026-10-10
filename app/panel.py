@@ -1360,37 +1360,95 @@ def panel_respuestas():
     Muestra, agrupado por teléfono, el hilo entero (IN del usuario + OUT del
     bot cercanos) tal cual fue, con un tag de clasificación arriba.
     Útil para leer letra por letra qué contestó la gente a la plantilla de
-    apertura. Query param ``?dias=N`` extiende la ventana.
+    apertura.
+
+    Rango temporal (iter 3 — oct-2026): selector de fecha en el topbar.
+    Query params (mutuamente excluyentes; precedencia: ``fecha`` > ``rango``
+    > ``dias`` legacy):
+      - ``?rango=hoy|ayer|7d``  — atajos.
+      - ``?fecha=YYYY-MM-DD``   — fecha específica (zona Bogotá).
+      - ``?dias=N``             — legacy, últimos N días. Preservado para
+                                   que links viejos no se rompan.
+    Default: ``rango=hoy`` (mismo comportamiento que la versión anterior).
     """
     _check_token()
     token = request.args.get("token", "")
 
-    try:
-        dias = int(request.args.get("dias", "1"))
-    except (TypeError, ValueError):
-        dias = 1
-    if dias < 1:
-        dias = 1
-    if dias > 30:
-        dias = 30
+    # --- Rango temporal -----------------------------------------------------
+    # Precedencia: fecha específica > rango atajo > dias legacy > default hoy.
+    rango_raw = (request.args.get("rango") or "").strip().lower()
+    fecha_raw = (request.args.get("fecha") or "").strip()
+    dias_raw = request.args.get("dias")
+
+    RANGOS_VALIDOS = {"hoy", "ayer", "7d"}
+    fecha_valida = None
+    if fecha_raw:
+        try:
+            fecha_valida = datetime.strptime(fecha_raw, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            fecha_valida = None
+
+    # Default + resolución.
+    if fecha_valida is not None:
+        rango_activo = "custom"
+        dias_vista = 1
+    elif rango_raw in RANGOS_VALIDOS:
+        rango_activo = rango_raw
+        dias_vista = 7 if rango_raw == "7d" else 1
+    elif dias_raw is not None:
+        # Compat legacy: ?dias=N.
+        try:
+            n = int(dias_raw)
+        except (TypeError, ValueError):
+            n = 1
+        if n <= 1:
+            rango_activo = "hoy"
+            dias_vista = 1
+        elif n == 7:
+            rango_activo = "7d"
+            dias_vista = 7
+        else:
+            rango_activo = "custom_dias"
+            dias_vista = max(1, min(n, 30))
+    else:
+        rango_activo = "hoy"
+        dias_vista = 1
+
+    # Label legible para el topbar.
+    if rango_activo == "hoy":
+        rango_label = "Hoy"
+        fecha_seleccionada = ""
+    elif rango_activo == "ayer":
+        rango_label = "Ayer"
+        fecha_seleccionada = ""
+    elif rango_activo == "7d":
+        rango_label = "Últimos 7 días"
+        fecha_seleccionada = ""
+    elif rango_activo == "custom":
+        rango_label = fecha_valida.strftime("%Y-%m-%d")
+        fecha_seleccionada = fecha_valida.strftime("%Y-%m-%d")
+    else:  # custom_dias (legacy)
+        rango_label = f"Últimos {dias_vista} días"
+        fecha_seleccionada = ""
+
+    # Compat: `dias` sigue existiendo para el label debajo del H1.
+    dias = dias_vista
 
     f_tag = (request.args.get("tag") or "").strip()
 
+    # --- SQL según rango activo --------------------------------------------
+    # Para cada caso: primero sacamos los teléfonos que escribieron en el
+    # rango (direccion='in'), luego traemos todos sus mensajes en el mismo
+    # rango para armar el hilo.
     try:
         with _panel_conexion() as conn:
-            if dias == 1:
+            if rango_activo == "hoy":
                 sql = """
                     SELECT
-                      m.telefono,
-                      m.direccion,
-                      m.tipo,
-                      COALESCE(m.resumen, '') AS resumen,
-                      m.fecha,
-                      c.tipo_inmueble,
-                      c.ciudad,
-                      c.barrio,
-                      c.no_contactar,
-                      c.monto_hasta_millones AS monto_hasta,
+                      m.telefono, m.direccion, m.tipo,
+                      COALESCE(m.resumen, '') AS resumen, m.fecha,
+                      c.tipo_inmueble, c.ciudad, c.barrio,
+                      c.no_contactar, c.monto_hasta_millones AS monto_hasta,
                       c.visto_at
                     FROM mensajes m
                     LEFT JOIN contactos c ON c.telefono = m.telefono
@@ -1405,19 +1463,56 @@ def panel_respuestas():
                     ORDER BY m.telefono, m.fecha
                 """
                 filas = _rows(conn, sql)
-            else:
+            elif rango_activo == "ayer":
                 sql = """
                     SELECT
-                      m.telefono,
-                      m.direccion,
-                      m.tipo,
-                      COALESCE(m.resumen, '') AS resumen,
-                      m.fecha,
-                      c.tipo_inmueble,
-                      c.ciudad,
-                      c.barrio,
-                      c.no_contactar,
-                      c.monto_hasta_millones AS monto_hasta,
+                      m.telefono, m.direccion, m.tipo,
+                      COALESCE(m.resumen, '') AS resumen, m.fecha,
+                      c.tipo_inmueble, c.ciudad, c.barrio,
+                      c.no_contactar, c.monto_hasta_millones AS monto_hasta,
+                      c.visto_at
+                    FROM mensajes m
+                    LEFT JOIN contactos c ON c.telefono = m.telefono
+                    WHERE m.telefono IN (
+                      SELECT DISTINCT telefono FROM mensajes
+                      WHERE direccion='in'
+                        AND (fecha AT TIME ZONE 'America/Bogota')::date
+                            = ((NOW() AT TIME ZONE 'America/Bogota')::date - INTERVAL '1 day')::date
+                    )
+                    AND (m.fecha AT TIME ZONE 'America/Bogota')::date
+                        = ((NOW() AT TIME ZONE 'America/Bogota')::date - INTERVAL '1 day')::date
+                    ORDER BY m.telefono, m.fecha
+                """
+                filas = _rows(conn, sql)
+            elif rango_activo == "custom":
+                # Día específico en zona Bogotá.
+                fecha_str = fecha_valida.strftime("%Y-%m-%d")
+                sql = """
+                    SELECT
+                      m.telefono, m.direccion, m.tipo,
+                      COALESCE(m.resumen, '') AS resumen, m.fecha,
+                      c.tipo_inmueble, c.ciudad, c.barrio,
+                      c.no_contactar, c.monto_hasta_millones AS monto_hasta,
+                      c.visto_at
+                    FROM mensajes m
+                    LEFT JOIN contactos c ON c.telefono = m.telefono
+                    WHERE m.telefono IN (
+                      SELECT DISTINCT telefono FROM mensajes
+                      WHERE direccion='in'
+                        AND (fecha AT TIME ZONE 'America/Bogota')::date = %s::date
+                    )
+                    AND (m.fecha AT TIME ZONE 'America/Bogota')::date = %s::date
+                    ORDER BY m.telefono, m.fecha
+                """
+                filas = _rows(conn, sql, (fecha_str, fecha_str))
+            else:
+                # 7d o custom_dias (legacy).
+                sql = """
+                    SELECT
+                      m.telefono, m.direccion, m.tipo,
+                      COALESCE(m.resumen, '') AS resumen, m.fecha,
+                      c.tipo_inmueble, c.ciudad, c.barrio,
+                      c.no_contactar, c.monto_hasta_millones AS monto_hasta,
                       c.visto_at
                     FROM mensajes m
                     LEFT JOIN contactos c ON c.telefono = m.telefono
@@ -1429,7 +1524,7 @@ def panel_respuestas():
                     AND m.fecha >= NOW() - make_interval(days => %s)
                     ORDER BY m.telefono, m.fecha
                 """
-                filas = _rows(conn, sql, (dias, dias))
+                filas = _rows(conn, sql, (dias_vista, dias_vista))
     except PoolTimeout:
         return _pool_busy_response("/panel/respuestas")
 
@@ -1554,6 +1649,9 @@ def panel_respuestas():
         chips=chips,
         f_tag=f_tag,
         dias=dias,
+        rango_activo=rango_activo,
+        rango_label=rango_label,
+        fecha_seleccionada=fecha_seleccionada,
     )
 
 

@@ -16,18 +16,43 @@
 </head>
 <body>
 <div class="topbar">
-  <h1>💬 Respuestas de hoy</h1>
+  <h1>💬 Respuestas · {{ rango_label }}</h1>
   <a class="back" href="/panel?token={{ token }}">← Volver al panel</a>
 </div>
 <p class="sub">
   {{ total }} de {{ total_sin_filtro }} conversación{% if total_sin_filtro != 1 %}es{% endif %}
-  — ventana: últim{% if dias == 1 %}o día{% else %}os {{ dias }} días{% endif %} (zona Bogotá). Auto-refresh cada 30 s.
+  — ventana: {{ rango_label }} (zona Bogotá). Auto-refresh cada 30 s.
 </p>
+
+{# ============================= DATE PICKER ================================
+   Chips de atajo (Hoy / Ayer / Últimos 7 días) + input nativo de fecha. Al
+   cambiar la fecha, el form hace GET al mismo endpoint con ?fecha=YYYY-MM-DD.
+   Preservamos el filtro por tag en los chips de atajo.
+#}
+{% set tag_qs = ('&tag=' ~ f_tag) if f_tag else '' %}
+<div class="fecha-picker">
+  <div class="fecha-chips">
+    <a class="chip chip-link {% if rango_activo == 'hoy' %}chip-active{% endif %}"
+       href="/panel/respuestas?token={{ token }}&rango=hoy{{ tag_qs }}">Hoy</a>
+    <a class="chip chip-link {% if rango_activo == 'ayer' %}chip-active{% endif %}"
+       href="/panel/respuestas?token={{ token }}&rango=ayer{{ tag_qs }}">Ayer</a>
+    <a class="chip chip-link {% if rango_activo == '7d' %}chip-active{% endif %}"
+       href="/panel/respuestas?token={{ token }}&rango=7d{{ tag_qs }}">Últimos 7 días</a>
+  </div>
+  <form class="fecha-form" method="get" action="/panel/respuestas">
+    <input type="hidden" name="token" value="{{ token }}">
+    {% if f_tag %}<input type="hidden" name="tag" value="{{ f_tag }}">{% endif %}
+    <label for="fecha-input" class="fecha-label">📅</label>
+    <input type="date" id="fecha-input" name="fecha"
+           value="{{ fecha_seleccionada }}"
+           onchange="this.form.submit()">
+  </form>
+</div>
 
 <div class="chips">
   {% for chip in chips %}
     <a class="chip {% if chip.activo %}activo{% endif %}"
-       href="/panel/respuestas?token={{ token }}{% if dias != 1 %}&dias={{ dias }}{% endif %}{% if chip.key %}&tag={{ chip.key }}{% endif %}">
+       href="/panel/respuestas?token={{ token }}{% if rango_activo == 'ayer' %}&rango=ayer{% elif rango_activo == '7d' %}&rango=7d{% elif rango_activo == 'custom' and fecha_seleccionada %}&fecha={{ fecha_seleccionada }}{% elif rango_activo == 'custom_dias' %}&dias={{ dias }}{% endif %}{% if chip.key %}&tag={{ chip.key }}{% endif %}">
       <span class="chip-tag-dot dot-{{ chip.color }}"></span>
       {{ chip.label }}
       <strong>({{ chip.count }})</strong>
