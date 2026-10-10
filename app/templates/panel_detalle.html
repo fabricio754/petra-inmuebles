@@ -4,146 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel Massi — {{ telefono }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; max-width: 980px; margin: 0 auto; background: #f6f8fa; color: #1f2328; }
-  h1 { font-size: 1.3rem; margin: 0 0 4px; font-family: ui-monospace, monospace; }
-  .back { font-size: .9rem; color: #0969da; text-decoration: none; }
-  .back:hover { text-decoration: underline; }
-  .estado { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: .85rem; font-weight: 500; margin-left: 8px; vertical-align: middle; }
-  /* Badge del header: usa el bucket humano-first (mismo pattern que la
-     columna "Estado" de /panel) en vez del `contactos.estado` legacy.
-     Así "Regresar a contactado" refleja el cambio visualmente al instante. */
-  .bucket-nuevo { background: #ddf4ff; color: #0969da; }
-  .bucket-contactado { background: #fff8c5; color: #7d4e00; }
-  .bucket-respondio { background: #ddf4ff; color: #0969da; }
-  .bucket-enviar_formulario { background: #fff1e5; color: #9a4b00; }
-  .bucket-enviar_a_sureti { background: #dafbe1; color: #116329; }
-  .bucket-recontactar { background: #fff8c5; color: #7d4e00; }
-  .bucket-no_contactar { background: #ffebe9; color: #cf222e; }
-  section { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 12px 16px; margin-top: 12px; }
-  section h2 { font-size: 1rem; margin: 0 0 8px; color: #57606a; }
-  dl { display: grid; grid-template-columns: 160px 1fr; gap: 4px 12px; margin: 0; font-size: .9rem; }
-  dt { color: #57606a; }
-  dd { margin: 0; word-break: break-word; }
-  .destacado { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; }
-  .destacado .cifra { background: #ddf4ff; color: #0969da; padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 1rem; }
-  .destacado .cifra small { display: block; font-size: .7rem; color: #57606a; font-weight: 400; }
-  .tabla-kv { width: 100%; border-collapse: collapse; font-size: .88rem; }
-  .tabla-kv th, .tabla-kv td { padding: 4px 8px; text-align: left; border-bottom: 1px solid #eaeef2; }
-  .tabla-kv th { color: #57606a; font-weight: 500; width: 180px; }
-  .flows-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
-  @media (max-width: 640px) { .flows-grid { grid-template-columns: 1fr; } }
-  .flow-box { border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px; background: #f6f8fa; }
-  .flow-box.pendiente { opacity: 0.65; }
-  .flow-box h3 { margin: 0 0 6px; font-size: .9rem; color: #57606a; }
-  .flow-box.completo h3 { color: #116329; }
-  .flow-box .pendiente-txt { font-style: italic; color: #8c959f; font-size: .85rem; }
-  .flow-box ul { margin: 0; padding-left: 16px; font-size: .85rem; }
-  .timeline { list-style: none; padding: 0; margin: 0; }
-  .timeline li { padding: 8px 0; border-bottom: 1px solid #eaeef2; font-size: .9rem; }
-  .timeline li:last-child { border: 0; }
-  .timeline time { color: #57606a; font-family: ui-monospace, monospace; font-size: .82rem; margin-right: 8px; }
-  .timeline .tag { display: inline-block; background: #ddf4ff; color: #0969da; border-radius: 4px; padding: 1px 6px; font-size: .75rem; margin-right: 6px; font-weight: 500; }
-  .vacio { color: #8c959f; font-style: italic; }
-  .chat { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-  .chat li { display: flex; max-width: 85%; }
-  .chat li.in { align-self: flex-start; }
-  .chat li.out { align-self: flex-end; }
-  .chat .bubble { padding: 8px 12px; border-radius: 12px; background: #eef2f6; font-size: .9rem; line-height: 1.4; }
-  .chat li.out .bubble { background: #dcf8c6; }
-  .chat .bubble ul { margin: 4px 0 0; padding-left: 16px; font-size: .85rem; }
-  .chat .meta { display: block; font-size: .72rem; color: #8c959f; margin-top: 2px; font-family: ui-monospace, monospace; }
-  .chulo { font-weight: 600; margin-left: 4px; letter-spacing: -1px; }
-  .chulo-pending { color: #c8ced6; }
-  .chulo-sent { color: #8c959f; }
-  .chulo-delivered { color: #8c959f; }
-  .chulo-read { color: #0969da; }
-  .chulo-failed { color: #cf222e; letter-spacing: 0; }
-  .chulo-error-txt { color: #cf222e; margin-left: 4px; font-style: italic; }
-  .dia-sep { align-self: center; font-size: .72rem; color: #8c959f; background: #eaeef2; border-radius: 999px; padding: 2px 10px; margin: 8px 0 2px; text-transform: uppercase; letter-spacing: .5px; }
-  .responder { display: flex; gap: 8px; margin-top: 12px; }
-  .responder textarea { flex: 1; min-height: 60px; font: inherit; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; resize: vertical; }
-  .responder button { padding: 8px 18px; cursor: pointer; background: #0969da; color: #fff; border: 0; border-radius: 6px; font-weight: 500; }
-  .responder button:disabled { background: #8c959f; cursor: not-allowed; }
-  .nota { font-size: .85rem; color: #8c959f; margin-top: 10px; padding: 8px 12px; background: #f6f8fa; border-left: 3px solid #d0d7de; border-radius: 3px; }
-  .nota.warn { border-color: #d4a72c; background: #fff8c5; color: #633c01; }
-  .nota.ok { border-color: #2da44e; background: #dafbe1; color: #1a7f37; }
-  .nota.err { border-color: #cf222e; background: #ffebe9; color: #82071e; }
-  .refresh-ctl { position: fixed; bottom: 12px; right: 12px; background: #fff; border: 1px solid #d0d7de; border-radius: 999px; padding: 6px 12px; font-size: .8rem; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.08); z-index: 10; }
-  .refresh-ctl.paused { background: #fff8c5; color: #7d4e00; border-color: #d4a72c; }
-  .badge-resultado { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: .8rem; font-weight: 500; margin-left: 8px; vertical-align: middle; background: #eaeef2; color: #57606a; }
-  .badge-resultado small { font-weight: 400; opacity: .8; margin-left: 4px; }
-  .badge-flow { background: #ddf4ff; color: #0969da; }
-  .badge-broker, .badge-no_interesa { background: #ffebe9; color: #cf222e; }
-  .badge-sureti { background: #dafbe1; color: #116329; }
-  .badge-recontactar { background: #fff8c5; color: #7d4e00; }
-  .badge-otro { background: #fff1e5; color: #9a4b00; }
-  .btn-cerrar-conv { background: #0969da; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 500; cursor: pointer; font-size: .9rem; margin-top: 8px; }
-  .btn-cerrar-conv:hover { background: #0860c7; }
-  dialog#modal-accion { border: 1px solid #d0d7de; border-radius: 8px; padding: 20px; max-width: 560px; width: 92%; background: #fff; color: #1f2328; }
-  dialog#modal-accion::backdrop { background: rgba(0,0,0,.4); }
-  dialog#modal-accion h3 { margin: 0 0 12px; font-size: 1.05rem; }
-  dialog#modal-accion fieldset { border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 12px; margin: 10px 0; }
-  dialog#modal-accion fieldset legend { font-size: .85rem; color: #57606a; padding: 0 6px; }
-  dialog#modal-accion fieldset label { display: block; padding: 4px 0; cursor: pointer; font-size: .9rem; }
-  dialog#modal-accion fieldset label small { display: block; color: #57606a; font-size: .78rem; margin-left: 20px; }
-  dialog#modal-accion label.linea { display: block; font-size: .9rem; margin-top: 10px; }
-  dialog#modal-accion input[type=text], dialog#modal-accion textarea { width: 100%; padding: 6px 8px; font: inherit; border: 1px solid #d0d7de; border-radius: 4px; background: #fff; margin-top: 4px; box-sizing: border-box; }
-  dialog#modal-accion .acciones-fila { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
-  dialog#modal-accion button[type=submit] { background: #0969da; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 500; cursor: pointer; }
-  dialog#modal-accion button[type=button] { background: #f6f8fa; color: #1f2328; border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 16px; cursor: pointer; }
-  #historial-acciones ul { list-style: none; padding: 0; margin: 0; }
-  #historial-acciones li { padding: 6px 0; border-bottom: 1px solid #eaeef2; font-size: .88rem; }
-  #historial-acciones li:last-child { border: 0; }
-  #historial-acciones time { color: #57606a; font-family: ui-monospace, monospace; font-size: .8rem; margin-right: 8px; }
-  #historial-acciones .accion-key { display: inline-block; background: #ddf4ff; color: #0969da; border-radius: 4px; padding: 1px 6px; font-size: .72rem; margin-right: 6px; font-weight: 500; }
-  @media (prefers-color-scheme: dark) {
-    .badge-resultado { background: #262d36; color: #8b949e; }
-    .badge-flow { background: #0c2d6b; color: #58a6ff; }
-    .badge-broker, .badge-no_interesa { background: #3b0a0f; color: #ff7b72; }
-    .badge-sureti { background: #0a2d16; color: #7ee787; }
-    .badge-recontactar { background: #341a00; color: #e8c547; }
-    .badge-otro { background: #341a00; color: #ffa657; }
-    dialog#modal-accion { background: #161b22; color: #e6edf3; border-color: #30363d; }
-    dialog#modal-accion fieldset { border-color: #30363d; }
-    dialog#modal-accion fieldset legend, dialog#modal-accion fieldset label small { color: #8b949e; }
-    dialog#modal-accion input[type=text], dialog#modal-accion textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
-    dialog#modal-accion button[type=button] { background: #262d36; color: #e6edf3; border-color: #30363d; }
-    #historial-acciones li { border-color: #30363d; }
-    #historial-acciones time { color: #8b949e; }
-    #historial-acciones .accion-key { background: #0c2d6b; color: #58a6ff; }
-  }
-  @media (prefers-color-scheme: dark) {
-    body { background: #0d1117; color: #e6edf3; }
-    section { background: #161b22; border-color: #30363d; }
-    section h2, dt, .timeline time { color: #8b949e; }
-    .timeline li { border-color: #30363d; }
-    .back { color: #58a6ff; }
-    .timeline .tag { background: #0c2d6b; color: #58a6ff; }
-    .chat .bubble { background: #262d36; }
-    .chat li.out .bubble { background: #1f6e32; color: #e6edf3; }
-    .chat .meta { color: #6e7681; }
-    .chulo-pending { color: #484f58; }
-    .chulo-sent { color: #8b949e; }
-    .chulo-delivered { color: #8b949e; }
-    .chulo-read { color: #58a6ff; }
-    .chulo-failed { color: #ff7b72; }
-    .chulo-error-txt { color: #ff7b72; }
-    .dia-sep { background: #262d36; color: #8b949e; }
-    .destacado .cifra { background: #0c2d6b; color: #58a6ff; }
-    .destacado .cifra small { color: #8b949e; }
-    .tabla-kv th, .tabla-kv td { border-color: #30363d; }
-    .tabla-kv th { color: #8b949e; }
-    .flow-box { background: #0d1117; border-color: #30363d; }
-    .responder textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
-    .nota { background: #161b22; border-color: #30363d; color: #8b949e; }
-    .nota.warn { background: #341a00; border-color: #d4a72c; color: #e8c547; }
-    .nota.ok { background: #0a2d16; border-color: #2da44e; color: #7ee787; }
-    .nota.err { background: #3b0a0f; border-color: #cf222e; color: #ff7b72; }
-    .refresh-ctl { background: #161b22; border-color: #30363d; color: #e6edf3; }
-    .refresh-ctl.paused { background: #341a00; color: #e8c547; border-color: #d4a72c; }
-  }
+  /* Overrides específicos de /panel/<tel> — el resto vive en panel.css */
+  body { max-width: 980px; margin: 0 auto; }
+  h1 { font-family: var(--font-mono); font-size: var(--fs-xl); font-weight: 700; margin: 0 0 var(--space-1); }
+  h1 .estado,
+  h1 .badge-resultado { margin-left: var(--space-2); }
+  /* media viewer helpers que solo aparecen en esta vista */
+  .media-nd { color: var(--text-subtle); font-style: italic; font-size: var(--fs-sm); }
+  .media-caption { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
 </style>
 </head>
 <body>
