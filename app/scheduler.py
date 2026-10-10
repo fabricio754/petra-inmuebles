@@ -76,6 +76,20 @@ def registrar_nuevos():
             docs = db.documentos_de(lead["telefono"])
             lead_id = sureti.registrar_lead(lead, docs)
             db.marcar_registrado_sureti(lead["id"], lead_id)
+            # Evento de timeline (iter 1 oct-2026). Reusa el helper por
+            # teléfono (el pipeline guarda telefono, no contacto_id).
+            try:
+                tel = lead.get("telefono")
+                if tel:
+                    db.registrar_evento_por_telefono(
+                        tel, "sureti_enviado",
+                        {"sureti_lead_id": lead_id,
+                         "pipeline_id": lead.get("id")},
+                        autor="sistema",
+                    )
+            except Exception:
+                log.exception("[Scheduler] fallo evento timeline sureti %s",
+                              lead.get("telefono"))
             log.info("[Scheduler] Lead %s registrado en Sureti → %s", lead["id"], lead_id)
         except Exception:
             log.exception("[Scheduler] Error registrando lead %s", lead.get("id"))

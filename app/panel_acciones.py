@@ -171,7 +171,112 @@ def aplicar(telefono: str, accion_key: str, nota: str = "", actor: str = "") -> 
             updates["resultado_contacto_por"] = actor or ""
             updates["resultado_contacto_nota"] = nota or ""
 
+    # Snapshot del bucket actual ANTES del UPDATE, para registrar el cambio
+    # en el timeline (eventos_contacto.bucket_cambio). Si el contacto no
+    # existe en DB o la lectura falla, lo dejamos como 'desconocido'.
+    bucket_from = _bucket_actual_snapshot(telefono)
+
     db.aplicar_accion_panel(telefono, updates, accion_key, nota, actor)
+
+    # Hooks de timeline (iter 1 oct-2026): bucket_cambio para toda acción,
+    # más eventos específicos para las acciones que terminan en opt-out.
+    _emitir_eventos_timeline(telefono, accion_key, updates, bucket_from,
+                             nota, actor)
+
     log.info("[Panel] accion=%s telefono=%s actor=%s nota=%s",
              accion_key, telefono, actor or "-", (nota or "")[:80])
     return {"ok": True, "accion": accion_key, "label": cfg["label"]}
+
+
+def _bucket_actual_snapshot(telefono: str) -> str | None:
+    """Devuelve el bucket actual del contacto (humano-first) o None si no
+    se puede resolver. Replica la lógica de `panel.bucket_de` pero
+    minimizada: sólo necesitamos saber qué bucket había ANTES del UPDATE,
+    para rotularlo en el evento.
+    """
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=5) as conn:
+            c = conn.execute(
+                "SELECT contactado, no_contactar, resultado_contacto, "
+                "       resultado_contacto_por "
+                "FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+            tiene_in = conn.execute(
+                "SELECT EXISTS(SELECT 1 FROM mensajes WHERE telefono = %s "
+                "AND direccion = 'in')",
+                (telefono,),
+            ).fetchone()[0]
+    except Exception:
+        return None
+    if not c:
+        return None
+    contactado, no_contactar, rc, rc_por = c[0], c[1], c[2] or "", c[3]
+    # Mismas reglas que panel.bucket_de.
+    if rc_por and rc in ("broker", "no_interesa"):
+        return "no_contactar"
+    if rc_por and rc == "recontactar":
+        return "recontactar"
+    if rc_por and rc in ("sureti", "enviar_a_sureti", "entregado"):
+        return "enviar_a_sureti"
+    if rc_por and rc in ("enviar_formulario", "flow"):
+        return "enviar_formulario"
+    if rc_por and rc == "contactado":
+        return "contactado"
+    if tiene_in:
+        return "respondio"
+    if contactado:
+        return "contactado"
+    return "nuevo"
+
+
+# Mapea resultado_contacto → bucket (destino). Mismo criterio que
+# panel.bucket_de pero sin pasar por el objeto contacto entero.
+_RC_A_BUCKET = {
+    "broker": "no_contactar",
+    "no_interesa": "no_contactar",
+    "recontactar": "recontactar",
+    "sureti": "enviar_a_sureti",
+    "enviar_a_sureti": "enviar_a_sureti",
+    "entregado": "enviar_a_sureti",
+    "enviar_formulario": "enviar_formulario",
+    "flow": "enviar_formulario",
+    "contactado": "contactado",
+}
+
+
+def _emitir_eventos_timeline(telefono, accion_key, updates, bucket_from,
+                              nota, actor):
+    """Emite los eventos de `eventos_contacto` que corresponden a una
+    acción humana ya aplicada. Nunca lanza — un evento perdido no debe
+    tumbar la acción."""
+    from app import db as _db
+    rc = updates.get("resultado_contacto")
+    bucket_to = _RC_A_BUCKET.get(rc or "")
+    if bucket_to and bucket_from and bucket_to != bucket_from:
+        _db.registrar_evento_por_telefono(
+            telefono, "bucket_cambio",
+            {"from": bucket_from, "to": bucket_to, "accion": accion_key,
+             "nota": (nota or "")[:200]},
+            autor=actor or "asesor",
+        )
+    # Marcas específicas que valen la pena por sí mismas en el timeline:
+    if updates.get("no_contactar") is True:
+        _db.registrar_evento_por_telefono(
+            telefono, "no_contactar",
+            {"motivo": rc or accion_key, "nota": (nota or "")[:200]},
+            autor=actor or "asesor",
+        )
+    if accion_key == "sureti" or rc in ("sureti", "enviar_a_sureti", "entregado"):
+        _db.registrar_evento_por_telefono(
+            telefono, "sureti_enviado",
+            {"accion": accion_key, "nota": (nota or "")[:200]},
+            autor=actor or "asesor",
+        )
+    if accion_key == "enviar_formulario" or rc == "enviar_formulario":
+        _db.registrar_evento_por_telefono(
+            telefono, "formulario_enviado",
+            {"accion": accion_key, "nota": (nota or "")[:200]},
+            autor=actor or "asesor",
+        )

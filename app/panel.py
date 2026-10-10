@@ -1641,6 +1641,15 @@ def panel_detalle(telefono):
         except Exception:
             log.exception("[Panel] marcar_visto falló tel=%s", telefono)
 
+    # Timeline unificado (iter 1 oct-2026): mezcla mensajes + eventos.
+    timeline_vista = {"items": [], "total": 0, "hay_mas": False}
+    if contacto and contacto.get("id"):
+        try:
+            items_raw = db.listar_timeline(contacto["id"], limit=200)
+            timeline_vista = _timeline_vista(items_raw, limit=50)
+        except Exception:
+            log.exception("[Panel] listar_timeline falló tel=%s", telefono)
+
     # El modal muestra solo el subconjunto de 6 acciones humanas (ver
     # panel_acciones.acciones_modal). `completar_formulario_manual` queda
     # fuera del modal porque se dispara desde su botón verde separado.
@@ -1661,7 +1670,115 @@ def panel_detalle(telefono):
         labels_resultado=labels_resultado,
         pausa_info=pausa_info,
         notas=notas,
+        timeline_items=timeline_vista["items"],
+        timeline_total=timeline_vista["total"],
+        timeline_hay_mas=timeline_vista["hay_mas"],
     )
+
+
+# Mapa de tipos de evento → (icono, etiqueta) para el timeline unificado.
+_TIMELINE_META = {
+    "bucket_cambio":                 ("🔄", "Bucket cambió"),
+    "nota_agregada":                 ("📝", "Nota"),
+    "bot_pausado":                   ("⏸", "Bot pausado"),
+    "bot_reactivado":                ("▶", "Bot reactivado"),
+    "no_contactar":                  ("🚫", "No contactar"),
+    "sureti_enviado":                ("📤", "Enviado a Sureti"),
+    "formulario_enviado":            ("📋", "Formulario marcado"),
+    "llamada_recibida":              ("📞", "Llamada WhatsApp"),
+    "template_remarketing_enviado":  ("💬", "Remarketing"),
+    "requiere_humano_marcado":       ("🔥", "Requiere humano"),
+}
+
+
+def _timeline_formatear_evento(ev):
+    """Devuelve dict con las claves que el template consume para un item
+    de tipo 'evento': icono, etiqueta, detalle_texto, autor."""
+    tipo = ev.get("tipo") or ""
+    meta = _TIMELINE_META.get(tipo, ("•", tipo))
+    icono, etiqueta = meta
+    detalle = ev.get("detalle") or {}
+    if isinstance(detalle, str):
+        try:
+            detalle = json.loads(detalle)
+        except (ValueError, TypeError):
+            detalle = {}
+    if not isinstance(detalle, dict):
+        detalle = {}
+    partes = []
+    if tipo == "bucket_cambio" and "from" in detalle and "to" in detalle:
+        partes.append(f'de "{detalle["from"]}" a "{detalle["to"]}"')
+    elif tipo == "nota_agregada" and detalle.get("texto_corto"):
+        partes.append(f'"{detalle["texto_corto"]}"')
+    elif tipo == "bot_pausado":
+        if detalle.get("indefinido"):
+            partes.append("indefinido")
+        elif detalle.get("horas"):
+            partes.append(f'{detalle["horas"]}h')
+    elif tipo == "template_remarketing_enviado" and detalle.get("template_name"):
+        partes.append(detalle["template_name"])
+    elif tipo == "requiere_humano_marcado" and detalle.get("motivo"):
+        partes.append(detalle["motivo"][:120])
+    elif tipo == "sureti_enviado" and detalle.get("sureti_lead_id"):
+        partes.append(f'ID {detalle["sureti_lead_id"]}')
+    elif tipo == "no_contactar" and detalle.get("motivo"):
+        partes.append(detalle["motivo"])
+    detalle_texto = " · ".join(partes) if partes else ""
+    return {
+        "kind": "evento",
+        "cuando": ev.get("cuando"),
+        "icono": icono,
+        "etiqueta": etiqueta,
+        "detalle_texto": detalle_texto,
+        "autor": ev.get("autor") or "sistema",
+    }
+
+
+def _timeline_formatear_mensaje(m):
+    """Devuelve dict con las claves que el template consume para un item
+    de tipo 'mensaje'."""
+    direccion = m.get("direccion") or "in"
+    tipo = m.get("tipo") or ""
+    resumen = m.get("resumen") or ""
+    if direccion == "out":
+        icono = "📨"
+        etiqueta = "Mensaje enviado"
+        resumen_render = _humanizar_resumen_salida(resumen)
+    else:
+        if tipo == "call_in":
+            icono = "📞"
+            etiqueta = "Llamada WhatsApp"
+            resumen_render = resumen or "[llamada entrante]"
+        elif tipo == "flow_reply":
+            icono = "📋"
+            etiqueta = "Formulario recibido"
+            resumen_render = "(flow_reply)"
+        else:
+            icono = "💬"
+            etiqueta = "Mensaje recibido"
+            resumen_render = resumen or "—"
+    return {
+        "kind": "mensaje",
+        "cuando": m.get("cuando"),
+        "icono": icono,
+        "etiqueta": etiqueta,
+        "detalle_texto": (resumen_render or "")[:200],
+        "autor": "cliente" if direccion == "in" else "bot",
+    }
+
+
+def _timeline_vista(items, limit=50):
+    """Convierte la lista cruda de `db.listar_timeline` en estructuras
+    listas para el template, y recorta a `limit` con el botón "Ver más"."""
+    out = []
+    for it in items:
+        if it.get("kind") == "evento":
+            out.append(_timeline_formatear_evento(it))
+        else:
+            out.append(_timeline_formatear_mensaje(it))
+    total = len(out)
+    hay_mas = total > limit
+    return {"items": out[:limit], "total": total, "hay_mas": hay_mas}
 
 
 @panel.get("/panel/media/<int:mensaje_id>")

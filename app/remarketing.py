@@ -119,6 +119,15 @@ def _enviar(c: dict, etapa: dict):
 
     whatsapp.send_text(telefono, mensaje)
     db.registrar_remarketing_envio(telefono, etapa["tipo"], mensaje)
+    # Evento de timeline (iter 1 oct-2026).
+    try:
+        db.registrar_evento_por_telefono(
+            telefono, "template_remarketing_enviado",
+            {"template_name": etapa.get("tipo"), "preview": mensaje[:200]},
+            autor="sistema",
+        )
+    except Exception:
+        log.exception("[Remarketing] fallo evento timeline tel=%s", telefono)
     log.info("[Remarketing] %s enviado a %s.", etapa["tipo"], telefono)
 
     if etapa.get("cerrar"):
@@ -146,6 +155,13 @@ def _procesar_paz_salvos():
                 whatsapp.send_paz_salvo_recordatorio(telefono, nombre_corto, dias)
                 tipo = f"paz_salvo_dia_{dias}"
                 db.registrar_remarketing_envio(telefono, tipo, f"paz_salvo_dia_{dias}")
+                try:
+                    db.registrar_evento_por_telefono(
+                        telefono, "template_remarketing_enviado",
+                        {"template_name": tipo}, autor="sistema",
+                    )
+                except Exception:
+                    log.exception("[Remarketing paz_salvo] fallo evento %s", telefono)
                 log.info("[Remarketing] %s enviado a %s.", tipo, telefono)
             except Exception:
                 log.exception("[Remarketing] Error paz_salvo_dia_%d a %s", dias, lead.get("telefono"))

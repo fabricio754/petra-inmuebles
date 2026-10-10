@@ -835,6 +835,19 @@ def marcar_requiere_humano(
                 (motivo, telefono),
             )
 
+    # Hook timeline (sólo en la primera vez: `nuevo=True`). En
+    # reintentos post-cooldown no re-emitimos el evento para no
+    # ensuciar el historial.
+    if nuevo:
+        try:
+            registrar_evento_por_telefono(
+                telefono, "requiere_humano_marcado",
+                {"motivo": (motivo or "")[:200]},
+                autor="sistema",
+            )
+        except NameError:
+            pass
+
     return {"nuevo": nuevo, "debe_alertar": debe_alertar}
 
 
@@ -1150,3 +1163,131 @@ def esta_no_leido(contacto_id: int) -> bool:
     if not ultima:
         return False
     return (visto is None) or (visto < ultima)
+
+
+# === Timeline unificado del lead (iter 1 oct-2026) ==========================
+#
+# `eventos_contacto` guarda cualquier evento de workflow (cambio de bucket,
+# nota agregada, bot pausado/reactivado, no_contactar marcado, Sureti
+# enviado, formulario, llamada, template de remarketing,
+# requiere_humano_marcado). El timeline del panel los mezcla con los
+# mensajes (tabla `mensajes`) para armar una línea cronológica única.
+#
+# `registrar_evento` nunca lanza: un evento perdido no debe romper la
+# acción principal del caller.
+
+def registrar_evento(contacto_id: int, tipo: str,
+                     detalle: dict | None = None,
+                     autor: str = "sistema") -> None:
+    """Registra un evento en `eventos_contacto`."""
+    if not contacto_id or not tipo:
+        return
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            conn.execute(
+                "INSERT INTO eventos_contacto "
+                "(contacto_id, tipo, detalle, autor) "
+                "VALUES (%s, %s, %s::jsonb, %s)",
+                (contacto_id, tipo[:50],
+                 json.dumps(detalle or {}, default=str), autor or "sistema"),
+            )
+    except Exception as exc:
+        log.warning("[registrar_evento] no se pudo registrar %s/%s: %s",
+                    tipo, contacto_id, exc)
+
+
+def registrar_evento_por_telefono(telefono: str, tipo: str,
+                                   detalle: dict | None = None,
+                                   autor: str = "sistema") -> None:
+    """Variante que resuelve `contacto_id` desde el telefono. Útil para
+    callers que no cargan el contacto (bot, webhook_worker). Si el contacto
+    no existe, el evento se descarta silenciosamente — no inventamos
+    contactos desde el bot."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            fila = conn.execute(
+                "SELECT id FROM contactos WHERE telefono = %s", (telefono,)
+            ).fetchone()
+            if not fila:
+                return
+            conn.execute(
+                "INSERT INTO eventos_contacto "
+                "(contacto_id, tipo, detalle, autor) "
+                "VALUES (%s, %s, %s::jsonb, %s)",
+                (fila[0], tipo[:50],
+                 json.dumps(detalle or {}, default=str), autor or "sistema"),
+            )
+    except Exception as exc:
+        log.warning("[registrar_evento_por_telefono] fallo %s/%s: %s",
+                    tipo, telefono, exc)
+
+
+def listar_eventos(contacto_id: int, limit: int = 100) -> list[dict]:
+    """Lista los eventos del contacto, más recientes primero."""
+    with _conexion_directa(timeout=10) as conn:
+        cur = conn.execute(
+            "SELECT id, contacto_id, tipo, detalle, autor, created_at "
+            "FROM eventos_contacto WHERE contacto_id = %s "
+            "ORDER BY created_at DESC LIMIT %s",
+            (contacto_id, int(limit)),
+        )
+        cols = [c.name for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def listar_timeline(contacto_id: int, limit: int = 100) -> list[dict]:
+    """Mezcla mensajes (de `mensajes`) + eventos (de `eventos_contacto`)
+    para armar la línea de tiempo unificada del lead, más reciente primero.
+
+    Cada item lleva: `kind` ('mensaje' | 'evento'), `cuando`, y campos
+    específicos según el kind. El template se encarga de renderizar.
+    """
+    with _conexion_directa(timeout=10) as conn:
+        tel_row = conn.execute(
+            "SELECT telefono FROM contactos WHERE id = %s", (contacto_id,)
+        ).fetchone()
+        telefono = tel_row[0] if tel_row else None
+
+        items = []
+        if telefono:
+            cur = conn.execute(
+                "SELECT id, fecha, direccion, tipo, resumen "
+                "FROM mensajes WHERE telefono = %s "
+                "ORDER BY fecha DESC LIMIT %s",
+                (telefono, int(limit)),
+            )
+            cols = [c.name for c in cur.description]
+            for r in cur.fetchall():
+                m = dict(zip(cols, r))
+                items.append({
+                    "kind": "mensaje",
+                    "cuando": m.get("fecha"),
+                    "direccion": m.get("direccion"),
+                    "tipo": m.get("tipo"),
+                    "resumen": m.get("resumen"),
+                    "id": m.get("id"),
+                })
+
+        cur = conn.execute(
+            "SELECT id, tipo, detalle, autor, created_at "
+            "FROM eventos_contacto WHERE contacto_id = %s "
+            "ORDER BY created_at DESC LIMIT %s",
+            (contacto_id, int(limit)),
+        )
+        cols = [c.name for c in cur.description]
+        for r in cur.fetchall():
+            e = dict(zip(cols, r))
+            items.append({
+                "kind": "evento",
+                "cuando": e.get("created_at"),
+                "tipo": e.get("tipo"),
+                "detalle": e.get("detalle") or {},
+                "autor": e.get("autor"),
+                "id": e.get("id"),
+            })
+
+    # Ordenar por fecha desc, defendiéndose de None (datetime.min aware).
+    from datetime import datetime as _dt, timezone as _tz
+    _min = _dt.min.replace(tzinfo=_tz.utc)
+    items.sort(key=lambda x: x["cuando"] or _min, reverse=True)
+    return items[:limit]

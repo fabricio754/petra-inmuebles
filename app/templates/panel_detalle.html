@@ -457,8 +457,44 @@
   {% endif %}
 </section>
 
+<section class="card">
+  <h2>Timeline del lead ({{ timeline_total }})</h2>
+  <small class="sub">Mensajes + eventos de workflow en orden cronológico inverso.</small>
+  {% if timeline_items %}
+    <ul class="timeline-unificado">
+      {% for it in timeline_items %}
+        <li class="timeline-item {{ it.kind }}">
+          <span class="timeline-icono">{{ it.icono }}</span>
+          <span class="timeline-cuando">
+            {{ it.cuando.strftime('%Y-%m-%d %H:%M') if it.cuando else '—' }}
+          </span>
+          <span class="timeline-cuerpo">
+            <strong>{{ it.etiqueta }}</strong>
+            {% if it.detalle_texto %}
+              <span class="timeline-detalle">· {{ it.detalle_texto }}</span>
+            {% endif %}
+          </span>
+          <span class="timeline-autor">{{ it.autor }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+    {% if timeline_hay_mas %}
+      <p class="timeline-ver-mas">
+        Se muestran los primeros 50 de {{ timeline_total }} eventos.
+        (La vista "Ver más" se agregará cuando acumulemos suficientes
+        leads con historial largo.)
+      </p>
+    {% endif %}
+  {% else %}
+    <p class="vacio">Sin eventos todavía.</p>
+  {% endif %}
+</section>
+
+{# Línea de tiempo legacy (eventos "ad-hoc" de captación/pipeline/remarketing
+   calculados on-the-fly por panel.py). Se mantiene en paralelo mientras
+   migramos todo a `eventos_contacto`. #}
 <section>
-  <h2>Línea de tiempo</h2>
+  <h2>Hitos (legacy)</h2>
   {% if eventos %}
   <ul class="timeline">
     {% for e in eventos %}

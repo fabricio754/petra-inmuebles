@@ -506,6 +506,19 @@ def _procesar_llamada_entrante(call):
     except Exception:
         log.exception("[WebhookQueue] No se pudo registrar llamada entrante de %s", telefono)
 
+    # Evento de timeline (iter 1 oct-2026). Sólo `connect` significa "me
+    # llamó ahora"; `terminate` y demás son del ciclo de vida y los
+    # dejamos solo en `mensajes` (ya está la row sintética).
+    if evento == "connect":
+        try:
+            db.registrar_evento_por_telefono(
+                telefono, "llamada_recibida",
+                {"call_id": call_id, "evento": evento}, autor="sistema",
+            )
+        except Exception:
+            log.exception("[WebhookQueue] fallo evento timeline llamada %s",
+                          telefono)
+
     # Solo notificamos al asesor cuando el cliente esta llamando AHORA
     # (`connect`). Para `terminate` y otros solo logueamos.
     if evento != "connect":
