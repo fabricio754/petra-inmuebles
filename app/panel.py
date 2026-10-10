@@ -20,10 +20,19 @@ from flask import (Blueprint, Response, abort, jsonify, redirect,
                    render_template, request, send_file, url_for)
 from psycopg_pool import PoolTimeout
 
-from app import db
+from app import avatares, db
 
 log = logging.getLogger("petra")
 panel = Blueprint("panel", __name__)
+
+
+# Filtro Jinja: {{ contacto | avatar }} y {{ contacto | avatar('sm') }}.
+# Registrado como `app_template_filter` para que esté disponible en TODAS
+# las plantillas (no sólo las del blueprint). Fail-silent: si el contacto
+# es None o viene mal, el helper devuelve iniciales '?' sin lanzar.
+@panel.app_template_filter("avatar")
+def _jinja_filter_avatar(contacto, size: str = ""):
+    return avatares.avatar_html(contacto, size=size)
 
 # Fallback para ordenar eventos/tarjetas cuyo timestamp es None.
 # Usamos datetime.min aware (UTC) para que pueda compararse con otros

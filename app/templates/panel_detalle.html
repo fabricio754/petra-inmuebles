@@ -21,6 +21,8 @@
 </head>
 <body>
 <p><a class="back" href="/panel?token={{ token }}">← volver al listado</a></p>
+<div class="detalle-header">
+  {{ (contacto or {'telefono': telefono}) | avatar('lg') }}
 <h1>
   {{ telefono }}
   {# Badge usa el bucket humano-first (igual que los chips/columna "Estado"
@@ -40,6 +42,7 @@
     </span>
   {% endif %}
 </h1>
+</div>
 {% if contacto and contacto.resultado_contacto and not contacto.resultado_contacto_por %}
   <p class="nota">
     <small>Estado automático del bot:

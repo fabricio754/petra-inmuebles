@@ -438,6 +438,15 @@ td.tel a:hover,
   font-weight: 600;
   font-size: var(--fs-base);
 }
+/* Permite alinear elementos auxiliares (unread-dot, avatar, link) en la
+   celda "teléfono" sin romper el ancho de la columna. */
+td.tel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+td.tel .avatar-sm { margin-right: 2px; }
 
 /* ---------------------------- Estado / Buckets ---------------------------- */
 .estado {
@@ -1669,3 +1678,58 @@ tr.unread .tel a {
   color: var(--primary-contrast);
   border-color: var(--warning);
 }
+
+/* ---- Avatares (iniciales + color determinístico) ------------------------- */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  flex-shrink: 0;
+  user-select: none;
+  /* Los colores vienen inline en style="" desde avatares.avatar_html().
+     El style inline también expone --avatar-bg-dark/--avatar-fg-dark que
+     se re-aplican acá bajo prefers-color-scheme: dark. */
+}
+.avatar-sm {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+}
+.avatar-lg {
+  width: 56px;
+  height: 56px;
+  font-size: 20px;
+}
+
+/* En dark mode usamos la pareja saturada: los colores "light" (pastel) se
+   ven muy pálidos sobre fondo oscuro. Las vars inline las define el helper
+   para que cada contacto tenga su propio par ligero/oscuro. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .avatar {
+    background: var(--avatar-bg-dark, var(--surface-2)) !important;
+    color: var(--avatar-fg-dark, var(--text)) !important;
+  }
+}
+:root[data-theme="dark"] .avatar {
+  background: var(--avatar-bg-dark, var(--surface-2)) !important;
+  color: var(--avatar-fg-dark, var(--text)) !important;
+}
+
+/* Header del detalle del lead: avatar grande + h1 inline.
+   Mantiene margen vertical del h1 original pero añade el avatar al lado. */
+.detalle-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.detalle-header h1 { margin: 0; }
+

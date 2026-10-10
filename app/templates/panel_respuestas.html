@@ -39,6 +39,7 @@
   {% for t in tarjetas %}
     <div class="card{% if t.no_leido %} unread{% endif %}">
       <div class="card-head">
+        {{ t | avatar('sm') }}
         <span class="tel">
           {% if t.no_leido %}<span class="unread-dot" title="No leído"></span>{% endif %}
           📱 <a href="/panel/{{ t.telefono }}?token={{ token }}">{{ t.telefono }}</a>

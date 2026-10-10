@@ -85,6 +85,7 @@
     <tr{% if f.no_leido %} class="unread"{% endif %}>
       <td class="tel">
         {% if f.no_leido %}<span class="unread-dot" title="No leído"></span>{% endif %}
+        {{ f | avatar('sm') }}
         <a href="/panel/{{ f.telefono }}?token={{ token }}">{{ f.telefono }}</a>
       </td>
       <td>{{ f.nombre or '—' }}</td>
