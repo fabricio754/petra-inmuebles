@@ -533,11 +533,10 @@ def _cargar_contexto_leads():
     """Carga el contexto compartido por /panel/leads y /panel/kanban.
 
     Devuelve un dict con filas, chips, kanban_columnas, kpis, labels de
-    acciones, SLA count, etc. — la unión de todo lo que ambas vistas
-    necesitan. Puede devolver una Response (503) si el pool está
-    saturado; el caller la retorna tal cual.
+    acciones, SLA count, etc. Puede devolver una Response (503) si el
+    pool está saturado; el caller la retorna tal cual.
 
-    Introducido en iter 4 (oct-2026) para separar el "dashboard"
+    Introducido en iter 4 (oct-2026) para separar el dashboard
     (/panel = stats profundas) de la lista (/panel/leads) y del kanban
     (/panel/kanban), evitando duplicar la query enorme.
     """
@@ -562,7 +561,7 @@ def _cargar_contexto_leads():
             #   autorizo      — dio BOTON_SI (interesado post-template)
             #   completo_flow — mandó al menos un flow_reply (Flow completado)
             contactos = _rows(conn, """
-                SELECT c.id, c.telefono, c.nombre, c.ciudad, c.tipo_inmueble, c.portal,
+                SELECT c.telefono, c.nombre, c.ciudad, c.tipo_inmueble, c.portal,
                        c.monto_hasta_millones AS monto_hasta,
                        c.no_contactar, c.contactado, c.fecha_contacto,
                        c.fecha_scraping,
@@ -570,7 +569,6 @@ def _cargar_contexto_leads():
                        c.resultado_contacto_por,
                        c.requiere_humano,
                        c.visto_at,
-                       c.next_step_texto, c.next_step_fecha,
                        EXISTS (
                          SELECT 1 FROM mensajes m
                          WHERE m.telefono = c.telefono AND m.direccion = 'in'
@@ -680,9 +678,6 @@ def _cargar_contexto_leads():
             ultimo_mensaje_preview = ultimo_texto_raw[:77].rstrip() + "…"
         else:
             ultimo_mensaje_preview = ultimo_texto_raw
-        ns_estado = db.next_step_estado(c.get("next_step_fecha"))
-        if not c.get("next_step_texto"):
-            ns_estado = None
         filas_all.append({
             **c,
             "estado": _estado_lead(c, s, p),
@@ -697,7 +692,6 @@ def _cargar_contexto_leads():
             "sla": sla,
             "sla_tooltip": sla_text,
             "ultimo_mensaje_preview": ultimo_mensaje_preview,
-            "next_step_estado": ns_estado,
         })
 
     por_estado = {}
@@ -809,8 +803,7 @@ def _cargar_contexto_leads():
         return True
 
     kanban_columnas: list[dict] = []
-    # Iter 4: siempre construimos las columnas Kanban. Son datos baratos
-    # (`filas_all` ya está en memoria) y /panel/kanban las consume.
+    # Iter 4: siempre construimos las columnas Kanban.
     if True:
         por_bucket_filas: dict[str, list] = {k: [] for k in kanban_order}
         for f in filas_all:
@@ -862,22 +855,6 @@ def _cargar_contexto_leads():
     # atención" que apunta a `?sla=1`.
     kpis["requieren_atencion"] = sla_count
 
-    # Iter 5: reminders próximos 24h, contactos con reminder hoy, vistas guardadas.
-    try:
-        reminders_proximos = db.listar_reminders_proximos(horas=24, limit=10)
-    except Exception:
-        reminders_proximos = []
-    try:
-        contactos_con_reminder_hoy = db.contactos_con_reminders_hoy()
-    except Exception:
-        contactos_con_reminder_hoy = set()
-    for f in filas:
-        f["tiene_reminder_hoy"] = f.get("id") in contactos_con_reminder_hoy
-    try:
-        vistas_guardadas = db.listar_vistas(ruta="/panel")
-    except Exception:
-        vistas_guardadas = []
-
     return {
         "filas": filas,
         "por_estado": sorted(por_estado.items()),
@@ -901,23 +878,20 @@ def _cargar_contexto_leads():
         "kanban_columnas": kanban_columnas,
         "mover_acciones": mover_acciones,
         "kpis": kpis,
-        "reminders_proximos": reminders_proximos,
-        "vistas_guardadas": vistas_guardadas,
     }
 
 
 # ---------------------------------------------------------------------------
 # Rutas principales del panel — iter 4 (oct-2026): split en 3 vistas.
 #   /panel         → dashboard (KPIs + stats profundas)
-#   /panel/leads   → tabla de leads (lo que antes era /panel?view=table)
-#   /panel/kanban  → tablero Kanban (lo que antes era /panel?view=kanban)
+#   /panel/leads   → tabla de leads (ex /panel?view=table)
+#   /panel/kanban  → tablero Kanban (ex /panel?view=kanban)
 #   /panel/stats   → redirect a /panel (bookmarks viejos)
 # ---------------------------------------------------------------------------
 
 def _redirect_legacy_view():
     """Si alguien entra a /panel con ?view=table|kanban (bookmark pre-iter4),
-    lo mandamos a la ruta nueva preservando los demás query params.
-    Devuelve una Response (redirect) o None si no corresponde."""
+    lo mandamos a la ruta nueva preservando los demás query params."""
     view = (request.args.get("view") or "").strip().lower()
     if view not in ("table", "kanban"):
         return None
@@ -950,7 +924,7 @@ def panel_kanban():
 
 
 @panel.get("/panel/stats")
-def panel_stats():
+def panel_stats_redirect():
     """Antes era la vista independiente de stats. Desde iter 4, /panel
     ya es el dashboard con KPIs + stats; redirigimos para no romper
     bookmarks viejos."""
@@ -963,8 +937,8 @@ def panel_stats():
 
 @panel.get("/panel")
 def panel_home():
-    """Dashboard = KPIs + estadísticas profundas (iter 4). Antes vivía
-    en /panel/stats. Si llega con ?view=table|kanban (bookmark pre-iter4),
+    """Dashboard = KPIs + estadísticas profundas (iter 4). Antes vivía en
+    /panel/stats. Si llega con ?view=table|kanban (bookmark pre-iter4),
     redirigimos a la ruta correspondiente."""
     _check_token()
     legacy = _redirect_legacy_view()
@@ -1358,8 +1332,7 @@ def panel_home():
             "ultima_act": _fmt_dt(lc.get("ultima_act")),
         })
 
-    # KPIs del strip (iter 4 — fusión con stats). Fail-silent a ceros si
-    # kpis_dashboard() falla, igual que en /panel/leads y /panel/kanban.
+    # KPIs del strip (iter 4) — fail-silent a ceros si falla.
     try:
         kpis = db.kpis_dashboard()
     except Exception:
@@ -2016,27 +1989,6 @@ def panel_detalle(telefono):
         except Exception:
             log.exception("[Panel] listar_timeline falló tel=%s", telefono)
 
-    # Iter 5: reminders pendientes + mensajes programados + next_step estado.
-    reminders_pendientes = []
-    mensajes_programados = []
-    next_step_est = None
-    if contacto and contacto.get("id"):
-        try:
-            reminders_pendientes = db.listar_reminders_pendientes_contacto(
-                contacto["id"])
-        except Exception:
-            log.exception("[Panel] reminders pendientes fallo tel=%s", telefono)
-        try:
-            mensajes_programados = db.listar_mensajes_programados_contacto(
-                contacto["id"])
-        except Exception:
-            log.exception("[Panel] mp listar fallo tel=%s", telefono)
-        try:
-            if contacto.get("next_step_texto"):
-                next_step_est = db.next_step_estado(contacto.get("next_step_fecha"))
-        except Exception:
-            next_step_est = None
-
     # El modal muestra solo el subconjunto de 6 acciones humanas (ver
     # panel_acciones.acciones_modal). `completar_formulario_manual` queda
     # fuera del modal porque se dispara desde su botón verde separado.
@@ -2061,9 +2013,6 @@ def panel_detalle(telefono):
         timeline_items=timeline_vista["items"],
         timeline_total=timeline_vista["total"],
         timeline_hay_mas=timeline_vista["hay_mas"],
-        reminders_pendientes=reminders_pendientes,
-        mensajes_programados=mensajes_programados,
-        next_step_estado=next_step_est,
     )
 
 

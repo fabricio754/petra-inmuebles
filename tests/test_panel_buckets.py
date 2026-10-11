@@ -295,7 +295,7 @@ def test_lista_muestra_bucket_coherente_con_chip(client, monkeypatch):
     conn = _make_conn(contactos)
     monkeypatch.setattr(db, "_conexion_directa", lambda timeout=10: conn)
 
-    r = client.get("/panel?token=test-token")
+    r = client.get("/panel/leads?token=test-token")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
 
@@ -311,7 +311,7 @@ def test_lista_muestra_bucket_coherente_con_chip(client, monkeypatch):
 
     # Filtro por bucket: ?bucket=enviar_a_sureti deja sólo los que
     # bucket_de() mapea a "enviar_a_sureti".
-    r2 = client.get("/panel?token=test-token&bucket=enviar_a_sureti")
+    r2 = client.get("/panel/leads?token=test-token&bucket=enviar_a_sureti")
     assert r2.status_code == 200
     html2 = r2.get_data(as_text=True)
     assert "573000000001" in html2  # el único sureti firmado
@@ -331,13 +331,13 @@ def test_lista_opt_out_del_bot_sin_firma_cae_a_respondio(client, monkeypatch):
     conn = _make_conn(contactos)
     monkeypatch.setattr(db, "_conexion_directa", lambda timeout=10: conn)
 
-    r = client.get("/panel?token=test-token")
+    r = client.get("/panel/leads?token=test-token")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     assert "bucket-respondio" in html
 
     # Chip `no_contactar` filtra 0 filas.
-    r2 = client.get("/panel?token=test-token&bucket=no_contactar")
+    r2 = client.get("/panel/leads?token=test-token&bucket=no_contactar")
     assert r2.status_code == 200
     html2 = r2.get_data(as_text=True)
     assert "573222222222" not in html2
@@ -354,7 +354,7 @@ def test_lista_contacto_sureti_firmado_muestra_label_humano(client, monkeypatch)
     conn = _make_conn(contactos)
     monkeypatch.setattr(db, "_conexion_directa", lambda timeout=10: conn)
 
-    r = client.get("/panel?token=test-token")
+    r = client.get("/panel/leads?token=test-token")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
 
