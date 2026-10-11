@@ -529,9 +529,17 @@ def panel_ping():
     return "pong", 200, {"Content-Type": "text/plain"}
 
 
-@panel.get("/panel")
-def panel_lista():
-    _check_token()
+def _cargar_contexto_leads():
+    """Carga el contexto compartido por /panel/leads y /panel/kanban.
+
+    Devuelve un dict con filas, chips, kanban_columnas, kpis, labels de
+    acciones, SLA count, etc. Puede devolver una Response (503) si el
+    pool está saturado; el caller la retorna tal cual.
+
+    Introducido en iter 4 (oct-2026) para separar el dashboard
+    (/panel = stats profundas) de la lista (/panel/leads) y del kanban
+    (/panel/kanban), evitando duplicar la query enorme.
+    """
     token = request.args.get("token", "")
     f_estado = (request.args.get("estado") or "").strip()
     f_bucket = (request.args.get("bucket") or "").strip()
@@ -541,14 +549,9 @@ def panel_lista():
     f_pendiente_humano = request.args.get("pendiente_humano") == "1"
     f_sla = request.args.get("sla") == "1"
     q = (request.args.get("q") or "").strip()
-    # Iter 2 (oct-2026): la ruta ahora es un "dashboard home" con KPIs
-    # + toggle Table/Kanban. Default = table (preserva comportamiento
-    # previo). "kanban" renderea cards agrupadas por bucket. "nc"
-    # (opcional, sólo tiene efecto en kanban) muestra también la
-    # columna no_contactar.
-    view = (request.args.get("view") or "table").strip()
-    if view not in ("table", "kanban"):
-        view = "table"
+    # El toggle Table/Kanban de iter 2-3 se removió: ahora son rutas
+    # separadas (/panel/leads y /panel/kanban). Preservamos `nc` para
+    # mostrar también la columna no_contactar en Kanban.
     kanban_show_nc = request.args.get("nc") == "1"
 
     try:
@@ -800,7 +803,8 @@ def panel_lista():
         return True
 
     kanban_columnas: list[dict] = []
-    if view == "kanban":
+    # Iter 4: siempre construimos las columnas Kanban.
+    if True:
         por_bucket_filas: dict[str, list] = {k: [] for k in kanban_order}
         for f in filas_all:
             if not _match_kanban(f):
@@ -851,32 +855,95 @@ def panel_lista():
     # atención" que apunta a `?sla=1`.
     kpis["requieren_atencion"] = sla_count
 
-    return render_template(
-        "panel_home.html",
-        filas=filas, por_estado=sorted(por_estado.items()), token=token,
-        total=len(filas), total_sin_filtro=len(filas_all),
-        ciudades=sorted(ciudades_set), portales=sorted(portales_set),
-        f_estado=f_estado, f_bucket=f_bucket,
-        f_ciudad=f_ciudad, f_portal=f_portal, q=q,
-        f_pendientes=f_pendientes,
-        f_pendiente_humano=f_pendiente_humano,
-        f_sla=f_sla,
-        sla_count=sla_count,
-        labels_resultado=labels_resultado,
-        buckets_chips=buckets_chips,
-        # iter 2 extras
-        view=view,
-        kanban_show_nc=kanban_show_nc,
-        kanban_columnas=kanban_columnas,
-        mover_acciones=mover_acciones,
-        kpis=kpis,
-    )
+    return {
+        "filas": filas,
+        "por_estado": sorted(por_estado.items()),
+        "token": token,
+        "total": len(filas),
+        "total_sin_filtro": len(filas_all),
+        "ciudades": sorted(ciudades_set),
+        "portales": sorted(portales_set),
+        "f_estado": f_estado,
+        "f_bucket": f_bucket,
+        "f_ciudad": f_ciudad,
+        "f_portal": f_portal,
+        "q": q,
+        "f_pendientes": f_pendientes,
+        "f_pendiente_humano": f_pendiente_humano,
+        "f_sla": f_sla,
+        "sla_count": sla_count,
+        "labels_resultado": labels_resultado,
+        "buckets_chips": buckets_chips,
+        "kanban_show_nc": kanban_show_nc,
+        "kanban_columnas": kanban_columnas,
+        "mover_acciones": mover_acciones,
+        "kpis": kpis,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Rutas principales del panel — iter 4 (oct-2026): split en 3 vistas.
+#   /panel         → dashboard (KPIs + stats profundas)
+#   /panel/leads   → tabla de leads (ex /panel?view=table)
+#   /panel/kanban  → tablero Kanban (ex /panel?view=kanban)
+#   /panel/stats   → redirect a /panel (bookmarks viejos)
+# ---------------------------------------------------------------------------
+
+def _redirect_legacy_view():
+    """Si alguien entra a /panel con ?view=table|kanban (bookmark pre-iter4),
+    lo mandamos a la ruta nueva preservando los demás query params."""
+    view = (request.args.get("view") or "").strip().lower()
+    if view not in ("table", "kanban"):
+        return None
+    from urllib.parse import urlencode
+    args = request.args.to_dict(flat=True)
+    args.pop("view", None)
+    target = "/panel/leads" if view == "table" else "/panel/kanban"
+    qs = urlencode(args)
+    return redirect(f"{target}?{qs}" if qs else target)
+
+
+@panel.get("/panel/leads")
+def panel_lista():
+    """Tabla de leads con filtros y SLA (ex `/panel?view=table`)."""
+    _check_token()
+    ctx = _cargar_contexto_leads()
+    if not isinstance(ctx, dict):  # pool busy devolvió un Response (503)
+        return ctx
+    return render_template("panel_lista.html", active_section="leads", **ctx)
+
+
+@panel.get("/panel/kanban")
+def panel_kanban():
+    """Tablero Kanban por bucket (ex `/panel?view=kanban`)."""
+    _check_token()
+    ctx = _cargar_contexto_leads()
+    if not isinstance(ctx, dict):
+        return ctx
+    return render_template("panel_kanban.html", active_section="kanban", **ctx)
 
 
 @panel.get("/panel/stats")
-def panel_stats():
-    """Embudo de conversión y métricas del pilot."""
+def panel_stats_redirect():
+    """Antes era la vista independiente de stats. Desde iter 4, /panel
+    ya es el dashboard con KPIs + stats; redirigimos para no romper
+    bookmarks viejos."""
     _check_token()
+    from urllib.parse import urlencode
+    args = request.args.to_dict(flat=True)
+    qs = urlencode(args)
+    return redirect(f"/panel?{qs}" if qs else "/panel")
+
+
+@panel.get("/panel")
+def panel_home():
+    """Dashboard = KPIs + estadísticas profundas (iter 4). Antes vivía en
+    /panel/stats. Si llega con ?view=table|kanban (bookmark pre-iter4),
+    redirigimos a la ruta correspondiente."""
+    _check_token()
+    legacy = _redirect_legacy_view()
+    if legacy is not None:
+        return legacy
     token = request.args.get("token", "")
 
     try:
@@ -1265,9 +1332,25 @@ def panel_stats():
             "ultima_act": _fmt_dt(lc.get("ultima_act")),
         })
 
+    # KPIs del strip (iter 4) — fail-silent a ceros si falla.
+    try:
+        kpis = db.kpis_dashboard()
+    except Exception:
+        log.exception("[Panel home] kpis_dashboard falló; se usan ceros.")
+        kpis = {
+            "leads_activos": 0, "leads_activos_delta": None,
+            "nuevos_semana": 0, "nuevos_delta": None,
+            "respondidos_semana": 0, "respondidos_delta": None,
+            "sureti_mes": 0, "sureti_delta": None,
+            "pct_conversion": None, "pct_conversion_delta": None,
+            "requieren_atencion": 0, "requieren_atencion_delta": None,
+        }
+
     return render_template(
-        "panel_stats.html",
+        "panel_home.html",
+        active_section="home",
         token=token,
+        kpis=kpis,
         embudo=embudo,
         monto_potencial_m=monto_potencial_m,
         comision_potencial_m=comision_potencial_m,
@@ -1642,6 +1725,7 @@ def panel_respuestas():
 
     return render_template(
         "panel_respuestas.html",
+        active_section="respuestas",
         token=token,
         tarjetas=tarjetas_filtradas,
         total=len(tarjetas_filtradas),
@@ -1910,6 +1994,7 @@ def panel_detalle(telefono):
     # fuera del modal porque se dispara desde su botón verde separado.
     return render_template(
         "panel_detalle.html",
+        active_section="leads",
         telefono=telefono, estado=estado, token=token,
         bucket=bucket, bucket_label=bucket_label,
         contacto=contacto, sesion=sesion, pipeline=pipeline,
@@ -2347,6 +2432,7 @@ def panel_quick_replies():
     quick_replies = db.listar_quick_replies()
     return render_template(
         "panel_quick_replies.html",
+        active_section="quick",
         token=token, flash=flash,
         quick_replies=quick_replies,
         editar=editar,
@@ -2518,6 +2604,7 @@ def formulario_manual_vista(telefono):
     flash = request.args.get("flash", "")
     return render_template(
         "panel_formulario_manual.html",
+        active_section="leads",
         telefono=telefono, token=token, contacto=contacto, flash=flash,
     )
 

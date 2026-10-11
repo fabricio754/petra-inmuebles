@@ -19,7 +19,8 @@
   .media-caption { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
 </style>
 </head>
-<body>
+<body class="has-sidebar">
+{% include "_sidebar.html" %}
 <p><a class="back" href="/panel?token={{ token }}">← volver al listado</a></p>
 <div class="detalle-header">
   {{ (contacto or {'telefono': telefono}) | avatar('lg') }}

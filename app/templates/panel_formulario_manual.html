@@ -15,7 +15,8 @@
   .req { color: var(--danger); }
 </style>
 </head>
-<body>
+<body class="has-sidebar">
+{% include "_sidebar.html" %}
 <p><a class="back" href="/panel/{{ telefono }}?token={{ token }}">&larr; Volver al chat</a></p>
 <h1>Formulario manual — {{ telefono }}</h1>
 <p class="sub">
