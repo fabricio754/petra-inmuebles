@@ -45,6 +45,13 @@ def iniciar():
     _scheduler.add_job(_drenar_log_mensaje_spool, "interval", minutes=10,
                        id="log_mensaje_spool_drain",
                        max_instances=1, coalesce=True)
+    # Iter 5 (oct-2026): reminders y scheduled messages c/5 min.
+    _scheduler.add_job(_disparar_reminders, "interval", minutes=5,
+                       id="disparar_reminders",
+                       max_instances=1, coalesce=True)
+    _scheduler.add_job(_enviar_mensajes_programados, "interval", minutes=5,
+                       id="enviar_mensajes_programados",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -193,3 +200,126 @@ def revisar_leads():
                     whatsapp.send_credito_rechazado(telefono, razon)
         except Exception:
             log.exception("[Scheduler] Error revisando lead %s", lead.get("id"))
+
+
+# ===========================================================================
+# Iter 5 (oct-2026) — Jobs
+# ===========================================================================
+#
+# Decisión sobre pausas de bot en scheduled messages:
+# los mensajes programados SIEMPRE se envían al disparar, incluso si el bot
+# está pausado para ese lead. Razonamiento: programar un mensaje es una
+# decisión explícita del asesor con fecha futura; que luego alguien pause el
+# bot per lead (típicamente para hacerse cargo de la conversación) no debe
+# cancelar silenciosamente el envío programado. Se loguea warning si el bot
+# está pausado al momento del envío. Los contactos con `no_contactar = TRUE`
+# SÍ se saltean (el opt-out es una señal fuerte).
+
+
+def _disparar_reminders():
+    """Dispara los reminders cuyo disparar_at ya venció.
+
+    Por cada uno: (a) marca al contacto como no-leído (visto_at = NULL),
+    (b) registra evento timeline `reminder_disparado`, (c) marca reminder
+    como `disparado`.
+    """
+    from app import db
+    try:
+        pendientes = db.listar_reminders_para_disparar()
+    except Exception:
+        log.exception("[Scheduler] reminders listar fallo")
+        return
+    if not pendientes:
+        return
+    log.info("[Scheduler] %d reminder(s) por disparar.", len(pendientes))
+    for r in pendientes:
+        rid = r.get("id")
+        cid = r.get("contacto_id")
+        try:
+            db.marcar_no_visto(cid)
+        except Exception:
+            log.exception("[Scheduler] reminder marcar_no_visto fallo cid=%s", cid)
+        try:
+            db.registrar_evento(
+                cid, "reminder_disparado",
+                {"reminder_id": rid,
+                 "texto": (r.get("texto") or "")[:200]},
+                autor=r.get("autor") or "sistema",
+            )
+        except Exception:
+            log.exception("[Scheduler] reminder evento fallo rid=%s", rid)
+        try:
+            db.marcar_reminder_disparado(rid)
+        except Exception:
+            log.exception("[Scheduler] reminder marcar fallo rid=%s", rid)
+
+
+def _enviar_mensajes_programados():
+    """Envía los mensajes programados cuyo enviar_at ya venció.
+
+    SKIP sólo si `no_contactar = TRUE`. Si bot pausado, loguea warning pero
+    envía (ver nota arriba).
+    """
+    from app import db
+    try:
+        pendientes = db.listar_mensajes_programados_para_enviar()
+    except Exception:
+        log.exception("[Scheduler] mp listar fallo")
+        return
+    if not pendientes:
+        return
+    log.info("[Scheduler] %d mensaje(s) programado(s) por enviar.",
+             len(pendientes))
+    for mp in pendientes:
+        mp_id = mp.get("id")
+        cid = mp.get("contacto_id")
+        tel = mp.get("telefono")
+        template_name = mp.get("template_name")
+        params = mp.get("template_params") or {}
+        if isinstance(params, str):
+            try:
+                import json as _json
+                params = _json.loads(params)
+            except Exception:
+                params = {}
+        if mp.get("no_contactar"):
+            db.marcar_mensaje_programado_fallido(
+                mp_id, "contacto_opt_out")
+            try:
+                db.registrar_evento(
+                    cid, "mensaje_programado_cancelado",
+                    {"mensaje_programado_id": mp_id, "razon": "no_contactar"},
+                    autor="sistema",
+                )
+            except Exception:
+                pass
+            continue
+        try:
+            if db.bot_esta_pausado(tel):
+                log.warning("[Scheduler] mp tel=%s bot pausado — se envía igual",
+                            tel)
+        except Exception:
+            pass
+        try:
+            from app import broadcasts as _bc
+            res = _bc._enviar_template(tel, template_name, params)
+            status = res.get("status") if isinstance(res, dict) else None
+            ok = (status in (200, 201, "dry-run", "paused")
+                  or (isinstance(status, int) and status < 300))
+            if ok:
+                db.marcar_mensaje_programado_enviado(mp_id)
+                try:
+                    db.registrar_evento(
+                        cid, "mensaje_programado_enviado",
+                        {"mensaje_programado_id": mp_id,
+                         "template_name": template_name},
+                        autor=mp.get("autor") or "sistema",
+                    )
+                except Exception:
+                    pass
+            else:
+                err = f"status={status}"
+                db.marcar_mensaje_programado_fallido(mp_id, err)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("[Scheduler] mp send fallo mp_id=%s", mp_id)
+            db.marcar_mensaje_programado_fallido(mp_id, str(exc)[:200])
