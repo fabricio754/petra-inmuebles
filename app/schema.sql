@@ -277,3 +277,46 @@ CREATE TABLE IF NOT EXISTS webhook_queue (
 );
 CREATE INDEX IF NOT EXISTS webhook_queue_pendientes_idx
   ON webhook_queue (recibido_at) WHERE estado = 'pending';
+
+-- === Piloto ElevenLabs (Massi) ============================================
+-- Esquema aislado para el agente de voz/texto en +57 300 1278631. NO toca
+-- las tablas productivas (contactos, mensajes, recordatorios). Lo consumen
+-- los endpoints de `app/tools.py` via HTTP tools de ElevenLabs.
+
+CREATE TABLE IF NOT EXISTS pilot_leads (
+  id SERIAL PRIMARY KEY,
+  telefono TEXT UNIQUE NOT NULL,
+  nombre TEXT,
+  ciudad TEXT,
+  tipo_inmueble TEXT,
+  avaluo NUMERIC,
+  monto_solicitado NUMERIC,
+  destino_credito TEXT,
+  requiere_humano BOOLEAN DEFAULT FALSE,
+  requiere_humano_motivo TEXT,
+  requiere_humano_at TIMESTAMPTZ,
+  enviado_sureti_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pilot_notas (
+  id SERIAL PRIMARY KEY,
+  telefono TEXT NOT NULL REFERENCES pilot_leads(telefono) ON DELETE CASCADE,
+  autor TEXT DEFAULT 'massi',
+  texto TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS pilot_notas_telefono_idx
+  ON pilot_notas (telefono);
+
+CREATE TABLE IF NOT EXISTS pilot_recordatorios (
+  id SERIAL PRIMARY KEY,
+  telefono TEXT NOT NULL REFERENCES pilot_leads(telefono) ON DELETE CASCADE,
+  disparar_at TIMESTAMPTZ NOT NULL,
+  texto TEXT NOT NULL,
+  disparado BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS pilot_recordatorios_disparar_idx
+  ON pilot_recordatorios (disparar_at, disparado);

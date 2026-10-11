@@ -34,6 +34,8 @@ from app.admin_sync import admin_sync as admin_sync_bp
 app.register_blueprint(admin_sync_bp)
 from app.admin_spool import admin_spool as admin_spool_bp
 app.register_blueprint(admin_spool_bp)
+from app.tools import tools_bp
+app.register_blueprint(tools_bp)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
