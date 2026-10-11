@@ -19,7 +19,8 @@
   .media-caption { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
 </style>
 </head>
-<body>
+<body class="has-sidebar">
+{% include "_sidebar.html" %}
 <p><a class="back" href="/panel?token={{ token }}">← volver al listado</a></p>
 <div class="detalle-header">
   {{ (contacto or {'telefono': telefono}) | avatar('lg') }}
@@ -78,6 +79,138 @@
   <p class="nota err">No se pudo guardar/borrar la nota — revisá los logs.</p>
 {% elif flash == 'nota_sin_contacto' %}
   <p class="nota err">Este teléfono no está en <code>contactos</code>, no se puede agregar nota todavía.</p>
+{% elif flash == 'next_step_ok' %}
+  <p class="nota ok">Próxima acción actualizada.</p>
+{% elif flash == 'next_step_err' %}
+  <p class="nota err">No se pudo guardar la próxima acción.</p>
+{% elif flash == 'reminder_ok' %}
+  <p class="nota ok">Recordatorio programado.</p>
+{% elif flash == 'reminder_cancelado' %}
+  <p class="nota ok">Recordatorio cancelado.</p>
+{% elif flash == 'reminder_invalido' %}
+  <p class="nota err">Faltan texto o fecha del recordatorio.</p>
+{% elif flash == 'reminder_err' %}
+  <p class="nota err">No se pudo guardar el recordatorio.</p>
+{% elif flash == 'mp_ok' %}
+  <p class="nota ok">Mensaje programado creado.</p>
+{% elif flash == 'mp_cancelado' %}
+  <p class="nota ok">Mensaje programado cancelado.</p>
+{% elif flash == 'mp_invalido' %}
+  <p class="nota err">Faltan template o fecha del mensaje programado.</p>
+{% elif flash == 'mp_err' %}
+  <p class="nota err">No se pudo guardar el mensaje programado.</p>
+{% endif %}
+
+{% if contacto and contacto.id %}
+<section class="card next-step-card{% if next_step_estado == 'vencido' %} next-step-vencido{% endif %}">
+  <h2>⏭ Próxima acción</h2>
+  <form method="post"
+        action="/panel/{{ telefono }}/next-step?token={{ token }}"
+        class="next-step-form">
+    <input type="hidden" name="actor" value="asesor">
+    <textarea name="texto" rows="2" maxlength="4000"
+              placeholder="Ej. Llamar al propietario tras avalúo…"
+              >{{ contacto.next_step_texto or '' }}</textarea>
+    <div class="next-step-row">
+      <input type="date" name="fecha"
+             value="{% if contacto.next_step_fecha %}{{ contacto.next_step_fecha.strftime('%Y-%m-%d') }}{% endif %}">
+      {% if next_step_estado == 'vence_hoy' %}
+        <span class="chip chip-warn">⏰ Vence hoy</span>
+      {% elif next_step_estado == 'vencido' %}
+        <span class="chip chip-danger">⚠ Vencido</span>
+      {% endif %}
+      <button type="submit">Guardar</button>
+    </div>
+  </form>
+</section>
+
+<section class="card reminders-card">
+  <h2>⏰ Recordatorios ({{ reminders_pendientes|length }} pendientes)</h2>
+  <form method="post"
+        action="/panel/{{ telefono }}/reminders?token={{ token }}"
+        class="reminders-form">
+    <input type="hidden" name="actor" value="asesor">
+    <textarea name="texto" rows="2" maxlength="4000"
+              placeholder="Ej. Llamar a Juan sobre crédito…" required></textarea>
+    <div class="reminders-row">
+      <input type="date" name="fecha" required>
+      <input type="time" name="hora" value="09:00">
+      <button type="submit">Programar</button>
+    </div>
+  </form>
+  {% if reminders_pendientes %}
+    <ul class="reminders-lista">
+      {% for r in reminders_pendientes %}
+        <li>
+          <div class="reminder-meta">
+            <strong>{{ r.disparar_at.strftime('%Y-%m-%d %H:%M') }}</strong>
+            {% if r.autor %}<em>{{ r.autor }}</em>{% endif %}
+            <form method="post"
+                  action="/panel/reminders/{{ r.id }}/cancelar?token={{ token }}"
+                  style="display:inline;">
+              <input type="hidden" name="telefono" value="{{ telefono }}">
+              <button type="submit" class="btn-borrar-nota"
+                      onclick="return confirm('¿Cancelar este recordatorio?')">
+                Cancelar
+              </button>
+            </form>
+          </div>
+          <div class="reminder-texto">{{ r.texto }}</div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="vacio">Sin recordatorios pendientes.</p>
+  {% endif %}
+</section>
+
+<section class="card mp-card">
+  <h2>📅 Mensajes programados ({{ mensajes_programados|selectattr('estado', 'equalto', 'pendiente')|list|length }} pendientes)</h2>
+  <form method="post"
+        action="/panel/{{ telefono }}/scheduled-messages?token={{ token }}"
+        class="mp-form">
+    <input type="hidden" name="actor" value="asesor">
+    <div class="mp-row">
+      <input type="text" name="template_name" required
+             placeholder="nombre_del_template (ej. massi_apertura_b)">
+      <input type="date" name="fecha" required>
+      <input type="time" name="hora" value="09:00">
+    </div>
+    <div class="mp-row">
+      <input type="text" name="param_1" placeholder="var 1 (opcional)">
+      <input type="text" name="param_2" placeholder="var 2 (opcional)">
+      <input type="text" name="param_3" placeholder="var 3 (opcional)">
+      <button type="submit">Programar envío</button>
+    </div>
+  </form>
+  {% if mensajes_programados %}
+    <ul class="mp-lista">
+      {% for m in mensajes_programados %}
+        <li class="mp-item mp-estado-{{ m.estado }}">
+          <div class="mp-item-head">
+            <strong>{{ m.template_name }}</strong>
+            <span class="chip chip-{{ m.estado }}">{{ m.estado }}</span>
+            <small>{{ m.enviar_at.strftime('%Y-%m-%d %H:%M') }}</small>
+            {% if m.estado == 'pendiente' %}
+              <form method="post"
+                    action="/panel/scheduled-messages/{{ m.id }}/cancelar?token={{ token }}"
+                    style="display:inline;">
+                <input type="hidden" name="telefono" value="{{ telefono }}">
+                <button type="submit" class="btn-borrar-nota"
+                        onclick="return confirm('¿Cancelar este mensaje programado?')">
+                  Cancelar
+                </button>
+              </form>
+            {% endif %}
+          </div>
+          {% if m.error %}<small class="mp-error">{{ m.error }}</small>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="vacio">Sin mensajes programados.</p>
+  {% endif %}
+</section>
 {% endif %}
 
 <section class="card bot-state">

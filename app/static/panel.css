@@ -10,19 +10,22 @@
 :root {
   color-scheme: light dark;
 
-  --bg: #f8fafc;
+  /* iter 4 (oct-2026): paleta lavanda tibia — fondo con un pelín de violeta,
+     primario indigo-500 (más suave que el 600), sombras con tinte primary.
+     Mantiene todo el contraste WCAG; sólo cambia la temperatura. */
+  --bg: #faf7ff;
   --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --border: #e2e8f0;
-  --border-strong: #cbd5e1;
+  --surface-2: #f4f0ff;
+  --border: #e9e4f5;
+  --border-strong: #d4ccea;
 
-  --text: #0f172a;
-  --text-muted: #64748b;
-  --text-subtle: #94a3b8;
+  --text: #1a1a2e;
+  --text-muted: #64647a;
+  --text-subtle: #9898ad;
 
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
-  --primary-soft: #eef2ff;
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --primary-soft: #eef0ff;
   --primary-contrast: #ffffff;
 
   --success: #10b981;
@@ -60,14 +63,15 @@
   --space-10: 40px;
 
   --radius-sm: 4px;
-  --radius: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --radius-full: 999px;
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, .04);
-  --shadow: 0 2px 8px rgba(15, 23, 42, .06);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, .08);
+  /* Sombras con tinte primary (iter 4) — depth sin perder suavidad. */
+  --shadow-sm: 0 1px 3px rgba(99, 102, 241, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 10px 15px -3px rgba(99, 102, 241, 0.10), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -83,15 +87,17 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0b1120;
-    --surface: #111827;
-    --surface-2: #1e293b;
-    --border: #1f2937;
-    --border-strong: #334155;
+    /* iter 4: dark con tinte violeta — mantener legibilidad, bajar
+       saturación del fondo para que no se vea azul puro. */
+    --bg: #0f0d1a;
+    --surface: #16142a;
+    --surface-2: #1e1a3a;
+    --border: #2d2850;
+    --border-strong: #3e3870;
 
-    --text: #e5e7eb;
-    --text-muted: #9ca3af;
-    --text-subtle: #6b7280;
+    --text: #e9e7f5;
+    --text-muted: #9898c0;
+    --text-subtle: #6b6b85;
 
     --primary: #818cf8;
     --primary-hover: #a5b4fc;
@@ -130,15 +136,15 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0b1120;
-  --surface: #111827;
-  --surface-2: #1e293b;
-  --border: #1f2937;
-  --border-strong: #334155;
+  --bg: #0f0d1a;
+  --surface: #16142a;
+  --surface-2: #1e1a3a;
+  --border: #2d2850;
+  --border-strong: #3e3870;
 
-  --text: #e5e7eb;
-  --text-muted: #9ca3af;
-  --text-subtle: #6b7280;
+  --text: #e9e7f5;
+  --text-muted: #9898c0;
+  --text-subtle: #6b6b85;
 
   --primary: #818cf8;
   --primary-hover: #a5b4fc;
@@ -2778,3 +2784,363 @@ dialog.modal-qr::backdrop {
   .kpi-value { font-size: 22px; }
 }
 
+
+/* ============================================================================
+   Iter 4 (oct-2026) — Sidebar vertical de navegación
+   Partial _sidebar.html. Para activarlo el <body> debe tener la clase
+   `has-sidebar` (así páginas sin sidebar — p.ej. privacidad — no cambian).
+   ============================================================================ */
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 68px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 0;
+  z-index: 50;
+  gap: 8px;
+}
+.sidebar-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--primary-contrast);
+  font-weight: 700;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow-sm);
+}
+.sidebar-logo:hover { background: var(--primary-hover); text-decoration: none; }
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  width: 100%;
+  align-items: center;
+}
+.sidebar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background .15s, color .15s;
+}
+.sidebar-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.sidebar-item.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.sidebar-icon { font-size: 20px; line-height: 1; }
+.sidebar-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: .85;
+}
+.sidebar-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  width: 44px;
+}
+.sidebar-user {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  color: var(--primary-contrast);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Reservamos espacio a la izquierda SOLO cuando hay sidebar.
+   Las vistas con body { max-width: X; margin: 0 auto } (detalle, respuestas,
+   formulario, stats) siguen centrándose, pero el gutter izquierdo se corre
+   para no quedar debajo del sidebar. */
+body.has-sidebar {
+  padding-left: calc(68px + var(--space-4));
+}
+
+/* Responsive: en mobile el sidebar se vuelve bottom tab bar (horizontal).
+   El body ya no reserva padding izquierdo y gana padding inferior. */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: 56px;
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+    padding: 0 8px;
+    border-right: 0;
+    border-top: 1px solid var(--border);
+    gap: 0;
+  }
+  .sidebar-logo { display: none; }
+  .sidebar-nav {
+    flex-direction: row;
+    flex: 1;
+    justify-content: space-around;
+    gap: 0;
+  }
+  .sidebar-item { width: 44px; height: 44px; }
+  .sidebar-label { display: none; }
+  .sidebar-foot { display: none; }
+  body.has-sidebar {
+    padding-left: var(--space-3);
+    padding-bottom: calc(56px + var(--space-4));
+  }
+}
+
+/* ============================================================================
+   Iter 4 (oct-2026) — Visual refresh: cards elevadas con lift hover
+   Aplica a las cards principales. Reusa tokens --shadow/-md ya actualizados
+   al tinte primary. No sobrescribe clases que ya tenían su propia sombra.
+   ============================================================================ */
+.card,
+.kpi-tile {
+  box-shadow: var(--shadow);
+  transition: box-shadow .2s ease, transform .15s ease, border-color .15s ease;
+}
+.card:hover,
+.kpi-tile:hover {
+  box-shadow: var(--shadow-md);
+}
+.kpi-tile-link:hover,
+.kanban-card:hover {
+  transform: translateY(-2px);
+}
+.kanban-card {
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow .2s ease, transform .15s ease, border-color .15s ease;
+}
+.kanban-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* ============================================================================
+   Iter 4 (oct-2026) — Headers Kanban coloreados por bucket
+   Cada columna lleva su color (gradiente) en el header para que el flujo
+   humano-first se lea de un vistazo. El contador va en badge blanco
+   semitransparente para contraste WCAG en los 7 colores.
+   ============================================================================ */
+.kanban-col-nuevo .kanban-col-head {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-respondio .kanban-col-head {
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-contactado .kanban-col-head {
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-enviar_formulario .kanban-col-head {
+  background: linear-gradient(135deg, #fb923c, #fdba74);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-enviar_a_sureti .kanban-col-head {
+  background: linear-gradient(135deg, #10b981, #34d399);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-recontactar .kanban-col-head {
+  background: linear-gradient(135deg, #eab308, #facc15);
+  color: #1a1a2e;      /* amarillo requiere texto oscuro para contraste */
+  border-bottom-color: transparent;
+}
+.kanban-col-no_contactar .kanban-col-head {
+  background: linear-gradient(135deg, #ef4444, #f87171);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+
+/* Al pintarse el header con color, el título debe heredar y el contador va
+   en badge blanco translúcido. */
+.kanban-column[class*="kanban-col-"] .kanban-col-head .kanban-col-title { color: inherit; }
+.kanban-column[class*="kanban-col-"] .kanban-col-head .kanban-col-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: inherit;
+  font-weight: 700;
+}
+/* Columna "recontactar" usa texto oscuro — contador también. */
+.kanban-col-recontactar .kanban-col-head .kanban-col-count {
+  background: rgba(26, 26, 46, 0.14);
+  color: #1a1a2e;
+}
+
+/* ---- Card Kanban: avatar bottom-right + chip avalúo --------------------- */
+.kanban-card-foot {
+  position: relative;
+}
+.kanban-card-avatar {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+}
+.kanban-card-avatar .avatar-sm {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.kanban-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+.kanban-chip-avaluo {
+  display: inline-flex;
+  align-items: center;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  line-height: 1.3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .kanban-chip-avaluo {
+    background: #4b2f0b;
+    color: #fcd34d;
+  }
+}
+:root[data-theme="dark"] .kanban-chip-avaluo {
+  background: #4b2f0b;
+  color: #fcd34d;
+}
+
+/* ===========================================================================
+ * Iter 5 (oct-2026) — Features operativas
+ * =========================================================================== */
+
+.next-step-card { border-left: 3px solid var(--border, #ddd); }
+.next-step-card.next-step-vencido { border-left-color: #d32f2f; }
+.next-step-form textarea,
+.reminders-form textarea,
+.mp-form input[type=text] { width: 100%; font-family: inherit; }
+.next-step-row,
+.reminders-row,
+.mp-row {
+  display: flex; gap: var(--space-2); align-items: center;
+  flex-wrap: wrap; margin-top: var(--space-2);
+}
+.next-step-row input[type=date],
+.reminders-row input[type=date],
+.reminders-row input[type=time],
+.mp-row input { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
+
+.chip-warn { background: #fff3cd; color: #856404; }
+.chip-danger { background: #f8d7da; color: #721c24; }
+.chip-ok { background: #d4edda; color: #155724; }
+.chip-pendiente { background: #e0e0e0; color: #333; }
+.chip-enviado, .chip-completado { background: #d4edda; color: #155724; }
+.chip-fallido { background: #f8d7da; color: #721c24; }
+.chip-cancelado { background: #e0e0e0; color: #666; text-decoration: line-through; }
+.chip-ejecutando { background: #fff3cd; color: #856404; }
+
+.reminders-lista,
+.mp-lista,
+.reminders-proximos-lista,
+.top-templates-lista,
+.vistas-list {
+  list-style: none; padding: 0; margin: var(--space-3) 0 0;
+}
+.reminders-lista li,
+.mp-lista li,
+.reminders-proximos-lista li,
+.top-templates-lista li,
+.vistas-list li {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border, #eee);
+  display: flex; flex-direction: column; gap: var(--space-1);
+}
+.vistas-list li { flex-direction: row; align-items: center; justify-content: space-between; }
+.reminder-meta,
+.mp-item-head {
+  display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;
+}
+.mp-error { color: #d32f2f; display: block; margin-top: 4px; }
+
+.reminder-dot { color: #e67e22; margin-right: 4px; }
+.next-step-cell { max-width: 240px; }
+.next-step-text { color: var(--text, #222); }
+.next-step-fecha { display: block; margin-top: 2px; color: var(--text-muted, #666); }
+.next-step-vence_hoy { color: #e67e22; font-weight: 600; }
+.next-step-vencido { color: #d32f2f; font-weight: 600; }
+
+.vistas-row {
+  display: flex; gap: var(--space-3); align-items: center;
+  flex-wrap: wrap; margin: var(--space-3) 0;
+}
+.vistas-dropdown summary { cursor: pointer; padding: var(--space-1) var(--space-2); }
+.vista-guardar-form {
+  display: flex; gap: var(--space-2); align-items: center;
+}
+.vista-guardar-form input[type=text] {
+  padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm);
+}
+
+.kanban-ns-chip { font-size: 11px; margin-left: 4px; }
+
+.broadcast-form label {
+  display: block; margin-bottom: var(--space-2);
+}
+.broadcast-form input[type=text],
+.broadcast-form select,
+.broadcast-form textarea {
+  width: 100%; padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.templates-analytics-table .tasa-bar-wrap {
+  position: relative; background: #eee; border-radius: var(--radius-sm);
+  width: 160px; height: 20px; overflow: hidden;
+}
+.templates-analytics-table .tasa-bar {
+  background: linear-gradient(90deg, #4caf50, #2e7d32);
+  height: 100%;
+}
+.templates-analytics-table .tasa-txt {
+  position: absolute; top: 2px; left: 8px; font-size: 12px;
+  color: #000; mix-blend-mode: difference; color: #fff;
+}

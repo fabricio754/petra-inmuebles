@@ -1,0 +1,45 @@
+{# ============================================================================
+   Sidebar vertical de navegación (iter 4 — oct 2026)
+   Incluir con {% include "_sidebar.html" %} dentro de <body>.
+   Variables esperadas: `token` (str), `active_section` (str) — opcional.
+   Valores conocidos de active_section: home | leads | kanban | respuestas |
+   quick | formulario. Si no coincide, no se marca ningún item.
+============================================================================ #}
+<aside class="sidebar" aria-label="Navegación principal">
+  <a class="sidebar-logo" href="/panel?token={{ token }}" title="Panel Massi">M</a>
+  <nav class="sidebar-nav">
+    <a href="/panel?token={{ token }}"
+       class="sidebar-item{% if active_section == 'home' %} active{% endif %}"
+       title="Dashboard">
+      <span class="sidebar-icon" aria-hidden="true">🏠</span>
+      <span class="sidebar-label">Home</span>
+    </a>
+    <a href="/panel/leads?token={{ token }}"
+       class="sidebar-item{% if active_section == 'leads' %} active{% endif %}"
+       title="Lista de leads">
+      <span class="sidebar-icon" aria-hidden="true">👥</span>
+      <span class="sidebar-label">Leads</span>
+    </a>
+    <a href="/panel/kanban?token={{ token }}"
+       class="sidebar-item{% if active_section == 'kanban' %} active{% endif %}"
+       title="Kanban">
+      <span class="sidebar-icon" aria-hidden="true">🎯</span>
+      <span class="sidebar-label">Kanban</span>
+    </a>
+    <a href="/panel/respuestas?token={{ token }}"
+       class="sidebar-item{% if active_section == 'respuestas' %} active{% endif %}"
+       title="Respuestas">
+      <span class="sidebar-icon" aria-hidden="true">💬</span>
+      <span class="sidebar-label">Chats</span>
+    </a>
+    <a href="/panel/quick-replies?token={{ token }}"
+       class="sidebar-item{% if active_section == 'quick' %} active{% endif %}"
+       title="Respuestas rápidas">
+      <span class="sidebar-icon" aria-hidden="true">⚡</span>
+      <span class="sidebar-label">Rápidas</span>
+    </a>
+  </nav>
+  <div class="sidebar-foot">
+    <div class="sidebar-user" title="Massi">M</div>
+  </div>
+</aside>

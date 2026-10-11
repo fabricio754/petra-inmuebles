@@ -13,8 +13,9 @@
   body { max-width: 1000px; margin: 0 auto; }
 </style>
 </head>
-<body>
-<p><a class="back" href="/panel?token={{ token }}">← volver al listado</a></p>
+<body class="has-sidebar">
+{% include "_sidebar.html" %}
+<p><a class="back" href="/panel/leads?token={{ token }}">← volver al listado</a></p>
 <h1>📊 Estadísticas del pilot</h1>
 
 <section>
