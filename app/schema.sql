@@ -320,3 +320,68 @@ CREATE TABLE IF NOT EXISTS pilot_recordatorios (
 );
 CREATE INDEX IF NOT EXISTS pilot_recordatorios_disparar_idx
   ON pilot_recordatorios (disparar_at, disparado);
+
+-- === Nuevas features (iter 5 — oct-2026) ====================================
+-- Next step / próxima acción por lead
+ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
+ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_fecha DATE;
+ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_at TIMESTAMPTZ;
+
+-- Reminders / recordatorios programados
+CREATE TABLE IF NOT EXISTS reminders (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES contactos(id) ON DELETE CASCADE,
+  texto TEXT NOT NULL,
+  disparar_at TIMESTAMPTZ NOT NULL,
+  estado VARCHAR(20) NOT NULL DEFAULT 'pendiente',
+  disparado_at TIMESTAMPTZ,
+  autor VARCHAR(100) DEFAULT 'asesor',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS reminders_disparar_idx ON reminders (estado, disparar_at);
+CREATE INDEX IF NOT EXISTS reminders_contacto_idx ON reminders (contacto_id, estado);
+
+-- Scheduled messages / mensajes programados a leads individuales
+CREATE TABLE IF NOT EXISTS mensajes_programados (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES contactos(id) ON DELETE CASCADE,
+  template_name VARCHAR(100) NOT NULL,
+  template_params JSONB NOT NULL DEFAULT '{}',
+  enviar_at TIMESTAMPTZ NOT NULL,
+  estado VARCHAR(20) NOT NULL DEFAULT 'pendiente',
+  enviado_at TIMESTAMPTZ,
+  error TEXT,
+  autor VARCHAR(100) DEFAULT 'asesor',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS mensajes_programados_envio_idx
+  ON mensajes_programados (estado, enviar_at);
+
+-- Broadcasts filtrados (envíos masivos auditables)
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id SERIAL PRIMARY KEY,
+  nombre VARCHAR(200),
+  filtros JSONB NOT NULL DEFAULT '{}',
+  template_name VARCHAR(100) NOT NULL,
+  template_params JSONB NOT NULL DEFAULT '{}',
+  total_destinatarios INT NOT NULL DEFAULT 0,
+  total_enviados INT NOT NULL DEFAULT 0,
+  total_fallidos INT NOT NULL DEFAULT 0,
+  estado VARCHAR(20) NOT NULL DEFAULT 'pendiente',
+  errores JSONB,
+  autor VARCHAR(100) DEFAULT 'asesor',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS broadcasts_estado_idx ON broadcasts (estado, created_at DESC);
+
+-- Vistas guardadas / filtros custom
+CREATE TABLE IF NOT EXISTS vistas_guardadas (
+  id SERIAL PRIMARY KEY,
+  nombre VARCHAR(100) NOT NULL,
+  ruta VARCHAR(50) NOT NULL,
+  query_params JSONB NOT NULL DEFAULT '{}',
+  autor VARCHAR(100) DEFAULT 'asesor',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS vistas_ruta_idx ON vistas_guardadas (ruta, created_at DESC);

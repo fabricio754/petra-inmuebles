@@ -14,7 +14,8 @@
   body { max-width: 980px; margin: 0 auto; }
 </style>
 </head>
-<body>
+<body class="has-sidebar">
+{% include "_sidebar.html" %}
 <div class="topbar">
   <h1>💬 Respuestas · {{ rango_label }}</h1>
   <div style="display: flex; gap: 8px; flex-wrap: wrap;">
