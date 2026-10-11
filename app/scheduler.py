@@ -45,6 +45,13 @@ def iniciar():
     _scheduler.add_job(_drenar_log_mensaje_spool, "interval", minutes=10,
                        id="log_mensaje_spool_drain",
                        max_instances=1, coalesce=True)
+    # Iter 5 (oct-2026): reminders y scheduled messages c/5 min.
+    _scheduler.add_job(_disparar_reminders, "interval", minutes=5,
+                       id="disparar_reminders",
+                       max_instances=1, coalesce=True)
+    _scheduler.add_job(_enviar_mensajes_programados, "interval", minutes=5,
+                       id="enviar_mensajes_programados",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")

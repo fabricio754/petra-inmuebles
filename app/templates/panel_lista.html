@@ -15,11 +15,10 @@
 <body class="has-sidebar">
 {% include "_sidebar.html" %}
 <div class="topbar">
-  <h1>Panel Massi · {{ total }} de {{ total_sin_filtro }} leads</h1>
+  <h1>Leads · {{ total }} de {{ total_sin_filtro }}</h1>
   <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-    <a class="stats-link" href="/panel/respuestas?token={{ token }}">💬 Respuestas</a>
-    <a class="stats-link" href="/panel/quick-replies?token={{ token }}">⚡ Quick replies</a>
-    <a class="stats-link" href="/panel/stats?token={{ token }}">📊 Ver estadísticas</a>
+    <a class="stats-link" href="/panel/kanban?token={{ token }}">🎯 Kanban</a>
+    <a class="stats-link" href="/panel?token={{ token }}">📊 Dashboard</a>
   </div>
 </div>
 <div class="totales">
@@ -41,7 +40,7 @@
 </div>
 {% endif %}
 
-<form class="filtros" method="get" action="/panel">
+<form class="filtros" method="get" action="/panel/leads">
   <input type="hidden" name="token" value="{{ token }}">
   {% if f_bucket %}<input type="hidden" name="bucket" value="{{ f_bucket }}">{% endif %}
   {% if f_estado %}<input type="hidden" name="estado" value="{{ f_estado }}">{% endif %}

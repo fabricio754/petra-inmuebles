@@ -529,9 +529,18 @@ def panel_ping():
     return "pong", 200, {"Content-Type": "text/plain"}
 
 
-@panel.get("/panel")
-def panel_lista():
-    _check_token()
+def _cargar_contexto_leads():
+    """Carga el contexto compartido por /panel/leads y /panel/kanban.
+
+    Devuelve un dict con filas, chips, kanban_columnas, kpis, labels de
+    acciones, SLA count, etc. — la unión de todo lo que ambas vistas
+    necesitan. Puede devolver una Response (503) si el pool está
+    saturado; el caller la retorna tal cual.
+
+    Introducido en iter 4 (oct-2026) para separar el "dashboard"
+    (/panel = stats profundas) de la lista (/panel/leads) y del kanban
+    (/panel/kanban), evitando duplicar la query enorme.
+    """
     token = request.args.get("token", "")
     f_estado = (request.args.get("estado") or "").strip()
     f_bucket = (request.args.get("bucket") or "").strip()
@@ -541,14 +550,9 @@ def panel_lista():
     f_pendiente_humano = request.args.get("pendiente_humano") == "1"
     f_sla = request.args.get("sla") == "1"
     q = (request.args.get("q") or "").strip()
-    # Iter 2 (oct-2026): la ruta ahora es un "dashboard home" con KPIs
-    # + toggle Table/Kanban. Default = table (preserva comportamiento
-    # previo). "kanban" renderea cards agrupadas por bucket. "nc"
-    # (opcional, sólo tiene efecto en kanban) muestra también la
-    # columna no_contactar.
-    view = (request.args.get("view") or "table").strip()
-    if view not in ("table", "kanban"):
-        view = "table"
+    # El toggle Table/Kanban de iter 2-3 se removió: ahora son rutas
+    # separadas (/panel/leads y /panel/kanban). Preservamos `nc` para
+    # mostrar también la columna no_contactar en Kanban.
     kanban_show_nc = request.args.get("nc") == "1"
 
     try:
@@ -800,7 +804,9 @@ def panel_lista():
         return True
 
     kanban_columnas: list[dict] = []
-    if view == "kanban":
+    # Iter 4: siempre construimos las columnas Kanban. Son datos baratos
+    # (`filas_all` ya está en memoria) y /panel/kanban las consume.
+    if True:
         por_bucket_filas: dict[str, list] = {k: [] for k in kanban_order}
         for f in filas_all:
             if not _match_kanban(f):
@@ -851,33 +857,96 @@ def panel_lista():
     # atención" que apunta a `?sla=1`.
     kpis["requieren_atencion"] = sla_count
 
-    return render_template(
-        "panel_home.html",
-        active_section="home",
-        filas=filas, por_estado=sorted(por_estado.items()), token=token,
-        total=len(filas), total_sin_filtro=len(filas_all),
-        ciudades=sorted(ciudades_set), portales=sorted(portales_set),
-        f_estado=f_estado, f_bucket=f_bucket,
-        f_ciudad=f_ciudad, f_portal=f_portal, q=q,
-        f_pendientes=f_pendientes,
-        f_pendiente_humano=f_pendiente_humano,
-        f_sla=f_sla,
-        sla_count=sla_count,
-        labels_resultado=labels_resultado,
-        buckets_chips=buckets_chips,
-        # iter 2 extras
-        view=view,
-        kanban_show_nc=kanban_show_nc,
-        kanban_columnas=kanban_columnas,
-        mover_acciones=mover_acciones,
-        kpis=kpis,
-    )
+    return {
+        "filas": filas,
+        "por_estado": sorted(por_estado.items()),
+        "token": token,
+        "total": len(filas),
+        "total_sin_filtro": len(filas_all),
+        "ciudades": sorted(ciudades_set),
+        "portales": sorted(portales_set),
+        "f_estado": f_estado,
+        "f_bucket": f_bucket,
+        "f_ciudad": f_ciudad,
+        "f_portal": f_portal,
+        "q": q,
+        "f_pendientes": f_pendientes,
+        "f_pendiente_humano": f_pendiente_humano,
+        "f_sla": f_sla,
+        "sla_count": sla_count,
+        "labels_resultado": labels_resultado,
+        "buckets_chips": buckets_chips,
+        "kanban_show_nc": kanban_show_nc,
+        "kanban_columnas": kanban_columnas,
+        "mover_acciones": mover_acciones,
+        "kpis": kpis,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Rutas principales del panel — iter 4 (oct-2026): split en 3 vistas.
+#   /panel         → dashboard (KPIs + stats profundas)
+#   /panel/leads   → tabla de leads (lo que antes era /panel?view=table)
+#   /panel/kanban  → tablero Kanban (lo que antes era /panel?view=kanban)
+#   /panel/stats   → redirect a /panel (bookmarks viejos)
+# ---------------------------------------------------------------------------
+
+def _redirect_legacy_view():
+    """Si alguien entra a /panel con ?view=table|kanban (bookmark pre-iter4),
+    lo mandamos a la ruta nueva preservando los demás query params.
+    Devuelve una Response (redirect) o None si no corresponde."""
+    view = (request.args.get("view") or "").strip().lower()
+    if view not in ("table", "kanban"):
+        return None
+    from urllib.parse import urlencode
+    args = request.args.to_dict(flat=True)
+    args.pop("view", None)
+    target = "/panel/leads" if view == "table" else "/panel/kanban"
+    qs = urlencode(args)
+    return redirect(f"{target}?{qs}" if qs else target)
+
+
+@panel.get("/panel/leads")
+def panel_lista():
+    """Tabla de leads con filtros y SLA (ex `/panel?view=table`)."""
+    _check_token()
+    ctx = _cargar_contexto_leads()
+    if not isinstance(ctx, dict):  # pool busy devolvió un Response (503)
+        return ctx
+    return render_template("panel_lista.html", active_section="leads", **ctx)
+
+
+@panel.get("/panel/kanban")
+def panel_kanban():
+    """Tablero Kanban por bucket (ex `/panel?view=kanban`)."""
+    _check_token()
+    ctx = _cargar_contexto_leads()
+    if not isinstance(ctx, dict):
+        return ctx
+    return render_template("panel_kanban.html", active_section="kanban", **ctx)
 
 
 @panel.get("/panel/stats")
 def panel_stats():
-    """Embudo de conversión y métricas del pilot."""
+    """Antes era la vista independiente de stats. Desde iter 4, /panel
+    ya es el dashboard con KPIs + stats; redirigimos para no romper
+    bookmarks viejos."""
     _check_token()
+    from urllib.parse import urlencode
+    args = request.args.to_dict(flat=True)
+    qs = urlencode(args)
+    return redirect(f"/panel?{qs}" if qs else "/panel")
+
+
+@panel.get("/panel")
+def panel_home():
+    """Dashboard = KPIs + estadísticas profundas (iter 4). Antes vivía
+    en /panel/stats. Si llega con ?view=table|kanban (bookmark pre-iter4),
+    redirigimos a la ruta correspondiente."""
+    _check_token()
+    legacy = _redirect_legacy_view()
+    if legacy is not None:
+        return legacy
     token = request.args.get("token", "")
 
     try:
@@ -1267,7 +1336,7 @@ def panel_stats():
         })
 
     return render_template(
-        "panel_stats.html",
+        "panel_home.html",
         active_section="home",
         token=token,
         embudo=embudo,
@@ -2885,3 +2954,407 @@ def panel_notas_borrar(nota_id):
         return redirect(url_for("panel.panel_detalle", telefono=telefono,
                                 token=token, flash="nota_borrada"))
     return redirect(url_for("panel.panel_lista", token=token))
+
+
+# ===========================================================================
+# Iter 5 (oct-2026) — Features operativas
+# ===========================================================================
+# Feature 1: Next step / próxima acción por lead
+# Feature 2: Reminders / recordatorios programados
+# Feature 3: Mensajes programados a lead individual
+# Feature 4: Broadcasts filtrados
+# Feature 5: Vistas guardadas / filtros custom
+# Feature 6: Analytics por template
+# ---------------------------------------------------------------------------
+
+
+def _contacto_id_por_telefono(telefono: str) -> int | None:
+    try:
+        with _panel_conexion() as conn:
+            fila = conn.execute(
+                "SELECT id FROM contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+        return fila[0] if fila else None
+    except Exception:
+        log.exception("[Panel iter5] _contacto_id_por_telefono fallo %s", telefono)
+        return None
+
+
+# --- Feature 1: Next step --------------------------------------------------
+
+@panel.post("/panel/<telefono>/next-step")
+def panel_next_step(telefono):
+    _check_token()
+    token = request.args.get("token", "")
+    texto = (request.form.get("texto") or "").strip()
+    fecha = (request.form.get("fecha") or "").strip() or None
+    autor = (request.form.get("actor") or "").strip() or "asesor"
+    cid = _contacto_id_por_telefono(telefono)
+    if not cid:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="next_step_sin_contacto"))
+    try:
+        if texto:
+            db.set_next_step(cid, texto, fecha, autor=autor)
+        else:
+            db.clear_next_step(cid, autor=autor)
+    except Exception:
+        log.exception("[Panel] next_step fallo tel=%s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="next_step_err"))
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="next_step_ok"))
+
+
+# --- Feature 2: Reminders --------------------------------------------------
+
+@panel.post("/panel/<telefono>/reminders")
+def panel_reminders_crear(telefono):
+    _check_token()
+    token = request.args.get("token", "")
+    texto = (request.form.get("texto") or "").strip()
+    fecha = (request.form.get("fecha") or "").strip()
+    hora = (request.form.get("hora") or "09:00").strip() or "09:00"
+    autor = (request.form.get("actor") or "").strip() or "asesor"
+    if not texto or not fecha:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="reminder_invalido"))
+    cid = _contacto_id_por_telefono(telefono)
+    if not cid:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="reminder_sin_contacto"))
+    try:
+        disparar_at = datetime.fromisoformat(f"{fecha}T{hora}")
+    except Exception:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="reminder_invalido"))
+    try:
+        db.crear_reminder(cid, texto, disparar_at, autor=autor)
+    except Exception:
+        log.exception("[Panel] reminder crear fallo tel=%s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="reminder_err"))
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="reminder_ok"))
+
+
+@panel.post("/panel/reminders/<int:reminder_id>/cancelar")
+def panel_reminders_cancelar(reminder_id):
+    _check_token()
+    token = request.args.get("token", "")
+    telefono = (request.form.get("telefono") or "").strip()
+    autor = (request.form.get("actor") or "").strip() or "asesor"
+    try:
+        db.cancelar_reminder(reminder_id, autor=autor)
+    except Exception:
+        log.exception("[Panel] reminder cancelar fallo id=%s", reminder_id)
+    if telefono:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="reminder_cancelado"))
+    return redirect(url_for("panel.panel_lista", token=token))
+
+
+# --- Feature 3: Scheduled messages -----------------------------------------
+
+@panel.post("/panel/<telefono>/scheduled-messages")
+def panel_scheduled_messages_crear(telefono):
+    _check_token()
+    token = request.args.get("token", "")
+    template_name = (request.form.get("template_name") or "").strip()
+    fecha = (request.form.get("fecha") or "").strip()
+    hora = (request.form.get("hora") or "09:00").strip() or "09:00"
+    autor = (request.form.get("actor") or "").strip() or "asesor"
+    # params: campos adicionales form[param_<n>] → dict
+    params = {}
+    for k, v in request.form.items():
+        if k.startswith("param_"):
+            params[k[6:]] = v
+    if not template_name or not fecha:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="mp_invalido"))
+    cid = _contacto_id_por_telefono(telefono)
+    if not cid:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="mp_sin_contacto"))
+    try:
+        enviar_at = datetime.fromisoformat(f"{fecha}T{hora}")
+    except Exception:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="mp_invalido"))
+    try:
+        db.programar_mensaje(cid, template_name, params, enviar_at, autor=autor)
+    except Exception:
+        log.exception("[Panel] mp crear fallo tel=%s", telefono)
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="mp_err"))
+    return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                            token=token, flash="mp_ok"))
+
+
+@panel.post("/panel/scheduled-messages/<int:mp_id>/cancelar")
+def panel_scheduled_messages_cancelar(mp_id):
+    _check_token()
+    token = request.args.get("token", "")
+    telefono = (request.form.get("telefono") or "").strip()
+    autor = (request.form.get("actor") or "").strip() or "asesor"
+    try:
+        db.cancelar_mensaje_programado(mp_id, autor=autor)
+    except Exception:
+        log.exception("[Panel] mp cancelar fallo id=%s", mp_id)
+    if telefono:
+        return redirect(url_for("panel.panel_detalle", telefono=telefono,
+                                token=token, flash="mp_cancelado"))
+    return redirect(url_for("panel.panel_scheduled_messages_lista",
+                            token=token))
+
+
+@panel.get("/panel/scheduled-messages")
+def panel_scheduled_messages_lista():
+    _check_token()
+    token = request.args.get("token", "")
+    try:
+        mensajes = db.listar_mensajes_programados_pendientes_global(limit=200)
+    except Exception:
+        mensajes = []
+    return render_template("panel_scheduled_messages.html",
+                           active_section="scheduled",
+                           token=token, mensajes=mensajes)
+
+
+# --- Feature 4: Broadcasts -------------------------------------------------
+
+@panel.get("/panel/broadcasts")
+def panel_broadcasts_lista():
+    _check_token()
+    token = request.args.get("token", "")
+    try:
+        broadcasts = db.listar_broadcasts(limit=200)
+    except Exception:
+        broadcasts = []
+    return render_template("panel_broadcasts.html",
+                           active_section="broadcasts",
+                           token=token, broadcasts=broadcasts)
+
+
+@panel.get("/panel/broadcasts/nuevo")
+def panel_broadcasts_nuevo():
+    """Wizard de nuevo broadcast en una sola página.
+
+    Query params:
+      - preview=1  → ya hay filtros + template, muestra preview.
+    Si no, muestra form con filtros + selector de template + variables.
+    """
+    _check_token()
+    token = request.args.get("token", "")
+    paso = (request.args.get("paso") or "1").strip()
+    # recoge filtros / template de los args
+    filtros = {
+        "ciudad": (request.args.get("ciudad") or "").strip(),
+        "portal": (request.args.get("portal") or "").strip(),
+        "bucket": (request.args.get("bucket") or "").strip(),
+    }
+    template_name = (request.args.get("template_name") or "").strip()
+    nombre_bc = (request.args.get("nombre_bc") or "").strip()
+    params_raw = (request.args.get("template_params") or "").strip()
+    try:
+        template_params = json.loads(params_raw) if params_raw else {}
+    except Exception:
+        template_params = {}
+
+    # Para selectores
+    try:
+        with _panel_conexion() as conn:
+            ciudades = [r[0] for r in conn.execute(
+                "SELECT DISTINCT ciudad FROM contactos "
+                "WHERE ciudad IS NOT NULL AND ciudad <> '' ORDER BY ciudad"
+            ).fetchall()]
+            portales = [r[0] for r in conn.execute(
+                "SELECT DISTINCT portal FROM contactos "
+                "WHERE portal IS NOT NULL AND portal <> '' ORDER BY portal"
+            ).fetchall()]
+    except Exception:
+        ciudades = []
+        portales = []
+
+    # Preview
+    destinatarios = []
+    total_preview = 0
+    if paso == "preview":
+        try:
+            from app import broadcasts as _bc
+            destinatarios = _bc.preview_broadcast(filtros)
+            total_preview = len(destinatarios)
+        except Exception:
+            log.exception("[Panel] broadcast preview fallo")
+
+    return render_template("panel_broadcast_nuevo.html",
+                           active_section="broadcasts",
+                           token=token, paso=paso,
+                           filtros=filtros, template_name=template_name,
+                           template_params=template_params,
+                           template_params_json=json.dumps(template_params),
+                           nombre_bc=nombre_bc,
+                           ciudades=ciudades, portales=portales,
+                           buckets=BUCKETS_ORDEN,
+                           buckets_labels=BUCKETS_LABELS,
+                           destinatarios=destinatarios,
+                           total_preview=total_preview)
+
+
+@panel.post("/panel/broadcasts")
+def panel_broadcasts_crear():
+    _check_token()
+    token = request.args.get("token", "")
+    nombre = (request.form.get("nombre") or "").strip()
+    template_name = (request.form.get("template_name") or "").strip()
+    autor = (request.form.get("actor") or "").strip() or "asesor"
+    filtros = {
+        "ciudad": (request.form.get("ciudad") or "").strip(),
+        "portal": (request.form.get("portal") or "").strip(),
+        "bucket": (request.form.get("bucket") or "").strip(),
+    }
+    params = {}
+    for k, v in request.form.items():
+        if k.startswith("param_"):
+            params[k[6:]] = v
+    if not template_name:
+        return redirect(url_for("panel.panel_broadcasts_nuevo", token=token))
+    try:
+        from app import broadcasts as _bc
+        # Preview para contar destinatarios
+        destinatarios = _bc.preview_broadcast(filtros)
+        bid = db.crear_broadcast(nombre, filtros, template_name, params,
+                                 len(destinatarios), autor=autor)
+        # Decisión: sincrónico si <50; background si más.
+        if len(destinatarios) < 50:
+            db.marcar_broadcast_estado(bid, "ejecutando")
+            res = _bc.ejecutar_broadcast_lista(bid, destinatarios,
+                                               template_name, params,
+                                               autor=autor)
+            db.marcar_broadcast_estado(
+                bid, "completado",
+                total_enviados=res["enviados"],
+                total_fallidos=res["fallidos"],
+                errores=res["errores"],
+                completed=True,
+            )
+        else:
+            import threading as _th
+            db.marcar_broadcast_estado(bid, "ejecutando")
+
+            def _run():
+                try:
+                    res = _bc.ejecutar_broadcast_lista(bid, destinatarios,
+                                                       template_name, params,
+                                                       autor=autor)
+                    db.marcar_broadcast_estado(
+                        bid, "completado",
+                        total_enviados=res["enviados"],
+                        total_fallidos=res["fallidos"],
+                        errores=res["errores"],
+                        completed=True,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("[Panel] broadcast bg fallo bid=%s", bid)
+                    db.marcar_broadcast_estado(
+                        bid, "fallido",
+                        errores=[{"error": str(exc)[:200]}],
+                        completed=True,
+                    )
+
+            _th.Thread(target=_run, name=f"broadcast-{bid}",
+                       daemon=True).start()
+    except Exception:
+        log.exception("[Panel] broadcast crear fallo")
+        return redirect(url_for("panel.panel_broadcasts_lista",
+                                token=token))
+    return redirect(url_for("panel.panel_broadcasts_lista", token=token))
+
+
+@panel.post("/panel/broadcasts/<int:bid>/cancelar")
+def panel_broadcasts_cancelar(bid):
+    _check_token()
+    token = request.args.get("token", "")
+    try:
+        bc = db.obtener_broadcast(bid)
+        if bc and bc.get("estado") in ("pendiente", "ejecutando"):
+            db.marcar_broadcast_estado(bid, "cancelado", completed=True)
+    except Exception:
+        log.exception("[Panel] broadcast cancelar fallo bid=%s", bid)
+    return redirect(url_for("panel.panel_broadcasts_lista", token=token))
+
+
+# --- Feature 5: Vistas guardadas -------------------------------------------
+
+@panel.post("/panel/vistas")
+def panel_vistas_guardar():
+    _check_token()
+    token = request.args.get("token", "")
+    nombre = (request.form.get("nombre") or "").strip()
+    ruta = (request.form.get("ruta") or "/panel").strip()
+    autor = (request.form.get("actor") or "").strip() or "asesor"
+    # query_params: todo lo demás del form salvo "nombre", "ruta", "actor".
+    reserved = {"nombre", "ruta", "actor", "token"}
+    qp = {k: v for k, v in request.form.items()
+          if k not in reserved and v not in (None, "")}
+    if not nombre:
+        return redirect(ruta + f"?token={token}")
+    try:
+        db.guardar_vista(nombre, ruta, qp, autor=autor)
+    except Exception:
+        log.exception("[Panel] guardar_vista fallo")
+    # Redirige a la ruta de origen preservando los filtros del form.
+    import urllib.parse as _up
+    qs = _up.urlencode({"token": token, **qp})
+    return redirect(f"{ruta}?{qs}")
+
+
+@panel.post("/panel/vistas/<int:vista_id>/borrar")
+def panel_vistas_borrar(vista_id):
+    _check_token()
+    token = request.args.get("token", "")
+    ruta = (request.form.get("ruta") or "/panel").strip()
+    try:
+        db.borrar_vista(vista_id)
+    except Exception:
+        log.exception("[Panel] borrar_vista fallo id=%s", vista_id)
+    return redirect(f"{ruta}?token={token}")
+
+
+# --- Feature 6: Analytics por template -------------------------------------
+
+@panel.get("/panel/templates/analytics")
+def panel_templates_analytics():
+    _check_token()
+    token = request.args.get("token", "")
+    rango = (request.args.get("rango") or "30d").strip()
+    desde = None
+    hasta = None
+    hoy = datetime.now(timezone.utc)
+    if rango == "hoy":
+        desde = hoy.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif rango == "7d":
+        desde = hoy - timedelta(days=7)
+    elif rango == "30d":
+        desde = hoy - timedelta(days=30)
+    elif rango == "custom":
+        d_raw = (request.args.get("desde") or "").strip()
+        h_raw = (request.args.get("hasta") or "").strip()
+        try:
+            if d_raw:
+                desde = datetime.fromisoformat(d_raw).replace(tzinfo=timezone.utc)
+            if h_raw:
+                hasta = datetime.fromisoformat(h_raw).replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+    try:
+        rows = db.analytics_templates(desde=desde, hasta=hasta)
+    except Exception:
+        log.exception("[Panel] analytics_templates fallo")
+        rows = []
+    return render_template("panel_templates_analytics.html",
+                           active_section="templates_analytics",
+                           token=token, rango=rango,
+                           desde=desde, hasta=hasta,
+                           templates=rows)
