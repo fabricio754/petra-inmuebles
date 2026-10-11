@@ -1358,10 +1358,26 @@ def panel_home():
             "ultima_act": _fmt_dt(lc.get("ultima_act")),
         })
 
+    # KPIs del strip (iter 4 — fusión con stats). Fail-silent a ceros si
+    # kpis_dashboard() falla, igual que en /panel/leads y /panel/kanban.
+    try:
+        kpis = db.kpis_dashboard()
+    except Exception:
+        log.exception("[Panel home] kpis_dashboard falló; se usan ceros.")
+        kpis = {
+            "leads_activos": 0, "leads_activos_delta": None,
+            "nuevos_semana": 0, "nuevos_delta": None,
+            "respondidos_semana": 0, "respondidos_delta": None,
+            "sureti_mes": 0, "sureti_delta": None,
+            "pct_conversion": None, "pct_conversion_delta": None,
+            "requieren_atencion": 0, "requieren_atencion_delta": None,
+        }
+
     return render_template(
         "panel_home.html",
         active_section="home",
         token=token,
+        kpis=kpis,
         embudo=embudo,
         monto_potencial_m=monto_potencial_m,
         comision_potencial_m=comision_potencial_m,
