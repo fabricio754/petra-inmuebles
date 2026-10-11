@@ -41,6 +41,39 @@
 </div>
 {% endif %}
 
+{# Vistas guardadas (iter5) #}
+<div class="vistas-row">
+  <details class="vistas-dropdown">
+    <summary>⭐ Mis vistas{% if vistas_guardadas %} ({{ vistas_guardadas|length }}){% endif %}</summary>
+    <ul class="vistas-list">
+      {% for v in vistas_guardadas %}
+        <li>
+          <a href="/panel/kanban?token={{ token }}{% for k, val in v.query_params.items() %}&{{ k }}={{ val }}{% endfor %}">{{ v.nombre }}</a>
+          <form method="post" action="/panel/vistas/{{ v.id }}/borrar?token={{ token }}" style="display:inline;">
+            <input type="hidden" name="ruta" value="/panel/kanban">
+            <button type="submit" class="btn-borrar-nota"
+                    onclick="return confirm('¿Borrar vista {{ v.nombre }}?')">×</button>
+          </form>
+        </li>
+      {% else %}
+        <li class="vacio">Sin vistas guardadas todavía.</li>
+      {% endfor %}
+    </ul>
+  </details>
+  <form method="post" action="/panel/vistas?token={{ token }}" class="vista-guardar-form">
+    <input type="hidden" name="ruta" value="/panel/kanban">
+    {% if f_bucket %}<input type="hidden" name="bucket" value="{{ f_bucket }}">{% endif %}
+    {% if f_ciudad %}<input type="hidden" name="ciudad" value="{{ f_ciudad }}">{% endif %}
+    {% if f_portal %}<input type="hidden" name="portal" value="{{ f_portal }}">{% endif %}
+    {% if f_sla %}<input type="hidden" name="sla" value="1">{% endif %}
+    {% if f_pendientes %}<input type="hidden" name="pendientes" value="1">{% endif %}
+    {% if f_pendiente_humano %}<input type="hidden" name="pendiente_humano" value="1">{% endif %}
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    <input type="text" name="nombre" maxlength="100" required placeholder="Nombre de vista…">
+    <button type="submit">⭐ Guardar vista</button>
+  </form>
+</div>
+
 <form class="filtros" method="get" action="/panel/kanban">
   <input type="hidden" name="token" value="{{ token }}">
   {% if f_bucket %}<input type="hidden" name="bucket" value="{{ f_bucket }}">{% endif %}
@@ -100,10 +133,16 @@
                href="/panel/{{ f.telefono }}?token={{ token }}">
               <div class="kanban-card-head">
                 {% if f.no_leido %}<span class="unread-dot" title="No leído"></span>{% endif %}
+                {% if f.tiene_reminder_hoy %}<span class="reminder-dot" title="Recordatorio hoy">⏰</span>{% endif %}
                 <span class="kanban-card-nombre">{{ f.nombre or f.telefono }}</span>
                 {% if f.sla and f.sla != 'ok' %}
                   <span class="sla-dot sla-dot-{{ f.sla }} kanban-card-sla"
                         title="{{ f.sla_tooltip }}"></span>
+                {% endif %}
+                {% if f.next_step_estado == 'vence_hoy' %}
+                  <span class="chip chip-warn kanban-ns-chip">⏰ Hoy</span>
+                {% elif f.next_step_estado == 'vencido' %}
+                  <span class="chip chip-danger kanban-ns-chip">⚠ Vencido</span>
                 {% endif %}
               </div>
               {% if f.nombre %}
