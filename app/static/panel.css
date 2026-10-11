@@ -2948,3 +2948,103 @@ body.has-sidebar {
 .kanban-card:hover {
   box-shadow: var(--shadow-md);
 }
+
+/* ============================================================================
+   Iter 4 (oct-2026) — Headers Kanban coloreados por bucket
+   Cada columna lleva su color (gradiente) en el header para que el flujo
+   humano-first se lea de un vistazo. El contador va en badge blanco
+   semitransparente para contraste WCAG en los 7 colores.
+   ============================================================================ */
+.kanban-col-nuevo .kanban-col-head {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-respondio .kanban-col-head {
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-contactado .kanban-col-head {
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-enviar_formulario .kanban-col-head {
+  background: linear-gradient(135deg, #fb923c, #fdba74);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-enviar_a_sureti .kanban-col-head {
+  background: linear-gradient(135deg, #10b981, #34d399);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+.kanban-col-recontactar .kanban-col-head {
+  background: linear-gradient(135deg, #eab308, #facc15);
+  color: #1a1a2e;      /* amarillo requiere texto oscuro para contraste */
+  border-bottom-color: transparent;
+}
+.kanban-col-no_contactar .kanban-col-head {
+  background: linear-gradient(135deg, #ef4444, #f87171);
+  color: #ffffff;
+  border-bottom-color: transparent;
+}
+
+/* Al pintarse el header con color, el título debe heredar y el contador va
+   en badge blanco translúcido. */
+.kanban-column[class*="kanban-col-"] .kanban-col-head .kanban-col-title { color: inherit; }
+.kanban-column[class*="kanban-col-"] .kanban-col-head .kanban-col-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: inherit;
+  font-weight: 700;
+}
+/* Columna "recontactar" usa texto oscuro — contador también. */
+.kanban-col-recontactar .kanban-col-head .kanban-col-count {
+  background: rgba(26, 26, 46, 0.14);
+  color: #1a1a2e;
+}
+
+/* ---- Card Kanban: avatar bottom-right + chip avalúo --------------------- */
+.kanban-card-foot {
+  position: relative;
+}
+.kanban-card-avatar {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+}
+.kanban-card-avatar .avatar-sm {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.kanban-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+.kanban-chip-avaluo {
+  display: inline-flex;
+  align-items: center;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  line-height: 1.3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .kanban-chip-avaluo {
+    background: #4b2f0b;
+    color: #fcd34d;
+  }
+}
+:root[data-theme="dark"] .kanban-chip-avaluo {
+  background: #4b2f0b;
+  color: #fcd34d;
+}
