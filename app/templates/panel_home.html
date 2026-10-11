@@ -21,6 +21,9 @@
     <a class="stats-link" href="/panel/kanban?token={{ token }}">🎯 Kanban</a>
     <a class="stats-link" href="/panel/respuestas?token={{ token }}">💬 Respuestas</a>
     <a class="stats-link" href="/panel/quick-replies?token={{ token }}">⚡ Quick replies</a>
+    <a class="stats-link" href="/panel/broadcasts?token={{ token }}">📣 Broadcasts</a>
+    <a class="stats-link" href="/panel/scheduled-messages?token={{ token }}">📅 Programados</a>
+    <a class="stats-link" href="/panel/templates/analytics?token={{ token }}">📈 Analytics</a>
   </div>
 </div>
 
@@ -85,18 +88,38 @@
   </a>
 </div>
 
-{# ============================= STATS SECTIONS ============================== #}
-<section>
-  <h2>Embudo de conversión</h2>
-  <div class="embudo">
-    {% for e in embudo %}
-    <div class="embudo-row">
-      <div class="nombre">{{ e.nombre }}</div>
-      <div class="barra-cell"><span class="barra" style="width: {% if e.barra > 0 %}{{ (e.barra / 40 * 100)|round(1) }}%{% else %}2px{% endif %};"></span></div>
-      <div class="n">{{ e.n }}</div>
-      <div class="pct">{{ e.pct_total }}% total · {{ e.pct_prev }}% paso prev</div>
-    </div>
+{# Iter 5 — recordatorios próximos 24h + top templates #}
+{% if reminders_proximos %}
+<section class="card reminders-proximos-card">
+  <h2>⏰ Recordatorios próximos (24h)</h2>
+  <ul class="reminders-proximos-lista">
+    {% for r in reminders_proximos %}
+      <li>
+        <strong>{{ r.disparar_at.strftime('%Y-%m-%d %H:%M') }}</strong>
+        <a href="/panel/{{ r.telefono }}?token={{ token }}">{{ r.nombre or r.telefono }}</a>
+        <small>— {{ r.texto[:80] }}{% if r.texto|length > 80 %}…{% endif %}</small>
+      </li>
     {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if top_templates %}
+<section class="card top-templates-card">
+  <h2>🏆 Top templates (tasa de respuesta 48h, últimos 30d)</h2>
+  <ul class="top-templates-lista">
+    {% for t in top_templates %}
+      <li>
+        <strong>{{ t.template_name }}</strong>
+        — {{ t.respondieron_48h }}/{{ t.total_enviados }}
+        <span class="chip chip-ok">{{ t.tasa_respuesta_pct }}%</span>
+      </li>
+    {% endfor %}
+  </ul>
+  <small><a href="/panel/templates/analytics?token={{ token }}">Ver análisis completo →</a></small>
+</section>
+{% endif %}
+
   </div>
   <p class="nota">Barras proporcionales a captados. Porcentaje "paso prev" = n / paso inmediato anterior.</p>
 </section>

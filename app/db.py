@@ -1746,3 +1746,557 @@ def interpolar_variables(texto: str, contacto: dict | None) -> str:
     out = _re.sub(r"[ \t]+(?=\n)", "", out)
     out = _re.sub(r"\n{3,}", "\n\n", out)
     return out.strip()
+
+# === Iter 5 (oct-2026) ======================================================
+# Feature 1: Next step / próxima acción por lead
+# Feature 2: Reminders / recordatorios
+# Feature 3: Mensajes programados
+# Feature 4: Broadcasts filtrados
+# Feature 5: Vistas guardadas
+# Feature 6: Analytics por template
+# Reusa estilo: _conexion_directa (bypass pool), fail-silent en reads.
+
+from datetime import date as _date, datetime as _dt
+
+
+def set_next_step(contacto_id: int, texto: str,
+                  fecha=None, autor: str = "asesor") -> None:
+    """Setea next_step_texto y next_step_fecha. Si texto vacío → clear.
+
+    `fecha` puede ser date, datetime o string ISO. Si None, se guarda NULL.
+    """
+    if contacto_id is None:
+        return
+    if not (texto or "").strip():
+        return clear_next_step(contacto_id, autor=autor)
+    texto_final = texto.strip()[:4000]
+    fecha_final = None
+    if isinstance(fecha, (_dt, _date)):
+        fecha_final = fecha
+    elif isinstance(fecha, str) and fecha.strip():
+        fecha_final = fecha.strip()[:10]
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE contactos SET next_step_texto = %s, next_step_fecha = %s, "
+            "next_step_at = NOW() WHERE id = %s",
+            (texto_final, fecha_final, contacto_id),
+        )
+    try:
+        registrar_evento(
+            contacto_id, "next_step_actualizado",
+            {"texto": texto_final[:200],
+             "fecha": str(fecha_final) if fecha_final else None},
+            autor=autor,
+        )
+    except Exception:
+        pass
+
+
+def clear_next_step(contacto_id: int, autor: str = "asesor") -> None:
+    if contacto_id is None:
+        return
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE contactos SET next_step_texto = NULL, next_step_fecha = NULL, "
+            "next_step_at = NOW() WHERE id = %s",
+            (contacto_id,),
+        )
+    try:
+        registrar_evento(
+            contacto_id, "next_step_actualizado",
+            {"cleared": True}, autor=autor,
+        )
+    except Exception:
+        pass
+
+
+def next_step_estado(fecha) -> str | None:
+    """'ok' | 'vence_hoy' | 'vencido' | None (sin fecha o sin texto)."""
+    if not fecha:
+        return None
+    try:
+        hoy = _dt.now().date()
+        if isinstance(fecha, _dt):
+            f = fecha.date()
+        elif isinstance(fecha, _date):
+            f = fecha
+        else:
+            f = _dt.fromisoformat(str(fecha)).date()
+    except Exception:
+        return None
+    if f < hoy:
+        return "vencido"
+    if f == hoy:
+        return "vence_hoy"
+    return "ok"
+
+
+# --- Reminders --------------------------------------------------------------
+
+def crear_reminder(contacto_id: int, texto: str, disparar_at,
+                   autor: str = "asesor") -> int | None:
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "INSERT INTO reminders (contacto_id, texto, disparar_at, autor) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (contacto_id, (texto or "")[:4000], disparar_at,
+             autor or "asesor"),
+        ).fetchone()
+        rid = fila[0] if fila else None
+    try:
+        registrar_evento(
+            contacto_id, "reminder_creado",
+            {"reminder_id": rid, "texto": (texto or "")[:120],
+             "disparar_at": str(disparar_at)},
+            autor=autor,
+        )
+    except Exception:
+        pass
+    return rid
+
+
+def cancelar_reminder(reminder_id: int, autor: str = "asesor") -> None:
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "UPDATE reminders SET estado = 'cancelado' "
+            "WHERE id = %s AND estado = 'pendiente' RETURNING contacto_id",
+            (reminder_id,),
+        ).fetchone()
+    if fila:
+        try:
+            registrar_evento(fila[0], "reminder_cancelado",
+                             {"reminder_id": reminder_id}, autor=autor)
+        except Exception:
+            pass
+
+
+def listar_reminders_pendientes_contacto(contacto_id: int) -> list[dict]:
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT id, contacto_id, texto, disparar_at, estado, autor, "
+                "       created_at "
+                "FROM reminders WHERE contacto_id = %s AND estado = 'pendiente' "
+                "ORDER BY disparar_at ASC",
+                (contacto_id,),
+            )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_reminders] fallo (%s): %s", contacto_id, exc)
+        return []
+
+
+def listar_reminders_para_disparar() -> list[dict]:
+    """Reminders con estado=pendiente y disparar_at <= NOW()."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT r.id, r.contacto_id, r.texto, r.disparar_at, r.autor, "
+                "       c.telefono "
+                "FROM reminders r "
+                "JOIN contactos c ON c.id = r.contacto_id "
+                "WHERE r.estado = 'pendiente' AND r.disparar_at <= NOW() "
+                "ORDER BY r.disparar_at ASC LIMIT 500"
+            )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_reminders_para_disparar] fallo: %s", exc)
+        return []
+
+
+def listar_reminders_proximos(horas: int = 24, limit: int = 20) -> list[dict]:
+    """Reminders pendientes en las próximas N horas, con nombre/teléfono."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT r.id, r.contacto_id, r.texto, r.disparar_at, "
+                "       c.telefono, c.nombre "
+                "FROM reminders r JOIN contactos c ON c.id = r.contacto_id "
+                "WHERE r.estado = 'pendiente' "
+                "  AND r.disparar_at <= NOW() + make_interval(hours => %s) "
+                "ORDER BY r.disparar_at ASC LIMIT %s",
+                (int(horas), int(limit)),
+            )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_reminders_proximos] fallo: %s", exc)
+        return []
+
+
+def marcar_reminder_disparado(reminder_id: int) -> dict | None:
+    """Marca reminder como disparado y devuelve el reminder (dict)."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "UPDATE reminders SET estado = 'disparado', disparado_at = NOW() "
+                "WHERE id = %s AND estado = 'pendiente' "
+                "RETURNING id, contacto_id, texto, autor",
+                (reminder_id,),
+            )
+            fila = cur.fetchone()
+            cols = [c.name for c in cur.description] if cur.description else []
+            return dict(zip(cols, fila)) if fila else None
+    except Exception as exc:
+        log.warning("[marcar_reminder_disparado] fallo (%s): %s",
+                    reminder_id, exc)
+        return None
+
+
+def contactos_con_reminders_hoy() -> set:
+    """Set de contacto_ids con al menos un reminder pendiente dentro
+    del día de hoy. Usado para el badge ⏰ en la lista."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT DISTINCT contacto_id FROM reminders "
+                "WHERE estado = 'pendiente' "
+                "  AND disparar_at::date = CURRENT_DATE"
+            )
+            return {r[0] for r in cur.fetchall()}
+    except Exception:
+        return set()
+
+
+# --- Mensajes programados ---------------------------------------------------
+
+def programar_mensaje(contacto_id: int, template_name: str,
+                      template_params: dict | None, enviar_at,
+                      autor: str = "asesor") -> int | None:
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "INSERT INTO mensajes_programados "
+            "(contacto_id, template_name, template_params, enviar_at, autor) "
+            "VALUES (%s, %s, %s::jsonb, %s, %s) RETURNING id",
+            (contacto_id, (template_name or "")[:100],
+             json.dumps(template_params or {}, default=str),
+             enviar_at, autor or "asesor"),
+        ).fetchone()
+        mid = fila[0] if fila else None
+    try:
+        registrar_evento(
+            contacto_id, "mensaje_programado_creado",
+            {"mensaje_programado_id": mid, "template_name": template_name,
+             "enviar_at": str(enviar_at)},
+            autor=autor,
+        )
+    except Exception:
+        pass
+    return mid
+
+
+def cancelar_mensaje_programado(mp_id: int, autor: str = "asesor") -> None:
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "UPDATE mensajes_programados SET estado = 'cancelado' "
+            "WHERE id = %s AND estado = 'pendiente' RETURNING contacto_id",
+            (mp_id,),
+        ).fetchone()
+    if fila:
+        try:
+            registrar_evento(fila[0], "mensaje_programado_cancelado",
+                             {"mensaje_programado_id": mp_id}, autor=autor)
+        except Exception:
+            pass
+
+
+def listar_mensajes_programados_contacto(contacto_id: int) -> list[dict]:
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT id, contacto_id, template_name, template_params, "
+                "       enviar_at, estado, enviado_at, error, autor, created_at "
+                "FROM mensajes_programados WHERE contacto_id = %s "
+                "ORDER BY enviar_at DESC",
+                (contacto_id,),
+            )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_mp_contacto] fallo (%s): %s", contacto_id, exc)
+        return []
+
+
+def listar_mensajes_programados_para_enviar() -> list[dict]:
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT mp.id, mp.contacto_id, mp.template_name, "
+                "       mp.template_params, mp.enviar_at, c.telefono, c.nombre, "
+                "       c.no_contactar "
+                "FROM mensajes_programados mp "
+                "JOIN contactos c ON c.id = mp.contacto_id "
+                "WHERE mp.estado = 'pendiente' AND mp.enviar_at <= NOW() "
+                "ORDER BY mp.enviar_at ASC LIMIT 200"
+            )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_mp_para_enviar] fallo: %s", exc)
+        return []
+
+
+def listar_mensajes_programados_pendientes_global(limit: int = 200) -> list[dict]:
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT mp.id, mp.contacto_id, mp.template_name, "
+                "       mp.template_params, mp.enviar_at, mp.estado, mp.autor, "
+                "       mp.created_at, c.telefono, c.nombre "
+                "FROM mensajes_programados mp "
+                "JOIN contactos c ON c.id = mp.contacto_id "
+                "WHERE mp.estado = 'pendiente' "
+                "ORDER BY mp.enviar_at ASC LIMIT %s",
+                (int(limit),),
+            )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_mp_pendientes] fallo: %s", exc)
+        return []
+
+
+def marcar_mensaje_programado_enviado(mp_id: int) -> dict | None:
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "UPDATE mensajes_programados SET estado = 'enviado', "
+                "enviado_at = NOW() WHERE id = %s AND estado = 'pendiente' "
+                "RETURNING id, contacto_id, template_name",
+                (mp_id,),
+            )
+            fila = cur.fetchone()
+            cols = [c.name for c in cur.description] if cur.description else []
+            return dict(zip(cols, fila)) if fila else None
+    except Exception as exc:
+        log.warning("[marcar_mp_enviado] fallo (%s): %s", mp_id, exc)
+        return None
+
+
+def marcar_mensaje_programado_fallido(mp_id: int, error: str) -> None:
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            conn.execute(
+                "UPDATE mensajes_programados SET estado = 'fallido', "
+                "enviado_at = NOW(), error = %s WHERE id = %s",
+                ((error or "")[:4000], mp_id),
+            )
+    except Exception as exc:
+        log.warning("[marcar_mp_fallido] fallo (%s): %s", mp_id, exc)
+
+
+# --- Broadcasts -------------------------------------------------------------
+
+def crear_broadcast(nombre: str, filtros: dict, template_name: str,
+                    template_params: dict | None, total_destinatarios: int,
+                    autor: str = "asesor") -> int | None:
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "INSERT INTO broadcasts "
+            "(nombre, filtros, template_name, template_params, "
+            " total_destinatarios, estado, autor) "
+            "VALUES (%s, %s::jsonb, %s, %s::jsonb, %s, 'pendiente', %s) "
+            "RETURNING id",
+            ((nombre or "")[:200],
+             json.dumps(filtros or {}, default=str),
+             (template_name or "")[:100],
+             json.dumps(template_params or {}, default=str),
+             int(total_destinatarios or 0), autor or "asesor"),
+        ).fetchone()
+    return fila[0] if fila else None
+
+
+def marcar_broadcast_estado(bid: int, estado: str,
+                            total_enviados: int | None = None,
+                            total_fallidos: int | None = None,
+                            errores: list | None = None,
+                            completed: bool = False) -> None:
+    try:
+        with _conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "UPDATE broadcasts SET estado = %s, "
+                "  total_enviados = COALESCE(%s, total_enviados), "
+                "  total_fallidos = COALESCE(%s, total_fallidos), "
+                "  errores = COALESCE(%s::jsonb, errores), "
+                "  completed_at = CASE WHEN %s THEN NOW() ELSE completed_at END "
+                "WHERE id = %s",
+                (estado, total_enviados, total_fallidos,
+                 json.dumps(errores) if errores is not None else None,
+                 completed, bid),
+            )
+    except Exception as exc:
+        log.warning("[marcar_broadcast] fallo (%s): %s", bid, exc)
+
+
+def listar_broadcasts(limit: int = 100) -> list[dict]:
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT id, nombre, filtros, template_name, template_params, "
+                "       total_destinatarios, total_enviados, total_fallidos, "
+                "       estado, autor, created_at, completed_at "
+                "FROM broadcasts ORDER BY created_at DESC LIMIT %s",
+                (int(limit),),
+            )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_broadcasts] fallo: %s", exc)
+        return []
+
+
+def obtener_broadcast(bid: int) -> dict | None:
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            cur = conn.execute(
+                "SELECT id, nombre, filtros, template_name, template_params, "
+                "       total_destinatarios, total_enviados, total_fallidos, "
+                "       estado, errores, autor, created_at, completed_at "
+                "FROM broadcasts WHERE id = %s",
+                (bid,),
+            )
+            fila = cur.fetchone()
+            cols = [c.name for c in cur.description] if cur.description else []
+            return dict(zip(cols, fila)) if fila else None
+    except Exception:
+        return None
+
+
+def ya_recibio_template_en_24h(contacto_id: int, template_name: str) -> bool:
+    """Chequea si al contacto ya se le mandó este template en las últimas 24h,
+    sea por broadcast, scheduled msg o remarketing manual. Usa eventos de
+    timeline (`template_remarketing_enviado`, `broadcast_enviado`,
+    `mensaje_programado_enviado`)."""
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            fila = conn.execute(
+                "SELECT 1 FROM eventos_contacto "
+                "WHERE contacto_id = %s "
+                "  AND tipo IN ('template_remarketing_enviado', "
+                "               'broadcast_enviado', "
+                "               'mensaje_programado_enviado') "
+                "  AND detalle->>'template_name' = %s "
+                "  AND created_at >= NOW() - INTERVAL '24 hours' "
+                "LIMIT 1",
+                (contacto_id, template_name),
+            ).fetchone()
+        return bool(fila)
+    except Exception:
+        return False
+
+
+# --- Vistas guardadas -------------------------------------------------------
+
+def guardar_vista(nombre: str, ruta: str, query_params: dict,
+                  autor: str = "asesor") -> int | None:
+    with _conexion_directa(timeout=10) as conn:
+        fila = conn.execute(
+            "INSERT INTO vistas_guardadas (nombre, ruta, query_params, autor) "
+            "VALUES (%s, %s, %s::jsonb, %s) RETURNING id",
+            ((nombre or "")[:100], (ruta or "")[:50],
+             json.dumps(query_params or {}, default=str),
+             autor or "asesor"),
+        ).fetchone()
+    return fila[0] if fila else None
+
+
+def listar_vistas(ruta: str | None = None) -> list[dict]:
+    try:
+        with _conexion_directa(timeout=5) as conn:
+            if ruta:
+                cur = conn.execute(
+                    "SELECT id, nombre, ruta, query_params, autor, created_at "
+                    "FROM vistas_guardadas WHERE ruta = %s "
+                    "ORDER BY nombre ASC",
+                    (ruta,),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT id, nombre, ruta, query_params, autor, created_at "
+                    "FROM vistas_guardadas ORDER BY ruta, nombre"
+                )
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        log.warning("[listar_vistas] fallo: %s", exc)
+        return []
+
+
+def borrar_vista(vista_id: int) -> None:
+    with _conexion_directa(timeout=10) as conn:
+        conn.execute("DELETE FROM vistas_guardadas WHERE id = %s", (vista_id,))
+
+
+# --- Analytics por template -------------------------------------------------
+
+def analytics_templates(desde=None, hasta=None) -> list[dict]:
+    """Métricas por template de WhatsApp enviado.
+
+    Para cada evento `template_remarketing_enviado` (o
+    `mensaje_programado_enviado` / `broadcast_enviado`), cuenta mensajes IN
+    del mismo teléfono dentro de las 48h siguientes al envío → "respondió".
+    Agrupa por template_name.
+
+    `desde` / `hasta`: date|datetime|None (filtran por `created_at` del evento).
+    """
+    try:
+        where_extra = []
+        params: list = []
+        if desde:
+            where_extra.append("e.created_at >= %s")
+            params.append(desde)
+        if hasta:
+            where_extra.append("e.created_at < %s")
+            params.append(hasta)
+        where_sql = (" AND " + " AND ".join(where_extra)) if where_extra else ""
+
+        sql = f"""
+            WITH envios AS (
+              SELECT e.detalle->>'template_name' AS template_name,
+                     c.telefono AS telefono,
+                     e.created_at AS sent_at
+              FROM eventos_contacto e
+              JOIN contactos c ON c.id = e.contacto_id
+              WHERE e.tipo IN ('template_remarketing_enviado',
+                               'mensaje_programado_enviado',
+                               'broadcast_enviado')
+                AND (e.detalle->>'template_name') IS NOT NULL
+                {where_sql}
+            ),
+            respondidos AS (
+              SELECT en.template_name, en.telefono, en.sent_at,
+                     EXISTS (
+                       SELECT 1 FROM mensajes m
+                       WHERE m.telefono = en.telefono
+                         AND m.direccion = 'in'
+                         AND m.fecha > en.sent_at
+                         AND m.fecha <= en.sent_at + INTERVAL '48 hours'
+                     ) AS respondio
+              FROM envios en
+            )
+            SELECT template_name,
+                   COUNT(*) AS total_enviados,
+                   SUM(CASE WHEN respondio THEN 1 ELSE 0 END) AS respondieron_48h,
+                   MAX(sent_at) AS ultimo_envio_at
+            FROM respondidos
+            GROUP BY template_name
+            ORDER BY total_enviados DESC
+        """
+        with _conexion_directa(timeout=15) as conn:
+            cur = conn.execute(sql, params)
+            cols = [c.name for c in cur.description]
+            out = []
+            for r in cur.fetchall():
+                d = dict(zip(cols, r))
+                tot = int(d.get("total_enviados") or 0)
+                resp = int(d.get("respondieron_48h") or 0)
+                d["tasa_respuesta_pct"] = (
+                    round(resp * 100.0 / tot, 1) if tot > 0 else 0.0
+                )
+                out.append(d)
+            return out
+    except Exception as exc:
+        log.warning("[analytics_templates] fallo: %s", exc)
+        return []

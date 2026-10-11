@@ -3048,3 +3048,99 @@ body.has-sidebar {
   background: #4b2f0b;
   color: #fcd34d;
 }
+
+/* ===========================================================================
+ * Iter 5 (oct-2026) — Features operativas
+ * =========================================================================== */
+
+.next-step-card { border-left: 3px solid var(--border, #ddd); }
+.next-step-card.next-step-vencido { border-left-color: #d32f2f; }
+.next-step-form textarea,
+.reminders-form textarea,
+.mp-form input[type=text] { width: 100%; font-family: inherit; }
+.next-step-row,
+.reminders-row,
+.mp-row {
+  display: flex; gap: var(--space-2); align-items: center;
+  flex-wrap: wrap; margin-top: var(--space-2);
+}
+.next-step-row input[type=date],
+.reminders-row input[type=date],
+.reminders-row input[type=time],
+.mp-row input { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
+
+.chip-warn { background: #fff3cd; color: #856404; }
+.chip-danger { background: #f8d7da; color: #721c24; }
+.chip-ok { background: #d4edda; color: #155724; }
+.chip-pendiente { background: #e0e0e0; color: #333; }
+.chip-enviado, .chip-completado { background: #d4edda; color: #155724; }
+.chip-fallido { background: #f8d7da; color: #721c24; }
+.chip-cancelado { background: #e0e0e0; color: #666; text-decoration: line-through; }
+.chip-ejecutando { background: #fff3cd; color: #856404; }
+
+.reminders-lista,
+.mp-lista,
+.reminders-proximos-lista,
+.top-templates-lista,
+.vistas-list {
+  list-style: none; padding: 0; margin: var(--space-3) 0 0;
+}
+.reminders-lista li,
+.mp-lista li,
+.reminders-proximos-lista li,
+.top-templates-lista li,
+.vistas-list li {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border, #eee);
+  display: flex; flex-direction: column; gap: var(--space-1);
+}
+.vistas-list li { flex-direction: row; align-items: center; justify-content: space-between; }
+.reminder-meta,
+.mp-item-head {
+  display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;
+}
+.mp-error { color: #d32f2f; display: block; margin-top: 4px; }
+
+.reminder-dot { color: #e67e22; margin-right: 4px; }
+.next-step-cell { max-width: 240px; }
+.next-step-text { color: var(--text, #222); }
+.next-step-fecha { display: block; margin-top: 2px; color: var(--text-muted, #666); }
+.next-step-vence_hoy { color: #e67e22; font-weight: 600; }
+.next-step-vencido { color: #d32f2f; font-weight: 600; }
+
+.vistas-row {
+  display: flex; gap: var(--space-3); align-items: center;
+  flex-wrap: wrap; margin: var(--space-3) 0;
+}
+.vistas-dropdown summary { cursor: pointer; padding: var(--space-1) var(--space-2); }
+.vista-guardar-form {
+  display: flex; gap: var(--space-2); align-items: center;
+}
+.vista-guardar-form input[type=text] {
+  padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm);
+}
+
+.kanban-ns-chip { font-size: 11px; margin-left: 4px; }
+
+.broadcast-form label {
+  display: block; margin-bottom: var(--space-2);
+}
+.broadcast-form input[type=text],
+.broadcast-form select,
+.broadcast-form textarea {
+  width: 100%; padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.templates-analytics-table .tasa-bar-wrap {
+  position: relative; background: #eee; border-radius: var(--radius-sm);
+  width: 160px; height: 20px; overflow: hidden;
+}
+.templates-analytics-table .tasa-bar {
+  background: linear-gradient(90deg, #4caf50, #2e7d32);
+  height: 100%;
+}
+.templates-analytics-table .tasa-txt {
+  position: absolute; top: 2px; left: 8px; font-size: 12px;
+  color: #000; mix-blend-mode: difference; color: #fff;
+}

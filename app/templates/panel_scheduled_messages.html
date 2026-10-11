@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel Massi — Mensajes programados</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
+</head>
+<body class="has-sidebar">
+<div class="topbar">
+  <h1>📅 Mensajes programados pendientes</h1>
+  <a class="stats-link" href="/panel?token={{ token }}">← Dashboard</a>
+</div>
+<section class="card">
+  {% if mensajes %}
+    <table>
+      <thead>
+        <tr>
+          <th>Lead</th>
+          <th>Template</th>
+          <th>Enviar a</th>
+          <th>Autor</th>
+          <th>Creado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in mensajes %}
+          <tr>
+            <td><a href="/panel/{{ m.telefono }}?token={{ token }}">{{ m.nombre or m.telefono }}</a></td>
+            <td><code>{{ m.template_name }}</code></td>
+            <td>{{ m.enviar_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ m.autor or '—' }}</td>
+            <td>{{ m.created_at.strftime('%Y-%m-%d %H:%M') if m.created_at else '—' }}</td>
+            <td>
+              <form method="post" action="/panel/scheduled-messages/{{ m.id }}/cancelar?token={{ token }}" style="display:inline;">
+                <input type="hidden" name="telefono" value="{{ m.telefono }}">
+                <button type="submit" class="btn-borrar-nota"
+                        onclick="return confirm('¿Cancelar envío?')">Cancelar</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="vacio">No hay mensajes programados pendientes.</p>
+  {% endif %}
+</section>
+</body>
+</html>

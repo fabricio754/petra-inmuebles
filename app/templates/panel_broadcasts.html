@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel Massi — Broadcasts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
+</head>
+<body class="has-sidebar">
+<div class="topbar">
+  <h1>📣 Broadcasts</h1>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <a class="stats-link" href="/panel?token={{ token }}">← Dashboard</a>
+    <a class="stats-link" href="/panel/broadcasts/nuevo?token={{ token }}">+ Nuevo broadcast</a>
+  </div>
+</div>
+<section class="card">
+  {% if broadcasts %}
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Template</th>
+          <th>Filtros</th>
+          <th>Destinatarios</th>
+          <th>Enviados / Fallidos</th>
+          <th>Estado</th>
+          <th>Creado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in broadcasts %}
+          <tr>
+            <td>{{ b.nombre or '—' }}</td>
+            <td><code>{{ b.template_name }}</code></td>
+            <td><small>{{ b.filtros }}</small></td>
+            <td>{{ b.total_destinatarios }}</td>
+            <td>{{ b.total_enviados }} / <span class="text-danger">{{ b.total_fallidos }}</span></td>
+            <td><span class="chip chip-{{ b.estado }}">{{ b.estado }}</span></td>
+            <td>{{ b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '—' }}</td>
+            <td>
+              {% if b.estado in ('pendiente', 'ejecutando') %}
+                <form method="post" action="/panel/broadcasts/{{ b.id }}/cancelar?token={{ token }}" style="display:inline;">
+                  <button type="submit" class="btn-borrar-nota"
+                          onclick="return confirm('¿Cancelar broadcast?')">Cancelar</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="vacio">Sin broadcasts todavía.</p>
+  {% endif %}
+</section>
+</body>
+</html>
