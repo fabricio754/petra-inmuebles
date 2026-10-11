@@ -853,6 +853,7 @@ def panel_lista():
 
     return render_template(
         "panel_home.html",
+        active_section="home",
         filas=filas, por_estado=sorted(por_estado.items()), token=token,
         total=len(filas), total_sin_filtro=len(filas_all),
         ciudades=sorted(ciudades_set), portales=sorted(portales_set),
@@ -1267,6 +1268,7 @@ def panel_stats():
 
     return render_template(
         "panel_stats.html",
+        active_section="home",
         token=token,
         embudo=embudo,
         monto_potencial_m=monto_potencial_m,
@@ -1642,6 +1644,7 @@ def panel_respuestas():
 
     return render_template(
         "panel_respuestas.html",
+        active_section="respuestas",
         token=token,
         tarjetas=tarjetas_filtradas,
         total=len(tarjetas_filtradas),
@@ -1910,6 +1913,7 @@ def panel_detalle(telefono):
     # fuera del modal porque se dispara desde su botón verde separado.
     return render_template(
         "panel_detalle.html",
+        active_section="leads",
         telefono=telefono, estado=estado, token=token,
         bucket=bucket, bucket_label=bucket_label,
         contacto=contacto, sesion=sesion, pipeline=pipeline,
@@ -2347,6 +2351,7 @@ def panel_quick_replies():
     quick_replies = db.listar_quick_replies()
     return render_template(
         "panel_quick_replies.html",
+        active_section="quick",
         token=token, flash=flash,
         quick_replies=quick_replies,
         editar=editar,
@@ -2518,6 +2523,7 @@ def formulario_manual_vista(telefono):
     flash = request.args.get("flash", "")
     return render_template(
         "panel_formulario_manual.html",
+        active_section="leads",
         telefono=telefono, token=token, contacto=contacto, flash=flash,
     )
 

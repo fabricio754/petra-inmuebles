@@ -12,7 +12,8 @@
   /* Overrides específicos de /panel (dashboard home) — el resto vive en panel.css */
 </style>
 </head>
-<body class="dashboard-home">
+<body class="dashboard-home has-sidebar">
+{% include "_sidebar.html" %}
 <div class="topbar">
   <h1>Panel Massi · {{ total }} de {{ total_sin_filtro }} leads</h1>
   <div style="display: flex; gap: 8px; flex-wrap: wrap;">
