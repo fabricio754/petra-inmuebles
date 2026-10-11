@@ -19,6 +19,9 @@
     <a class="stats-link" href="/panel/respuestas?token={{ token }}">💬 Respuestas</a>
     <a class="stats-link" href="/panel/quick-replies?token={{ token }}">⚡ Quick replies</a>
     <a class="stats-link" href="/panel/stats?token={{ token }}">📊 Ver estadísticas</a>
+    <a class="stats-link" href="/panel/broadcasts?token={{ token }}">📣 Broadcasts</a>
+    <a class="stats-link" href="/panel/scheduled-messages?token={{ token }}">📅 Programados</a>
+    <a class="stats-link" href="/panel/templates/analytics?token={{ token }}">📈 Analytics</a>
   </div>
 </div>
 
@@ -88,6 +91,38 @@
   </a>
 </div>
 
+{# Iter 5 — recordatorios próximos 24h + top templates #}
+{% if reminders_proximos %}
+<section class="card reminders-proximos-card">
+  <h2>⏰ Recordatorios próximos (24h)</h2>
+  <ul class="reminders-proximos-lista">
+    {% for r in reminders_proximos %}
+      <li>
+        <strong>{{ r.disparar_at.strftime('%Y-%m-%d %H:%M') }}</strong>
+        <a href="/panel/{{ r.telefono }}?token={{ token }}">{{ r.nombre or r.telefono }}</a>
+        <small>— {{ r.texto[:80] }}{% if r.texto|length > 80 %}…{% endif %}</small>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if top_templates %}
+<section class="card top-templates-card">
+  <h2>🏆 Top templates (tasa de respuesta 48h, últimos 30d)</h2>
+  <ul class="top-templates-lista">
+    {% for t in top_templates %}
+      <li>
+        <strong>{{ t.template_name }}</strong>
+        — {{ t.respondieron_48h }}/{{ t.total_enviados }}
+        <span class="chip chip-ok">{{ t.tasa_respuesta_pct }}%</span>
+      </li>
+    {% endfor %}
+  </ul>
+  <small><a href="/panel/templates/analytics?token={{ token }}">Ver análisis completo →</a></small>
+</section>
+{% endif %}
+
 {# ============================= CHIPS / FILTROS =============================
    Mismos chips de bucket que tenía /panel. Mantienen el param `view` para
    que el toggle Table/Kanban no se pierda al cliquear un chip.
@@ -142,6 +177,40 @@
   <button type="submit">Filtrar</button>
 </form>
 
+{# Iter 5: vistas guardadas / filtros custom #}
+<div class="vistas-row">
+  <details class="vistas-dropdown">
+    <summary>⭐ Mis vistas{% if vistas_guardadas %} ({{ vistas_guardadas|length }}){% endif %}</summary>
+    <ul class="vistas-list">
+      {% for v in vistas_guardadas %}
+        <li>
+          <a href="/panel?token={{ token }}{% for k, val in v.query_params.items() %}&{{ k }}={{ val }}{% endfor %}">{{ v.nombre }}</a>
+          <form method="post" action="/panel/vistas/{{ v.id }}/borrar?token={{ token }}" style="display:inline;">
+            <input type="hidden" name="ruta" value="/panel">
+            <button type="submit" class="btn-borrar-nota"
+                    onclick="return confirm('¿Borrar vista {{ v.nombre }}?')">×</button>
+          </form>
+        </li>
+      {% else %}
+        <li class="vacio">Sin vistas guardadas todavía.</li>
+      {% endfor %}
+    </ul>
+  </details>
+  <form method="post" action="/panel/vistas?token={{ token }}" class="vista-guardar-form">
+    <input type="hidden" name="ruta" value="/panel">
+    {% if f_bucket %}<input type="hidden" name="bucket" value="{{ f_bucket }}">{% endif %}
+    {% if f_ciudad %}<input type="hidden" name="ciudad" value="{{ f_ciudad }}">{% endif %}
+    {% if f_portal %}<input type="hidden" name="portal" value="{{ f_portal }}">{% endif %}
+    {% if f_sla %}<input type="hidden" name="sla" value="1">{% endif %}
+    {% if f_pendientes %}<input type="hidden" name="pendientes" value="1">{% endif %}
+    {% if f_pendiente_humano %}<input type="hidden" name="pendiente_humano" value="1">{% endif %}
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    {% if view and view != 'table' %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
+    <input type="text" name="nombre" maxlength="100" required placeholder="Nombre de vista…">
+    <button type="submit">⭐ Guardar vista</button>
+  </form>
+</div>
+
 {# ============================= VIEW TOGGLE =================================
    Table | Kanban. Preservamos todos los params en el link, excepto `view`
    que se reemplaza.
@@ -185,6 +254,7 @@
       <th>Portal</th>
       <th>Avalúo ($M)</th>
       <th>Estado</th>
+      <th>Próximo paso</th>
       <th>Última actividad</th>
     </tr>
   </thead>
@@ -193,6 +263,7 @@
     <tr{% if f.no_leido %} class="unread"{% endif %}>
       <td class="tel">
         {% if f.no_leido %}<span class="unread-dot" title="No leído"></span>{% endif %}
+        {% if f.tiene_reminder_hoy %}<span class="reminder-dot" title="Recordatorio hoy">⏰</span>{% endif %}
         {{ f | avatar('sm') }}
         <a href="/panel/{{ f.telefono }}?token={{ token }}">{{ f.telefono }}</a>
       </td>
@@ -218,6 +289,19 @@
                 title="{{ f.sla_tooltip }}"></span>
         {% endif %}
       </td>
+      <td class="next-step-cell">
+        {% if f.next_step_texto %}
+          <span class="next-step-text" title="{{ f.next_step_texto }}">
+            {{ f.next_step_texto[:40] }}{% if f.next_step_texto|length > 40 %}…{% endif %}
+          </span>
+          {% if f.next_step_fecha %}
+            <small class="next-step-fecha next-step-{{ f.next_step_estado }}">
+              {{ f.next_step_fecha.strftime('%Y-%m-%d') }}
+              {% if f.next_step_estado == 'vence_hoy' %}⏰{% elif f.next_step_estado == 'vencido' %}⚠{% endif %}
+            </small>
+          {% endif %}
+        {% else %}—{% endif %}
+      </td>
       <td>
         <span class="dot dot-{{ f.ultima_actividad_semaforo }}"></span>{{ f.ultima_actividad_hace }}
       </td>
@@ -241,11 +325,17 @@
                href="/panel/{{ f.telefono }}?token={{ token }}">
               <div class="kanban-card-head">
                 {% if f.no_leido %}<span class="unread-dot" title="No leído"></span>{% endif %}
+                {% if f.tiene_reminder_hoy %}<span class="reminder-dot" title="Recordatorio hoy">⏰</span>{% endif %}
                 {{ f | avatar('sm') }}
                 <span class="kanban-card-nombre">{{ f.nombre or f.telefono }}</span>
                 {% if f.sla and f.sla != 'ok' %}
                   <span class="sla-dot sla-dot-{{ f.sla }} kanban-card-sla"
                         title="{{ f.sla_tooltip }}"></span>
+                {% endif %}
+                {% if f.next_step_estado == 'vence_hoy' %}
+                  <span class="chip chip-warn kanban-ns-chip">⏰ Hoy</span>
+                {% elif f.next_step_estado == 'vencido' %}
+                  <span class="chip chip-danger kanban-ns-chip">⚠ Vencido</span>
                 {% endif %}
               </div>
               {% if f.nombre %}
