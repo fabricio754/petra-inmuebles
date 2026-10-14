@@ -64,6 +64,10 @@ def iniciar():
     _scheduler.add_job(_petra_recordatorios_visitas, "interval", minutes=30,
                        id="petra_recordatorios_visitas",
                        max_instances=1, coalesce=True)
+    # Sprint 13 — reintentos de integraciones externas cada 5 min
+    _scheduler.add_job(_petra_retry_integraciones, "interval", minutes=5,
+                       id="petra_retry_integraciones",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -371,3 +375,27 @@ def _petra_recordatorios_visitas():
             log.info("[Scheduler] petra_recordatorios_visitas: %d encoladas", n)
     except Exception:
         log.exception("[Scheduler] petra_recordatorios_visitas fallo")
+
+
+# Sprint 13 — reintentos de integraciones externas (Flujo 13)
+def _petra_retry_integraciones():
+    """Marca pendientes como listas para que su handler específico las
+    reintente. Por ahora solo pasa los eventos a 'reintentando' con nota.
+    Los handlers específicos (meta_wa_send, sureti, auco) se enganchan
+    cuando se construyen esas integraciones."""
+    try:
+        from app import db as _db, petra_core
+        with _db._conexion_directa(timeout=15) as conn:
+            rows = petra_core.errores_pendientes_de_retry(conn, limit=50)
+            for (eid, prov, op, ent_t, ent_id, payload, intentos) in rows:
+                log.info("[Scheduler] retry integracion id=%s %s/%s intento=%s",
+                         eid, prov, op, intentos + 1)
+                # Marca reintentando — el handler específico, cuando corra
+                # su acción, llama a resolver_error_integracion si tiene éxito
+                # o a registrar_error_integracion (incrementa) si falla.
+                conn.execute(
+                    "UPDATE petra_integracion_errores SET estado='reintentando', updated_at=NOW() WHERE id=%s",
+                    (eid,),
+                )
+    except Exception:
+        log.exception("[Scheduler] petra_retry_integraciones fallo")

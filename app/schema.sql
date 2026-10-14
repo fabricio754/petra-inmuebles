@@ -738,6 +738,39 @@ ALTER TABLE petra_inmuebles ADD COLUMN IF NOT EXISTS dedup_hash TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS petra_inmuebles_dedup_idx
   ON petra_inmuebles (dedup_hash)
   WHERE dedup_hash IS NOT NULL AND estado IN ('borrador','activo','reservado','pausado');
+
+-- =============================================================================
+-- Sprint 13 — Flujo 13: recuperación de errores de integración externa
+-- Cola de reintentos para fallos con Meta / Sureti / Auco / ElevenLabs.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS petra_integracion_errores (
+  id BIGSERIAL PRIMARY KEY,
+  proveedor TEXT NOT NULL,
+      -- meta_whatsapp | sureti | auco | elevenlabs | otro
+  operacion TEXT NOT NULL,
+      -- enviar_template | enviar_mensaje | crear_solicitud | firmar_doc | ...
+  entidad_tipo TEXT,
+  entidad_id INTEGER,
+  payload JSONB,
+  error_mensaje TEXT,
+  error_codigo TEXT,
+  intentos INTEGER NOT NULL DEFAULT 0,
+  max_intentos INTEGER NOT NULL DEFAULT 5,
+  estado TEXT NOT NULL DEFAULT 'pendiente_retry',
+      -- pendiente_retry | reintentando | resuelto | dead_letter | manual
+  proximo_intento_at TIMESTAMPTZ DEFAULT NOW(),
+  resuelto_at TIMESTAMPTZ,
+  nota_humano TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_integ_err_pendiente_idx
+  ON petra_integracion_errores (proximo_intento_at)
+  WHERE estado = 'pendiente_retry';
+CREATE INDEX IF NOT EXISTS petra_integ_err_proveedor_idx
+  ON petra_integracion_errores (proveedor, estado, created_at DESC);
+CREATE INDEX IF NOT EXISTS petra_integ_err_dead_letter_idx
+  ON petra_integracion_errores (created_at DESC) WHERE estado = 'dead_letter';
 -- Next step / próxima acción por lead
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_fecha DATE;

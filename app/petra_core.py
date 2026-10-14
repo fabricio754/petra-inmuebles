@@ -564,6 +564,31 @@ def listar_auditoria():
         return _ok(_rows_to_dicts(cur, rows))
 
 
+@petra_core_bp.get("/integracion_errores")
+def listar_errores_integracion():
+    estado = request.args.get("estado")
+    proveedor = request.args.get("proveedor")
+    limit = min(request.args.get("limit", 50, type=int), 500)
+    sql = ["SELECT * FROM petra_integracion_errores WHERE 1=1"]
+    params = []
+    if estado:
+        sql.append("AND estado=%s"); params.append(estado)
+    if proveedor:
+        sql.append("AND proveedor=%s"); params.append(proveedor)
+    sql.append("ORDER BY created_at DESC LIMIT %s"); params.append(limit)
+    with _db._conexion_directa(timeout=10) as conn:
+        cur = conn.execute(" ".join(sql), tuple(params))
+        return _ok(_rows_to_dicts(cur, cur.fetchall()))
+
+
+@petra_core_bp.post("/integracion_errores/<int:eid>/resolver")
+def resolver_error_http(eid):
+    data = request.get_json(force=True) or {}
+    with _db._conexion_directa(timeout=10) as conn:
+        resolver_error_integracion(conn, eid, nota=data.get("nota"))
+    return _ok({"id": eid, "resuelto": True})
+
+
 @petra_core_bp.post("/agentes/inscribir")
 def inscribir_agente_http():
     """Entry point del Flujo 4 (link anuncio IG → quiero ser agente)."""
@@ -814,6 +839,86 @@ def avanzar_estado_agente(conn, contacto_id, nuevo_estado, metadata_extra=None):
           antes={"estado_agente": actual},
           despues={"estado_agente": nuevo_estado, "extra": metadata_extra})
     return True, "ok"
+
+
+def registrar_error_integracion(conn, proveedor, operacion, error_mensaje,
+                                entidad_tipo=None, entidad_id=None,
+                                payload=None, error_codigo=None,
+                                max_intentos=5):
+    """Flujo 13 — encola un error para reintento con backoff. Idempotente
+    por (proveedor, operacion, entidad_tipo, entidad_id) activo."""
+    try:
+        row = conn.execute(
+            """SELECT id, intentos FROM petra_integracion_errores
+               WHERE proveedor=%s AND operacion=%s
+                 AND COALESCE(entidad_tipo,'')=COALESCE(%s,'')
+                 AND COALESCE(entidad_id,0)=COALESCE(%s,0)
+                 AND estado IN ('pendiente_retry','reintentando')
+               ORDER BY created_at DESC LIMIT 1""",
+            (proveedor, operacion, entidad_tipo, entidad_id),
+        ).fetchone()
+        if row:
+            # Incrementa intentos del existente; backoff exponencial 2^n min
+            new_intentos = row[1] + 1
+            delay_min = min(2 ** new_intentos, 240)  # tope 4h
+            if new_intentos >= max_intentos:
+                conn.execute(
+                    """UPDATE petra_integracion_errores
+                       SET estado='dead_letter', intentos=%s,
+                           error_mensaje=%s, updated_at=NOW()
+                       WHERE id=%s""",
+                    (new_intentos, error_mensaje[:2000], row[0]),
+                )
+            else:
+                conn.execute(
+                    """UPDATE petra_integracion_errores
+                       SET intentos=%s, error_mensaje=%s,
+                           proximo_intento_at=NOW() + make_interval(mins=>%s),
+                           estado='pendiente_retry', updated_at=NOW()
+                       WHERE id=%s""",
+                    (new_intentos, error_mensaje[:2000], delay_min, row[0]),
+                )
+            return row[0]
+        row = conn.execute(
+            """INSERT INTO petra_integracion_errores
+               (proveedor, operacion, entidad_tipo, entidad_id, payload,
+                error_mensaje, error_codigo, max_intentos,
+                proximo_intento_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s, NOW() + interval '2 minutes')
+               RETURNING id""",
+            (proveedor, operacion, entidad_tipo, entidad_id,
+             json.dumps(payload, ensure_ascii=False, default=str) if payload else None,
+             (error_mensaje or "")[:2000], error_codigo, max_intentos),
+        ).fetchone()
+        audit(conn, "integracion_externa", None, proveedor,
+              "error_integracion", "integracion_error", row[0],
+              despues={"operacion": operacion, "codigo": error_codigo})
+        return row[0]
+    except Exception:
+        log.exception("[petra_core] registrar_error_integracion fallo")
+        return None
+
+
+def resolver_error_integracion(conn, err_id, nota=None):
+    conn.execute(
+        """UPDATE petra_integracion_errores
+           SET estado='resuelto', resuelto_at=NOW(), nota_humano=%s,
+               updated_at=NOW()
+           WHERE id=%s""",
+        (nota, err_id),
+    )
+
+
+def errores_pendientes_de_retry(conn, limit=50):
+    rows = conn.execute(
+        """SELECT id, proveedor, operacion, entidad_tipo, entidad_id,
+                  payload, intentos
+           FROM petra_integracion_errores
+           WHERE estado='pendiente_retry' AND proximo_intento_at <= NOW()
+           ORDER BY proximo_intento_at ASC LIMIT %s""",
+        (limit,),
+    ).fetchall()
+    return rows
 
 
 def puede_enviar_remarketing(conn, contacto_id, regla, dentro_dias=7,
