@@ -646,6 +646,14 @@ def handle_inbound(telefono, texto="", button_id=None, list_id=None,
                 "Perfecto, lo dejo publicado así. Si cambias de opinión, escríbeme. 👍"
             )], "flow": None, "paso": None, "cerro_flow": True}
 
+        # Sprint 11 — Detector de reclutamiento agentes Petra (Flujo 4):
+        # El link /petra/agente-link rellena mensaje con tag [AGENTE:utm_source/utm_campaign].
+        # También matchea texto libre "quiero ser agente petra" / "ser agente de petra".
+        if texto and not estado:
+            agente_resp = _maybe_inscribir_agente(conn, contacto_id, tel, texto)
+            if agente_resp:
+                return agente_resp
+
         # Sprint 12 — Cross-sell (Flujo 6): si el contacto es cliente activo
         # y expresa una nueva intención, atendemos como VIP (saltamos el menú
         # genérico y le damos acogida con contexto).
@@ -1142,6 +1150,41 @@ def _flow_me_interesa(conn, inm_id, interesado_id):
                 "Te escribirá directamente. Si prefieres, respóndeme para coordinar."]
 
     return [msg_text("\n".join(partes_i))], [msg_text("\n".join(partes_p))]
+
+
+_RE_AGENTE_TAG = re.compile(r"\[AGENTE:([^/\]]+)/([^\]]+)\]", re.I)
+_AGENTE_KEYWORDS = (
+    "quiero ser agente petra", "ser agente de petra", "ser agente petra",
+    "quiero ser agente", "me interesa ser agente",
+)
+
+
+def _maybe_inscribir_agente(conn, contacto_id, telefono, texto):
+    """Detector del Flujo 4. Si el texto tiene [AGENTE:utm_source/utm_campaign]
+    (del link público) o palabras clave libres, arranca inscripción."""
+    from app import petra_core
+
+    t = (texto or "").lower()
+    m = _RE_AGENTE_TAG.search(texto or "")
+    origen = "link_recruiting"
+    if m:
+        origen = f"{m.group(1).strip()}/{m.group(2).strip()}"
+    elif not any(k in t for k in _AGENTE_KEYWORDS):
+        return None
+
+    cid, estado_inicial = petra_core.inscribir_agente(
+        conn, telefono=telefono, origen=origen,
+    )
+    return {"messages": [msg_text(
+        "👋 ¡Qué bueno que quieras ser agente Petra! "
+        "Ganas comisión por conectar inmuebles en edificios donde instales "
+        "nuestro QR. Para avanzar necesito 3 datos:"
+    ), msg_text(
+        "1) Tu nombre completo\n"
+        "2) Ciudad donde operarías\n"
+        "3) ¿Cuántos edificios conoces donde podrías colocar el QR?"
+    )], "flow": None, "paso": None, "cerro_flow": True,
+        "contacto_id": cid, "estado_agente": estado_inicial}
 
 
 _CROSS_SELL_INTENTS = {

@@ -23,6 +23,7 @@ Reglas:
 import hashlib
 import json
 import logging
+import os
 import re
 from flask import Blueprint, jsonify, request
 
@@ -587,6 +588,30 @@ def resolver_error_http(eid):
     with _db._conexion_directa(timeout=10) as conn:
         resolver_error_integracion(conn, eid, nota=data.get("nota"))
     return _ok({"id": eid, "resuelto": True})
+
+
+@petra_core_bp.get("/agente-link")
+def agente_link_publico():
+    """Link público para campañas de reclutamiento de agentes Petra.
+    Redirige a wa.me/<numero_petra> con mensaje pre-llenado + UTM.
+    No requiere auth (es un link de marketing).
+
+    Query params opcionales:
+      utm_source, utm_campaign, utm_medium, utm_content
+    """
+    from urllib.parse import quote
+
+    numero = (os.environ.get("WA_PILOT_NUMERO_E164") or "573001278631").lstrip("+")
+    utm_source = request.args.get("utm_source", "directo")
+    utm_campaign = request.args.get("utm_campaign", "agentes")
+    utm_medium = request.args.get("utm_medium", "")
+
+    # El mensaje incluye tag [AGENTE] para que el router lo detecte sin ambigüedad
+    msg = (f"Hola, quiero ser agente Petra. "
+           f"[AGENTE:{utm_source}/{utm_campaign}]")
+    url = f"https://wa.me/{numero}?text={quote(msg)}"
+    from flask import redirect
+    return redirect(url, code=302)
 
 
 @petra_core_bp.post("/agentes/inscribir")
