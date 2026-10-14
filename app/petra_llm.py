@@ -366,7 +366,11 @@ def _claude_stream(messages, contexto_contacto=None, base_prompt=None):
     api_key = os.environ.get("ANTHROPIC_API_KEY") or ""
     if not api_key:
         return None
-    client = Anthropic(api_key=api_key)
+    workspace_id = (os.environ.get("ANTHROPIC_WORKSPACE_ID") or "").strip()
+    client_kwargs = {"api_key": api_key}
+    if workspace_id:
+        client_kwargs["default_headers"] = {"anthropic-workspace-id": workspace_id}
+    client = Anthropic(**client_kwargs)
     model = os.environ.get("PETRA_LLM_CLAUDE_MODEL", "claude-haiku-5-5")
     # Convertir messages OpenAI → Claude (system aparte, resto como user/assistant)
     sys_msg = base_prompt or SYSTEM_PROMPT
