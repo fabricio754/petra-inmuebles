@@ -31,6 +31,25 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 from app import petra_router
 
+
+def _log_request(telefono, rama, texto_usuario, texto_asistente, mensajes_in,
+                 stream, latencia_ms, error=None):
+    """Guarda el turno en petra_llm_logs. Silencioso si falla."""
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=5) as conn:
+            conn.execute(
+                """INSERT INTO petra_llm_logs
+                   (telefono, rama, texto_usuario, texto_asistente,
+                    mensajes_in, stream, latencia_ms, error)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (telefono, rama, texto_usuario, texto_asistente,
+                 json.dumps(mensajes_in, ensure_ascii=False) if mensajes_in else None,
+                 stream, latencia_ms, error),
+            )
+    except Exception:
+        log.exception("[petra_llm] fallo guardando log")
+
 log = logging.getLogger("petra")
 
 petra_llm_bp = Blueprint("petra_llm", __name__, url_prefix="/petra/llm")
@@ -279,6 +298,7 @@ def chat_completions():
     stream = bool(payload.get("stream"))
     telefono = _extract_phone(payload)
     texto = _last_user_text(messages)
+    t0 = time.time()
 
     resp_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
@@ -290,6 +310,8 @@ def chat_completions():
             router_resp = _router_text(telefono, texto)
 
     if router_resp:
+        _log_request(telefono, "router", texto, router_resp, messages, stream,
+                     int((time.time() - t0) * 1000))
         if not stream:
             return jsonify(_completion_object(resp_id, created, router_resp))
         def gen_router():
@@ -307,6 +329,9 @@ def chat_completions():
             "inventario de tu edificio o resolver dudas de crédito. ¿Qué "
             "necesitas?"
         )
+        _log_request(telefono, "fallback", texto, fallback, messages, stream,
+                     int((time.time() - t0) * 1000),
+                     error="claude no disponible (sin ANTHROPIC_API_KEY)")
         if not stream:
             return jsonify(_completion_object(resp_id, created, fallback))
         def gen_fb():
@@ -319,20 +344,72 @@ def chat_completions():
     if not stream:
         # Agregamos todo y devolvemos como objeto completo
         full = "".join(list(claude_gen))
+        _log_request(telefono, "claude", texto, full, messages, False,
+                     int((time.time() - t0) * 1000))
         return jsonify(_completion_object(resp_id, created, full))
 
     def gen_claude():
+        acumulado = []
+        err = None
         yield _sse_chunk(resp_id, created, role="assistant", delta_content="")
         try:
             for chunk in claude_gen:
                 if chunk:
+                    acumulado.append(chunk)
                     yield _sse_chunk(resp_id, created, delta_content=chunk)
-        except Exception:
+        except Exception as exc:
             log.exception("[petra_llm] claude stream falló")
+            err = str(exc)[:500]
         yield _sse_chunk(resp_id, created, finish_reason="stop")
         yield "data: [DONE]\n\n"
+        _log_request(telefono, "claude", texto, "".join(acumulado), messages,
+                     True, int((time.time() - t0) * 1000), error=err)
 
     return Response(stream_with_context(gen_claude()), mimetype="text/event-stream")
+
+
+# =============================================================================
+# Observabilidad: ver últimos N requests
+# =============================================================================
+
+
+@petra_llm_bp.get("/logs")
+def logs():
+    if not _check_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        limit = min(int(request.args.get("limit", 50)), 500)
+    except Exception:
+        limit = 50
+    telefono = request.args.get("telefono")
+    from app import db as _db
+    with _db._conexion_directa(timeout=5) as conn:
+        if telefono:
+            rows = conn.execute(
+                """SELECT id, telefono, rama, texto_usuario, texto_asistente,
+                          stream, latencia_ms, error, created_at
+                   FROM petra_llm_logs
+                   WHERE telefono = %s
+                   ORDER BY created_at DESC LIMIT %s""",
+                (telefono, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, telefono, rama, texto_usuario, texto_asistente,
+                          stream, latencia_ms, error, created_at
+                   FROM petra_llm_logs
+                   ORDER BY created_at DESC LIMIT %s""",
+                (limit,),
+            ).fetchall()
+    items = []
+    for r in rows:
+        items.append({
+            "id": r[0], "telefono": r[1], "rama": r[2],
+            "texto_usuario": r[3], "texto_asistente": r[4],
+            "stream": r[5], "latencia_ms": r[6], "error": r[7],
+            "created_at": r[8].isoformat() if r[8] else None,
+        })
+    return jsonify({"items": items, "count": len(items)})
 
 
 # Palabras que indican intención clara de flujo portería

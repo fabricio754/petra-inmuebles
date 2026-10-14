@@ -492,6 +492,26 @@ CREATE INDEX IF NOT EXISTS petra_remarketing_eventos_regla_idx
 CREATE INDEX IF NOT EXISTS petra_remarketing_eventos_contacto_idx
   ON petra_remarketing_eventos (contacto_id, regla, disparado_at DESC);
 
+-- Log de requests al endpoint Custom LLM. Útil para observabilidad y
+-- debugging del agente de ElevenLabs; también permite reconstruir
+-- conversaciones si el histórico se pierde del lado del cliente.
+CREATE TABLE IF NOT EXISTS petra_llm_logs (
+  id SERIAL PRIMARY KEY,
+  telefono VARCHAR(20),
+  rama TEXT,                           -- 'router' | 'claude' | 'fallback'
+  texto_usuario TEXT,
+  texto_asistente TEXT,
+  mensajes_in JSONB,
+  stream BOOLEAN,
+  latencia_ms INTEGER,
+  error TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_llm_logs_telefono_idx
+  ON petra_llm_logs (telefono, created_at DESC);
+CREATE INDEX IF NOT EXISTS petra_llm_logs_created_idx
+  ON petra_llm_logs (created_at DESC);
+
 -- === Nuevas features (iter 5 — oct-2026) ====================================
 -- Next step / próxima acción por lead
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
