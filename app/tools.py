@@ -13,10 +13,67 @@ from functools import wraps
 from flask import Blueprint, jsonify, request
 
 from app import db as _db
+from app import petra_core
 
 log = logging.getLogger("petra")
 
 tools_bp = Blueprint("tools", __name__, url_prefix="/tools")
+
+
+# =============================================================================
+# Puente lead crédito ⇄ petra_oportunidades (Sprint 7)
+# =============================================================================
+
+
+def _bridge_credito_asegurar_oportunidad(conn, telefono, nombre=None,
+                                         origen="template", valor_cop=None):
+    """Garantiza que exista un petra_contacto + petra_oportunidad tipo=credito
+    para este teléfono. Idempotente. Devuelve (contacto_id, oportunidad_id).
+
+    Nunca lanza: si algo falla devuelve (None, None) y loguea."""
+    try:
+        # Contacto
+        row = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (telefono,),
+        ).fetchone()
+        if row:
+            contacto_id = row[0]
+            if nombre:
+                conn.execute(
+                    "UPDATE petra_contactos SET nombre=COALESCE(nombre,%s), updated_at=NOW() WHERE id=%s",
+                    (nombre, contacto_id),
+                )
+        else:
+            row = conn.execute(
+                "INSERT INTO petra_contactos (telefono, nombre) VALUES (%s,%s) RETURNING id",
+                (telefono, nombre),
+            ).fetchone()
+            contacto_id = row[0]
+
+        # Oportunidad crédito abierta
+        row = conn.execute(
+            """SELECT id FROM petra_oportunidades
+               WHERE contacto_id=%s AND tipo='credito'
+                 AND estado NOT IN ('cerrado_ganado','cerrado_perdido')
+               ORDER BY created_at DESC LIMIT 1""",
+            (contacto_id,),
+        ).fetchone()
+        if row:
+            oportunidad_id = row[0]
+            if valor_cop is not None:
+                conn.execute(
+                    "UPDATE petra_oportunidades SET valor_cop=COALESCE(valor_cop,%s), updated_at=NOW() WHERE id=%s",
+                    (valor_cop, oportunidad_id),
+                )
+        else:
+            oportunidad_id = petra_core.crear_oportunidad(
+                conn, contacto_id=contacto_id, tipo="credito",
+                origen=origen, valor_cop=valor_cop,
+            )
+        return contacto_id, oportunidad_id
+    except Exception:
+        log.exception("[tools] bridge_credito fallo tel=%s", telefono)
+        return None, None
 
 _TEL_RE = re.compile(r"^\+?\d{10,15}$")
 _TEL_STRIP_RE = re.compile(r"[\s\-\.]+")
@@ -238,6 +295,21 @@ def crear_o_actualizar_lead():
                  direccion, apto, barrio, estrato, es_ph, hipoteca, patrimonio,
                  propietario_mayor_75, paz_salvo, tipo_persona, cedula, edad, email),
             ).fetchone()
+            # --- Sprint 7: puente a petra_oportunidades + consentimiento habeas data ---
+            _bridge_credito_asegurar_oportunidad(
+                conn, tel, nombre=nombre, origen="template",
+                valor_cop=int(monto) if monto else None,
+            )
+            if _coerce_bool(body.get("habeas_data")) is True:
+                contacto_row = conn.execute(
+                    "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+                ).fetchone()
+                if contacto_row:
+                    petra_core.otorgar_consentimiento(
+                        conn, contacto_id=contacto_row[0],
+                        finalidad="tratamiento_datos", canal="whatsapp",
+                        evidencia={"tool": "/leads", "telefono": tel},
+                    )
     except Exception as exc:
         log.exception("[tools] /leads fallo tel=%s", tel)
         return jsonify({"error": str(exc)}), 500
@@ -423,6 +495,16 @@ def enviar_sureti():
                 "WHERE telefono = %s RETURNING enviado_sureti_at",
                 (tel,),
             ).fetchone()
+            # --- Sprint 7: oportunidad crédito → cerrado_ganado al enviar a Sureti ---
+            contacto_id, oportunidad_id = _bridge_credito_asegurar_oportunidad(
+                conn, tel, nombre=lead.get("nombre"),
+                valor_cop=lead.get("monto_solicitado"),
+            )
+            if oportunidad_id:
+                petra_core.cambiar_estado_oportunidad(
+                    conn, oportunidad_id, "cerrado_ganado",
+                    motivo="enviado_a_sureti", actor="massi",
+                )
     except Exception as exc:
         log.exception("[tools] /sureti fallo tel=%s", tel)
         return jsonify({"error": str(exc)}), 500
