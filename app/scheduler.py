@@ -52,6 +52,10 @@ def iniciar():
     _scheduler.add_job(_enviar_mensajes_programados, "interval", minutes=5,
                        id="enviar_mensajes_programados",
                        max_instances=1, coalesce=True)
+    # Sprint 8 — control de calidad del inventario (Flujo 9) cada 6h
+    _scheduler.add_job(_petra_control_calidad, "interval", hours=6,
+                       id="petra_control_calidad",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -323,3 +327,14 @@ def _enviar_mensajes_programados():
         except Exception as exc:  # noqa: BLE001
             log.exception("[Scheduler] mp send fallo mp_id=%s", mp_id)
             db.marcar_mensaje_programado_fallido(mp_id, str(exc)[:200])
+
+
+# Sprint 8 — control de calidad del inventario Petra (Flujo 9)
+def _petra_control_calidad():
+    try:
+        from app import db as _db, petra_core
+        with _db._conexion_directa(timeout=30) as conn:
+            out = petra_core.control_calidad_inventario(conn)
+        log.info("[Scheduler] petra_control_calidad: %s", out)
+    except Exception:
+        log.exception("[Scheduler] petra_control_calidad fallo")

@@ -436,19 +436,37 @@ def _publicar_procesar_input(paso, texto, button_id, list_id, datos):
 
 
 def _publicar_crear_inmueble(conn, contacto_id, edificio_id, datos):
-    """Crea el inmueble en estado activo y devuelve su id."""
+    """Crea el inmueble en estado activo y devuelve su id. Si existe otro
+    anuncio activo con el mismo hash (torre/piso/tipo/modalidad) → devuelve
+    tupla (None, inm_id_existente) para que el flujo informe duplicado."""
+    from app import petra_core
+
+    dedup = petra_core.dedup_hash_inmueble(
+        edificio_id, datos.get("torre"), datos.get("piso"),
+        datos.get("apto"), datos.get("tipo"), datos.get("modalidad"),
+    )
+    existente = conn.execute(
+        """SELECT id FROM petra_inmuebles
+           WHERE dedup_hash = %s
+             AND estado IN ('borrador','activo','reservado','pausado')
+           LIMIT 1""",
+        (dedup,),
+    ).fetchone()
+    if existente:
+        return None, existente[0]
+
     row = conn.execute(
         "INSERT INTO petra_inmuebles "
         "(edificio_id, contacto_id, tipo, modalidad, torre, piso, area_m2, "
         " parqueadero, precio_millones, precio_arriendo_mensual_millones, "
-        " nombre_anunciante, telefono_contacto, estado, publicado_at) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'activo', NOW()) "
+        " nombre_anunciante, telefono_contacto, dedup_hash, estado, publicado_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'activo', NOW()) "
         "RETURNING id",
         (edificio_id, contacto_id, datos.get("tipo"), datos.get("modalidad"),
          datos.get("torre"), datos.get("piso"), datos.get("area_m2"),
          datos.get("parqueadero"), datos.get("precio_millones"),
          datos.get("precio_arriendo_mensual_millones"),
-         datos.get("nombre_anunciante"), datos.get("telefono_contacto")),
+         datos.get("nombre_anunciante"), datos.get("telefono_contacto"), dedup),
     ).fetchone()
     conn.execute(
         "INSERT INTO petra_contacto_roles "
@@ -458,7 +476,7 @@ def _publicar_crear_inmueble(conn, contacto_id, edificio_id, datos):
         "  estado = 'activo', updated_at = NOW()",
         (contacto_id, edificio_id, json.dumps({"ultimo_inmueble_id": row[0]})),
     )
-    return row[0]
+    return row[0], None
 
 
 # =============================================================================
@@ -512,13 +530,13 @@ def flow_ver_detalle_inmueble(conn, inm_id):
     row = conn.execute(
         "SELECT tipo, modalidad, torre, piso, area_m2, parqueadero, "
         "       precio_millones, precio_arriendo_mensual_millones, "
-        "       nombre_anunciante, telefono_contacto "
-        "FROM petra_inmuebles WHERE id = %s AND estado = 'activo'",
+        "       nombre_anunciante "
+        "FROM petra_inmuebles WHERE id = %s AND estado IN ('activo','reservado')",
         (inm_id,),
     ).fetchone()
     if not row:
         return [msg_text("Ese inmueble ya no está disponible.")]
-    tipo, modal, torre, piso, area, parq, pv, pa, anun, tel = row
+    tipo, modal, torre, piso, area, parq, pv, pa, anun = row
     area_t = f"{area:.0f}m²" if area else "?"
     partes = [
         f"{tipo.capitalize()} en {modal}",
@@ -530,8 +548,13 @@ def flow_ver_detalle_inmueble(conn, inm_id):
         partes.append(f"Venta: ${pv:.0f}M")
     if pa:
         partes.append(f"Arriendo: ${pa:.1f}M/mes")
-    partes.append(f"\nContacto: {anun or '-'} · {tel or '-'}")
-    return [msg_text("\n".join(partes))]
+    partes.append(f"\nAnunciante: {anun or '-'}")
+    partes.append("Toca 'Me interesa' y te paso el contacto directo.")
+    return [msg_buttons("\n".join(partes), [
+        {"id": f"interesa_inm_{inm_id}", "title": "Me interesa"},
+        {"id": "ver_otro", "title": "Ver otro"},
+        {"id": "menu_atras", "title": "Volver"},
+    ])]
 
 
 # =============================================================================
@@ -608,6 +631,20 @@ def handle_inbound(telefono, texto="", button_id=None, list_id=None,
                 _close_estado(conn, estado["id"])
             return {"messages": [msg_text("Listo, cancelé. Si necesitas algo escríbeme otra vez. 👋")],
                     "flow": None, "paso": None, "cerro_flow": True}
+
+        # Botones globales que sobreviven cierre de flujo (Sprint 8)
+        boton = (button_id or list_id or "").strip().lower()
+        if boton.startswith("servicio_si_"):
+            try:
+                inm_id = int(boton.replace("servicio_si_", ""))
+            except ValueError:
+                inm_id = None
+            if inm_id:
+                return _ofrecer_servicio_petra(conn, contacto_id, inm_id)
+        if boton == "servicio_no":
+            return {"messages": [msg_text(
+                "Perfecto, lo dejo publicado así. Si cambias de opinión, escríbeme. 👍"
+            )], "flow": None, "paso": None, "cerro_flow": True}
 
         # Si no hay flujo activo y hay edificio nuevo: menú inicial
         if not estado:
@@ -738,7 +775,15 @@ def _publicar_step(conn, estado, contacto_id, edificio, texto, button_id, list_i
     if nuevo_paso == "__finalizar__":
         if not edificio:
             return {"messages": [msg_text("Falta contexto del edificio. Vuelve a escanear el QR.")]}
-        inm_id = _publicar_crear_inmueble(conn, contacto_id, edificio["id"], datos)
+        inm_id, duplicado_id = _publicar_crear_inmueble(
+            conn, contacto_id, edificio["id"], datos)
+        if duplicado_id:
+            _close_estado(conn, estado["id"])
+            return {"messages": [msg_text(
+                "⚠️ Ya existe un anuncio activo para esa torre/piso/tipo en este edificio. "
+                "Si es tuyo y necesitas actualizarlo, escríbeme 'editar'."
+            )], "flow": None, "paso": None, "cerro_flow": True,
+                "duplicado_id": duplicado_id}
         _close_estado(conn, estado["id"])
         # Trigger matching inmediato — notifica interesados que cumplen criterios.
         try:
@@ -757,6 +802,15 @@ def _publicar_step(conn, estado, contacto_id, edificio, texto, button_id, list_i
             ))
         else:
             msgs.append(msg_text("Te avisaremos si alguien se interesa."))
+        # Ofrecer servicio Petra (separado de publicar en inventario)
+        msgs.append(msg_buttons(
+            "¿Quieres que Petra te ayude con la venta/arriendo? "
+            "Nos encargamos de agendar visitas, filtrar interesados y acompañar el cierre.",
+            [
+                {"id": f"servicio_si_{inm_id}", "title": "Sí, cuéntame"},
+                {"id": "servicio_no", "title": "No por ahora"},
+            ],
+        ))
         return {"messages": msgs, "flow": None, "paso": None, "estado_id": None,
                 "cerro_flow": True, "inmueble_id": inm_id, "matches_notificados": n_matches}
 
@@ -792,6 +846,20 @@ def _ver_dispatch(conn, estado, opcion):
                     "estado_id": estado["id"], "cerro_flow": False}
         except ValueError:
             pass
+    if opc.startswith("interesa_inm_"):
+        try:
+            inm_id = int(opc.replace("interesa_inm_", ""))
+        except ValueError:
+            inm_id = None
+        if inm_id:
+            interesado_id = _contacto_id_de_estado(conn, estado)
+            msgs_interesado, msgs_propietario = _flow_me_interesa(conn, inm_id, interesado_id)
+            # Encolar aviso al propietario (outbound queue, se envía por scheduler)
+            if msgs_propietario:
+                _encolar_aviso_propietario(conn, inm_id, msgs_propietario)
+            return {"messages": msgs_interesado,
+                    "flow": "ver_inventario", "paso": "post_interes",
+                    "estado_id": estado["id"], "cerro_flow": False}
     if opc == "notif_si":
         # Capturamos una búsqueda ancla al edificio con la modalidad del
         # contexto. Es ligera, sin rangos de precio; el interesado puede
@@ -992,3 +1060,115 @@ def test_inbound():
         contacto_nombre=body.get("contacto_nombre"),
     )
     return jsonify(out), 200
+
+
+# =============================================================================
+# Sprint 8 — "Me interesa": conectar interesado con propietario + oportunidad
+# =============================================================================
+
+def _flow_me_interesa(conn, inm_id, interesado_id):
+    """Lee datos del inmueble, crea oportunidad y arma mensajes al interesado
+    y al propietario. Devuelve (msgs_interesado, msgs_propietario)."""
+    from app import petra_core
+
+    row = conn.execute(
+        """SELECT i.contacto_id, i.tipo, i.modalidad, i.torre, i.piso,
+                  i.nombre_anunciante, i.telefono_contacto,
+                  i.precio_millones, i.precio_arriendo_mensual_millones,
+                  e.nombre
+             FROM petra_inmuebles i
+             JOIN petra_edificios e ON e.id = i.edificio_id
+            WHERE i.id = %s AND i.estado IN ('activo','reservado')""",
+        (inm_id,),
+    ).fetchone()
+    if not row:
+        return [msg_text("Ese inmueble ya no está disponible.")], None
+
+    (prop_id, tipo, modal, torre, piso, anun, tel_prop,
+     pv, pa, edif_nombre) = row
+
+    if not interesado_id:
+        return [msg_text("No pude registrarte. Intenta de nuevo.")], None
+
+    if interesado_id == prop_id:
+        return [msg_text("Este anuncio es tuyo. 🙂")], None
+
+    # Tipo de oportunidad según modalidad
+    tipo_op = "venta" if modal == "venta" else "arriendo"
+    valor = (pv * 1_000_000) if (pv and tipo_op == "venta") else (
+        (pa * 1_000_000) if pa else None)
+
+    # Oportunidad lado interesado
+    petra_core.crear_oportunidad(
+        conn, contacto_id=interesado_id, tipo=tipo_op,
+        inmueble_id=inm_id, origen="qr_interesado",
+        origen_metadata={"inmueble_id": inm_id, "edificio": edif_nombre},
+        valor_cop=valor,
+    )
+    # Oportunidad lado propietario (lado vendedor del match)
+    petra_core.crear_oportunidad(
+        conn, contacto_id=prop_id, tipo=tipo_op,
+        inmueble_id=inm_id, origen="match_interesado",
+        origen_metadata={"interesado_id": interesado_id, "edificio": edif_nombre},
+        valor_cop=valor,
+    )
+
+    # Mensaje al interesado — contacto directo
+    partes_i = [f"🎯 {tipo.capitalize()} T{torre or '?'} P{piso or '?'} en {edif_nombre}",
+                f"Contacto: {anun or 'Anunciante'} — {tel_prop or '-'}"]
+    if tel_prop:
+        tel_link = (tel_prop or "").lstrip("+")
+        partes_i.append(f"👉 wa.me/{tel_link}")
+    partes_i.append("\nTambién le avisé que estás interesado. 👍")
+
+    # Mensaje al propietario (encolado)
+    partes_p = [f"👋 Alguien está interesado en tu {tipo} T{torre or '?'} P{piso or '?'} en {edif_nombre}.",
+                "Te escribirá directamente. Si prefieres, respóndeme para coordinar."]
+
+    return [msg_text("\n".join(partes_i))], [msg_text("\n".join(partes_p))]
+
+
+def _ofrecer_servicio_petra(conn, contacto_id, inm_id):
+    """El propietario acepta hablar de contratar servicio Petra: creamos una
+    oportunidad separada (intermediacion_venta o admin_arriendo) y mandamos
+    datos de contacto para que un humano haga el seguimiento."""
+    from app import petra_core
+
+    row = conn.execute(
+        "SELECT modalidad FROM petra_inmuebles WHERE id = %s", (inm_id,),
+    ).fetchone()
+    modalidad = (row[0] if row else "venta") or "venta"
+    tipo_op = "intermediacion" if modalidad == "venta" else "admin_arriendo"
+
+    petra_core.crear_oportunidad(
+        conn, contacto_id=contacto_id, tipo=tipo_op,
+        inmueble_id=inm_id, origen="post_publicacion",
+    )
+    return {"messages": [msg_text(
+        "👍 Perfecto. Un asesor Petra te contactará hoy mismo para explicarte "
+        "las condiciones (comisión, tiempos, acompañamiento). Mientras tanto, "
+        "tu anuncio sigue publicado."
+    )], "flow": None, "paso": None, "cerro_flow": True}
+
+
+def _encolar_aviso_propietario(conn, inm_id, mensajes):
+    """Encola mensajes para el propietario del inmueble en petra_outbound_queue."""
+    row = conn.execute(
+        "SELECT contacto_id FROM petra_inmuebles WHERE id = %s", (inm_id,),
+    ).fetchone()
+    if not row:
+        return
+    prop_id = row[0]
+    tel_row = conn.execute(
+        "SELECT telefono FROM petra_contactos WHERE id = %s", (prop_id,),
+    ).fetchone()
+    if not tel_row or not tel_row[0]:
+        return
+    import json as _json
+    for m in mensajes:
+        conn.execute(
+            """INSERT INTO petra_outbound_queue
+               (contacto_id, telefono, tipo, payload, origen, estado)
+               VALUES (%s, %s, 'text', %s::jsonb, 'aviso_interesado', 'pendiente')""",
+            (prop_id, tel_row[0], _json.dumps(m, ensure_ascii=False)),
+        )
