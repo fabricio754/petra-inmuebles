@@ -36,6 +36,8 @@ from app.admin_spool import admin_spool as admin_spool_bp
 app.register_blueprint(admin_spool_bp)
 from app.tools import tools_bp
 app.register_blueprint(tools_bp)
+from app.petra import petra_bp
+app.register_blueprint(petra_bp)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()

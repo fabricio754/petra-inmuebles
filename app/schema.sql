@@ -336,6 +336,106 @@ ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS cedula_nit TEXT;
 ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS edad INTEGER;
 ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS email TEXT;
 
+-- === PETRA plataforma inmobiliaria — Sprint 1 (oct 2026) =====================
+-- Modelo multi-rol: contacto único con N roles acumulativos (interesado,
+-- anunciante, lead crédito, agente Petra, cliente servicios activos).
+-- Edificios + inventario de inmuebles por conjunto, conectados al QR en
+-- portería. Prefijo petra_* para aislar del esquema productivo heredado.
+
+CREATE TABLE IF NOT EXISTS petra_edificios (
+  id SERIAL PRIMARY KEY,
+  nombre TEXT NOT NULL,
+  ciudad TEXT NOT NULL,
+  direccion TEXT,
+  barrio TEXT,
+  estrato INTEGER,
+  qr_slug TEXT UNIQUE,
+  agente_petra_contacto_id INTEGER,
+  activo BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_edificios_ciudad_idx
+  ON petra_edificios (ciudad, activo);
+CREATE INDEX IF NOT EXISTS petra_edificios_qr_idx
+  ON petra_edificios (qr_slug) WHERE qr_slug IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS petra_contactos (
+  id SERIAL PRIMARY KEY,
+  telefono TEXT UNIQUE NOT NULL,
+  nombre TEXT,
+  email TEXT,
+  opt_out BOOLEAN DEFAULT FALSE,
+  opt_out_motivo TEXT,
+  opt_out_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS petra_contacto_roles (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  rol TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'activo',
+  edificio_id INTEGER REFERENCES petra_edificios(id) ON DELETE SET NULL,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  estado_desde TIMESTAMPTZ DEFAULT NOW(),
+  proximo_contacto_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (contacto_id, rol, edificio_id)
+);
+CREATE INDEX IF NOT EXISTS petra_contacto_roles_contacto_idx
+  ON petra_contacto_roles (contacto_id, rol);
+CREATE INDEX IF NOT EXISTS petra_contacto_roles_proximo_idx
+  ON petra_contacto_roles (proximo_contacto_at)
+  WHERE proximo_contacto_at IS NOT NULL AND estado = 'activo';
+
+CREATE TABLE IF NOT EXISTS petra_inmuebles (
+  id SERIAL PRIMARY KEY,
+  edificio_id INTEGER NOT NULL REFERENCES petra_edificios(id) ON DELETE CASCADE,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL,
+  modalidad TEXT NOT NULL,
+  torre TEXT,
+  piso TEXT,
+  area_m2 NUMERIC,
+  parqueadero BOOLEAN,
+  precio_millones NUMERIC,
+  precio_arriendo_mensual_millones NUMERIC,
+  nombre_anunciante TEXT,
+  telefono_contacto TEXT,
+  estado TEXT NOT NULL DEFAULT 'borrador',
+  publicado_at TIMESTAMPTZ,
+  cerrado_at TIMESTAMPTZ,
+  cerrado_motivo TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_inmuebles_edificio_estado_idx
+  ON petra_inmuebles (edificio_id, estado);
+CREATE INDEX IF NOT EXISTS petra_inmuebles_contacto_idx
+  ON petra_inmuebles (contacto_id, estado);
+CREATE INDEX IF NOT EXISTS petra_inmuebles_modalidad_idx
+  ON petra_inmuebles (modalidad, estado) WHERE estado = 'activo';
+
+CREATE TABLE IF NOT EXISTS petra_conversacion_estado (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  flow_name TEXT NOT NULL,
+  paso_actual TEXT NOT NULL,
+  datos_parciales JSONB DEFAULT '{}'::jsonb,
+  contexto JSONB DEFAULT '{}'::jsonb,
+  activa BOOLEAN DEFAULT TRUE,
+  ultimo_mensaje_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (contacto_id, flow_name, activa)
+);
+CREATE INDEX IF NOT EXISTS petra_conversacion_estado_activa_idx
+  ON petra_conversacion_estado (contacto_id, activa)
+  WHERE activa = TRUE;
+
 -- === Nuevas features (iter 5 — oct-2026) ====================================
 -- Next step / próxima acción por lead
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
