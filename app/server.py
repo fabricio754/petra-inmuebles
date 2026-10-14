@@ -44,6 +44,8 @@ from app.petra_match import petra_match_bp
 app.register_blueprint(petra_match_bp)
 from app.petra_llm import petra_llm_bp
 app.register_blueprint(petra_llm_bp)
+from app.petra_core import petra_core_bp
+app.register_blueprint(petra_core_bp)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
