@@ -436,6 +436,62 @@ CREATE INDEX IF NOT EXISTS petra_conversacion_estado_activa_idx
   ON petra_conversacion_estado (contacto_id, activa)
   WHERE activa = TRUE;
 
+-- Sprint 3: búsquedas (criterios de interesado) + cola de salida + remarketing.
+
+CREATE TABLE IF NOT EXISTS petra_busquedas (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  edificio_id INTEGER REFERENCES petra_edificios(id) ON DELETE SET NULL,
+  modalidad TEXT NOT NULL,
+  tipo TEXT,
+  precio_min_millones NUMERIC,
+  precio_max_millones NUMERIC,
+  area_min_m2 NUMERIC,
+  area_max_m2 NUMERIC,
+  parqueadero BOOLEAN,
+  activa BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_busquedas_edif_modal_idx
+  ON petra_busquedas (edificio_id, modalidad, activa) WHERE activa = TRUE;
+CREATE INDEX IF NOT EXISTS petra_busquedas_contacto_idx
+  ON petra_busquedas (contacto_id, activa);
+
+CREATE TABLE IF NOT EXISTS petra_outbound_queue (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  telefono TEXT NOT NULL,
+  tipo TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  origen TEXT,
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  intentos INTEGER DEFAULT 0,
+  error TEXT,
+  enviado_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_outbound_queue_pendiente_idx
+  ON petra_outbound_queue (estado, created_at) WHERE estado = 'pendiente';
+CREATE INDEX IF NOT EXISTS petra_outbound_queue_contacto_idx
+  ON petra_outbound_queue (contacto_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS petra_remarketing_eventos (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  regla TEXT NOT NULL,
+  entidad_tipo TEXT,
+  entidad_id INTEGER,
+  disparado_at TIMESTAMPTZ DEFAULT NOW(),
+  resultado TEXT,
+  skipped_motivo TEXT
+);
+CREATE INDEX IF NOT EXISTS petra_remarketing_eventos_regla_idx
+  ON petra_remarketing_eventos (regla, disparado_at DESC);
+CREATE INDEX IF NOT EXISTS petra_remarketing_eventos_contacto_idx
+  ON petra_remarketing_eventos (contacto_id, regla, disparado_at DESC);
+
 -- === Nuevas features (iter 5 — oct-2026) ====================================
 -- Next step / próxima acción por lead
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
