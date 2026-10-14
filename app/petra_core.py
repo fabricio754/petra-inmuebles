@@ -392,6 +392,44 @@ def revocar_consentimiento(conn, contacto_id, finalidad, motivo=None):
           despues={"finalidad": finalidad, "motivo": motivo})
 
 
+def control_calidad_inventario(conn, dias_vencimiento=60):
+    """Flujo 9 — Control de calidad del inventario.
+    1) Mueve a 'borrador' los activos con datos clave faltantes.
+    2) Mueve a 'vencido' los activos que llevan >N días sin tocarse.
+    Devuelve dict con contadores."""
+    # 1) Incompletos → borrador
+    row_incompletos = conn.execute(
+        """UPDATE petra_inmuebles
+              SET estado = 'borrador', motivo_pausa = 'datos_incompletos',
+                  updated_at = NOW()
+            WHERE estado = 'activo'
+              AND (
+                tipo IS NULL OR modalidad IS NULL OR
+                (modalidad = 'venta' AND precio_millones IS NULL) OR
+                (modalidad = 'arriendo' AND precio_arriendo_mensual_millones IS NULL) OR
+                telefono_contacto IS NULL
+              )
+            RETURNING id"""
+    ).fetchall()
+    movidos_borrador = len(row_incompletos)
+
+    # 2) Vencidos
+    row_vencidos = conn.execute(
+        """UPDATE petra_inmuebles
+              SET estado = 'vencido', vence_at = NOW(), updated_at = NOW()
+            WHERE estado = 'activo'
+              AND publicado_at < NOW() - (%s || ' days')::interval
+            RETURNING id""",
+        (dias_vencimiento,),
+    ).fetchall()
+    movidos_vencidos = len(row_vencidos)
+
+    audit(conn, "sistema", None, "scheduler", "control_calidad",
+          "inmueble", None,
+          metadata={"a_borrador": movidos_borrador, "a_vencido": movidos_vencidos})
+    return {"a_borrador": movidos_borrador, "a_vencido": movidos_vencidos}
+
+
 def tiene_consentimiento(conn, contacto_id, finalidad):
     row = conn.execute(
         """SELECT 1 FROM petra_consentimientos
@@ -524,6 +562,14 @@ def listar_auditoria():
         cur = conn.execute(" ".join(sql), tuple(params))
         rows = cur.fetchall()
         return _ok(_rows_to_dicts(cur, rows))
+
+
+@petra_core_bp.post("/control_calidad")
+def control_calidad_http():
+    dias = request.args.get("dias_vencimiento", 60, type=int)
+    with _db._conexion_directa(timeout=30) as conn:
+        out = control_calidad_inventario(conn, dias_vencimiento=dias)
+    return _ok(out)
 
 
 @petra_core_bp.post("/consentimientos/otorgar")
