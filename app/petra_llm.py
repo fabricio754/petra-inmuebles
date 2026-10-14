@@ -622,6 +622,9 @@ def chat_completions():
     def gen_claude():
         acumulado = []
         err = None
+        # Keepalive inmediato para que ElevenLabs vea TTFB~0 y no dispare
+        # muletillas de soft timeout mientras Claude genera el primer token.
+        yield ": ok\n\n"
         yield _sse_chunk(resp_id, created, role="assistant", delta_content="")
         try:
             for chunk in claude_gen:
