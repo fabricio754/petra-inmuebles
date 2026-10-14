@@ -599,6 +599,22 @@ def _tiene_rol_cliente_activo(conn, contacto_id):
     return row is not None
 
 
+def _puede_enviar(conn, contacto_id, regla, dentro_dias=7):
+    """Delega al gatekeeper central (Sprint 12) manteniendo la firma legacy."""
+    try:
+        from app import petra_core
+        ok, motivo = petra_core.puede_enviar_remarketing(
+            conn, contacto_id, regla, dentro_dias=dentro_dias,
+            # Las reglas automáticas de inventario no exigen consentimiento
+            # comercial explícito aún (fase piloto); se activa cuando los
+            # templates estén aprobados y pidamos consent al registrarse.
+            requiere_consentimiento=None,
+        )
+        return ok, motivo
+    except Exception:
+        return True, "fallback"
+
+
 def _ya_disparado(conn, contacto_id, regla, dentro_dias):
     row = conn.execute(
         "SELECT 1 FROM petra_remarketing_eventos "

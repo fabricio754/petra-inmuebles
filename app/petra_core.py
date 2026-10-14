@@ -816,6 +816,47 @@ def avanzar_estado_agente(conn, contacto_id, nuevo_estado, metadata_extra=None):
     return True, "ok"
 
 
+def puede_enviar_remarketing(conn, contacto_id, regla, dentro_dias=7,
+                             requiere_consentimiento="comunicaciones_comerciales"):
+    """Gatekeeper central (Flujo 8). Devuelve (ok: bool, motivo: str).
+    Verifica en orden:
+      1) Consentimiento activo para la finalidad.
+      2) No es cliente activo (ya le vendimos).
+      3) No se le disparó esta misma regla en los últimos N días.
+      4) No tiene un caso de soporte abierto (no es momento comercial).
+    """
+    if requiere_consentimiento:
+        if not tiene_consentimiento(conn, contacto_id, requiere_consentimiento):
+            return False, "sin_consentimiento"
+    row = conn.execute(
+        """SELECT 1 FROM petra_contacto_roles
+           WHERE contacto_id=%s
+             AND rol IN ('cliente_credito','cliente_servicios')
+             AND estado='activo' LIMIT 1""",
+        (contacto_id,),
+    ).fetchone()
+    if row:
+        return False, "cliente_activo"
+    row = conn.execute(
+        """SELECT 1 FROM petra_remarketing_eventos
+           WHERE contacto_id=%s AND regla=%s
+             AND disparado_at > NOW() - make_interval(days => %s)
+           LIMIT 1""",
+        (contacto_id, regla, dentro_dias),
+    ).fetchone()
+    if row:
+        return False, "ya_disparado_recientemente"
+    row = conn.execute(
+        """SELECT 1 FROM petra_casos_soporte
+           WHERE contacto_id=%s
+             AND estado IN ('abierto','en_gestion','escalado') LIMIT 1""",
+        (contacto_id,),
+    ).fetchone()
+    if row:
+        return False, "caso_soporte_abierto"
+    return True, "ok"
+
+
 def visitas_proximas_a_recordar(conn, horas_antes=24):
     """Devuelve visitas 'programada'/'confirmada' que están próximas y a las
     que no se les ha mandado recordatorio aún (checklist.recordada=true).

@@ -646,6 +646,14 @@ def handle_inbound(telefono, texto="", button_id=None, list_id=None,
                 "Perfecto, lo dejo publicado así. Si cambias de opinión, escríbeme. 👍"
             )], "flow": None, "paso": None, "cerro_flow": True}
 
+        # Sprint 12 — Cross-sell (Flujo 6): si el contacto es cliente activo
+        # y expresa una nueva intención, atendemos como VIP (saltamos el menú
+        # genérico y le damos acogida con contexto).
+        if texto and not estado:
+            cross = _maybe_cross_sell(conn, contacto_id, texto)
+            if cross:
+                return cross
+
         # Sprint 9 — Detector de soporte: si el contacto ya tiene contrato
         # activo y escribe algo con palabras clave de incidencia, abrimos un
         # caso con SLA automático.
@@ -1134,6 +1142,61 @@ def _flow_me_interesa(conn, inm_id, interesado_id):
                 "Te escribirá directamente. Si prefieres, respóndeme para coordinar."]
 
     return [msg_text("\n".join(partes_i))], [msg_text("\n".join(partes_p))]
+
+
+_CROSS_SELL_INTENTS = {
+    "venta":    ["vender", "poner en venta", "vender mi"],
+    "arriendo": ["arrendar", "alquilar", "poner en arriendo", "rentar"],
+    "credito":  ["crédito", "credito", "necesito plata", "financiación", "financiacion", "préstamo", "prestamo"],
+    "admin":    ["administración", "administracion", "que me administren", "admin arriendo"],
+}
+
+
+def _maybe_cross_sell(conn, contacto_id, texto):
+    """Si el contacto ya es cliente activo y expresa nueva intención,
+    responde con bienvenida personalizada y crea oportunidad con origen
+    cross_sell. No lo mete a un flujo determinista: el contexto rico lo
+    maneja mejor Claude con la info enriquecida del Sprint 5.1."""
+    if not contacto_id:
+        return None
+    row = conn.execute(
+        """SELECT c.nombre
+           FROM petra_contactos c
+           JOIN petra_contacto_roles r ON r.contacto_id = c.id
+          WHERE c.id = %s
+            AND r.rol IN ('cliente_credito','cliente_servicios','anunciante')
+            AND r.estado = 'activo'
+          LIMIT 1""",
+        (contacto_id,),
+    ).fetchone()
+    if not row:
+        return None
+    nombre = row[0] or "cliente"
+
+    t = texto.lower()
+    tipo_op = None
+    for tipo, keys in _CROSS_SELL_INTENTS.items():
+        if any(k in t for k in keys):
+            tipo_op = tipo
+            break
+    if not tipo_op:
+        return None
+
+    from app import petra_core
+    petra_core.crear_oportunidad(
+        conn, contacto_id=contacto_id,
+        tipo="venta" if tipo_op == "venta" else (
+            "arriendo" if tipo_op == "arriendo" else (
+                "credito" if tipo_op == "credito" else "admin_arriendo")),
+        origen="cross_sell",
+        origen_metadata={"intencion_texto": texto[:200]},
+    )
+    return {"messages": [msg_text(
+        f"¡Hola {nombre}! Qué bueno saber de ti. Veo que te interesa "
+        f"{tipo_op}; dado que ya eres cliente, un asesor Petra se contactará "
+        f"contigo hoy mismo con condiciones preferentes. ¿Me cuentas más "
+        f"detalles mientras tanto?"
+    )], "flow": None, "paso": None, "cerro_flow": True}
 
 
 _SOPORTE_KEYWORDS = {
