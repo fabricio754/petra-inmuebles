@@ -174,9 +174,11 @@ def _check_auth():
     if not required:
         return True
     header = request.headers.get("Authorization", "")
-    if not header.startswith("Bearer "):
-        return False
-    return header[7:].strip() == required
+    if header.startswith("Bearer ") and header[7:].strip() == required:
+        return True
+    # Fallback para abrir desde navegador: ?token=... en query string
+    q = (request.args.get("token") or "").strip()
+    return q == required
 
 
 # =============================================================================
