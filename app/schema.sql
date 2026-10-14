@@ -512,7 +512,232 @@ CREATE INDEX IF NOT EXISTS petra_llm_logs_telefono_idx
 CREATE INDEX IF NOT EXISTS petra_llm_logs_created_idx
   ON petra_llm_logs (created_at DESC);
 
--- === Nuevas features (iter 5 — oct-2026) ====================================
+-- =============================================================================
+-- Sprint 6 — Schema completo de la plataforma Petra
+-- Agrega las entidades transaccionales que faltaban: oportunidades, contratos,
+-- visitas, casos de soporte, comisiones, consentimientos, auditoría.
+-- Separa "publicar en inventario" de "contratar servicio con Petra".
+-- =============================================================================
+
+-- Pipeline comercial. Una oportunidad representa una posible transacción:
+-- venta/arriendo de un inmueble, un crédito, un servicio de admin de arriendo.
+-- Vive aunque el inmueble pase a vendido o la persona desaparezca.
+CREATE TABLE IF NOT EXISTS petra_oportunidades (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  inmueble_id INTEGER REFERENCES petra_inmuebles(id) ON DELETE SET NULL,
+  tipo TEXT NOT NULL,
+      -- venta | arriendo | credito | admin_arriendo | intermediacion
+  estado TEXT NOT NULL DEFAULT 'lead',
+      -- lead | contactado | visita_agendada | visita_completa | oferta
+      -- | negociando | cerrado_ganado | cerrado_perdido | pausado
+  origen TEXT,
+      -- qr | template | anuncio | referido | cross_sell | panel
+  origen_metadata JSONB,
+  valor_cop BIGINT,
+  responsable_contacto_id INTEGER REFERENCES petra_contactos(id) ON DELETE SET NULL,
+  prob_cierre SMALLINT DEFAULT 0,
+  cerrado_motivo TEXT,
+  cerrado_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_oportunidades_contacto_idx
+  ON petra_oportunidades (contacto_id, estado);
+CREATE INDEX IF NOT EXISTS petra_oportunidades_inmueble_idx
+  ON petra_oportunidades (inmueble_id) WHERE inmueble_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS petra_oportunidades_estado_idx
+  ON petra_oportunidades (estado, updated_at DESC);
+CREATE INDEX IF NOT EXISTS petra_oportunidades_tipo_idx
+  ON petra_oportunidades (tipo, estado);
+
+-- Contrato de servicio con Petra. Separado de la publicación en inventario:
+-- un propietario puede publicar sin contratar nada; para que Petra opere su
+-- venta/arriendo, firma uno de estos.
+CREATE TABLE IF NOT EXISTS petra_contratos (
+  id SERIAL PRIMARY KEY,
+  oportunidad_id INTEGER REFERENCES petra_oportunidades(id) ON DELETE SET NULL,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL,
+      -- intermediacion_venta | intermediacion_arriendo | admin_arriendo | credito
+  estado TEXT NOT NULL DEFAULT 'borrador',
+      -- borrador | enviado_firma | firmado | activo | cancelado | vencido
+  documento_url TEXT,
+  firma_proveedor TEXT,
+      -- auco | manual | otro
+  firma_proveedor_tx_id TEXT,
+  firma_tipo TEXT,
+      -- electronica_simple | electronica_avanzada | digital
+  firmado_at TIMESTAMPTZ,
+  inicio DATE,
+  fin DATE,
+  condiciones JSONB DEFAULT '{}',
+      -- % comisión, canon, fee fijo, descuentos, cláusulas especiales
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_contratos_contacto_idx
+  ON petra_contratos (contacto_id, estado);
+CREATE INDEX IF NOT EXISTS petra_contratos_oportunidad_idx
+  ON petra_contratos (oportunidad_id) WHERE oportunidad_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS petra_contratos_firma_tx_idx
+  ON petra_contratos (firma_proveedor_tx_id) WHERE firma_proveedor_tx_id IS NOT NULL;
+
+-- Visitas (comerciales y de entrega/recepción de inmueble).
+CREATE TABLE IF NOT EXISTS petra_visitas (
+  id SERIAL PRIMARY KEY,
+  inmueble_id INTEGER REFERENCES petra_inmuebles(id) ON DELETE SET NULL,
+  oportunidad_id INTEGER REFERENCES petra_oportunidades(id) ON DELETE SET NULL,
+  agente_id INTEGER REFERENCES petra_contactos(id) ON DELETE SET NULL,
+  interesado_id INTEGER REFERENCES petra_contactos(id) ON DELETE SET NULL,
+  tipo TEXT NOT NULL,
+      -- comercial | entrega | recepcion | inspeccion
+  programada_at TIMESTAMPTZ,
+  estado TEXT NOT NULL DEFAULT 'programada',
+      -- programada | confirmada | realizada | cancelada | no_show
+  checklist JSONB DEFAULT '{}',
+  evidencias JSONB DEFAULT '[]',
+      -- lista de {tipo, url, categoria, descripcion, fecha}
+  acta_url TEXT,
+  acta_firma_tx_id TEXT,
+  observaciones TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_visitas_agente_idx
+  ON petra_visitas (agente_id, programada_at DESC);
+CREATE INDEX IF NOT EXISTS petra_visitas_inmueble_idx
+  ON petra_visitas (inmueble_id, programada_at DESC);
+CREATE INDEX IF NOT EXISTS petra_visitas_estado_idx
+  ON petra_visitas (estado, programada_at);
+
+-- Casos de soporte / atención al cliente.
+CREATE TABLE IF NOT EXISTS petra_casos_soporte (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  contrato_id INTEGER REFERENCES petra_contratos(id) ON DELETE SET NULL,
+  categoria TEXT NOT NULL,
+      -- cobro | mantenimiento | reclamo | consulta | cancelacion | otros
+  prioridad TEXT NOT NULL DEFAULT 'media',
+      -- baja | media | alta | critica
+  estado TEXT NOT NULL DEFAULT 'abierto',
+      -- abierto | en_gestion | pendiente_cliente | escalado | resuelto | cerrado
+  responsable_humano TEXT,
+  descripcion TEXT,
+  sla_primera_respuesta_at TIMESTAMPTZ,
+  sla_resolucion_at TIMESTAMPTZ,
+  primera_respuesta_at TIMESTAMPTZ,
+  resuelto_at TIMESTAMPTZ,
+  resolucion_nota TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_casos_contacto_idx
+  ON petra_casos_soporte (contacto_id, estado);
+CREATE INDEX IF NOT EXISTS petra_casos_estado_idx
+  ON petra_casos_soporte (estado, prioridad, created_at);
+CREATE INDEX IF NOT EXISTS petra_casos_sla_idx
+  ON petra_casos_soporte (sla_primera_respuesta_at)
+  WHERE primera_respuesta_at IS NULL;
+
+-- Comisiones a liquidar por los agentes Petra.
+CREATE TABLE IF NOT EXISTS petra_comisiones (
+  id SERIAL PRIMARY KEY,
+  agente_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  evento_tipo TEXT NOT NULL,
+      -- edificio_activado | inmueble_publicado | visita_realizada
+      -- | cierre_venta | cierre_arriendo | cierre_credito | cierre_admin
+  evento_entidad TEXT,
+  evento_entidad_id INTEGER,
+      -- (polimórfica: edificio_id | inmueble_id | visita_id | contrato_id ...)
+  monto_cop BIGINT NOT NULL DEFAULT 0,
+  moneda TEXT DEFAULT 'COP',
+  estado TEXT NOT NULL DEFAULT 'causada',
+      -- causada | aprobada | pagada | cancelada | reversada
+  base_calculo JSONB,
+      -- {regla, porcentaje, valor_base, override_motivo}
+  aprobada_at TIMESTAMPTZ,
+  pagada_at TIMESTAMPTZ,
+  aprobada_por TEXT,
+  nota TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_comisiones_agente_idx
+  ON petra_comisiones (agente_id, estado, created_at DESC);
+CREATE INDEX IF NOT EXISTS petra_comisiones_evento_idx
+  ON petra_comisiones (evento_entidad, evento_entidad_id);
+-- Evita contar dos veces el mismo evento para el mismo agente.
+CREATE UNIQUE INDEX IF NOT EXISTS petra_comisiones_unica_idx
+  ON petra_comisiones (agente_id, evento_tipo, evento_entidad, evento_entidad_id)
+  WHERE evento_entidad_id IS NOT NULL;
+
+-- Consentimientos del contacto. Un registro por finalidad; cuando se revoca,
+-- se guarda la fecha pero no se borra (para auditoría).
+CREATE TABLE IF NOT EXISTS petra_consentimientos (
+  id SERIAL PRIMARY KEY,
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  finalidad TEXT NOT NULL,
+      -- tratamiento_datos | comunicaciones_comerciales | publicidad
+      -- | grabacion_voz | cesion_terceros | geolocalizacion
+  estado TEXT NOT NULL DEFAULT 'otorgado',
+      -- otorgado | revocado
+  canal TEXT,
+      -- whatsapp | voz | chat | email | panel | formulario
+  evidencia JSONB,
+      -- {texto_mostrado, texto_respuesta, template_id, wa_msg_id, ip, ua}
+  version_politica TEXT,
+  otorgado_at TIMESTAMPTZ DEFAULT NOW(),
+  revocado_at TIMESTAMPTZ,
+  revocado_motivo TEXT
+);
+CREATE INDEX IF NOT EXISTS petra_consentimientos_contacto_idx
+  ON petra_consentimientos (contacto_id, finalidad, estado);
+-- Un contacto solo puede tener un consentimiento OTORGADO por finalidad a la vez
+-- (los revocados se dejan en historia).
+CREATE UNIQUE INDEX IF NOT EXISTS petra_consentimientos_activo_idx
+  ON petra_consentimientos (contacto_id, finalidad)
+  WHERE estado = 'otorgado';
+
+-- Auditoría genérica de cambios y acciones. No es un reemplazo de logs
+-- técnicos: es la bitácora de "qué pasó en el dominio". Se usa para
+-- reconstruir la vida de un contacto/inmueble/oportunidad.
+CREATE TABLE IF NOT EXISTS petra_auditoria_eventos (
+  id BIGSERIAL PRIMARY KEY,
+  actor_tipo TEXT,
+      -- contacto | agente_petra | sistema | humano_panel | integracion_externa
+  actor_id INTEGER,
+  actor_label TEXT,
+  accion TEXT NOT NULL,
+      -- publicar_inmueble | cambiar_estado | enviar_template | otorgar_consentimiento
+      -- | crear_oportunidad | firmar_contrato | ...
+  entidad_tipo TEXT NOT NULL,
+      -- contacto | inmueble | oportunidad | contrato | visita | caso | comision
+  entidad_id INTEGER,
+  antes JSONB,
+  despues JSONB,
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_auditoria_entidad_idx
+  ON petra_auditoria_eventos (entidad_tipo, entidad_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS petra_auditoria_actor_idx
+  ON petra_auditoria_eventos (actor_tipo, actor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS petra_auditoria_accion_idx
+  ON petra_auditoria_eventos (accion, created_at DESC);
+
+-- Ampliar estados ricos del inmueble sin romper lo existente. Se mantiene
+-- la columna existente 'estado' en petra_inmuebles; agregamos campos
+-- auxiliares para el ciclo de vida más detallado.
+ALTER TABLE petra_inmuebles ADD COLUMN IF NOT EXISTS reservado_hasta TIMESTAMPTZ;
+ALTER TABLE petra_inmuebles ADD COLUMN IF NOT EXISTS vence_at TIMESTAMPTZ;
+ALTER TABLE petra_inmuebles ADD COLUMN IF NOT EXISTS validado_en TIMESTAMPTZ;
+ALTER TABLE petra_inmuebles ADD COLUMN IF NOT EXISTS validado_por TEXT;
+ALTER TABLE petra_inmuebles ADD COLUMN IF NOT EXISTS motivo_pausa TEXT;
+-- Hash de deduplicación: (edificio, torre, piso, tipo, modalidad) normalizados.
+ALTER TABLE petra_inmuebles ADD COLUMN IF NOT EXISTS dedup_hash TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS petra_inmuebles_dedup_idx
+  ON petra_inmuebles (dedup_hash)
+  WHERE dedup_hash IS NOT NULL AND estado IN ('borrador','activo','reservado','pausado');
 -- Next step / próxima acción por lead
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_fecha DATE;
