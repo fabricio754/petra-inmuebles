@@ -529,15 +529,41 @@ def health():
     return jsonify({"ok": True, "model": MODEL_ID})
 
 
+def _check_elevenlabs_signature(raw_body: bytes) -> bool:
+    """Verifica el header `ElevenLabs-Signature: t=<ts>,v0=<hex>` con HMAC-SHA256
+    sobre `<ts>.<raw_body>` usando ELEVENLABS_WEBHOOK_SECRET. Tolera 30 min de
+    reloj. Fallback: si no hay secret configurado, cae a _check_auth()."""
+    import hmac, hashlib, time as _time
+    secret = (os.environ.get("ELEVENLABS_WEBHOOK_SECRET") or "").strip()
+    if not secret:
+        return _check_auth()
+    header = request.headers.get("ElevenLabs-Signature", "")
+    if not header:
+        return False
+    parts = dict(p.split("=", 1) for p in header.split(",") if "=" in p)
+    ts, sig = parts.get("t", ""), parts.get("v0", "")
+    if not ts or not sig:
+        return False
+    try:
+        if abs(int(_time.time()) - int(ts)) > 1800:
+            return False
+    except ValueError:
+        return False
+    expected = hmac.new(secret.encode(), f"{ts}.".encode() + raw_body,
+                        hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig)
+
+
 @petra_llm_bp.post("/post_call")
 def post_call_webhook():
     """Webhook post-call de ElevenLabs: recibe transcripción completa,
     análisis, duración y métricas al cerrar una conversación.
     Guarda en petra_llm_logs + audita en petra_auditoria_eventos."""
-    if not _check_auth():
+    raw = request.get_data() or b""
+    if not _check_elevenlabs_signature(raw):
         return jsonify({"error": "unauthorized"}), 401
     try:
-        payload = request.get_json(force=True) or {}
+        payload = json.loads(raw.decode("utf-8")) if raw else {}
     except Exception:
         return jsonify({"error": "invalid json"}), 400
 
