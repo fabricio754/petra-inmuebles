@@ -509,3 +509,66 @@ def enviar_sureti():
         log.exception("[tools] /sureti fallo tel=%s", tel)
         return jsonify({"error": str(exc)}), 500
     return jsonify({"ok": True, "enviado_at": row[0].isoformat() if row and row[0] else None}), 200
+
+
+# =============================================================================
+# Server Tool: inscribir agente Petra (Flujo 4 - Reclutamiento)
+# =============================================================================
+
+@tools_bp.post("/agente_inscribir")
+@_require_token
+def agente_inscribir():
+    """Tool para que Massimiliano inscriba a un agente Petra.
+    ElevenLabs envía automáticamente `telefono` (del system__caller_id).
+    Payload: {telefono, nombre, ciudad, conjunto, disponibilidad?}
+    """
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    if not tel:
+        return jsonify({"error": "telefono invalido"}), 400
+    nombre = (body.get("nombre") or "").strip() or None
+    ciudad = (body.get("ciudad") or "").strip() or None
+    conjunto = (body.get("conjunto") or "").strip() or None
+    disponibilidad = (body.get("disponibilidad") or "").strip() or None
+
+    log.info("[tools] POST /agente_inscribir tel=%s nombre=%s ciudad=%s conjunto=%s",
+             tel, nombre, ciudad, conjunto)
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            cid, estado = petra_core.inscribir_agente(
+                conn, telefono=tel, nombre=nombre, ciudad=ciudad,
+                origen=body.get("origen", "massimiliano_wa_chat"),
+            )
+            # Enriquecer metadata del rol con conjunto y disponibilidad
+            if cid and (conjunto or disponibilidad):
+                try:
+                    import json as _json
+                    row = conn.execute(
+                        "SELECT metadata FROM petra_contacto_roles "
+                        "WHERE contacto_id=%s AND rol='agente_petra' LIMIT 1",
+                        (cid,),
+                    ).fetchone()
+                    meta = (row[0] if row else {}) or {}
+                    if conjunto:
+                        meta["conjunto"] = conjunto
+                    if disponibilidad:
+                        meta["disponibilidad"] = disponibilidad
+                    conn.execute(
+                        "UPDATE petra_contacto_roles SET metadata=%s::jsonb, "
+                        "updated_at=NOW() WHERE contacto_id=%s AND rol='agente_petra'",
+                        (_json.dumps(meta), cid),
+                    )
+                except Exception:
+                    log.exception("[tools] /agente_inscribir meta fallo")
+    except Exception as exc:
+        log.exception("[tools] /agente_inscribir fallo tel=%s", tel)
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({
+        "ok": True,
+        "contacto_id": cid,
+        "estado_agente": estado,
+        "mensaje": (
+            f"Agente Petra registrado como '{estado}'. "
+            "En las próximas 48h el equipo humano lo contactará."
+        ),
+    }), 200

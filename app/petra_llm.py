@@ -542,16 +542,6 @@ def chat_completions():
     texto = _last_user_text(messages)
     t0 = time.time()
 
-    # DEBUG TEMPORAL: loggear headers y keys top-level del payload para
-    # descubrir cómo ElevenLabs manda identidad del caller (#16).
-    try:
-        _hdr_dump = {k: v[:200] for k, v in request.headers.items()
-                     if k.lower() not in ("authorization", "cookie")}
-        _top_keys = {k: (str(v)[:200] if not isinstance(v, (dict, list)) else type(v).__name__)
-                     for k, v in payload.items() if k != "messages"}
-        log.info("[petra_llm DEBUG] headers=%s top_keys=%s", _hdr_dump, _top_keys)
-    except Exception:
-        pass
 
     resp_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
