@@ -60,6 +60,10 @@ def iniciar():
     _scheduler.add_job(_petra_escalar_casos, "interval", minutes=15,
                        id="petra_escalar_casos",
                        max_instances=1, coalesce=True)
+    # Sprint 10 — recordatorios de visitas próximas cada 30 min
+    _scheduler.add_job(_petra_recordatorios_visitas, "interval", minutes=30,
+                       id="petra_recordatorios_visitas",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -355,3 +359,15 @@ def _petra_escalar_casos():
                         len(escalados), escalados)
     except Exception:
         log.exception("[Scheduler] petra_escalar_casos fallo")
+
+
+# Sprint 10 — recordatorios de visitas próximas (Flujo 5)
+def _petra_recordatorios_visitas():
+    try:
+        from app import db as _db, petra_core
+        with _db._conexion_directa(timeout=15) as conn:
+            n = petra_core.visitas_proximas_a_recordar(conn, horas_antes=24)
+        if n:
+            log.info("[Scheduler] petra_recordatorios_visitas: %d encoladas", n)
+    except Exception:
+        log.exception("[Scheduler] petra_recordatorios_visitas fallo")

@@ -564,6 +564,83 @@ def listar_auditoria():
         return _ok(_rows_to_dicts(cur, rows))
 
 
+@petra_core_bp.get("/visitas")
+def listar_visitas():
+    estado = request.args.get("estado")
+    agente_id = request.args.get("agente_id", type=int)
+    inmueble_id = request.args.get("inmueble_id", type=int)
+    limit = min(request.args.get("limit", 50, type=int), 500)
+    sql = ["SELECT * FROM petra_visitas WHERE 1=1"]
+    params = []
+    if estado:
+        sql.append("AND estado=%s"); params.append(estado)
+    if agente_id:
+        sql.append("AND agente_id=%s"); params.append(agente_id)
+    if inmueble_id:
+        sql.append("AND inmueble_id=%s"); params.append(inmueble_id)
+    sql.append("ORDER BY programada_at DESC NULLS LAST LIMIT %s")
+    params.append(limit)
+    with _db._conexion_directa(timeout=10) as conn:
+        cur = conn.execute(" ".join(sql), tuple(params))
+        return _ok(_rows_to_dicts(cur, cur.fetchall()))
+
+
+@petra_core_bp.post("/visitas")
+def crear_visita_http():
+    data = request.get_json(force=True) or {}
+    if not data.get("tipo"):
+        return jsonify({"ok": False, "error": "tipo requerido (comercial|entrega|recepcion|inspeccion)"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        vid = crear_visita(
+            conn,
+            tipo=data["tipo"],
+            inmueble_id=data.get("inmueble_id"),
+            oportunidad_id=data.get("oportunidad_id"),
+            agente_id=data.get("agente_id"),
+            interesado_id=data.get("interesado_id"),
+            programada_at=data.get("programada_at"),
+            checklist=data.get("checklist"),
+        )
+    return _ok({"id": vid})
+
+
+@petra_core_bp.post("/visitas/<int:vid>")
+def actualizar_visita_http(vid):
+    """Transiciona estado o agrega evidencias/observaciones/acta."""
+    data = request.get_json(force=True) or {}
+    sets, params = [], []
+    nuevo_estado = data.get("estado")
+    with _db._conexion_directa(timeout=10) as conn:
+        if nuevo_estado:
+            row = conn.execute("SELECT estado FROM petra_visitas WHERE id=%s", (vid,)).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "no_existe"}), 404
+            # Transiciones simples para visitas
+            permitidas = {
+                "programada": {"confirmada", "cancelada", "realizada", "no_show"},
+                "confirmada": {"realizada", "cancelada", "no_show"},
+                "realizada": set(),
+                "cancelada": set(),
+                "no_show": {"programada"},
+            }
+            if nuevo_estado not in permitidas.get(row[0], set()) and nuevo_estado != row[0]:
+                return jsonify({"ok": False, "error": f"transicion_invalida {row[0]}->{nuevo_estado}"}), 400
+            sets.append("estado=%s"); params.append(nuevo_estado)
+        if data.get("observaciones"):
+            sets.append("observaciones=%s"); params.append(data["observaciones"])
+        if data.get("acta_url"):
+            sets.append("acta_url=%s"); params.append(data["acta_url"])
+        if sets:
+            sets.append("updated_at=NOW()")
+            params.append(vid)
+            conn.execute(f"UPDATE petra_visitas SET {', '.join(sets)} WHERE id=%s", tuple(params))
+        if data.get("evidencia"):
+            agregar_evidencia_visita(conn, vid, data["evidencia"])
+        audit(conn, "humano_panel", None, data.get("actor"),
+              "actualizar_visita", "visita", vid, despues=data)
+    return _ok({"id": vid, "actualizado": True})
+
+
 @petra_core_bp.post("/casos/<int:cid>")
 def actualizar_caso_http(cid):
     """PATCH-like: asignar responsable, registrar primera_respuesta, resolver.
@@ -597,6 +674,51 @@ def actualizar_caso_http(cid):
         audit(conn, "humano_panel", None, data.get("responsable_humano"),
               "actualizar_caso", "caso", cid, despues=data)
     return _ok({"id": cid, "actualizado": True})
+
+
+def visitas_proximas_a_recordar(conn, horas_antes=24):
+    """Devuelve visitas 'programada'/'confirmada' que están próximas y a las
+    que no se les ha mandado recordatorio aún (checklist.recordada=true).
+    No manda nada: encola el recordatorio en petra_outbound_queue."""
+    rows = conn.execute(
+        """SELECT v.id, v.programada_at, v.tipo, v.agente_id, v.interesado_id,
+                  v.inmueble_id, i.torre, i.piso, e.nombre
+             FROM petra_visitas v
+        LEFT JOIN petra_inmuebles i ON i.id = v.inmueble_id
+        LEFT JOIN petra_edificios  e ON e.id = i.edificio_id
+            WHERE v.estado IN ('programada','confirmada')
+              AND v.programada_at IS NOT NULL
+              AND v.programada_at BETWEEN NOW() AND NOW() + (%s || ' hours')::interval
+              AND COALESCE((v.checklist->>'recordada')::bool, false) = false""",
+        (horas_antes,),
+    ).fetchall()
+    encoladas = 0
+    for (vid, pa, tipo, agente_id, interesado_id, inm_id, torre, piso, edif) in rows:
+        texto = (f"Recordatorio: visita {tipo} el "
+                 f"{pa.strftime('%Y-%m-%d %H:%M') if pa else '?'} "
+                 f"en {edif or 'edificio'} T{torre or '?'} P{piso or '?'}. "
+                 f"Responde SI para confirmar.")
+        for cid in filter(None, [agente_id, interesado_id]):
+            tel = conn.execute(
+                "SELECT telefono FROM petra_contactos WHERE id=%s", (cid,),
+            ).fetchone()
+            if tel and tel[0]:
+                conn.execute(
+                    """INSERT INTO petra_outbound_queue
+                       (contacto_id, telefono, tipo, payload, origen, estado)
+                       VALUES (%s, %s, 'text', %s::jsonb,
+                               'recordatorio_visita', 'pendiente')""",
+                    (cid, tel[0],
+                     json.dumps({"type": "text", "text": texto}, ensure_ascii=False)),
+                )
+                encoladas += 1
+        conn.execute(
+            """UPDATE petra_visitas
+                  SET checklist = jsonb_set(COALESCE(checklist,'{}'::jsonb),
+                                            '{recordada}', 'true'::jsonb)
+                WHERE id=%s""", (vid,),
+        )
+    return encoladas
 
 
 def escalar_casos_vencidos(conn):
