@@ -529,6 +529,84 @@ def health():
     return jsonify({"ok": True, "model": MODEL_ID})
 
 
+@petra_llm_bp.post("/post_call")
+def post_call_webhook():
+    """Webhook post-call de ElevenLabs: recibe transcripción completa,
+    análisis, duración y métricas al cerrar una conversación.
+    Guarda en petra_llm_logs + audita en petra_auditoria_eventos."""
+    if not _check_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        payload = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error": "invalid json"}), 400
+
+    # Normalizar campos (ElevenLabs usa distintos nombres según la versión)
+    conv_id = payload.get("conversation_id") or payload.get("id")
+    agent_id = payload.get("agent_id")
+    caller = (payload.get("user_id") or payload.get("caller_id")
+              or payload.get("phone_number") or payload.get("from") or "")
+    duracion = payload.get("duration_seconds") or payload.get("duration")
+    transcript = payload.get("transcript") or payload.get("messages") or []
+    analysis = payload.get("analysis") or payload.get("evaluation") or {}
+    cost = payload.get("cost") or payload.get("cost_usd")
+    status_conv = payload.get("status") or payload.get("outcome")
+
+    # Teléfono normalizado (si viene)
+    telefono = None
+    if caller:
+        m = _E164.search(str(caller))
+        if m:
+            telefono = m.group(1)
+
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=10) as conn:
+            # Log sintético en petra_llm_logs con rama 'post_call_webhook'
+            conn.execute(
+                """INSERT INTO petra_llm_logs
+                   (telefono, rama, texto_usuario, texto_asistente,
+                    mensajes_in, stream, latencia_ms, error)
+                   VALUES (%s, 'post_call_webhook', %s, %s, %s::jsonb,
+                           FALSE, %s, NULL)""",
+                (telefono,
+                 f"[conversation {conv_id} cerrada, {len(transcript) if isinstance(transcript, list) else '?'} turnos]",
+                 json.dumps({"analysis": analysis, "cost": cost, "status": status_conv},
+                            ensure_ascii=False, default=str)[:4000],
+                 json.dumps({"transcript": transcript, "agent_id": agent_id},
+                            ensure_ascii=False, default=str)[:16000],
+                 int((duracion or 0) * 1000) if duracion else None),
+            )
+            # Auditoría de dominio
+            try:
+                from app import petra_core
+                contacto_id = None
+                if telefono:
+                    row = conn.execute(
+                        "SELECT id FROM petra_contactos WHERE telefono=%s",
+                        (telefono,),
+                    ).fetchone()
+                    contacto_id = row[0] if row else None
+                petra_core.audit(
+                    conn, "integracion_externa", None, "elevenlabs",
+                    "post_call_summary", "contacto", contacto_id,
+                    metadata={
+                        "conversation_id": conv_id,
+                        "agent_id": agent_id,
+                        "turnos": len(transcript) if isinstance(transcript, list) else None,
+                        "duracion_seg": duracion,
+                        "status": status_conv,
+                        "cost_usd": cost,
+                    },
+                )
+            except Exception:
+                log.exception("[post_call] audit fallo")
+    except Exception as exc:
+        log.exception("[post_call] fallo guardando")
+        return jsonify({"ok": False, "error": str(exc)[:200]}), 500
+    return jsonify({"ok": True, "conversation_id": conv_id}), 200
+
+
 @petra_llm_bp.get("/v1/models")
 def models():
     return jsonify({
