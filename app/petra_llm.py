@@ -352,6 +352,60 @@ def _contexto_contacto(telefono):
 
 
 # =============================================================================
+# Detectores de intención (interceptan antes de Claude cuando aplica)
+# =============================================================================
+
+_RE_AGENTE_TAG = re.compile(r"\[AGENTE:([^/\]]+)/([^\]]+)\]", re.I)
+_AGENTE_KEYWORDS = (
+    "quiero ser agente petra", "ser agente de petra", "ser agente petra",
+    "quiero ser agente", "me interesa ser agente",
+)
+
+
+def _detectar_intencion_agente(telefono, texto):
+    """Si detecta [AGENTE:...] o keywords de reclutamiento, inscribe el
+    contacto como agente_petra lead y devuelve el texto de respuesta
+    (bienvenida + 3 preguntas). Si no aplica, devuelve None.
+
+    Requiere teléfono — si no viene (ElevenLabs sin Dynamic Variables),
+    cae a Claude para que al menos conteste; la inscripción se perderá
+    hasta que configuremos #16."""
+    if not texto:
+        return None
+    t = texto.lower()
+    m = _RE_AGENTE_TAG.search(texto)
+    origen = "link_recruiting"
+    if m:
+        origen = f"{m.group(1).strip()}/{m.group(2).strip()}"
+    elif not any(k in t for k in _AGENTE_KEYWORDS):
+        return None
+
+    # Si no hay teléfono, no podemos inscribir — dejamos que Claude maneje.
+    if not telefono:
+        return None
+
+    try:
+        from app import db as _db, petra_core
+        with _db._conexion_directa(timeout=10) as conn:
+            petra_core.inscribir_agente(
+                conn, telefono=telefono, origen=origen,
+            )
+    except Exception:
+        log.exception("[petra_llm] inscribir_agente fallo tel=%s", telefono)
+        # Aun si falla el guardado, mejor responder bien al usuario
+        pass
+
+    return (
+        "👋 ¡Qué bueno que quieras ser agente Petra! Ganas comisión por "
+        "conectar inmuebles en edificios donde instales nuestro QR.\n\n"
+        "Para avanzar necesito 3 datos:\n"
+        "1) Tu nombre completo\n"
+        "2) Ciudad donde operarías\n"
+        "3) ¿Cuántos edificios conoces donde podrías colocar el QR?"
+    )
+
+
+# =============================================================================
 # Claude streaming
 # =============================================================================
 
@@ -503,6 +557,20 @@ def chat_completions():
             yield _sse_chunk(resp_id, created, finish_reason="stop")
             yield "data: [DONE]\n\n"
         return Response(stream_with_context(gen_router()), mimetype="text/event-stream")
+
+    # --- Rama 1.5: Detector de intención agente Petra (antes de Claude) ---
+    agente_resp = _detectar_intencion_agente(telefono, texto)
+    if agente_resp:
+        _log_request(telefono, "detector_agente", texto, agente_resp, messages,
+                     stream, int((time.time() - t0) * 1000))
+        if not stream:
+            return jsonify(_completion_object(resp_id, created, agente_resp))
+        def gen_ag():
+            yield _sse_chunk(resp_id, created, role="assistant", delta_content="")
+            yield _sse_chunk(resp_id, created, delta_content=agente_resp)
+            yield _sse_chunk(resp_id, created, finish_reason="stop")
+            yield "data: [DONE]\n\n"
+        return Response(stream_with_context(gen_ag()), mimetype="text/event-stream")
 
     # --- Rama 2: Claude streaming con prompt elegido por rol + contexto ---
     ctx = _contexto_contacto(telefono)
