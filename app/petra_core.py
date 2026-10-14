@@ -947,6 +947,35 @@ def resolver_error_integracion(conn, err_id, nota=None):
     )
 
 
+def reintentar_integracion(err_id, proveedor, operacion, payload, intentos):
+    """Flujo 13 — ejecuta el reintento real de un error encolado.
+    Devuelve (ok: bool, nota: str). No propaga excepciones.
+
+    Rutea por (proveedor, operacion). Añadir handlers nuevos acá cuando
+    se construyan integraciones adicionales (Sureti, Auco, ElevenLabs).
+    El scheduler llama a esto y luego llama resolver/registrar según
+    el resultado — así el estado backoff queda consistente."""
+    try:
+        if proveedor == "meta_whatsapp" and operacion == "enviar_mensaje":
+            from app import whatsapp as _wa
+            if not isinstance(payload, dict):
+                return False, "payload inválido"
+            # Reusa _dispatch; si falla registrará solo (OK — es idempotente
+            # por (prov, op, entidad_tipo, entidad_id)).
+            resumen = payload.get("text", {}).get("body") or payload.get("type", "msg")
+            res = _wa._dispatch(payload, f"[retry #{intentos}] {resumen}", log_out=True)
+            status = res.get("status")
+            if isinstance(status, int) and 200 <= status < 300:
+                return True, f"retry OK (status={status})"
+            if status == "paused":
+                return True, "destino pausado — se descarta retry"
+            return False, f"retry falló (status={status}) body={res.get('body','')[:200]}"
+        return False, f"sin handler para {proveedor}/{operacion}"
+    except Exception as exc:
+        log.exception("[petra_core] reintentar_integracion fallo")
+        return False, f"excepción: {exc}"
+
+
 def errores_pendientes_de_retry(conn, limit=50):
     rows = conn.execute(
         """SELECT id, proveedor, operacion, entidad_tipo, entidad_id,

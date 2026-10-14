@@ -379,23 +379,39 @@ def _petra_recordatorios_visitas():
 
 # Sprint 13 — reintentos de integraciones externas (Flujo 13)
 def _petra_retry_integraciones():
-    """Marca pendientes como listas para que su handler específico las
-    reintente. Por ahora solo pasa los eventos a 'reintentando' con nota.
-    Los handlers específicos (meta_wa_send, sureti, auco) se enganchan
-    cuando se construyen esas integraciones."""
+    """Toma errores con proximo_intento_at vencido y los re-ejecuta a través
+    de petra_core.reintentar_integracion. Resuelve al éxito, re-encola con
+    backoff al fallo (dead_letter cuando se agota max_intentos)."""
     try:
         from app import db as _db, petra_core
         with _db._conexion_directa(timeout=15) as conn:
             rows = petra_core.errores_pendientes_de_retry(conn, limit=50)
-            for (eid, prov, op, ent_t, ent_id, payload, intentos) in rows:
-                log.info("[Scheduler] retry integracion id=%s %s/%s intento=%s",
-                         eid, prov, op, intentos + 1)
-                # Marca reintentando — el handler específico, cuando corra
-                # su acción, llama a resolver_error_integracion si tiene éxito
-                # o a registrar_error_integracion (incrementa) si falla.
+            # Marcar reintentando primero (lock lógico) para no duplicar
+            # el envío si una segunda corrida del scheduler se superpone.
+            ids = [r[0] for r in rows]
+            if ids:
                 conn.execute(
-                    "UPDATE petra_integracion_errores SET estado='reintentando', updated_at=NOW() WHERE id=%s",
-                    (eid,),
+                    "UPDATE petra_integracion_errores SET estado='reintentando', updated_at=NOW() WHERE id = ANY(%s)",
+                    (ids,),
                 )
+        for (eid, prov, op, _ent_t, _ent_id, payload, intentos) in rows:
+            log.info("[Scheduler] retry integracion id=%s %s/%s intento=%s",
+                     eid, prov, op, intentos + 1)
+            ok, nota = petra_core.reintentar_integracion(
+                eid, prov, op, payload, intentos
+            )
+            with _db._conexion_directa(timeout=10) as conn:
+                if ok:
+                    petra_core.resolver_error_integracion(conn, eid, nota=nota)
+                else:
+                    petra_core.registrar_error_integracion(
+                        conn,
+                        proveedor=prov,
+                        operacion=op,
+                        error_mensaje=nota,
+                        entidad_tipo=_ent_t,
+                        entidad_id=_ent_id,
+                        payload=payload,
+                    )
     except Exception:
         log.exception("[Scheduler] petra_retry_integraciones fallo")

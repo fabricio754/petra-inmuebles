@@ -113,11 +113,19 @@ def _dispatch(payload, human_summary, log_out=True):
         "Content-Type": "application/json",
     }
     # (connect_timeout, read_timeout): corta más rápido para no bloquear threads.
-    resp = requests.post(_graph_url(), headers=headers, json=payload, timeout=(5, 10))
+    try:
+        resp = requests.post(_graph_url(), headers=headers, json=payload, timeout=(5, 10))
+    except Exception as _exc:
+        log.exception("[ERROR WhatsApp API] excepción de red")
+        _encolar_error_integracion(payload, 0, f"exception: {_exc}")
+        return {"status": "error", "summary": human_summary,
+                "body": str(_exc), "wa_msg_id": None}
     if resp.status_code >= 300:
         log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
+        _encolar_error_integracion(payload, resp.status_code, resp.text)
     else:
         log.info("[OK WhatsApp API] %s → %s: %s", resp.status_code, dest, human_summary)
+        _resolver_errores_integracion_meta(dest)
 
     # Meta devuelve en el body: {"messages": [{"id": "wamid.XXXX"}], ...}.
     # Guardamos ese id para correlacionar con los webhooks de status
@@ -622,3 +630,48 @@ def descargar_media(media_id: str, destino: str) -> dict:
             if chunk:
                 f.write(chunk)
     return meta
+
+
+# ---------------------------------------------------------------------------
+# Cola de errores de integración (Flujo 13) — se engancha a _dispatch.
+# ---------------------------------------------------------------------------
+
+def _encolar_error_integracion(payload, status_code, error_text):
+    """Guarda un fallo de envío a Meta en petra_integracion_errores para
+    reintento con backoff. Nunca propaga errores."""
+    try:
+        from app import db as _db, petra_core
+        with _db._conexion_directa(timeout=10) as conn:
+            petra_core.registrar_error_integracion(
+                conn,
+                proveedor="meta_whatsapp",
+                operacion="enviar_mensaje",
+                error_mensaje=str(error_text) if error_text is not None else "",
+                entidad_tipo="destino",
+                entidad_id=None,
+                payload=payload,
+                error_codigo=str(status_code) if status_code else None,
+            )
+    except Exception:
+        log.exception("[whatsapp] _encolar_error_integracion fallo")
+
+
+def _resolver_errores_integracion_meta(destino):
+    """Al enviar OK, cierra los errores pendientes al mismo destino.
+    Nunca propaga."""
+    try:
+        from app import db as _db, petra_core
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = conn.execute(
+                """SELECT id FROM petra_integracion_errores
+                   WHERE proveedor='meta_whatsapp' AND operacion='enviar_mensaje'
+                     AND estado IN ('pendiente_retry','reintentando')
+                     AND payload->>'to' = %s""",
+                (str(destino),),
+            ).fetchall()
+            for (rid,) in rows:
+                petra_core.resolver_error_integracion(
+                    conn, rid, nota="auto: envío posterior OK"
+                )
+    except Exception:
+        pass
