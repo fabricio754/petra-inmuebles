@@ -121,6 +121,8 @@
   <div class="muted">v1 · {{ oportunidades|length + casos|length + visitas|length + agentes|length + errores|length }} items</div>
 </div>
 <nav class="tabs">
+  <a class="tab {% if tab == 'metricas' %}active{% endif %}"
+     href="?tab=metricas&token={{ token }}">📊 Métricas</a>
   <a class="tab {% if tab == 'oportunidades' %}active{% endif %}"
      href="?tab=oportunidades&token={{ token }}">💼 Oportunidades ({{ oportunidades|length }})</a>
   <a class="tab {% if tab == 'casos' %}active{% endif %}"
@@ -133,6 +135,76 @@
      href="?tab=errores&token={{ token }}">⚠️ Errores ({{ errores|length }})</a>
 </nav>
 <main>
+
+{% if tab == 'metricas' %}
+<style>
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .kpi-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .kpi-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .kpi-value { font-size: 28px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .kpi-value.ok { color: var(--ok); }
+  .kpi-value.warn { color: var(--warn); }
+  .kpi-value.danger { color: var(--danger); }
+  .kpi-sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 24px 0 8px; }
+</style>
+
+<div class="section-title">🏢 Red Petra</div>
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-label">Edificios activos</div><div class="kpi-value">{{ kpis.edificios_activos }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Agentes operativos</div><div class="kpi-value ok">{{ kpis.agentes_operativos }}</div><div class="kpi-sub">de {{ kpis.agentes_total }} totales</div></div>
+  <div class="kpi-card"><div class="kpi-label">Inmuebles activos</div><div class="kpi-value">{{ kpis.inmuebles_activos }}</div><div class="kpi-sub">{{ kpis.inmuebles_borrador }} en borrador</div></div>
+  <div class="kpi-card"><div class="kpi-label">Cerrados (7d)</div><div class="kpi-value ok">{{ kpis.inmuebles_cerrados_7d }}</div><div class="kpi-sub">ventas + arriendos</div></div>
+</div>
+
+<div class="section-title">💼 Pipeline comercial</div>
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-label">Oportunidades abiertas</div><div class="kpi-value">{{ kpis.ops_abiertas }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Ganadas (30d)</div><div class="kpi-value ok">{{ kpis.ops_ganadas_30d }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Perdidas (30d)</div><div class="kpi-value warn">{{ kpis.ops_perdidas_30d }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Conversión 30d</div><div class="kpi-value {% if kpis.conversion_30d_pct >= 30 %}ok{% elif kpis.conversion_30d_pct >= 15 %}warn{% else %}danger{% endif %}">{{ kpis.conversion_30d_pct }}%</div></div>
+</div>
+{% if kpis.ops_por_tipo %}
+<div class="panel" style="margin-bottom:24px">
+  <div class="panel-head"><h2>Oportunidades abiertas por tipo</h2></div>
+  <table>
+    <thead><tr><th>Tipo</th><th>Cantidad</th></tr></thead>
+    <tbody>
+    {% for t in kpis.ops_por_tipo %}
+      <tr><td>{{ t.tipo }}</td><td class="mono">{{ t.count }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="section-title">🎫 Soporte</div>
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-label">Casos abiertos</div><div class="kpi-value">{{ kpis.casos_abiertos }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Escalados</div><div class="kpi-value {% if kpis.casos_escalados > 0 %}danger{% endif %}">{{ kpis.casos_escalados }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">SLA vencido</div><div class="kpi-value {% if kpis.casos_sla_vencido > 0 %}danger{% endif %}">{{ kpis.casos_sla_vencido }}</div><div class="kpi-sub">sin primera respuesta</div></div>
+</div>
+
+<div class="section-title">📅 Visitas</div>
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-label">Próximas (7d)</div><div class="kpi-value">{{ kpis.visitas_proximas_7d }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Realizadas (30d)</div><div class="kpi-value ok">{{ kpis.visitas_realizadas_30d }}</div></div>
+</div>
+
+<div class="section-title">🤖 Massimiliano (24h)</div>
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-label">Requests</div><div class="kpi-value">{{ kpis.llm_requests_24h }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Latencia media</div><div class="kpi-value {% if kpis.llm_latencia_promedio_ms > 3000 %}warn{% elif kpis.llm_latencia_promedio_ms > 5000 %}danger{% else %}ok{% endif %}">{{ kpis.llm_latencia_promedio_ms }}<span style="font-size:14px">ms</span></div></div>
+  <div class="kpi-card"><div class="kpi-label">Errores</div><div class="kpi-value {% if kpis.llm_errores_24h > 0 %}danger{% endif %}">{{ kpis.llm_errores_24h }}</div></div>
+</div>
+
+<div class="section-title">⚠️ Integraciones externas</div>
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-label">Reintentando</div><div class="kpi-value {% if kpis.errores_pendientes > 0 %}warn{% endif %}">{{ kpis.errores_pendientes }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Dead letters</div><div class="kpi-value {% if kpis.dead_letters > 0 %}danger{% endif %}">{{ kpis.dead_letters }}</div><div class="kpi-sub">requieren resolución manual</div></div>
+</div>
+
+{% endif %}
 
 {% if tab == 'oportunidades' %}
 <div class="panel">

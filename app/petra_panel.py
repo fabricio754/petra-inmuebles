@@ -30,6 +30,93 @@ def _rows(conn, sql, params=()):
 # =============================================================================
 
 
+def _metricas_piloto(conn):
+    """KPIs del piloto Petra para el dashboard."""
+    def scalar(sql, params=()):
+        try:
+            r = conn.execute(sql, params).fetchone()
+            return (r[0] if r else 0) or 0
+        except Exception:
+            return 0
+
+    kpis = {}
+    # Edificios y agentes
+    kpis["edificios_activos"] = scalar("SELECT COUNT(*) FROM petra_edificios WHERE activo=TRUE")
+    kpis["agentes_total"] = scalar(
+        "SELECT COUNT(*) FROM petra_contacto_roles WHERE rol='agente_petra'")
+    kpis["agentes_operativos"] = scalar(
+        "SELECT COUNT(*) FROM petra_contacto_roles "
+        "WHERE rol='agente_petra' AND metadata->>'estado_agente'='operativo'")
+    # Inventario
+    kpis["inmuebles_activos"] = scalar(
+        "SELECT COUNT(*) FROM petra_inmuebles WHERE estado='activo'")
+    kpis["inmuebles_borrador"] = scalar(
+        "SELECT COUNT(*) FROM petra_inmuebles WHERE estado='borrador'")
+    kpis["inmuebles_cerrados_7d"] = scalar(
+        "SELECT COUNT(*) FROM petra_inmuebles "
+        "WHERE estado IN ('vendido','arrendado') "
+        "AND updated_at > NOW() - interval '7 days'")
+    # Oportunidades (pipeline)
+    kpis["ops_abiertas"] = scalar(
+        "SELECT COUNT(*) FROM petra_oportunidades "
+        "WHERE estado NOT IN ('cerrado_ganado','cerrado_perdido')")
+    kpis["ops_ganadas_30d"] = scalar(
+        "SELECT COUNT(*) FROM petra_oportunidades "
+        "WHERE estado='cerrado_ganado' AND cerrado_at > NOW() - interval '30 days'")
+    kpis["ops_perdidas_30d"] = scalar(
+        "SELECT COUNT(*) FROM petra_oportunidades "
+        "WHERE estado='cerrado_perdido' AND cerrado_at > NOW() - interval '30 days'")
+    cerradas = kpis["ops_ganadas_30d"] + kpis["ops_perdidas_30d"]
+    kpis["conversion_30d_pct"] = int(
+        round(100 * kpis["ops_ganadas_30d"] / cerradas)) if cerradas else 0
+    # Casos de soporte
+    kpis["casos_abiertos"] = scalar(
+        "SELECT COUNT(*) FROM petra_casos_soporte "
+        "WHERE estado IN ('abierto','en_gestion','pendiente_cliente')")
+    kpis["casos_escalados"] = scalar(
+        "SELECT COUNT(*) FROM petra_casos_soporte WHERE estado='escalado'")
+    kpis["casos_sla_vencido"] = scalar(
+        "SELECT COUNT(*) FROM petra_casos_soporte "
+        "WHERE primera_respuesta_at IS NULL "
+        "AND sla_primera_respuesta_at < NOW() "
+        "AND estado IN ('abierto','en_gestion','escalado')")
+    # Visitas
+    kpis["visitas_proximas_7d"] = scalar(
+        "SELECT COUNT(*) FROM petra_visitas "
+        "WHERE estado IN ('programada','confirmada') "
+        "AND programada_at BETWEEN NOW() AND NOW() + interval '7 days'")
+    kpis["visitas_realizadas_30d"] = scalar(
+        "SELECT COUNT(*) FROM petra_visitas "
+        "WHERE estado='realizada' AND updated_at > NOW() - interval '30 days'")
+    # Integraciones (salud)
+    kpis["dead_letters"] = scalar(
+        "SELECT COUNT(*) FROM petra_integracion_errores WHERE estado='dead_letter'")
+    kpis["errores_pendientes"] = scalar(
+        "SELECT COUNT(*) FROM petra_integracion_errores "
+        "WHERE estado IN ('pendiente_retry','reintentando')")
+    # LLM / observabilidad (últimas 24h)
+    kpis["llm_requests_24h"] = scalar(
+        "SELECT COUNT(*) FROM petra_llm_logs WHERE created_at > NOW() - interval '24 hours'")
+    kpis["llm_latencia_promedio_ms"] = scalar(
+        "SELECT COALESCE(AVG(latencia_ms)::int, 0) FROM petra_llm_logs "
+        "WHERE created_at > NOW() - interval '24 hours' AND error IS NULL OR error = ''")
+    kpis["llm_errores_24h"] = scalar(
+        "SELECT COUNT(*) FROM petra_llm_logs "
+        "WHERE created_at > NOW() - interval '24 hours' "
+        "AND error IS NOT NULL AND error != ''")
+    # Oportunidades por tipo (para pie chart conceptual, hoy solo números)
+    try:
+        rows = conn.execute(
+            "SELECT tipo, COUNT(*) FROM petra_oportunidades "
+            "WHERE estado NOT IN ('cerrado_ganado','cerrado_perdido') "
+            "GROUP BY tipo ORDER BY COUNT(*) DESC"
+        ).fetchall()
+        kpis["ops_por_tipo"] = [{"tipo": r[0], "count": r[1]} for r in rows]
+    except Exception:
+        kpis["ops_por_tipo"] = []
+    return kpis
+
+
 @petra_panel_bp.get("")
 def panel_home():
     _check_token()
@@ -86,6 +173,7 @@ def panel_home():
                    ORDER BY
                      CASE estado WHEN 'dead_letter' THEN 0 ELSE 1 END,
                      created_at DESC LIMIT 100"""),
+            "kpis": _metricas_piloto(conn),
         }
     return render_template("petra_panel.html", **contexto)
 
