@@ -38,6 +38,8 @@ from app.tools import tools_bp
 app.register_blueprint(tools_bp)
 from app.petra import petra_bp
 app.register_blueprint(petra_bp)
+from app.petra_router import petra_router_bp
+app.register_blueprint(petra_router_bp)
 envios.iniciar()
 scraper.iniciar()
 scheduler.iniciar()
