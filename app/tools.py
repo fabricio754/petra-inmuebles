@@ -20,6 +20,14 @@ tools_bp = Blueprint("tools", __name__, url_prefix="/tools")
 
 _TEL_RE = re.compile(r"^\+?\d{10,15}$")
 _TEL_STRIP_RE = re.compile(r"[\s\-\.]+")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_CEDULA_STRIP_RE = re.compile(r"[\s\-\.]+")
+_CEDULA_RE = re.compile(r"^\d{5,20}$")
+
+_PATRIMONIO_VALID = {"SI", "NO", "NO_SE"}
+_TIPO_PERSONA_VALID = {"NATURAL", "JURIDICA"}
+_BOOL_TRUE = {"true", "1", "si", "sí", "yes", "y", "t"}
+_BOOL_FALSE = {"false", "0", "no", "n", "f"}
 
 
 def _normalizar_telefono(raw):
@@ -35,7 +43,6 @@ def _parse_iso(raw):
     if not raw:
         return None
     try:
-        # Py 3.11+ fromisoformat acepta 'Z'; aceptamos ambos por seguridad.
         s = str(raw).strip()
         if s.endswith("Z"):
             s = s[:-1] + "+00:00"
@@ -56,6 +63,65 @@ def _num(raw):
         return None
 
 
+def _coerce_bool(raw):
+    """Devuelve True/False si válido, None si no se puede interpretar."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        if raw in (0, 1):
+            return bool(raw)
+        return None
+    s = str(raw).strip().lower()
+    if s in _BOOL_TRUE:
+        return True
+    if s in _BOOL_FALSE:
+        return False
+    return None
+
+
+def _coerce_estrato(raw):
+    if raw is None or raw == "":
+        return None
+    try:
+        v = int(raw)
+        return v if 1 <= v <= 6 else "invalid"
+    except (ValueError, TypeError):
+        return "invalid"
+
+
+def _coerce_edad(raw):
+    if raw is None or raw == "":
+        return None
+    try:
+        v = int(raw)
+        return v if 1 <= v < 120 else "invalid"
+    except (ValueError, TypeError):
+        return "invalid"
+
+
+def _coerce_email(raw):
+    if raw is None or raw == "":
+        return None
+    s = str(raw).strip()
+    return s if _EMAIL_RE.match(s) else "invalid"
+
+
+def _coerce_cedula(raw):
+    if raw is None or raw == "":
+        return None
+    s = _CEDULA_STRIP_RE.sub("", str(raw))
+    return s if _CEDULA_RE.match(s) else "invalid"
+
+
+def _coerce_choice(raw, valid_set):
+    if raw is None or raw == "":
+        return None
+    s = str(raw).strip().upper()
+    return s if s in valid_set else "invalid"
+
+
 def _require_token(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -64,6 +130,18 @@ def _require_token(fn):
             return jsonify({"error": "no_autorizado"}), 401
         return fn(*args, **kwargs)
     return wrapper
+
+
+_LEAD_COLS = (
+    "id", "telefono", "nombre", "ciudad", "tipo_inmueble", "avaluo",
+    "monto_solicitado", "destino_credito", "requiere_humano",
+    "requiere_humano_motivo", "requiere_humano_at", "enviado_sureti_at",
+    "created_at", "updated_at",
+    "direccion", "apto", "barrio", "estrato", "es_ph", "hipoteca",
+    "patrimonio_familia", "propietario_mayor_75", "paz_salvo",
+    "tipo_persona", "cedula_nit", "edad", "email",
+)
+_LEAD_SELECT = ", ".join(_LEAD_COLS)
 
 
 def _row_lead(row, cols):
@@ -77,15 +155,6 @@ def _row_lead(row, cols):
     return d
 
 
-_LEAD_COLS = (
-    "id", "telefono", "nombre", "ciudad", "tipo_inmueble", "avaluo",
-    "monto_solicitado", "destino_credito", "requiere_humano",
-    "requiere_humano_motivo", "requiere_humano_at", "enviado_sureti_at",
-    "created_at", "updated_at",
-)
-_LEAD_SELECT = ", ".join(_LEAD_COLS)
-
-
 @tools_bp.post("/leads")
 @_require_token
 def crear_o_actualizar_lead():
@@ -94,18 +163,55 @@ def crear_o_actualizar_lead():
     if not tel:
         return jsonify({"error": "telefono invalido"}), 400
     log.info("[tools] POST /leads tel=%s", tel)
+
     nombre = body.get("nombre")
     ciudad = body.get("ciudad")
     tipo = body.get("tipo_inmueble")
     avaluo = _num(body.get("avaluo"))
     monto = _num(body.get("monto_solicitado"))
     destino = body.get("destino_credito")
+
+    direccion = body.get("direccion")
+    apto = body.get("apto")
+    barrio = body.get("barrio")
+
+    estrato = _coerce_estrato(body.get("estrato"))
+    if estrato == "invalid":
+        return jsonify({"error": "estrato invalido (1-6)"}), 400
+
+    es_ph = _coerce_bool(body.get("es_ph"))
+    hipoteca = _coerce_bool(body.get("hipoteca"))
+    paz_salvo = _coerce_bool(body.get("paz_salvo"))
+    propietario_mayor_75 = _coerce_bool(body.get("propietario_mayor_75"))
+
+    patrimonio = _coerce_choice(body.get("patrimonio_familia"), _PATRIMONIO_VALID)
+    if patrimonio == "invalid":
+        return jsonify({"error": "patrimonio_familia invalido (SI|NO|NO_SE)"}), 400
+
+    tipo_persona = _coerce_choice(body.get("tipo_persona"), _TIPO_PERSONA_VALID)
+    if tipo_persona == "invalid":
+        return jsonify({"error": "tipo_persona invalido (NATURAL|JURIDICA)"}), 400
+
+    cedula = _coerce_cedula(body.get("cedula_nit"))
+    if cedula == "invalid":
+        return jsonify({"error": "cedula_nit invalido (5-20 digitos)"}), 400
+
+    edad = _coerce_edad(body.get("edad"))
+    if edad == "invalid":
+        return jsonify({"error": "edad invalida (1-119)"}), 400
+
+    email = _coerce_email(body.get("email"))
+    if email == "invalid":
+        return jsonify({"error": "email invalido"}), 400
+
     try:
         with _db._conexion_directa(timeout=10) as conn:
             row = conn.execute(
                 f"INSERT INTO pilot_leads "
-                f"(telefono, nombre, ciudad, tipo_inmueble, avaluo, monto_solicitado, destino_credito) "
-                f"VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                f"(telefono, nombre, ciudad, tipo_inmueble, avaluo, monto_solicitado, destino_credito, "
+                f" direccion, apto, barrio, estrato, es_ph, hipoteca, patrimonio_familia, "
+                f" propietario_mayor_75, paz_salvo, tipo_persona, cedula_nit, edad, email) "
+                f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 f"ON CONFLICT (telefono) DO UPDATE SET "
                 f"  nombre = COALESCE(EXCLUDED.nombre, pilot_leads.nombre), "
                 f"  ciudad = COALESCE(EXCLUDED.ciudad, pilot_leads.ciudad), "
@@ -113,9 +219,24 @@ def crear_o_actualizar_lead():
                 f"  avaluo = COALESCE(EXCLUDED.avaluo, pilot_leads.avaluo), "
                 f"  monto_solicitado = COALESCE(EXCLUDED.monto_solicitado, pilot_leads.monto_solicitado), "
                 f"  destino_credito = COALESCE(EXCLUDED.destino_credito, pilot_leads.destino_credito), "
+                f"  direccion = COALESCE(EXCLUDED.direccion, pilot_leads.direccion), "
+                f"  apto = COALESCE(EXCLUDED.apto, pilot_leads.apto), "
+                f"  barrio = COALESCE(EXCLUDED.barrio, pilot_leads.barrio), "
+                f"  estrato = COALESCE(EXCLUDED.estrato, pilot_leads.estrato), "
+                f"  es_ph = COALESCE(EXCLUDED.es_ph, pilot_leads.es_ph), "
+                f"  hipoteca = COALESCE(EXCLUDED.hipoteca, pilot_leads.hipoteca), "
+                f"  patrimonio_familia = COALESCE(EXCLUDED.patrimonio_familia, pilot_leads.patrimonio_familia), "
+                f"  propietario_mayor_75 = COALESCE(EXCLUDED.propietario_mayor_75, pilot_leads.propietario_mayor_75), "
+                f"  paz_salvo = COALESCE(EXCLUDED.paz_salvo, pilot_leads.paz_salvo), "
+                f"  tipo_persona = COALESCE(EXCLUDED.tipo_persona, pilot_leads.tipo_persona), "
+                f"  cedula_nit = COALESCE(EXCLUDED.cedula_nit, pilot_leads.cedula_nit), "
+                f"  edad = COALESCE(EXCLUDED.edad, pilot_leads.edad), "
+                f"  email = COALESCE(EXCLUDED.email, pilot_leads.email), "
                 f"  updated_at = NOW() "
                 f"RETURNING {_LEAD_SELECT}",
-                (tel, nombre, ciudad, tipo, avaluo, monto, destino),
+                (tel, nombre, ciudad, tipo, avaluo, monto, destino,
+                 direccion, apto, barrio, estrato, es_ph, hipoteca, patrimonio,
+                 propietario_mayor_75, paz_salvo, tipo_persona, cedula, edad, email),
             ).fetchone()
     except Exception as exc:
         log.exception("[tools] /leads fallo tel=%s", tel)
@@ -262,6 +383,13 @@ def escalar():
     return jsonify(_row_lead(row, _LEAD_COLS)), 200
 
 
+_SURETI_REQUIRED = (
+    "nombre", "ciudad", "direccion", "barrio", "estrato", "es_ph", "hipoteca",
+    "patrimonio_familia", "propietario_mayor_75", "paz_salvo", "avaluo",
+    "destino_credito", "tipo_persona", "cedula_nit", "edad", "email",
+)
+
+
 @tools_bp.post("/sureti")
 @_require_token
 def enviar_sureti():
@@ -272,11 +400,19 @@ def enviar_sureti():
     log.info("[tools] POST /sureti tel=%s", tel)
     try:
         with _db._conexion_directa(timeout=10) as conn:
-            fila = conn.execute(
-                "SELECT 1 FROM pilot_leads WHERE telefono = %s", (tel,)
+            lead_row = conn.execute(
+                f"SELECT {_LEAD_SELECT} FROM pilot_leads WHERE telefono = %s",
+                (tel,),
             ).fetchone()
-            if not fila:
+            if not lead_row:
                 return jsonify({"error": "no encontrado"}), 404
+            lead = dict(zip(_LEAD_COLS, lead_row))
+            faltantes = [c for c in _SURETI_REQUIRED if lead.get(c) is None]
+            if faltantes:
+                return jsonify({
+                    "error": "Faltan datos para enviar a Sureti",
+                    "faltantes": faltantes,
+                }), 400
             conn.execute(
                 "INSERT INTO pilot_notas (telefono, autor, texto) "
                 "VALUES (%s, 'sistema', '[SURETI] Enviado a Sureti')",

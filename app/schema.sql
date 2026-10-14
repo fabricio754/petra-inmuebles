@@ -321,6 +321,21 @@ CREATE TABLE IF NOT EXISTS pilot_recordatorios (
 CREATE INDEX IF NOT EXISTS pilot_recordatorios_disparar_idx
   ON pilot_recordatorios (disparar_at, disparado);
 
+-- Campos extra para calificación completa de Sureti (chat + voz).
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS direccion TEXT;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS apto TEXT;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS barrio TEXT;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS estrato INTEGER;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS es_ph BOOLEAN;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS hipoteca BOOLEAN;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS patrimonio_familia TEXT;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS propietario_mayor_75 BOOLEAN;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS paz_salvo BOOLEAN;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS tipo_persona TEXT;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS cedula_nit TEXT;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS edad INTEGER;
+ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS email TEXT;
+
 -- === Nuevas features (iter 5 — oct-2026) ====================================
 -- Next step / próxima acción por lead
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
