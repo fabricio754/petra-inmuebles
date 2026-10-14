@@ -733,12 +733,25 @@ def _publicar_step(conn, estado, contacto_id, edificio, texto, button_id, list_i
             return {"messages": [msg_text("Falta contexto del edificio. Vuelve a escanear el QR.")]}
         inm_id = _publicar_crear_inmueble(conn, contacto_id, edificio["id"], datos)
         _close_estado(conn, estado["id"])
+        # Trigger matching inmediato — notifica interesados que cumplen criterios.
+        try:
+            from app.petra_match import notificar_matches_al_publicar
+            n_matches = notificar_matches_al_publicar(conn, inm_id)
+        except Exception:
+            log.exception("[petra_router] matching trigger fallo inm=%s", inm_id)
+            n_matches = 0
         msgs = [
             msg_text(f"🎉 ¡Publicado! Tu anuncio ya está en el inventario de {edificio['nombre']}."),
-            msg_text("Te avisaremos si alguien se interesa. Puedes escribirme otra vez para publicar más o ver inmuebles."),
         ]
+        if n_matches > 0:
+            msgs.append(msg_text(
+                f"🔔 Avisamos a {n_matches} interesado{'s' if n_matches != 1 else ''} "
+                f"que coinciden con tu publicación."
+            ))
+        else:
+            msgs.append(msg_text("Te avisaremos si alguien se interesa."))
         return {"messages": msgs, "flow": None, "paso": None, "estado_id": None,
-                "cerro_flow": True, "inmueble_id": inm_id}
+                "cerro_flow": True, "inmueble_id": inm_id, "matches_notificados": n_matches}
 
     if nuevo_paso == "__corregir__":
         # Volvemos a la primera pregunta — simple y entendible.
