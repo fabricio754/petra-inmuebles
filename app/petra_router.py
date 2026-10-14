@@ -646,6 +646,14 @@ def handle_inbound(telefono, texto="", button_id=None, list_id=None,
                 "Perfecto, lo dejo publicado así. Si cambias de opinión, escríbeme. 👍"
             )], "flow": None, "paso": None, "cerro_flow": True}
 
+        # Sprint 9 — Detector de soporte: si el contacto ya tiene contrato
+        # activo y escribe algo con palabras clave de incidencia, abrimos un
+        # caso con SLA automático.
+        if texto and not estado:
+            caso_resp = _maybe_abrir_caso_soporte(conn, contacto_id, texto)
+            if caso_resp:
+                return caso_resp
+
         # Si no hay flujo activo y hay edificio nuevo: menú inicial
         if not estado:
             if not edificio:
@@ -1126,6 +1134,64 @@ def _flow_me_interesa(conn, inm_id, interesado_id):
                 "Te escribirá directamente. Si prefieres, respóndeme para coordinar."]
 
     return [msg_text("\n".join(partes_i))], [msg_text("\n".join(partes_p))]
+
+
+_SOPORTE_KEYWORDS = {
+    "cobro":     ("cobro", ["cobro", "pago", "no ha pagado", "no me ha pagado", "deuda", "factura"]),
+    "mantenimiento": ("mantenimiento", ["daño", "danado", "roto", "goteo", "fuga", "no funciona", "reparar", "arreglar", "mantenimiento"]),
+    "reclamo":   ("reclamo", ["reclamo", "queja", "molesto", "molesta", "pésimo", "pesimo", "mal servicio", "indignado"]),
+    "cancelacion": ("cancelacion", ["cancelar", "retirar servicio", "dar de baja", "terminar contrato"]),
+    "consulta":  ("consulta", ["pregunta", "duda", "consulta", "cómo hago", "como hago"]),
+}
+
+_PRIORIDAD_POR_CATEGORIA = {
+    "cobro": "alta",
+    "mantenimiento": "media",
+    "reclamo": "alta",
+    "cancelacion": "alta",
+    "consulta": "baja",
+}
+
+
+def _maybe_abrir_caso_soporte(conn, contacto_id, texto):
+    """Si el contacto tiene contrato activo y el texto tiene palabras clave
+    de soporte, abre un caso con prioridad por categoría y responde con
+    acuse de recibo. Si no aplica, devuelve None."""
+    if not contacto_id:
+        return None
+    t = texto.lower()
+    categoria = None
+    for _, (cat, keys) in _SOPORTE_KEYWORDS.items():
+        if any(k in t for k in keys):
+            categoria = cat
+            break
+    if not categoria:
+        return None
+
+    row = conn.execute(
+        """SELECT id FROM petra_contratos
+           WHERE contacto_id = %s AND estado IN ('activo','firmado')
+           ORDER BY updated_at DESC LIMIT 1""",
+        (contacto_id,),
+    ).fetchone()
+    if not row:
+        # Sin contrato activo no abrimos caso; dejamos que lo tome Claude.
+        return None
+    contrato_id = row[0]
+
+    from app import petra_core
+    prioridad = _PRIORIDAD_POR_CATEGORIA.get(categoria, "media")
+    caso_id = petra_core.crear_caso_soporte(
+        conn, contacto_id=contacto_id, categoria=categoria,
+        descripcion=texto[:1000], prioridad=prioridad,
+        contrato_id=contrato_id,
+    )
+    sla_horas = petra_core.SLA_HORAS.get(prioridad, 8)
+    return {"messages": [msg_text(
+        f"Gracias por avisar. Abrí tu caso #{caso_id} ({categoria}, "
+        f"prioridad {prioridad}). Un humano te responderá en máximo "
+        f"{sla_horas}h. Mientras tanto, si tienes más detalles, escríbelos aquí."
+    )], "flow": None, "paso": None, "cerro_flow": True, "caso_id": caso_id}
 
 
 def _ofrecer_servicio_petra(conn, contacto_id, inm_id):

@@ -564,6 +564,58 @@ def listar_auditoria():
         return _ok(_rows_to_dicts(cur, rows))
 
 
+@petra_core_bp.post("/casos/<int:cid>")
+def actualizar_caso_http(cid):
+    """PATCH-like: asignar responsable, registrar primera_respuesta, resolver.
+    Body: {responsable_humano?, primera_respuesta?: bool, estado?, resolucion_nota?}
+    """
+    data = request.get_json(force=True) or {}
+    sets, params = [], []
+    nuevo_estado = data.get("estado")
+    if data.get("responsable_humano"):
+        sets.append("responsable_humano=%s"); params.append(data["responsable_humano"])
+    if data.get("primera_respuesta"):
+        sets.append("primera_respuesta_at=NOW()")
+    if nuevo_estado:
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute("SELECT estado FROM petra_casos_soporte WHERE id=%s", (cid,)).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "no_existe"}), 404
+            if not transicion_permitida(CASO_TRANSICIONES, row[0], nuevo_estado):
+                return jsonify({"ok": False, "error": f"transicion_invalida {row[0]}->{nuevo_estado}"}), 400
+        sets.append("estado=%s"); params.append(nuevo_estado)
+        if nuevo_estado == "resuelto":
+            sets.append("resuelto_at=NOW()")
+            if data.get("resolucion_nota"):
+                sets.append("resolucion_nota=%s"); params.append(data["resolucion_nota"])
+    if not sets:
+        return jsonify({"ok": False, "error": "nada que actualizar"}), 400
+    sets.append("updated_at=NOW()")
+    params.append(cid)
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(f"UPDATE petra_casos_soporte SET {', '.join(sets)} WHERE id=%s", tuple(params))
+        audit(conn, "humano_panel", None, data.get("responsable_humano"),
+              "actualizar_caso", "caso", cid, despues=data)
+    return _ok({"id": cid, "actualizado": True})
+
+
+def escalar_casos_vencidos(conn):
+    """Flujo 7 — pasa a 'escalado' los casos cuyo SLA de primera respuesta
+    ya venció y nadie respondió. Devuelve lista de IDs escalados."""
+    rows = conn.execute(
+        """UPDATE petra_casos_soporte
+              SET estado = 'escalado', updated_at = NOW()
+            WHERE estado IN ('abierto','en_gestion','pendiente_cliente')
+              AND primera_respuesta_at IS NULL
+              AND sla_primera_respuesta_at < NOW()
+            RETURNING id, contacto_id, categoria, prioridad"""
+    ).fetchall()
+    for cid, con_id, cat, prio in rows:
+        audit(conn, "sistema", None, "scheduler", "escalar_caso",
+              "caso", cid, metadata={"motivo": "sla_vencido", "categoria": cat, "prioridad": prio})
+    return [r[0] for r in rows]
+
+
 @petra_core_bp.post("/control_calidad")
 def control_calidad_http():
     dias = request.args.get("dias_vencimiento", 60, type=int)

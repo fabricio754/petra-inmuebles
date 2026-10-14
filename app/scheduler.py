@@ -56,6 +56,10 @@ def iniciar():
     _scheduler.add_job(_petra_control_calidad, "interval", hours=6,
                        id="petra_control_calidad",
                        max_instances=1, coalesce=True)
+    # Sprint 9 — escalado de casos de soporte con SLA vencido cada 15 min
+    _scheduler.add_job(_petra_escalar_casos, "interval", minutes=15,
+                       id="petra_escalar_casos",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -338,3 +342,16 @@ def _petra_control_calidad():
         log.info("[Scheduler] petra_control_calidad: %s", out)
     except Exception:
         log.exception("[Scheduler] petra_control_calidad fallo")
+
+
+# Sprint 9 — escalado automático de casos de soporte (Flujo 7)
+def _petra_escalar_casos():
+    try:
+        from app import db as _db, petra_core
+        with _db._conexion_directa(timeout=15) as conn:
+            escalados = petra_core.escalar_casos_vencidos(conn)
+        if escalados:
+            log.warning("[Scheduler] petra_escalar_casos: %d escalados: %s",
+                        len(escalados), escalados)
+    except Exception:
+        log.exception("[Scheduler] petra_escalar_casos fallo")
