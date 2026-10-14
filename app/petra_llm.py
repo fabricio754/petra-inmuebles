@@ -178,12 +178,83 @@ def _tiene_estado_activo(telefono):
         return False
 
 
+def _contexto_contacto(telefono):
+    """Arma un resumen compacto del contacto para inyectar al system prompt.
+    Trae nombre, roles activos, oportunidades abiertas y último lead crédito."""
+    from app import db as _db
+    if not telefono:
+        return None
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            crow = conn.execute(
+                "SELECT id, nombre FROM petra_contactos WHERE telefono = %s",
+                (telefono,),
+            ).fetchone()
+            lead_nombre = None
+            try:
+                lrow = conn.execute(
+                    """SELECT nombre, monto_solicitado, destino_credito,
+                              enviado_sureti_at
+                       FROM pilot_leads WHERE telefono = %s""",
+                    (telefono,),
+                ).fetchone()
+            except Exception:
+                lrow = None
+            if not crow and not lrow:
+                return None
+            partes = []
+            if crow:
+                cid, nombre = crow
+                if nombre:
+                    partes.append(f"Nombre: {nombre}.")
+                    lead_nombre = nombre
+                try:
+                    roles = conn.execute(
+                        """SELECT rol FROM petra_contacto_roles
+                           WHERE contacto_id = %s AND estado = 'activo'""",
+                        (cid,),
+                    ).fetchall()
+                    if roles:
+                        partes.append("Roles activos: " + ", ".join(r[0] for r in roles) + ".")
+                except Exception:
+                    pass
+                try:
+                    ops = conn.execute(
+                        """SELECT tipo, estado, inmueble_id, valor_cop
+                           FROM petra_oportunidades
+                           WHERE contacto_id = %s
+                             AND estado NOT IN ('cerrado_ganado','cerrado_perdido')
+                           ORDER BY updated_at DESC LIMIT 3""",
+                        (cid,),
+                    ).fetchall()
+                    for tipo, estado, inm_id, valor in ops:
+                        extra = f" sobre inmueble #{inm_id}" if inm_id else ""
+                        monto = f" (${(valor or 0)/1_000_000:.0f}M)" if valor else ""
+                        partes.append(f"Oportunidad abierta: {tipo} en estado {estado}{extra}{monto}.")
+                except Exception:
+                    pass
+            if lrow:
+                nombre_l, monto, destino, enviado = lrow
+                if nombre_l and not lead_nombre:
+                    partes.append(f"Nombre: {nombre_l}.")
+                if monto:
+                    partes.append(f"Lead crédito registrado: ${monto}M {destino or ''}.".strip() + ".")
+                if enviado:
+                    partes.append("Solicitud ya fue enviada al broker Sureti.")
+            if not partes:
+                return None
+            return "DATOS DEL CONTACTO:\n- " + "\n- ".join(partes)
+    except Exception:
+        log.exception("[petra_llm] contexto_contacto fallo tel=%s", telefono)
+        return None
+
+
 # =============================================================================
 # Claude streaming
 # =============================================================================
 
 
-def _claude_stream(messages):
+def _claude_stream(messages, contexto_contacto=None):
     """Yields chunks de texto desde Claude. Devuelve None si falla el import
     o faltan credenciales (el caller cae a texto genérico)."""
     try:
@@ -197,6 +268,12 @@ def _claude_stream(messages):
     model = os.environ.get("PETRA_LLM_CLAUDE_MODEL", "claude-haiku-5-5")
     # Convertir messages OpenAI → Claude (system aparte, resto como user/assistant)
     sys_msg = SYSTEM_PROMPT
+    if contexto_contacto:
+        sys_msg = SYSTEM_PROMPT + "\n\n" + contexto_contacto + (
+            "\n\nUsa estos datos para personalizar la conversación, pero no "
+            "los recites textualmente a menos que el usuario los pida. Si no "
+            "corresponden con lo que el usuario dice, confía en lo que te dice."
+        )
     convo = []
     for m in messages or []:
         role = m.get("role")
@@ -321,8 +398,9 @@ def chat_completions():
             yield "data: [DONE]\n\n"
         return Response(stream_with_context(gen_router()), mimetype="text/event-stream")
 
-    # --- Rama 2: Claude streaming ---
-    claude_gen = _claude_stream(messages)
+    # --- Rama 2: Claude streaming (con contexto enriquecido del contacto) ---
+    ctx = _contexto_contacto(telefono)
+    claude_gen = _claude_stream(messages, contexto_contacto=ctx)
     if claude_gen is None:
         fallback = (
             "Soy Massi de PETRA. Puedo ayudarte a publicar un inmueble, ver "
