@@ -57,7 +57,7 @@ petra_llm_bp = Blueprint("petra_llm", __name__, url_prefix="/petra/llm")
 MODEL_ID = "petra-massi-1"
 
 SYSTEM_PROMPT = (
-    "Eres Massi, asistente de PETRA Inmuebles en Colombia. Hablas en español, "
+    "Eres el asistente de PETRA Inmuebles en Colombia. Hablas en español, "
     "tono cercano, breve y profesional. Puedes ayudar con: publicar inmuebles "
     "en edificios Petra (venta o arriendo), ver inventario del edificio, "
     "información sobre crédito hipotecario y acompañamiento con nuestro "
@@ -66,6 +66,103 @@ SYSTEM_PROMPT = (
     "Si el usuario quiere publicar, ver inventario o editar un anuncio, "
     "pídele que escanee el QR de su edificio para activar el flujo guiado."
 )
+
+# Sprint 5.2 — Prompts especializados por rol/contexto del contacto
+SYSTEM_PROMPT_CREDITO = (
+    "Eres Massi, asistente de crédito hipotecario de PETRA en Colombia. "
+    "Tu objetivo: ayudar al usuario a terminar su solicitud de crédito con "
+    "nuestro aliado Sureti. Mantén el foco en los datos que faltan: "
+    "dirección, barrio, estrato, PH, hipoteca previa, patrimonio, edad, "
+    "paz y salvo, cédula/NIT y email. No prometes aprobación ni tasas: la "
+    "entidad financiera decide. Si el usuario quiere cambiar de tema, pivota "
+    "amablemente pero no abandones el proceso. Habla breve y claro."
+)
+
+SYSTEM_PROMPT_SOPORTE = (
+    "Eres el asistente de atención al cliente de PETRA. El usuario tiene un "
+    "caso de soporte abierto o es cliente activo. Tu rol: escuchar, "
+    "entender el problema, pedir detalles concretos (fecha, inmueble, "
+    "monto, qué pasó) y confirmar que un asesor humano lo contactará dentro "
+    "del SLA. No prometes soluciones específicas ni compensaciones; eso lo "
+    "decide el asesor humano. Si el caso es urgente (fuga de agua, "
+    "seguridad), dilo claramente y marca prioridad alta."
+)
+
+SYSTEM_PROMPT_RECLUTAMIENTO = (
+    "Eres el asistente de reclutamiento de agentes PETRA. El usuario llegó "
+    "interesado en ser agente de nuestra red (gana comisión por conectar "
+    "inmuebles de edificios donde instala el QR de Petra). Explícalo breve "
+    "y claro, pregunta ciudad, cuántos edificios conoce donde podría "
+    "colocar el QR y disponibilidad de tiempo. Si cumple criterios "
+    "(mínimo 1 edificio potencial, mayor de edad), explica que recibirá un "
+    "video de capacitación. No prometes montos de comisión específicos ni "
+    "fechas de inicio."
+)
+
+SYSTEM_PROMPT_CAPACITACION = (
+    "Eres el acompañante de capacitación de agentes PETRA en formación. El "
+    "usuario está completando los 5 videos del programa. Tu rol: motivar, "
+    "resolver dudas sobre el material visto, confirmar progreso y "
+    "recordarle el siguiente video. No improvises contenido de capacitación "
+    "fuera de lo que ya le enviamos. Al terminar los 5, le recordarás que "
+    "debe hacer el mini-examen de certificación."
+)
+
+SYSTEM_PROMPT_ANUNCIANTE = (
+    "Eres el asistente de PETRA para propietarios y anunciantes. El usuario "
+    "ya tiene inmuebles publicados en la plataforma. Puedes ayudarlo a "
+    "editar, pausar o reactivar sus anuncios; responder dudas sobre "
+    "interesados que lo contactaron; o explicar el servicio de intermediación "
+    "y administración de arriendo de PETRA. Para editar un anuncio pídele "
+    "que escanee el QR del edificio y use el menú 'editar'."
+)
+
+
+def _elegir_system_prompt(conn, contacto_id):
+    """Devuelve el system prompt según rol/estado del contacto. Prioriza:
+    1) caso de soporte abierto → soporte
+    2) rol agente_petra en capacitación → capacitacion
+    3) rol agente_petra en lead/inscrito → reclutamiento
+    4) oportunidad crédito abierta (lead|contactado) → credito
+    5) rol anunciante activo → anunciante
+    6) default → Massi general"""
+    if not contacto_id:
+        return SYSTEM_PROMPT
+    try:
+        row = conn.execute(
+            """SELECT 1 FROM petra_casos_soporte
+               WHERE contacto_id=%s
+                 AND estado IN ('abierto','en_gestion','escalado','pendiente_cliente')
+               LIMIT 1""", (contacto_id,)).fetchone()
+        if row:
+            return SYSTEM_PROMPT_SOPORTE
+        row = conn.execute(
+            """SELECT metadata->>'estado_agente'
+               FROM petra_contacto_roles
+               WHERE contacto_id=%s AND rol='agente_petra' AND estado='activo'
+               LIMIT 1""", (contacto_id,)).fetchone()
+        if row:
+            ea = row[0] or ""
+            if ea == "en_capacitacion":
+                return SYSTEM_PROMPT_CAPACITACION
+            if ea in ("lead", "inscrito"):
+                return SYSTEM_PROMPT_RECLUTAMIENTO
+        row = conn.execute(
+            """SELECT 1 FROM petra_oportunidades
+               WHERE contacto_id=%s AND tipo='credito'
+                 AND estado IN ('lead','contactado','negociando')
+               LIMIT 1""", (contacto_id,)).fetchone()
+        if row:
+            return SYSTEM_PROMPT_CREDITO
+        row = conn.execute(
+            """SELECT 1 FROM petra_contacto_roles
+               WHERE contacto_id=%s AND rol='anunciante' AND estado='activo'
+               LIMIT 1""", (contacto_id,)).fetchone()
+        if row:
+            return SYSTEM_PROMPT_ANUNCIANTE
+    except Exception:
+        log.exception("[petra_llm] elegir_system_prompt fallo")
+    return SYSTEM_PROMPT
 
 # =============================================================================
 # Auth
@@ -254,7 +351,7 @@ def _contexto_contacto(telefono):
 # =============================================================================
 
 
-def _claude_stream(messages, contexto_contacto=None):
+def _claude_stream(messages, contexto_contacto=None, base_prompt=None):
     """Yields chunks de texto desde Claude. Devuelve None si falla el import
     o faltan credenciales (el caller cae a texto genérico)."""
     try:
@@ -267,9 +364,9 @@ def _claude_stream(messages, contexto_contacto=None):
     client = Anthropic(api_key=api_key)
     model = os.environ.get("PETRA_LLM_CLAUDE_MODEL", "claude-haiku-5-5")
     # Convertir messages OpenAI → Claude (system aparte, resto como user/assistant)
-    sys_msg = SYSTEM_PROMPT
+    sys_msg = base_prompt or SYSTEM_PROMPT
     if contexto_contacto:
-        sys_msg = SYSTEM_PROMPT + "\n\n" + contexto_contacto + (
+        sys_msg = sys_msg + "\n\n" + contexto_contacto + (
             "\n\nUsa estos datos para personalizar la conversación, pero no "
             "los recites textualmente a menos que el usuario los pida. Si no "
             "corresponden con lo que el usuario dice, confía en lo que te dice."
@@ -398,9 +495,22 @@ def chat_completions():
             yield "data: [DONE]\n\n"
         return Response(stream_with_context(gen_router()), mimetype="text/event-stream")
 
-    # --- Rama 2: Claude streaming (con contexto enriquecido del contacto) ---
+    # --- Rama 2: Claude streaming con prompt elegido por rol + contexto ---
     ctx = _contexto_contacto(telefono)
-    claude_gen = _claude_stream(messages, contexto_contacto=ctx)
+    base_prompt = None
+    if telefono:
+        try:
+            from app import db as _db
+            with _db._conexion_directa(timeout=5) as conn:
+                row = conn.execute(
+                    "SELECT id FROM petra_contactos WHERE telefono=%s", (telefono,),
+                ).fetchone()
+                if row:
+                    base_prompt = _elegir_system_prompt(conn, row[0])
+        except Exception:
+            pass
+    claude_gen = _claude_stream(messages, contexto_contacto=ctx,
+                                 base_prompt=base_prompt)
     if claude_gen is None:
         fallback = (
             "Soy Massi de PETRA. Puedo ayudarte a publicar un inmueble, ver "

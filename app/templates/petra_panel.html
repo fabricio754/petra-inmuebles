@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Petra — Operaciones</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff;
+    --panel: #ffffff;
+    --border: #e8e4f0;
+    --text: #2a2440;
+    --muted: #76708a;
+    --accent: #7c5cff;
+    --accent-soft: #ece6ff;
+    --ok: #16a34a;
+    --warn: #f59e0b;
+    --danger: #dc2626;
+    --info: #0ea5e9;
+    --critica: #dc2626;
+    --alta: #ea580c;
+    --media: #ca8a04;
+    --baja: #0ea5e9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    font-family: Inter, system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    font-size: 14px; line-height: 1.5;
+  }
+  .topbar {
+    padding: 16px 24px; background: #fff;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  .topbar .brand { color: var(--accent); }
+  .tabs {
+    display: flex; gap: 4px; padding: 0 24px;
+    background: #fff; border-bottom: 1px solid var(--border);
+    overflow-x: auto; white-space: nowrap;
+  }
+  .tab {
+    padding: 12px 16px; font-weight: 500;
+    color: var(--muted); text-decoration: none;
+    border-bottom: 2px solid transparent; display: inline-block;
+  }
+  .tab.active {
+    color: var(--accent); border-bottom-color: var(--accent);
+  }
+  .tab:hover { color: var(--accent); }
+  main { padding: 20px 24px; }
+  .panel {
+    background: var(--panel); border-radius: 10px;
+    border: 1px solid var(--border); overflow: hidden;
+  }
+  .panel-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count { color: var(--muted); font-size: 13px; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  thead th {
+    text-align: left; padding: 10px 14px;
+    background: #f5f2fb; color: var(--muted);
+    font-weight: 500; text-transform: uppercase;
+    font-size: 11px; letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody td {
+    padding: 10px 14px; border-bottom: 1px solid #f1eef7;
+    vertical-align: top;
+  }
+  tbody tr:hover { background: #fcfaff; }
+  .pill {
+    display: inline-block; padding: 2px 8px;
+    border-radius: 999px; font-size: 11px; font-weight: 600;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .pill.ok { background: #dcfce7; color: #166534; }
+  .pill.warn { background: #fef3c7; color: #92400e; }
+  .pill.danger { background: #fee2e2; color: #991b1b; }
+  .pill.info { background: #e0f2fe; color: #075985; }
+  .pill.critica { background: #fee2e2; color: var(--critica); }
+  .pill.alta    { background: #ffedd5; color: var(--alta); }
+  .pill.media   { background: #fef9c3; color: var(--media); }
+  .pill.baja    { background: #e0f2fe; color: var(--baja); }
+  form.inline { display: inline-flex; gap: 4px; align-items: center; }
+  form.inline select, form.inline input[type="text"] {
+    padding: 4px 6px; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 12px; font-family: inherit;
+  }
+  button {
+    padding: 5px 10px; border: 1px solid var(--border);
+    background: #fff; color: var(--text); border-radius: 6px;
+    cursor: pointer; font-size: 12px; font-family: inherit;
+  }
+  button:hover { background: var(--accent-soft); border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: #6a4ae8; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .nowrap { white-space: nowrap; }
+  .empty {
+    padding: 40px; text-align: center; color: var(--muted);
+  }
+  .error-row td { background: #fff5f5; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>🏢 <span class="brand">Petra</span> — Operaciones</h1>
+  <div class="muted">v1 · {{ oportunidades|length + casos|length + visitas|length + agentes|length + errores|length }} items</div>
+</div>
+<nav class="tabs">
+  <a class="tab {% if tab == 'oportunidades' %}active{% endif %}"
+     href="?tab=oportunidades&token={{ token }}">💼 Oportunidades ({{ oportunidades|length }})</a>
+  <a class="tab {% if tab == 'casos' %}active{% endif %}"
+     href="?tab=casos&token={{ token }}">🎫 Casos ({{ casos|length }})</a>
+  <a class="tab {% if tab == 'visitas' %}active{% endif %}"
+     href="?tab=visitas&token={{ token }}">📅 Visitas ({{ visitas|length }})</a>
+  <a class="tab {% if tab == 'agentes' %}active{% endif %}"
+     href="?tab=agentes&token={{ token }}">🤝 Agentes ({{ agentes|length }})</a>
+  <a class="tab {% if tab == 'errores' %}active{% endif %}"
+     href="?tab=errores&token={{ token }}">⚠️ Errores ({{ errores|length }})</a>
+</nav>
+<main>
+
+{% if tab == 'oportunidades' %}
+<div class="panel">
+  <div class="panel-head"><h2>💼 Oportunidades</h2>
+    <span class="count">{{ oportunidades|length }} abiertas (últ 100)</span></div>
+  {% if oportunidades %}
+  <table>
+    <thead><tr><th>#</th><th>Contacto</th><th>Tipo</th><th>Estado</th>
+      <th>Valor</th><th>Origen</th><th>Inm</th><th>Última act.</th><th>Acción</th></tr></thead>
+    <tbody>
+    {% for o in oportunidades %}
+    <tr>
+      <td class="mono">{{ o.id }}</td>
+      <td>{{ o.nombre or '—' }}<br><span class="mono muted">{{ o.telefono }}</span></td>
+      <td><span class="pill">{{ o.tipo }}</span></td>
+      <td>
+        {% set cls = 'ok' if o.estado.startswith('cerrado_g') else 'danger' if o.estado.startswith('cerrado_p') else 'info' %}
+        <span class="pill {{ cls }}">{{ o.estado }}</span>
+      </td>
+      <td class="nowrap">{% if o.valor_cop %}${{ '{:,.0f}'.format(o.valor_cop/1_000_000) }}M{% else %}—{% endif %}</td>
+      <td class="muted">{{ o.origen or '—' }}</td>
+      <td class="mono">{{ o.inmueble_id or '—' }}</td>
+      <td class="muted nowrap">{{ o.updated_at.strftime('%d/%m %H:%M') if o.updated_at else '—' }}</td>
+      <td>
+        <form class="inline" method="post" action="/panel/petra/oportunidad/{{ o.id }}/estado">
+          <input type="hidden" name="token" value="{{ token }}">
+          <select name="estado">
+            <option value="contactado">→ contactado</option>
+            <option value="visita_agendada">→ visita agendada</option>
+            <option value="visita_completa">→ visita completa</option>
+            <option value="oferta">→ oferta</option>
+            <option value="negociando">→ negociando</option>
+            <option value="cerrado_ganado">✅ ganada</option>
+            <option value="cerrado_perdido">❌ perdida</option>
+            <option value="pausado">⏸ pausar</option>
+          </select>
+          <button type="submit">Ir</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">No hay oportunidades.</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'casos' %}
+<div class="panel">
+  <div class="panel-head"><h2>🎫 Casos de soporte</h2>
+    <span class="count">{{ casos|length }} (últ 100)</span></div>
+  {% if casos %}
+  <table>
+    <thead><tr><th>#</th><th>Contacto</th><th>Categoría</th><th>Prio</th>
+      <th>Estado</th><th>SLA 1a resp</th><th>Resp.</th>
+      <th>Descripción</th><th>Acciones</th></tr></thead>
+    <tbody>
+    {% for k in casos %}
+    <tr>
+      <td class="mono">{{ k.id }}</td>
+      <td>{{ k.nombre or '—' }}<br><span class="mono muted">{{ k.telefono }}</span></td>
+      <td>{{ k.categoria }}</td>
+      <td><span class="pill {{ k.prioridad }}">{{ k.prioridad }}</span></td>
+      <td>
+        {% set cls = 'ok' if k.estado == 'resuelto' else 'danger' if k.estado == 'escalado' else 'info' %}
+        <span class="pill {{ cls }}">{{ k.estado }}</span>
+      </td>
+      <td class="muted nowrap">
+        {% if k.primera_respuesta_at %}✅ {{ k.primera_respuesta_at.strftime('%d/%m %H:%M') }}
+        {% elif k.sla_primera_respuesta_at %}⏳ {{ k.sla_primera_respuesta_at.strftime('%d/%m %H:%M') }}
+        {% else %}—{% endif %}
+      </td>
+      <td class="muted">{{ k.responsable_humano or '—' }}</td>
+      <td style="max-width:300px">{{ (k.descripcion or '')[:150] }}</td>
+      <td class="nowrap">
+        {% if not k.primera_respuesta_at %}
+        <form class="inline" method="post" action="/panel/petra/caso/{{ k.id }}/accion">
+          <input type="hidden" name="token" value="{{ token }}">
+          <input type="hidden" name="accion" value="primera_respuesta">
+          <input type="text" name="responsable" placeholder="tu nombre" required>
+          <button type="submit">Tomar</button>
+        </form>
+        {% endif %}
+        {% if k.estado != 'resuelto' and k.estado != 'cerrado' %}
+        <form class="inline" method="post" action="/panel/petra/caso/{{ k.id }}/accion">
+          <input type="hidden" name="token" value="{{ token }}">
+          <input type="hidden" name="accion" value="resolver">
+          <input type="text" name="nota" placeholder="nota">
+          <button type="submit" class="primary">Resolver</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">No hay casos de soporte.</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'visitas' %}
+<div class="panel">
+  <div class="panel-head"><h2>📅 Visitas</h2>
+    <span class="count">{{ visitas|length }} (últ 100)</span></div>
+  {% if visitas %}
+  <table>
+    <thead><tr><th>#</th><th>Tipo</th><th>Estado</th><th>Programada</th>
+      <th>Agente</th><th>Interesado</th><th>Inm</th><th>Obs</th><th>Acción</th></tr></thead>
+    <tbody>
+    {% for v in visitas %}
+    <tr>
+      <td class="mono">{{ v.id }}</td>
+      <td>{{ v.tipo }}</td>
+      <td>
+        {% set cls = 'ok' if v.estado == 'realizada' else 'danger' if v.estado in ('cancelada','no_show') else 'info' %}
+        <span class="pill {{ cls }}">{{ v.estado }}</span>
+      </td>
+      <td class="nowrap">{{ v.programada_at.strftime('%d/%m %H:%M') if v.programada_at else '—' }}</td>
+      <td>{{ v.agente_nombre or '—' }}<br><span class="mono muted">{{ v.agente_tel or '' }}</span></td>
+      <td>{{ v.interesado_nombre or '—' }}<br><span class="mono muted">{{ v.interesado_tel or '' }}</span></td>
+      <td class="mono">{{ v.inmueble_id or '—' }}</td>
+      <td style="max-width:200px">{{ (v.observaciones or '')[:120] }}</td>
+      <td>
+        {% if v.estado in ('programada','confirmada') %}
+        <form class="inline" method="post" action="/panel/petra/visita/{{ v.id }}/estado">
+          <input type="hidden" name="token" value="{{ token }}">
+          <select name="estado">
+            <option value="confirmada">confirmar</option>
+            <option value="realizada">realizada</option>
+            <option value="cancelada">cancelar</option>
+            <option value="no_show">no-show</option>
+          </select>
+          <button type="submit">Aplicar</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">No hay visitas.</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'agentes' %}
+<div class="panel">
+  <div class="panel-head"><h2>🤝 Agentes Petra</h2>
+    <span class="count">{{ agentes|length }} (últ 100)</span></div>
+  {% if agentes %}
+  <table>
+    <thead><tr><th>#</th><th>Agente</th><th>Ciudad</th><th>Estado</th>
+      <th>Videos</th><th>Origen</th><th>Actualizado</th><th>Avanzar</th></tr></thead>
+    <tbody>
+    {% for a in agentes %}
+    <tr>
+      <td class="mono">{{ a.contacto_id }}</td>
+      <td>{{ a.nombre or '—' }}<br><span class="mono muted">{{ a.telefono }}</span></td>
+      <td>{{ a.ciudad or '—' }}</td>
+      <td>
+        {% set cls = 'ok' if a.estado_agente == 'operativo' else 'warn' if a.estado_agente in ('kit_asignado','certificado') else 'info' %}
+        <span class="pill {{ cls }}">{{ a.estado_agente or 'lead' }}</span>
+      </td>
+      <td class="mono">{{ a.videos_vistos or 0 }}/5</td>
+      <td class="muted">{{ a.origen or '—' }}</td>
+      <td class="muted nowrap">{{ a.updated_at.strftime('%d/%m %H:%M') if a.updated_at else '—' }}</td>
+      <td>
+        <form class="inline" method="post" action="/panel/petra/agente/{{ a.contacto_id }}/avanzar">
+          <input type="hidden" name="token" value="{{ token }}">
+          <select name="estado">
+            <option value="inscrito">→ inscrito</option>
+            <option value="en_capacitacion">→ en capacitación</option>
+            <option value="certificado">→ certificado</option>
+            <option value="kit_asignado">→ kit asignado</option>
+            <option value="operativo">→ operativo</option>
+            <option value="pausado">⏸ pausar</option>
+            <option value="descartado">❌ descartar</option>
+          </select>
+          <button type="submit">Ir</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">No hay agentes registrados.</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'errores' %}
+<div class="panel">
+  <div class="panel-head"><h2>⚠️ Errores de integración</h2>
+    <span class="count">{{ errores|length }} activos</span></div>
+  {% if errores %}
+  <table>
+    <thead><tr><th>#</th><th>Proveedor</th><th>Operación</th><th>Entidad</th>
+      <th>Error</th><th>Intentos</th><th>Estado</th><th>Próx</th><th>Acción</th></tr></thead>
+    <tbody>
+    {% for e in errores %}
+    <tr class="{% if e.estado == 'dead_letter' %}error-row{% endif %}">
+      <td class="mono">{{ e.id }}</td>
+      <td><span class="pill">{{ e.proveedor }}</span></td>
+      <td class="mono">{{ e.operacion }}</td>
+      <td class="mono">{{ e.entidad_tipo or '—' }}#{{ e.entidad_id or '—' }}</td>
+      <td style="max-width:300px" class="mono">{{ (e.error_mensaje or '')[:200] }}</td>
+      <td class="mono">{{ e.intentos }}/{{ e.max_intentos }}</td>
+      <td>
+        {% set cls = 'danger' if e.estado == 'dead_letter' else 'warn' %}
+        <span class="pill {{ cls }}">{{ e.estado }}</span>
+      </td>
+      <td class="muted nowrap">{{ e.proximo_intento_at.strftime('%d/%m %H:%M') if e.proximo_intento_at else '—' }}</td>
+      <td>
+        <form class="inline" method="post" action="/panel/petra/error/{{ e.id }}/resolver">
+          <input type="hidden" name="token" value="{{ token }}">
+          <input type="text" name="nota" placeholder="por qué">
+          <button type="submit" class="primary">Resolver</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">Sin errores pendientes. 🎉</div>{% endif %}
+</div>
+{% endif %}
+
+</main>
+</body>
+</html>
