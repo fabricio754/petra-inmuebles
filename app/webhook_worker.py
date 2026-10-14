@@ -27,6 +27,7 @@ import glob
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
@@ -378,6 +379,17 @@ def _invocar_logica(payload):
     # Import local para evitar ciclo con server.py en el import inicial.
     from app.server import _to_event
 
+    # ---- Petra piloto: detectar y rutear antes del flujo legacy. ----------
+    # Si el mensaje llega al número piloto (WA_PILOT_PHONE_ID[S]), lo maneja
+    # el router determinístico de portería; el bot legacy no lo ve.
+    try:
+        from app.petra_wa import es_webhook_piloto
+        if es_webhook_piloto(payload):
+            _procesar_webhook_petra(payload)
+            return
+    except Exception:
+        log.exception("[petra] falla ruteo piloto; se delega al bot legacy")
+
     try:
         entry = payload["entry"][0]
         change = entry["changes"][0]["value"]
@@ -422,6 +434,93 @@ def _invocar_logica(payload):
     log.info("Mensaje entrante de %s: %s", phone, event)
 
     _procesar_mensaje(phone, event, message)
+
+
+# =============================================================================
+# PETRA — procesamiento de webhook del número piloto
+# =============================================================================
+
+_PETRA_QR_RE = re.compile(r"(?:QR[: ]+|edificio[: ]+)([a-z0-9][a-z0-9\-]{1,63})", re.IGNORECASE)
+
+
+def _extraer_slug_qr(texto):
+    """Detecta un marker 'QR:<slug>' o 'edificio:<slug>' en el texto
+    pre-llenado del wa.me link. Devuelve slug normalizado o None."""
+    if not texto:
+        return None
+    m = _PETRA_QR_RE.search(texto)
+    return m.group(1).lower() if m else None
+
+
+def _procesar_webhook_petra(payload):
+    """Ruta mensajes del número piloto al router determinístico de Petra.
+    Soporta: text, button reply, list reply. Envía respuestas vía petra_wa."""
+    from app.petra_router import handle_inbound
+    from app import petra_wa
+
+    try:
+        change = payload["entry"][0]["changes"][0]["value"]
+    except (KeyError, IndexError, TypeError):
+        return
+
+    # Status/calls en el piloto: por ahora solo loguear (no re-usamos la
+    # tabla legacy `mensajes` para evitar cruzar producción con el piloto).
+    if change.get("statuses"):
+        log.info("[petra] status recibido (no procesado): %s", change["statuses"][:1])
+    if not change.get("messages"):
+        return
+
+    message = change["messages"][0]
+    phone = message.get("from") or message.get("from_user_id") or ""
+    if not phone:
+        return
+    contactos = change.get("contacts") or []
+    nombre = None
+    if contactos:
+        profile = (contactos[0] or {}).get("profile") or {}
+        nombre = profile.get("name")
+
+    texto = ""
+    button_id = None
+    list_id = None
+    mtype = message.get("type")
+    if mtype == "text":
+        texto = (message.get("text") or {}).get("body", "") or ""
+    elif mtype == "interactive":
+        inter = message.get("interactive") or {}
+        if inter.get("type") == "button_reply":
+            br = inter.get("button_reply") or {}
+            button_id = br.get("id")
+            texto = br.get("title") or ""
+        elif inter.get("type") == "list_reply":
+            lr = inter.get("list_reply") or {}
+            list_id = lr.get("id")
+            texto = lr.get("title") or ""
+    elif mtype == "button":
+        # Botón de template (quick reply)
+        btn = message.get("button") or {}
+        button_id = btn.get("payload") or btn.get("text")
+        texto = btn.get("text") or ""
+
+    edificio_slug = _extraer_slug_qr(texto)
+    try:
+        out = handle_inbound(
+            telefono=phone,
+            texto=texto,
+            button_id=button_id,
+            list_id=list_id,
+            edificio_slug=edificio_slug,
+            contacto_nombre=nombre,
+        )
+    except Exception:
+        log.exception("[petra] handle_inbound fallo tel=%s", phone)
+        return
+
+    for msg in out.get("messages", []):
+        try:
+            petra_wa.send_message(phone, msg)
+        except Exception:
+            log.exception("[petra] send_message fallo tel=%s", phone)
 
 
 def _procesar_status(s):

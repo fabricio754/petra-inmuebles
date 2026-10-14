@@ -481,7 +481,14 @@ def flow_ver_inventario(conn, edificio_id, modalidad_filtro):
 
     if not rows:
         label = "en venta" if modalidad_filtro == "venta" else "en arriendo"
-        return [msg_text(f"Por ahora no hay inmuebles {label} publicados aquí. 🔔 Puedes publicar el tuyo o volver más tarde.")]
+        return [
+            msg_text(f"Por ahora no hay inmuebles {label} publicados aquí."),
+            msg_buttons(
+                "¿Quieres que te avisemos cuando aparezcan?",
+                [{"id": "notif_si", "title": "Sí, avísame"},
+                 {"id": "notif_no", "title": "No, gracias"}],
+            ),
+        ]
 
     label = "Ventas" if modalidad_filtro == "venta" else "Arriendos"
     sections = [{"title": label, "rows": []}]
@@ -785,8 +792,57 @@ def _ver_dispatch(conn, estado, opcion):
                     "estado_id": estado["id"], "cerro_flow": False}
         except ValueError:
             pass
+    if opc == "notif_si":
+        # Capturamos una búsqueda ancla al edificio con la modalidad del
+        # contexto. Es ligera, sin rangos de precio; el interesado puede
+        # refinarla luego.
+        ctx = estado.get("contexto") or {}
+        edif_id = ctx.get("edificio_id")
+        modalidad = ctx.get("modalidad") or "ambas"
+        if not edif_id:
+            return {"messages": [msg_text("Falta contexto, intenta de nuevo.")]}
+        row = conn.execute(
+            "SELECT id FROM petra_busquedas "
+            "WHERE contacto_id = %s AND edificio_id = %s AND modalidad = %s AND activa = TRUE "
+            "LIMIT 1",
+            (estado.get("contacto_id") or _contacto_id_de_estado(conn, estado),
+             edif_id, modalidad),
+        ).fetchone()
+        if not row:
+            cid = _contacto_id_de_estado(conn, estado)
+            conn.execute(
+                "INSERT INTO petra_busquedas "
+                "(contacto_id, edificio_id, modalidad) VALUES (%s, %s, %s)",
+                (cid, edif_id, modalidad),
+            )
+            conn.execute(
+                "INSERT INTO petra_contacto_roles "
+                "(contacto_id, rol, estado, edificio_id, metadata) "
+                "VALUES (%s, 'interesado', 'activo', %s, '{}'::jsonb) "
+                "ON CONFLICT (contacto_id, rol, edificio_id) DO UPDATE SET "
+                "  estado = 'activo', updated_at = NOW()",
+                (cid, edif_id),
+            )
+        _close_estado(conn, estado["id"])
+        return {"messages": [msg_text(
+            "👍 Listo. Te avisaré apenas aparezca un inmueble que te sirva. "
+            "Si quieres afinar tu búsqueda (precio, tamaño, etc.) escríbeme y la ajustamos."
+        )], "flow": None, "paso": None, "cerro_flow": True}
+    if opc == "notif_no":
+        _close_estado(conn, estado["id"])
+        return {"messages": [msg_text("Perfecto. Si cambias de opinión, aquí estaré. 👋")],
+                "flow": None, "paso": None, "cerro_flow": True}
     return {"messages": [msg_text("Escríbeme para volver al menú.")],
             "flow": "ver_inventario", "paso": estado["paso_actual"]}
+
+
+def _contacto_id_de_estado(conn, estado):
+    """Resuelve contacto_id del estado si no viene en el dict (compat)."""
+    row = conn.execute(
+        "SELECT contacto_id FROM petra_conversacion_estado WHERE id = %s",
+        (estado["id"],),
+    ).fetchone()
+    return row[0] if row else None
 
 
 def _editar_dispatch(conn, estado, contacto_id, edificio, opcion, texto):

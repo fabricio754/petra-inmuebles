@@ -477,15 +477,26 @@ def notificar_matches_al_publicar(conn, inmueble_id):
 
 
 def _wa_send_real(telefono, payload):
-    """Hook de envío real a WhatsApp Cloud API. Stub por ahora:
-    si env WA_PILOT_PHONE_ID + WA_PILOT_TOKEN están set, haría POST.
-    Hoy devuelve dict con flag 'stub' para que el drain marque como enviado."""
-    phone_id = os.environ.get("WA_PILOT_PHONE_ID")
-    token = os.environ.get("WA_PILOT_TOKEN")
-    if not phone_id or not token:
-        return {"ok": True, "stub": True, "nota": "WA_PILOT_PHONE_ID/TOKEN no configurados; marcado como enviado sin envío real"}
-    # TODO: implementación real cuando se reconecte el número.
-    return {"ok": True, "stub": True, "nota": "wrapper real pendiente"}
+    """Despacha un item de la outbound queue vía Cloud API del piloto.
+    El payload tiene {tipo_mensaje, texto, ...meta}. Soportamos text y
+    buttons/list cuando el payload los lleva. Si no hay credenciales, el
+    helper hace stub (ok=True, stub=True) y la cola marca como enviado."""
+    from app.petra_wa import send_text, send_buttons, send_list
+    tm = (payload or {}).get("tipo_mensaje", "text")
+    try:
+        if tm == "text":
+            return send_text(telefono, payload.get("texto", ""))
+        if tm == "buttons":
+            return send_buttons(telefono, payload.get("texto", ""),
+                                payload.get("buttons", []))
+        if tm == "list":
+            return send_list(telefono, payload.get("texto", ""),
+                             payload.get("button_label", "Elegir"),
+                             payload.get("sections", []))
+    except Exception as exc:
+        log.exception("[petra_match] _wa_send_real exc")
+        return {"ok": False, "error": str(exc)}
+    return {"ok": False, "error": f"tipo_mensaje desconocido: {tm}"}
 
 
 def drain_outbound(conn, limit=50):
@@ -705,6 +716,29 @@ def admin_escanear_remarketing():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
     return jsonify({"resultados": resultados}), 200
+
+
+@petra_match_bp.post("/cron/tick")
+@_require_token
+def admin_cron_tick():
+    """Un cron externo (ej. Render cron, cron-job.org, github actions) llama
+    este endpoint cada N minutos. Drena cola de salida + opcionalmente
+    ejecuta reglas de remarketing si el query param `remarketing=1` o
+    es el primer tick del día (sin estado, se puede llamar siempre)."""
+    run_remarketing = request.args.get("remarketing", "0") in ("1", "true", "yes")
+    try:
+        with _db._conexion_directa(timeout=30) as conn:
+            drain_stats = drain_outbound(conn, limit=100)
+            rm_resultados = None
+            if run_remarketing:
+                rm_resultados = escanear_remarketing(conn)
+                # Después de encolar, drenar de nuevo para despachar.
+                drain2 = drain_outbound(conn, limit=100)
+                drain_stats["segundo_drain"] = drain2
+    except Exception as exc:
+        log.exception("[petra_match] cron tick fallo")
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True, "drain": drain_stats, "remarketing": rm_resultados}), 200
 
 
 @petra_match_bp.get("/remarketing/eventos")
