@@ -564,6 +564,58 @@ def listar_auditoria():
         return _ok(_rows_to_dicts(cur, rows))
 
 
+@petra_core_bp.post("/agentes/inscribir")
+def inscribir_agente_http():
+    """Entry point del Flujo 4 (link anuncio IG → quiero ser agente)."""
+    data = request.get_json(force=True) or {}
+    if not data.get("telefono"):
+        return jsonify({"ok": False, "error": "telefono requerido"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        cid, estado = inscribir_agente(
+            conn,
+            telefono=data["telefono"],
+            nombre=data.get("nombre"),
+            ciudad=data.get("ciudad"),
+            num_edificios_conocidos=data.get("num_edificios_conocidos"),
+            origen=data.get("origen", "link_recruiting"),
+        )
+    return _ok({"contacto_id": cid, "estado_agente": estado})
+
+
+@petra_core_bp.post("/agentes/<int:cid>/estado")
+def avanzar_agente_http(cid):
+    data = request.get_json(force=True) or {}
+    nuevo = data.get("estado")
+    if not nuevo:
+        return jsonify({"ok": False, "error": "estado requerido"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        ok, msg = avanzar_estado_agente(conn, cid, nuevo,
+                                        metadata_extra=data.get("metadata"))
+    return jsonify({"ok": ok, "msg": msg}), (200 if ok else 400)
+
+
+@petra_core_bp.get("/agentes")
+def listar_agentes():
+    estado = request.args.get("estado_agente")
+    limit = min(request.args.get("limit", 100, type=int), 500)
+    sql = """SELECT r.contacto_id, c.telefono, c.nombre,
+                    r.metadata->>'estado_agente' AS estado_agente,
+                    r.metadata->>'ciudad' AS ciudad,
+                    r.metadata, r.updated_at
+             FROM petra_contacto_roles r
+             JOIN petra_contactos c ON c.id = r.contacto_id
+             WHERE r.rol = 'agente_petra'"""
+    params = []
+    if estado:
+        sql += " AND r.metadata->>'estado_agente' = %s"
+        params.append(estado)
+    sql += " ORDER BY r.updated_at DESC LIMIT %s"
+    params.append(limit)
+    with _db._conexion_directa(timeout=10) as conn:
+        cur = conn.execute(sql, tuple(params))
+        return _ok(_rows_to_dicts(cur, cur.fetchall()))
+
+
 @petra_core_bp.get("/visitas")
 def listar_visitas():
     estado = request.args.get("estado")
@@ -674,6 +726,94 @@ def actualizar_caso_http(cid):
         audit(conn, "humano_panel", None, data.get("responsable_humano"),
               "actualizar_caso", "caso", cid, despues=data)
     return _ok({"id": cid, "actualizado": True})
+
+
+AGENTE_PETRA_TRANSICIONES = {
+    "lead": {"inscrito", "descartado"},
+    "inscrito": {"en_capacitacion", "descartado"},
+    "en_capacitacion": {"certificado", "descartado"},
+    "certificado": {"kit_asignado", "descartado"},
+    "kit_asignado": {"operativo", "descartado"},
+    "operativo": {"pausado", "descartado"},
+    "pausado": {"operativo", "descartado"},
+    "descartado": set(),
+}
+
+
+def _rol_agente_metadata(conn, contacto_id):
+    row = conn.execute(
+        """SELECT metadata FROM petra_contacto_roles
+           WHERE contacto_id=%s AND rol='agente_petra' LIMIT 1""",
+        (contacto_id,),
+    ).fetchone()
+    return (row[0] if row else {}) or {}
+
+
+def inscribir_agente(conn, telefono, nombre=None, ciudad=None,
+                     num_edificios_conocidos=None, origen="link_recruiting"):
+    """Crea contacto si falta y registra rol agente_petra con estado 'lead'
+    (o 'inscrito' si ya trae datos mínimos). Idempotente por teléfono."""
+    row = conn.execute(
+        "SELECT id FROM petra_contactos WHERE telefono=%s", (telefono,),
+    ).fetchone()
+    if row:
+        cid = row[0]
+        if nombre:
+            conn.execute(
+                "UPDATE petra_contactos SET nombre=COALESCE(nombre,%s), updated_at=NOW() WHERE id=%s",
+                (nombre, cid),
+            )
+    else:
+        row = conn.execute(
+            "INSERT INTO petra_contactos (telefono, nombre) VALUES (%s,%s) RETURNING id",
+            (telefono, nombre),
+        ).fetchone()
+        cid = row[0]
+
+    datos_min = bool(nombre and ciudad)
+    estado_inicial = "inscrito" if datos_min else "lead"
+    meta = {
+        "ciudad": ciudad, "num_edificios_conocidos": num_edificios_conocidos,
+        "origen": origen, "estado_agente": estado_inicial,
+        "videos_vistos": 0, "examen_resultado": None,
+        "kit_tracking": None, "edificios_activados": [],
+    }
+    conn.execute(
+        """INSERT INTO petra_contacto_roles
+           (contacto_id, rol, estado, metadata)
+           VALUES (%s, 'agente_petra', 'activo', %s::jsonb)
+           ON CONFLICT (contacto_id, rol, edificio_id) DO UPDATE SET
+             estado='activo', updated_at=NOW()""",
+        (cid, json.dumps(meta)),
+    )
+    audit(conn, "sistema", None, "petra_core", "inscribir_agente",
+          "contacto", cid, despues={"estado_agente": estado_inicial})
+    return cid, estado_inicial
+
+
+def avanzar_estado_agente(conn, contacto_id, nuevo_estado, metadata_extra=None):
+    """Transiciona el estado_agente dentro del rol agente_petra.
+    metadata_extra se mergea en el JSONB del rol."""
+    meta = _rol_agente_metadata(conn, contacto_id)
+    actual = meta.get("estado_agente") or "lead"
+    if nuevo_estado == actual:
+        return False, "sin_cambios"
+    if nuevo_estado not in AGENTE_PETRA_TRANSICIONES.get(actual, set()):
+        return False, f"transicion_invalida {actual}->{nuevo_estado}"
+    meta["estado_agente"] = nuevo_estado
+    if metadata_extra:
+        meta.update(metadata_extra)
+    conn.execute(
+        """UPDATE petra_contacto_roles
+              SET metadata = %s::jsonb, updated_at = NOW()
+            WHERE contacto_id=%s AND rol='agente_petra'""",
+        (json.dumps(meta), contacto_id),
+    )
+    audit(conn, "sistema", None, "petra_core", "avanzar_agente",
+          "contacto", contacto_id,
+          antes={"estado_agente": actual},
+          despues={"estado_agente": nuevo_estado, "extra": metadata_extra})
+    return True, "ok"
 
 
 def visitas_proximas_a_recordar(conn, horas_antes=24):
