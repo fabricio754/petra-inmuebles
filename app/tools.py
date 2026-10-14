@@ -572,3 +572,217 @@ def agente_inscribir():
             "En las próximas 48h el equipo humano lo contactará."
         ),
     }), 200
+
+
+# =============================================================================
+# Server Tools adicionales (Sprint 19 — Fase 1)
+# =============================================================================
+
+
+@tools_bp.post("/petra_consultar_oportunidad")
+@_require_token
+def tool_consultar_oportunidad():
+    """Devuelve resumen de oportunidades abiertas del contacto.
+    Payload: {telefono (auto)}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    if not tel:
+        return jsonify({"error": "telefono invalido"}), 400
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT id, nombre FROM petra_contactos WHERE telefono=%s", (tel,),
+            ).fetchone()
+            if not row:
+                return jsonify({"ok": True, "contacto": None, "oportunidades": []}), 200
+            cid, nombre = row
+            ops = conn.execute(
+                """SELECT id, tipo, estado, inmueble_id, valor_cop, updated_at
+                   FROM petra_oportunidades
+                   WHERE contacto_id=%s
+                     AND estado NOT IN ('cerrado_ganado','cerrado_perdido')
+                   ORDER BY updated_at DESC LIMIT 5""",
+                (cid,),
+            ).fetchall()
+    except Exception as exc:
+        log.exception("[tools] /petra_consultar_oportunidad fallo tel=%s", tel)
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({
+        "ok": True,
+        "contacto": {"id": cid, "nombre": nombre},
+        "oportunidades": [
+            {"id": o[0], "tipo": o[1], "estado": o[2],
+             "inmueble_id": o[3], "valor_cop": o[4],
+             "actualizado": o[5].isoformat() if o[5] else None}
+            for o in ops
+        ],
+    }), 200
+
+
+@tools_bp.post("/petra_abrir_caso")
+@_require_token
+def tool_abrir_caso():
+    """Abre caso de soporte para contactos con contrato activo.
+    Payload: {telefono (auto), categoria, descripcion, prioridad?}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    categoria = (body.get("categoria") or "").strip()
+    descripcion = (body.get("descripcion") or "").strip()
+    prioridad = (body.get("prioridad") or "media").strip()
+    if not tel or not categoria or not descripcion:
+        return jsonify({"error": "telefono, categoria y descripcion requeridos"}), 400
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "contacto no encontrado"}), 404
+            cid = row[0]
+            contrato_row = conn.execute(
+                """SELECT id FROM petra_contratos
+                   WHERE contacto_id=%s AND estado IN ('activo','firmado')
+                   ORDER BY updated_at DESC LIMIT 1""",
+                (cid,),
+            ).fetchone()
+            contrato_id = contrato_row[0] if contrato_row else None
+            caso_id = petra_core.crear_caso_soporte(
+                conn, contacto_id=cid, categoria=categoria,
+                descripcion=descripcion, prioridad=prioridad,
+                contrato_id=contrato_id,
+            )
+            sla_h = petra_core.SLA_HORAS.get(prioridad, 8)
+    except Exception as exc:
+        log.exception("[tools] /petra_abrir_caso fallo tel=%s", tel)
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({
+        "ok": True,
+        "caso_id": caso_id,
+        "sla_horas": sla_h,
+        "mensaje": (
+            f"Caso #{caso_id} ({categoria}, {prioridad}). "
+            f"Un humano responderá en máximo {sla_h}h."
+        ),
+    }), 200
+
+
+@tools_bp.post("/petra_otorgar_consentimiento")
+@_require_token
+def tool_otorgar_consentimiento():
+    """Registra consentimiento del contacto.
+    Payload: {telefono (auto), finalidad, canal?, evidencia_texto?}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    finalidad = (body.get("finalidad") or "").strip()
+    canal = (body.get("canal") or "whatsapp").strip()
+    evidencia_texto = (body.get("evidencia_texto") or "").strip() or None
+    if not tel or not finalidad:
+        return jsonify({"error": "telefono y finalidad requeridos"}), 400
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+            ).fetchone()
+            if not row:
+                # Crear contacto mínimo para registrar el consentimiento
+                row = conn.execute(
+                    "INSERT INTO petra_contactos (telefono) VALUES (%s) RETURNING id",
+                    (tel,),
+                ).fetchone()
+            cid = row[0]
+            consentimiento_id = petra_core.otorgar_consentimiento(
+                conn, contacto_id=cid, finalidad=finalidad, canal=canal,
+                evidencia={"texto_usuario": evidencia_texto, "canal": canal} if evidencia_texto else {"canal": canal},
+            )
+    except Exception as exc:
+        log.exception("[tools] /petra_otorgar_consentimiento fallo tel=%s", tel)
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({
+        "ok": True,
+        "consentimiento_id": consentimiento_id,
+        "mensaje": f"Consentimiento '{finalidad}' registrado.",
+    }), 200
+
+
+@tools_bp.post("/petra_publicar_inmueble")
+@_require_token
+def tool_publicar_inmueble():
+    """Crea un inmueble en un edificio Petra.
+    Payload: {telefono (auto), edificio_slug, tipo, modalidad, torre?, piso?,
+              area_m2?, parqueadero?, precio_millones?, precio_arriendo_millones?,
+              nombre_anunciante?}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    edif_slug = (body.get("edificio_slug") or "").strip().lower()
+    tipo = (body.get("tipo") or "").strip().lower()
+    modalidad = (body.get("modalidad") or "").strip().lower()
+    if not tel or not edif_slug or not tipo or not modalidad:
+        return jsonify({"error": "telefono, edificio_slug, tipo y modalidad requeridos"}), 400
+    import json as _json
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            edif = conn.execute(
+                "SELECT id, nombre FROM petra_edificios WHERE qr_slug=%s AND activo=TRUE",
+                (edif_slug,),
+            ).fetchone()
+            if not edif:
+                return jsonify({"error": f"edificio '{edif_slug}' no encontrado"}), 404
+            edif_id, edif_nombre = edif
+            c_row = conn.execute(
+                "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+            ).fetchone()
+            if not c_row:
+                c_row = conn.execute(
+                    "INSERT INTO petra_contactos (telefono, nombre) VALUES (%s,%s) RETURNING id",
+                    (tel, body.get("nombre_anunciante")),
+                ).fetchone()
+            contacto_id = c_row[0]
+            dedup = petra_core.dedup_hash_inmueble(
+                edif_id, body.get("torre"), body.get("piso"),
+                body.get("apto"), tipo, modalidad,
+            )
+            existente = conn.execute(
+                """SELECT id FROM petra_inmuebles
+                   WHERE dedup_hash=%s
+                     AND estado IN ('borrador','activo','reservado','pausado')
+                   LIMIT 1""",
+                (dedup,),
+            ).fetchone()
+            if existente:
+                return jsonify({
+                    "ok": False,
+                    "duplicado_id": existente[0],
+                    "mensaje": "Ya existe un anuncio activo con esos datos.",
+                }), 200
+            row = conn.execute(
+                """INSERT INTO petra_inmuebles
+                   (edificio_id, contacto_id, tipo, modalidad, torre, piso,
+                    area_m2, parqueadero, precio_millones,
+                    precio_arriendo_mensual_millones,
+                    nombre_anunciante, telefono_contacto, dedup_hash,
+                    estado, publicado_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'activo',NOW())
+                   RETURNING id""",
+                (edif_id, contacto_id, tipo, modalidad,
+                 body.get("torre"), body.get("piso"), body.get("area_m2"),
+                 body.get("parqueadero"), body.get("precio_millones"),
+                 body.get("precio_arriendo_millones"),
+                 body.get("nombre_anunciante"), tel, dedup),
+            ).fetchone()
+            inm_id = row[0]
+            conn.execute(
+                """INSERT INTO petra_contacto_roles
+                   (contacto_id, rol, estado, edificio_id, metadata)
+                   VALUES (%s, 'anunciante', 'activo', %s, %s::jsonb)
+                   ON CONFLICT (contacto_id, rol, edificio_id) DO UPDATE SET
+                     estado='activo', updated_at=NOW()""",
+                (contacto_id, edif_id, _json.dumps({"ultimo_inmueble_id": inm_id})),
+            )
+    except Exception as exc:
+        log.exception("[tools] /petra_publicar_inmueble fallo tel=%s", tel)
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({
+        "ok": True,
+        "inmueble_id": inm_id,
+        "mensaje": f"Publicado en {edif_nombre}.",
+    }), 200

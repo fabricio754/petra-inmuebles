@@ -431,34 +431,44 @@ def _claude_stream(messages, contexto_contacto=None, base_prompt=None):
         client_kwargs["default_headers"] = {"anthropic-workspace-id": workspace_id}
     client = Anthropic(**client_kwargs)
     model = os.environ.get("PETRA_LLM_CLAUDE_MODEL", "claude-haiku-5-5")
-    # Convertir messages OpenAI → Claude (system aparte, resto como user/assistant)
-    sys_msg = base_prompt or SYSTEM_PROMPT
-    if contexto_contacto:
-        sys_msg = sys_msg + "\n\n" + contexto_contacto + (
-            "\n\nUsa estos datos para personalizar la conversación, pero no "
-            "los recites textualmente a menos que el usuario los pida. Si no "
-            "corresponden con lo que el usuario dice, confía en lo que te dice."
-        )
+    # Separar system message (si viene de ElevenLabs) del historial de turnos.
+    sys_from_payload = None
     convo = []
     for m in messages or []:
         role = m.get("role")
-        if role == "system":
-            sys_msg = m.get("content") or sys_msg
-            continue
         content = m.get("content")
         if isinstance(content, list):
-            # concatenar partes de texto
             content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+        if role == "system":
+            sys_from_payload = content or sys_from_payload
+            continue
         if role in ("user", "assistant") and content:
             convo.append({"role": role, "content": content})
     if not convo:
         return None
+    # El system del payload es el prompt v2 completo de ElevenLabs (si lo mandó).
+    # Si no vino, caemos a nuestro prompt según rol.
+    sys_stable = sys_from_payload or base_prompt or SYSTEM_PROMPT
+
+    # Prompt caching: la parte estable (prompt v2 ~12K chars) se cachea; la
+    # parte volátil (contexto del contacto) va sin cache_control. Primer
+    # request: full cost. Siguientes dentro de 5 min: 10% del costo del
+    # bloque cacheado.
+    system_blocks = [
+        {"type": "text", "text": sys_stable, "cache_control": {"type": "ephemeral"}}
+    ]
+    if contexto_contacto:
+        sys_volatile = contexto_contacto + (
+            "\n\nUsa estos datos para personalizar la conversación, pero no "
+            "los recites textualmente a menos que el usuario los pida."
+        )
+        system_blocks.append({"type": "text", "text": sys_volatile})
 
     def gen():
         with client.messages.stream(
             model=model,
             max_tokens=512,
-            system=sys_msg,
+            system=system_blocks,
             messages=convo,
         ) as stream:
             for text in stream.text_stream:
