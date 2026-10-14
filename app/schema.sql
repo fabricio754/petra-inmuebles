@@ -771,6 +771,20 @@ CREATE INDEX IF NOT EXISTS petra_integ_err_proveedor_idx
   ON petra_integracion_errores (proveedor, estado, created_at DESC);
 CREATE INDEX IF NOT EXISTS petra_integ_err_dead_letter_idx
   ON petra_integracion_errores (created_at DESC) WHERE estado = 'dead_letter';
+
+-- Hits del link público de reclutamiento (/petra/agente-link). Registra UTM
+-- + user-agent + IP para rastrear campañas sin ensuciar el mensaje de WA.
+CREATE TABLE IF NOT EXISTS petra_agente_link_hits (
+  id BIGSERIAL PRIMARY KEY,
+  utm_source TEXT,
+  utm_campaign TEXT,
+  utm_medium TEXT,
+  user_agent TEXT,
+  ip TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_agente_link_hits_created_idx
+  ON petra_agente_link_hits (created_at DESC);
 -- Next step / próxima acción por lead
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
 ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_fecha DATE;

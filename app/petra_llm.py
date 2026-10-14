@@ -92,7 +92,11 @@ SYSTEM_PROMPT_SOPORTE = (
 )
 
 SYSTEM_PROMPT_RECLUTAMIENTO = (
-    "Eres Massimiliano, en modo reclutamiento de agentes PETRA. El usuario llegó "
+    "Eres Massimiliano, en modo reclutamiento de agentes PETRA. "
+    "Explica correctamente: cada agente instala el QR en SU PROPIO conjunto "
+    "(uno solo), no en varios. La comisión se gana por cada venta, arriendo "
+    "o crédito que se cierre con su ayuda, no por tocar el QR. "
+    "El usuario llegó "
     "interesado en ser agente de nuestra red (gana comisión por conectar "
     "inmuebles de edificios donde instala el QR de Petra). Explícalo breve "
     "y claro, pregunta ciudad, cuántos edificios conoce donde podría "
@@ -396,12 +400,13 @@ def _detectar_intencion_agente(telefono, texto):
         pass
 
     return (
-        "👋 ¡Qué bueno que quieras ser agente Petra! Ganas comisión por "
-        "conectar inmuebles en edificios donde instales nuestro QR.\n\n"
+        "👋 ¡Qué bueno que quieras ser agente Petra! Como agente, instalas el "
+        "QR de PETRA en tu propio conjunto. Ganas comisión por cada venta, "
+        "arriendo o crédito que se cierre gracias a tu ayuda.\n\n"
         "Para avanzar necesito 3 datos:\n"
         "1) Tu nombre completo\n"
-        "2) Ciudad donde operarías\n"
-        "3) ¿Cuántos edificios conoces donde podrías colocar el QR?"
+        "2) Ciudad donde vives\n"
+        "3) Conjunto donde instalarías el QR"
     )
 
 

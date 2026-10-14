@@ -606,10 +606,23 @@ def agente_link_publico():
     utm_campaign = request.args.get("utm_campaign", "agentes")
     utm_medium = request.args.get("utm_medium", "")
 
-    # El mensaje incluye tag [AGENTE] para que el router lo detecte sin ambigüedad
-    msg = (f"Hola, quiero ser agente Petra. "
-           f"[AGENTE:{utm_source}/{utm_campaign}]")
+    # Mensaje limpio (sin tag visible). El origen UTM se registra en
+    # petra_agente_link_hits (si existe); el detector usa keywords.
+    msg = "Hola, quiero ser agente Petra."
     url = f"https://wa.me/{numero}?text={quote(msg)}"
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=5) as conn:
+            conn.execute(
+                """INSERT INTO petra_agente_link_hits
+                   (utm_source, utm_campaign, utm_medium, user_agent, ip)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (utm_source, utm_campaign, utm_medium,
+                 (request.headers.get("User-Agent") or "")[:300],
+                 (request.headers.get("X-Forwarded-For") or request.remote_addr or "")[:64]),
+            )
+    except Exception:
+        log.exception("[agente-link] no se pudo registrar hit")
     from flask import redirect
     return redirect(url, code=302)
 
