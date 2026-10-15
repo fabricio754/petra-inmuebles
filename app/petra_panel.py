@@ -237,6 +237,7 @@ def panel_home():
 # =============================================================================
 _TIPOS_CONTENIDO = {
     "bienvenida": "🎬 Video de bienvenida (al confirmar inscripción)",
+    "proximos_pasos": "🗺 Video de próximos pasos (va junto al de bienvenida)",
     "video_capacitacion": "📚 Video de capacitación (días 1 a 6, 2 por día)",
     "documento_pdf": "📄 Documento PDF",
     "kit_autorizacion": "📋 Kit autorización administrador",

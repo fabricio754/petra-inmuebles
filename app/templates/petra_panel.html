@@ -481,6 +481,7 @@
       <label>Tipo</label>
       <select name="tipo" id="cont-tipo" required>
         <option value="bienvenida">🎬 Video de bienvenida</option>
+        <option value="proximos_pasos">🗺 Video de próximos pasos</option>
         <option value="video_capacitacion" selected>📚 Video de capacitación (día 1-6)</option>
         <option value="documento_pdf">📄 Documento PDF</option>
         <option value="kit_autorizacion">📋 Kit autorización administrador</option>
@@ -504,16 +505,17 @@
     </form>
   </aside>
   <section>
-    {# ───────── Progreso capacitación agente (13 slots esperados) ───────── #}
+    {# ───────── Progreso capacitación agente (14 slots esperados) ───────── #}
     {% set bienvenida_cargada = contenidos|selectattr('tipo', 'equalto', 'bienvenida')|selectattr('activo')|list %}
+    {% set proximos_cargado = contenidos|selectattr('tipo', 'equalto', 'proximos_pasos')|selectattr('activo')|list %}
     {% set caps = {} %}
     {% for c in contenidos if c.tipo == 'video_capacitacion' and c.activo %}
       {% if caps.update({c.orden: c}) %}{% endif %}
     {% endfor %}
     <div class="cont-group">
-      <h3>📋 Capacitación Agente Petra — 13 slots</h3>
+      <h3>📋 Capacitación Agente Petra — 14 slots</h3>
       <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">
-        Al confirmar inscripción, Petra manda el <b>video de bienvenida</b>. Después, cada día a las 8am (durante 6 días), manda <b>2 videos de capacitación</b> en orden.
+        Al confirmar inscripción, Petra manda el <b>video de bienvenida</b> + el <b>video de próximos pasos</b>. Después, cada día a las 8am (durante 6 días), manda <b>2 videos de capacitación</b> en orden.
       </div>
       {# Bienvenida #}
       {% if bienvenida_cargada %}
@@ -538,6 +540,32 @@
           </div>
           <div class="cont-actions">
             <button type="button" onclick="document.getElementById('cont-tipo').value='bienvenida';document.getElementById('cont-orden').value='1';document.getElementById('cont-titulo').focus();">+ Subir</button>
+          </div>
+        </div>
+      {% endif %}
+      {# Próximos pasos #}
+      {% if proximos_cargado %}
+        {% set c = proximos_cargado[0] %}
+        <div class="cont-card">
+          <div class="cont-order">✓</div>
+          <div class="cont-body">
+            <div class="cont-title">🗺 Próximos pasos — {{ c.titulo }}</div>
+            <div class="cont-meta">{% if c.url %}<a href="{{ c.url }}" target="_blank">🔗 {{ c.url[:60] }}</a>{% endif %}</div>
+          </div>
+          <div class="cont-actions">
+            <form method="post" action="/panel/petra/contenido/{{ c.id }}/toggle"><input type="hidden" name="token" value="{{ token }}"><button type="submit">Pausar</button></form>
+            <form method="post" action="/panel/petra/contenido/{{ c.id }}/eliminar" onsubmit="return confirm('¿Eliminar?');"><input type="hidden" name="token" value="{{ token }}"><button type="submit" class="danger">🗑</button></form>
+          </div>
+        </div>
+      {% else %}
+        <div class="cont-card inactive" style="border-style: dashed;">
+          <div class="cont-order">—</div>
+          <div class="cont-body">
+            <div class="cont-title">🗺 Video de próximos pasos (FALTA)</div>
+            <div class="cont-meta">Se envía inmediatamente después del de bienvenida.</div>
+          </div>
+          <div class="cont-actions">
+            <button type="button" onclick="document.getElementById('cont-tipo').value='proximos_pasos';document.getElementById('cont-orden').value='1';document.getElementById('cont-titulo').focus();">+ Subir</button>
           </div>
         </div>
       {% endif %}

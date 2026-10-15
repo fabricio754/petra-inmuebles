@@ -193,33 +193,45 @@ def _log(telefono, texto_usuario, texto_asistente, nota=""):
 
 
 def _fase_inscrito(conn, telefono, cid, meta, texto):
-    """Fase post-REGISTRARME: enviar video de bienvenida y pasar a
-    estado 'bienvenida_enviada' esperando confirmación de la agente."""
-    video_row = conn.execute(
+    """Fase post-REGISTRARME: enviar video de bienvenida + video de
+    próximos pasos, luego pasar a estado 'bienvenida_enviada' esperando
+    confirmación de la agente."""
+    nombre_corto = (meta.get("nombre") or "").split()[0]
+    bienvenida_row = conn.execute(
         "SELECT titulo, url FROM petra_contenidos "
         "WHERE tipo='bienvenida' AND activo=TRUE "
         "ORDER BY orden LIMIT 1"
     ).fetchone()
-    nombre_corto = (meta.get("nombre") or "").split()[0]
-    if not video_row:
+    proximos_row = conn.execute(
+        "SELECT titulo, url FROM petra_contenidos "
+        "WHERE tipo='proximos_pasos' AND activo=TRUE "
+        "ORDER BY orden LIMIT 1"
+    ).fetchone()
+    if not bienvenida_row and not proximos_row:
         _enviar(telefono,
-                f"Hola {nombre_corto}! El video de bienvenida está en "
-                "preparación — pronto te lo mando por acá. ❤️")
-        _log(telefono, texto, "[sin video bienvenida cargado]",
-             nota="fase inscrito sin video")
+                f"Hola {nombre_corto}! Los videos de bienvenida están en "
+                "preparación — pronto te los mando por acá. ❤️")
+        _log(telefono, texto, "[sin videos cargados]",
+             nota="fase inscrito sin videos")
         return True
-    titulo, url = video_row
     _enviar(telefono,
-            f"Hola {nombre_corto}! Acá va tu *video de bienvenida* 🎬")
-    _enviar(telefono, f"🎬 *{titulo}*\n\n{url}")
+            f"Hola {nombre_corto}! Te paso 2 videos cortos para arrancar 🎬")
+    if bienvenida_row:
+        titulo, url = bienvenida_row
+        _enviar(telefono, f"🎬 *{titulo}*\n\n{url}")
+    if proximos_row:
+        titulo, url = proximos_row
+        _enviar(telefono, f"🗺 *{titulo}*\n\n{url}")
     _enviar(telefono,
-            "Cuando lo termines, mandame *LISTO* y arrancamos tu capacitación. 💪")
+            "Cuando los termines, mandame *LISTO* y arrancamos tu capacitación. 💪")
     import datetime as _dt
     meta["estado_agente"] = "bienvenida_enviada"
     meta["bienvenida_enviada_at"] = _dt.datetime.utcnow().isoformat()
     _save_meta(conn, cid, meta)
-    _log(telefono, texto, f"[video bienvenida enviado: {titulo}]",
-         nota="fase inscrito → video enviado")
+    cargados = (("bienvenida " if bienvenida_row else "") +
+                ("proximos_pasos" if proximos_row else "")).strip()
+    _log(telefono, texto, f"[videos enviados: {cargados}]",
+         nota="fase inscrito → videos enviados")
     return True
 
 
