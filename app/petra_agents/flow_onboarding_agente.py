@@ -177,6 +177,15 @@ def _enviar(telefono, texto):
     petra_wa.send_text(telefono, texto)
 
 
+def _enviar_con_pausa(telefono, texto, pausa_seg=1.5):
+    """Envía texto y pausa antes del próximo mensaje. Útil para encadenar
+    varios mensajes sin que lleguen todos juntos y abrumen al usuario."""
+    import time
+    from app import petra_wa
+    petra_wa.send_text(telefono, texto)
+    time.sleep(pausa_seg)
+
+
 def _log(telefono, texto_usuario, texto_asistente, nota=""):
     """Loguea en petra_llm_logs con rama 'flow:onboarding_agente'."""
     from app import db as _db
@@ -215,38 +224,27 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
              nota="fase inscrito sin videos")
         return True
     cuantos = (1 if bienvenida_row else 0) + (1 if proximos_row else 0)
-    plural_video = "videos cortos" if cuantos > 1 else "un video corto"
-    cuantos_str = f"{cuantos} {plural_video}" if cuantos > 1 else plural_video
-    _enviar(telefono,
-            f"Hola {nombre_corto}! Te paso {cuantos_str} para arrancar 🎬")
+    # Mensaje 1 (ya se envió felicitaciones). Ahora los videos uno por uno
+    # con pausa entre cada bloque para que no sea avalancha.
     if bienvenida_row:
         titulo, url = bienvenida_row
-        _enviar(telefono, f"🎬 *{titulo}*\n\n{url}")
+        _enviar_con_pausa(telefono, f"🎬 *{titulo}*\n\n{url}", pausa_seg=2)
     if proximos_row:
         titulo, url = proximos_row
-        _enviar(telefono, f"🗺 *{titulo}*\n\n{url}")
-    # Journey completo como texto, acompañando el video de próximos pasos
-    _enviar(telefono,
-        "📋 *Tu camino como Agente Petra:*\n\n"
-        "1️⃣ *Inscripción* ✅ — ya lo hiciste.\n\n"
-        "2️⃣ *Capacitación* 🎓 — te enviaremos *2 videos cada día durante "
-        "los próximos 6 días* para enseñarte sobre el negocio inmobiliario.\n\n"
-        "3️⃣ *Autorización del conjunto* 🏢 — vas a hablar con el "
-        "administrador sobre las ventajas del QR Petra y conseguir su "
-        "aprobación para activar el conjunto.\n\n"
-        "4️⃣ *Activar el QR* 📬 — te enviaremos un kit de bienvenida con "
-        "el QR para instalar en el conjunto, y además un regalo para ti 🎁\n\n"
-        "5️⃣ *Gestionar citas* 📅 — empieza tu trabajo. Te enviaremos "
-        "citas con propietarios e interesados en tu conjunto y vamos a "
-        "pedirte confirmar tu disponibilidad en el horario planteado.\n\n"
-        "6️⃣ *Registrar inventario* 🔑 — recibirás las llaves de los "
-        "inmuebles que vamos a vender o arrendar, revisarás cada uno y "
-        "nos contarás si hay algo dañado o todo está en buen estado."
-    )
+        _enviar_con_pausa(telefono, f"🗺 *{titulo}*\n\n{url}", pausa_seg=2.5)
+    # Journey + CTA en UN SOLO mensaje (reduce ruido)
     verbo = "los" if cuantos > 1 else "lo"
     _enviar(telefono,
-            f"Cuando {verbo} termines, mandame *LISTO* para confirmar y "
-            "arrancar con tu capacitación diaria. 💪")
+        "📋 *Tu camino como Agente Petra:*\n\n"
+        "1️⃣ *Inscripción* ✅ — ya lo hiciste.\n"
+        "2️⃣ *Capacitación* 🎓 — 2 videos cada día durante 6 días.\n"
+        "3️⃣ *Autorización del conjunto* 🏢 — hablás con la administración.\n"
+        "4️⃣ *Activar el QR* 📬 — te enviamos kit + regalo.\n"
+        "5️⃣ *Gestionar citas* 📅 — recibís citas con propietarios/interesados.\n"
+        "6️⃣ *Registrar inventario* 🔑 — recibís llaves y revisás inmuebles.\n\n"
+        f"👉 Cuando {verbo} termines de ver los videos de arriba, "
+        "mandame *LISTO* para arrancar con tu capacitación diaria. 💪"
+    )
     import datetime as _dt
     meta["estado_agente"] = "bienvenida_enviada"
     meta["bienvenida_enviada_at"] = _dt.datetime.utcnow().isoformat()
@@ -455,10 +453,9 @@ def handle(telefono, texto, es_handoff=False):
                 felicitaciones = (
                     f"🎉 *¡Felicitaciones {nombre_corto}, ya sos oficialmente Agente Petra!*\n\n"
                     f"Vas a representar a Petra en *{meta.get('conjunto')}*, "
-                    f"{meta.get('barrio')}, {meta.get('ciudad')}.\n\n"
-                    "Ahora te paso el material para que arranques 📹"
+                    f"{meta.get('barrio')}, {meta.get('ciudad')}."
                 )
-                _enviar(telefono, felicitaciones)
+                _enviar_con_pausa(telefono, felicitaciones, pausa_seg=2)
                 _log(telefono, texto, felicitaciones, nota="REGISTRARME confirmado")
                 # Delegamos al flow de Fase 2 el envío del video + transición
                 return _fase_inscrito(conn, telefono, cid, meta, texto)
