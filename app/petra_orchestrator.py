@@ -174,17 +174,22 @@ def _tool_schemas():
         },
         {
             "name": "inscribir_agente_petra",
-            "description": "Registra al usuario como agente Petra con nombre + ciudad + conjunto donde instalará el QR.",
+            "description": "Guarda los datos del candidato a Agente Petra en DB (persistencia incremental). Llamalo cada vez que recibas un dato nuevo con solo ese campo — los campos no pasados se preservan. El rol queda en estado 'recolectando' hasta que llames completar_inscripcion_agente.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "nombre": {"type": "string"},
+                    "nombre": {"type": "string", "description": "Nombre completo"},
+                    "cedula": {"type": "string", "description": "Cédula de ciudadanía (solo dígitos)"},
                     "ciudad": {"type": "string"},
-                    "conjunto": {"type": "string"},
-                    "disponibilidad": {"type": "string"},
+                    "barrio": {"type": "string"},
+                    "conjunto": {"type": "string", "description": "Nombre del conjunto o edificio donde VIVE"},
                 },
-                "required": ["nombre", "ciudad", "conjunto"],
             },
+        },
+        {
+            "name": "completar_inscripcion_agente",
+            "description": "Marca al candidato como oficialmente inscrito como Agente Petra. Llamar SOLO cuando el user confirmó con 'REGISTRARME' tras ver el resumen de sus 5 datos. Cambia estado del rol de 'recolectando' a 'inscrito' y queda listo para recibir el video de bienvenida.",
+            "input_schema": {"type": "object", "properties": {}, "required": []},
         },
         {
             "name": "enviar_siguiente_video",
@@ -433,12 +438,86 @@ def _dispatch_tool(name, args, telefono):
                 return {"ok": True, "nota": "endpoint real a cablear al enviar"}
 
             if name == "inscribir_agente_petra":
-                cid, estado = petra_core.inscribir_agente(
-                    conn, telefono,
-                    nombre=args["nombre"], ciudad=args["ciudad"],
-                    num_edificios_conocidos=1, origen="orch_" + (args.get("conjunto", "")[:30]),
+                # Guardado incremental: cada campo pasado se merge-ea con
+                # la metadata existente. Estado inicial = 'recolectando'
+                # hasta que llamen completar_inscripcion_agente.
+                row = conn.execute(
+                    "SELECT id FROM petra_contactos WHERE telefono=%s",
+                    (telefono,),
+                ).fetchone()
+                if not row:
+                    row = conn.execute(
+                        "INSERT INTO petra_contactos (telefono, nombre) "
+                        "VALUES (%s, %s) RETURNING id",
+                        (telefono, args.get("nombre")),
+                    ).fetchone()
+                cid = row[0]
+                if args.get("nombre"):
+                    conn.execute(
+                        "UPDATE petra_contactos SET nombre=%s WHERE id=%s",
+                        (args["nombre"], cid),
+                    )
+                # Merge metadata del rol agente_petra
+                existente = conn.execute(
+                    "SELECT metadata FROM petra_contacto_roles "
+                    "WHERE contacto_id=%s AND rol='agente_petra'",
+                    (cid,),
+                ).fetchone()
+                meta = dict(existente[0]) if existente and existente[0] else {}
+                meta.setdefault("estado_agente", "recolectando")
+                for k in ("nombre", "cedula", "ciudad", "barrio", "conjunto"):
+                    v = args.get(k)
+                    if v:
+                        meta[k] = v
+                import json as _json
+                if existente:
+                    conn.execute(
+                        "UPDATE petra_contacto_roles SET metadata=%s::jsonb, "
+                        "updated_at=NOW() WHERE contacto_id=%s AND rol='agente_petra'",
+                        (_json.dumps(meta), cid),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO petra_contacto_roles "
+                        "(contacto_id, rol, metadata) "
+                        "VALUES (%s, 'agente_petra', %s::jsonb)",
+                        (cid, _json.dumps(meta)),
+                    )
+                faltantes = [k for k in ("nombre", "cedula", "ciudad", "barrio", "conjunto")
+                             if not meta.get(k)]
+                return {"ok": True, "contacto_id": cid,
+                        "estado": meta["estado_agente"],
+                        "datos_guardados": {k: meta.get(k) for k in
+                                            ("nombre", "cedula", "ciudad",
+                                             "barrio", "conjunto") if meta.get(k)},
+                        "faltantes": faltantes}
+
+            if name == "completar_inscripcion_agente":
+                row = conn.execute(
+                    "SELECT c.id, r.metadata FROM petra_contactos c "
+                    "LEFT JOIN petra_contacto_roles r "
+                    "ON r.contacto_id=c.id AND r.rol='agente_petra' "
+                    "WHERE c.telefono=%s",
+                    (telefono,),
+                ).fetchone()
+                if not row or not row[1]:
+                    return {"ok": False, "error": "no hay inscripción en curso"}
+                cid, meta = row[0], dict(row[1])
+                faltantes = [k for k in ("nombre", "cedula", "ciudad", "barrio", "conjunto")
+                             if not meta.get(k)]
+                if faltantes:
+                    return {"ok": False, "error": f"faltan datos: {', '.join(faltantes)}"}
+                meta["estado_agente"] = "inscrito"
+                meta["inscrito_at"] = __import__("datetime").datetime.utcnow().isoformat()
+                import json as _json
+                conn.execute(
+                    "UPDATE petra_contacto_roles SET metadata=%s::jsonb, "
+                    "updated_at=NOW() WHERE contacto_id=%s AND rol='agente_petra'",
+                    (_json.dumps(meta), cid),
                 )
-                return {"ok": True, "contacto_id": cid, "estado": estado}
+                return {"ok": True, "estado": "inscrito",
+                        "mensaje": "Agente oficialmente inscrita. "
+                                   "Siguiente paso: enviar video de bienvenida."}
 
             if name == "consultar_oportunidad":
                 rows = conn.execute(
