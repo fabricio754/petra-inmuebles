@@ -46,10 +46,15 @@ def _graph_url():
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages"
 
 
+import re as _re
+_BSUID_RE = _re.compile(r"^[A-Z]{2}\.\d+$")
+
+
 def _is_bsuid(to):
-    """BSUID = ID de usuario por negocio ("CO.123..."): país + punto + id.
-    Llega en lugar del teléfono cuando el usuario usa nombre de usuario."""
-    return "." in to
+    """BSUID = Business-Scoped User ID ("CO.123..."): dos letras país + punto + dígitos.
+    Llega en lugar del teléfono cuando el usuario oculta el número con un
+    WhatsApp username. Rollout de Meta mayo-julio 2026."""
+    return bool(to) and bool(_BSUID_RE.match(to))
 
 
 import threading as _threading
@@ -98,8 +103,10 @@ def _dispatch(payload, human_summary, log_out=True):
         return {"status": "paused", "summary": human_summary}
     dest = payload["to"]
     if _is_bsuid(dest):
-        # Meta no acepta un BSUID en "to": va en "recipient".
+        # Meta valida "to" como E.164 → BSUID va en "recipient" + recipient_type.
+        # Si mandas ambos, "to" gana y "recipient" se ignora (-> 131009).
         payload = {k: v for k, v in payload.items() if k != "to"}
+        payload["recipient_type"] = "individual"
         payload["recipient"] = dest
     tipo = payload.get("type", "text")
     if DRY_RUN:
