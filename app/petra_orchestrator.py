@@ -823,7 +823,15 @@ def _run_claude_loop(telefono, texto_usuario, contacto_nombre=None):
     ]
     tools = _tool_schemas()
 
-    historial = _cargar_historial(telefono)
+    # Si el contacto no tiene rol asignado, NO pasarle el historial del chat
+    # a Claude. El chat se preserva en DB (visible en panel y WhatsApp del
+    # usuario), pero Claude arranca sin memoria de flujos anteriores — así
+    # el label de la DB manda. Si el operador borró el rol desde el panel,
+    # el próximo mensaje arranca fresh.
+    rol_asignado = ("rol: " in contexto_contacto
+                    and "rol: ninguno" not in contexto_contacto
+                    and "contacto NUEVO" not in contexto_contacto)
+    historial = _cargar_historial(telefono) if rol_asignado else []
     historial.append({"role": "user", "content": texto_usuario})
 
     for turno in range(MAX_TURNS):
