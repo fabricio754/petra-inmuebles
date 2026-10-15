@@ -94,7 +94,7 @@ def init_conversacion_voz():
                         if u:
                             turnos.append(f"User: {u[:120]}")
                         if a:
-                            turnos.append(f"Massi: {a[:120]}")
+                            turnos.append(f"Petra: {a[:120]}")
                     dynamic_vars["chat_reciente"] = " || ".join(turnos)[:1500]
                 # Lead crédito si existe
                 row_lead = conn.execute(
@@ -119,7 +119,7 @@ def init_conversacion_voz():
                 nombre_corto = (nombre or "").split()[0] if nombre else ""
                 if nombre_corto:
                     first_message = (
-                        f"Hola {nombre_corto}, soy Massimiliano de Petra. "
+                        f"Hola {nombre_corto}, soy Petra. "
                         f"Te retomo donde nos quedamos.")
     except Exception:
         log.exception("[el_bridge] init fallo tel=%s", tel_norm)

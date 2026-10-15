@@ -40,7 +40,7 @@ KEEPALIVE_SEG = int(os.environ.get("PETRA_ORCH_KEEPALIVE_SEG", "3"))
 # System prompt (versión texto; sincronizada con prompt EL cuando migramos voz)
 # =============================================================================
 SYSTEM_PROMPT = """\
-Eres Massimiliano, asistente de PETRA Plataforma Inmobiliaria en Colombia.
+Eres Petra, asistente virtual de la plataforma inmobiliaria PETRA en Colombia.
 Hablas por WhatsApp. El teléfono del usuario es {telefono} — NUNCA lo preguntes.
 
 Acompañas 6 journeys:
@@ -80,7 +80,7 @@ Usa las herramientas disponibles. No simules confirmaciones — llama la tool.
 # Tool schema para Anthropic (23 tools equivalentes a los Server Tools)
 # =============================================================================
 def _tool_schemas():
-    """Las mismas 23 tools que tiene Massi en ElevenLabs, pero como definiciones
+    """Las mismas 23 tools que tenía Petra en ElevenLabs, pero como definiciones
     nativas de Anthropic (sin HTTP). Los input_schema son JSON Schema."""
     return [
         {
@@ -365,7 +365,7 @@ def _dispatch_tool(name, args, telefono):
                 )
                 conn.execute(
                     "INSERT INTO pilot_notas (telefono, autor, texto) VALUES (%s, %s, %s)",
-                    (telefono, args.get("autor", "massi"), args["texto"]),
+                    (telefono, args.get("autor", "petra"), args["texto"]),
                 )
                 return {"ok": True}
 
