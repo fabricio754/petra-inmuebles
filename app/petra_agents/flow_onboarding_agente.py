@@ -214,16 +214,20 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
         _log(telefono, texto, "[sin videos cargados]",
              nota="fase inscrito sin videos")
         return True
+    cuantos = (1 if bienvenida_row else 0) + (1 if proximos_row else 0)
+    plural_video = "videos cortos" if cuantos > 1 else "un video corto"
+    cuantos_str = f"{cuantos} {plural_video}" if cuantos > 1 else plural_video
     _enviar(telefono,
-            f"Hola {nombre_corto}! Te paso 2 videos cortos para arrancar 🎬")
+            f"Hola {nombre_corto}! Te paso {cuantos_str} para arrancar 🎬")
     if bienvenida_row:
         titulo, url = bienvenida_row
         _enviar(telefono, f"🎬 *{titulo}*\n\n{url}")
     if proximos_row:
         titulo, url = proximos_row
         _enviar(telefono, f"🗺 *{titulo}*\n\n{url}")
+    verbo = "los" if cuantos > 1 else "lo"
     _enviar(telefono,
-            "Cuando los termines, mandame *LISTO* y arrancamos tu capacitación. 💪")
+            f"Cuando {verbo} termines, mandame *LISTO* y arrancamos tu capacitación. 💪")
     import datetime as _dt
     meta["estado_agente"] = "bienvenida_enviada"
     meta["bienvenida_enviada_at"] = _dt.datetime.utcnow().isoformat()
@@ -432,7 +436,7 @@ def handle(telefono, texto, es_handoff=False):
                     f"🎉 *¡Felicitaciones {nombre_corto}, ya sos oficialmente Agente Petra!*\n\n"
                     f"Vas a representar a Petra en *{meta.get('conjunto')}*, "
                     f"{meta.get('barrio')}, {meta.get('ciudad')}.\n\n"
-                    "Te mando ahora un video corto que te explica los próximos pasos. 📹"
+                    "Ahora te paso el material para que arranques 📹"
                 )
                 _enviar(telefono, felicitaciones)
                 _log(telefono, texto, felicitaciones, nota="REGISTRARME confirmado")
