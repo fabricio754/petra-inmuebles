@@ -68,6 +68,11 @@ def iniciar():
     _scheduler.add_job(_petra_retry_integraciones, "interval", minutes=5,
                        id="petra_retry_integraciones",
                        max_instances=1, coalesce=True)
+    # Multi-agent: cerrar sesiones conversacionales inactivas (default
+    # 5 min sin actividad) con un mensaje de despedida.
+    _scheduler.add_job(_petra_cerrar_sesiones_inactivas, "interval",
+                       minutes=1, id="petra_cerrar_sesiones_inactivas",
+                       max_instances=1, coalesce=True)
     # Fase D — generar filas de pago de arriendo el 1er día del mes 06:00 Bogotá
     _scheduler.add_job(_petra_generar_pagos_arriendo, "cron",
                        day=1, hour=6, minute=0,
@@ -481,3 +486,15 @@ def _petra_nudge_autorizaciones():
             log.info("[Scheduler] petra_nudge_autorizaciones: %d enviados", len(rows))
     except Exception:
         log.exception("[Scheduler] petra_nudge_autorizaciones fallo")
+
+
+def _petra_cerrar_sesiones_inactivas():
+    """Cierra sesiones conversacionales con inactividad > PETRA_SESION_INACTIVIDAD_MIN
+    (default 5). Envía despedida al user y marca cerrada_at."""
+    try:
+        from app.petra_agents import sesion
+        n = sesion.cerrar_inactivas_y_avisar()
+        if n:
+            log.info("[Scheduler] cerradas %d sesiones por inactividad", n)
+    except Exception:
+        log.exception("[Scheduler] cerrar_sesiones_inactivas fallo")

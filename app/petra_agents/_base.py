@@ -79,15 +79,17 @@ def log_turno(telefono, texto_u, texto_a, latencia_ms, error, agente):
 
 
 def run_claude_loop(telefono, texto_usuario, system_bloques, tools,
-                    max_turns=None):
+                    max_turns=None, sesion_id=None):
     """Loop Claude tool_use estándar. Devuelve (texto_final, error).
 
     Cada sub-agente arma su propio system_bloques y tools, pero el loop
     (manejo de tool_use, dispatch, continuación) es idéntico — vive acá.
 
-    Historial: cero (igual que el monolito actual). La memoria vive en DB.
+    Historial: mensajes de la SESIÓN actual (desde sesion.abierta_at).
+    Si pasó >5 min sin actividad, hay sesión nueva → cero historial.
     """
     from anthropic import Anthropic
+    from app.petra_agents import sesion as _sesion
     api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     workspace = (os.environ.get("ANTHROPIC_WORKSPACE_ID") or "").strip()
     if not api_key:
@@ -97,7 +99,13 @@ def run_claude_loop(telefono, texto_usuario, system_bloques, tools,
         kwargs["default_headers"] = {"anthropic-workspace-id": workspace}
     client = Anthropic(api_key=api_key, **kwargs)
 
-    historial = [{"role": "user", "content": texto_usuario}]
+    # Historial = mensajes de la sesión activa (puede ser vacío si recién
+    # arrancó). El texto_usuario actual aún no está en logs, lo agregamos
+    # al final.
+    historial = []
+    if sesion_id:
+        historial = _sesion.cargar_mensajes_sesion(telefono, sesion_id)
+    historial.append({"role": "user", "content": texto_usuario})
     turns = max_turns or MAX_TURNS
 
     for turno in range(turns):
@@ -140,19 +148,20 @@ def run_claude_loop(telefono, texto_usuario, system_bloques, tools,
 
 
 def ejecutar(telefono, texto, agente_nombre, system_bloques, tools,
-             prefijo_mensaje=None):
+             prefijo_mensaje=None, sesion_id=None):
     """Entry-point común para un sub-agente: keepalive + loop + send + log.
 
     Un sub-agente llama esto desde su `handle(telefono, texto, ...)`
-    pasando su system y tools. Si viene `prefijo_mensaje`, se antepone al
-    output (ej: "👩‍🏫 Petra Capacitación: ..." para los handoffs).
+    pasando su system, tools y la sesión activa. Si viene
+    `prefijo_mensaje`, se antepone al output (ej para los handoffs).
     """
     from app import petra_wa
     t0 = time.time()
     cancel = threading.Event()
     lanzar_keepalive(telefono, cancel)
     try:
-        texto_resp, err = run_claude_loop(telefono, texto, system_bloques, tools)
+        texto_resp, err = run_claude_loop(telefono, texto, system_bloques,
+                                          tools, sesion_id=sesion_id)
     except Exception as exc:
         log.exception("[agents:%s] loop fallo tel=%s", agente_nombre, telefono)
         texto_resp = ("Perdón, estoy teniendo un problema técnico momentáneo. "

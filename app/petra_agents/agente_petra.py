@@ -138,9 +138,11 @@ lo recibas — si no, lo olvidás en el próximo mensaje.
 """
 
 
-def handle(telefono, texto, contacto_nombre=None, es_handoff=False):
+def handle(telefono, texto, contacto_nombre=None, es_handoff=False,
+           sesion_id=None):
     """Entry-point del sub-agente. `es_handoff=True` cuando el router
-    acaba de rutear acá (el usuario ve el prefijo del handoff)."""
+    acaba de rutear acá (el usuario ve el prefijo del handoff).
+    `sesion_id` identifica la sesión conversacional para cargar historial."""
     contexto = _base.cargar_contexto_contacto(telefono)
     system_bloques = [
         {"type": "text",
@@ -162,4 +164,4 @@ def handle(telefono, texto, contacto_nombre=None, es_handoff=False):
     if es_handoff:
         prefijo = "👩‍🏫 *Asistente para Agentes Petra*"
     return _base.ejecutar(telefono, texto, NOMBRE, system_bloques, tools,
-                          prefijo_mensaje=prefijo)
+                          prefijo_mensaje=prefijo, sesion_id=sesion_id)

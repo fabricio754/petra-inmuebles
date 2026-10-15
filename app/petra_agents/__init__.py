@@ -20,7 +20,8 @@ def esta_activo():
 
 
 def handle_message(telefono, texto, button_id=None, list_id=None,
-                   contacto_nombre=None):
+                   contacto_nombre=None, wa_msg_id=None):
     return _handle_router(telefono=telefono, texto=texto,
                           button_id=button_id, list_id=list_id,
-                          contacto_nombre=contacto_nombre)
+                          contacto_nombre=contacto_nombre,
+                          wa_msg_id=wa_msg_id)

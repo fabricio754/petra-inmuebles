@@ -1,28 +1,50 @@
-"""Orquestador: clasifica intención y rutea a sub-agente especializado.
+"""Orquestador: clasifica intención y rutea.
 
-Lógica:
-  1. Si hay intent_activo en DB → va directo al sub-agente del intent
-     (ahorra latencia, mantiene continuidad).
-  2. Si no → clasifica con Claude cuál sub-agente debe atender.
-     - Si matchea un sub-agente implementado (hoy: agente_petra) →
-       set_intent + ejecuta sub-agente con prefijo de handoff.
-     - Si matchea algo NO implementado todavía (crédito, propietario,
-       interesado, soporte, info) → cae al monolito legacy sin handoff
-       visible (mientras migramos).
+Flujo actualizado (world-class pattern):
+
+  1. DEDUP: si el wa_msg_id de Meta ya se procesó, descartar silenciosamente.
+  2. LOCK por teléfono (serializa mensajes del mismo contacto).
+  3. SESIÓN: obtener/abrir sesión conversacional. Si es nueva, Claude
+     arranca sin historial. Si está abierta, Claude ve mensajes de esa
+     sesión.
+  4. ESTADO: si rol=agente_petra con estado=recolectando → va al
+     FLOW HANDLER determinístico (Python puro, sin LLM).
+  5. Si hay intent_activo del sub-agente LLM → sub-agente responde con
+     historial de la sesión.
+  6. Si no → clasificador Haiku chico elige sub-agente → set_intent →
+     sub-agente responde con historial.
+  7. Si no matchea sub-agente implementado → cae al monolito legacy
+     (los otros 5 flujos aún no migrados).
 """
 import logging
 import os
+import threading
 
-from app.petra_agents import _base, intent_store, agente_petra
+from app.petra_agents import (
+    _base, intent_store, agente_petra, dedup, sesion,
+    flow_onboarding_agente,
+)
 
 log = logging.getLogger("petra")
 
 AGENTES_IMPLEMENTADOS = {
     "agente_petra": agente_petra,
 }
-
-# Agentes conocidos pero aún no migrados: caen al monolito.
 AGENTES_FUTUROS = {"interesado", "propietario", "credito", "soporte", "info"}
+
+# Lock in-memory por teléfono — serializa mensajes del mismo contacto.
+# No sobrevive restart (eso no importa: el nuevo proceso arranca limpio).
+_LOCKS = {}
+_LOCKS_LOCK = threading.Lock()
+
+
+def _lock_tel(telefono):
+    with _LOCKS_LOCK:
+        lk = _LOCKS.get(telefono)
+        if lk is None:
+            lk = threading.Lock()
+            _LOCKS[telefono] = lk
+    return lk
 
 
 CLASIFICADOR_PROMPT = """\
@@ -48,13 +70,11 @@ Devolvé SOLO el label, en una palabra. Sin explicación, sin signos."""
 
 
 def _clasificar(telefono, texto):
-    """Un Haiku chiquito que devuelve el label. ~50 tokens de I/O."""
-    import os as _os
     from anthropic import Anthropic
-    api_key = (_os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if not api_key:
         return "info"
-    workspace = (_os.environ.get("ANTHROPIC_WORKSPACE_ID") or "").strip()
+    workspace = (os.environ.get("ANTHROPIC_WORKSPACE_ID") or "").strip()
     kwargs = {}
     if workspace:
         kwargs["default_headers"] = {"anthropic-workspace-id": workspace}
@@ -82,7 +102,6 @@ def _clasificar(telefono, texto):
 
 
 def _enviar_al_monolito(telefono, texto, button_id, list_id, contacto_nombre):
-    """Fallback a petra_orchestrator mientras los otros sub-agentes migran."""
     from app import petra_orchestrator
     return petra_orchestrator.handle_message(
         telefono=telefono, texto=texto,
@@ -91,10 +110,57 @@ def _enviar_al_monolito(telefono, texto, button_id, list_id, contacto_nombre):
     )
 
 
+def _esta_en_onboarding_agente(telefono):
+    """True si el contacto tiene rol agente_petra con estado=recolectando."""
+    from app import db as _db
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT r.metadata->>'estado_agente' "
+                "FROM petra_contactos c "
+                "JOIN petra_contacto_roles r "
+                "  ON r.contacto_id=c.id AND r.rol='agente_petra' "
+                "WHERE c.telefono=%s",
+                (telefono,),
+            ).fetchone()
+            return row and row[0] == "recolectando"
+    except Exception:
+        log.exception("[router] check onboarding fallo tel=%s", telefono)
+        return False
+
+
 def handle_message(telefono, texto, button_id=None, list_id=None,
-                   contacto_nombre=None):
+                   contacto_nombre=None, wa_msg_id=None):
+    # 1. Dedup — si Meta reenvía el mismo wamid, descartar silenciosamente.
+    if dedup.ya_visto(wa_msg_id, telefono):
+        log.info("[router] duplicado descartado wamid=%s tel=%s",
+                 wa_msg_id, telefono)
+        return {"ok": True, "duplicado": True}
+
+    # 2. Lock por teléfono — serializa mensajes concurrentes del mismo tel.
+    lock = _lock_tel(telefono)
+    with lock:
+        return _handle_locked(telefono, texto, button_id, list_id,
+                              contacto_nombre)
+
+
+def _handle_locked(telefono, texto, button_id, list_id, contacto_nombre):
     texto_efectivo = button_id or list_id or texto or ""
 
+    # 3. Sesión — abrir si no hay, actualizar último_msg_at.
+    sess = sesion.obtener_o_abrir(telefono)
+    sesion_id = sess["id"] if sess else None
+
+    # 4. Fast path: si ya está en onboarding de agente (rol+estado), el
+    # flow handler Python determinístico maneja el mensaje. Sin LLM.
+    if _esta_en_onboarding_agente(telefono):
+        handled = flow_onboarding_agente.handle(
+            telefono, texto_efectivo, es_handoff=False,
+        )
+        if handled:
+            return {"ok": True, "flow": "onboarding_agente"}
+
+    # 5. Intent activo → delegar al sub-agente del intent sin re-clasificar.
     activo = intent_store.leer(telefono)
     if activo:
         agente = activo["agente"]
@@ -103,33 +169,32 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
         if agente in AGENTES_IMPLEMENTADOS:
             return AGENTES_IMPLEMENTADOS[agente].handle(
                 telefono, texto_efectivo, contacto_nombre=contacto_nombre,
-                es_handoff=False,
+                es_handoff=False, sesion_id=sesion_id,
             )
         return _enviar_al_monolito(telefono, texto, button_id, list_id,
                                    contacto_nombre)
 
+    # 6. Clasificar intención
     label = _clasificar(telefono, texto_efectivo)
     log.info("[router] clasificado tel=%s label=%s", telefono, label)
 
     if label in AGENTES_IMPLEMENTADOS:
         intent_store.set_intent(telefono, label,
                                 razon=f"clasificado:{texto_efectivo[:60]}")
-        # Pre-seed del estado para que el sub-agente vea contexto desde el
-        # primer turno: sin esto, el sub-agente ve "rol: ninguno" al
-        # preguntar nombre, y al recibir la respuesta del user no sabe que
-        # era respuesta a su pregunta previa (interpreta como mensaje
-        # standalone y dispara el menú).
+        # Si clasificó agente_petra, arrancamos directo al flow determinístico
+        # (que creará el rol en estado=recolectando y hará la primera pregunta).
         if label == "agente_petra":
-            try:
-                _base.dispatch_tool("inscribir_agente_petra", {}, telefono)
-            except Exception:
-                log.exception("[router] pre-seed agente_petra fallo tel=%s",
-                              telefono)
+            flow_onboarding_agente.handle(
+                telefono, texto_efectivo, es_handoff=True,
+            )
+            return {"ok": True, "flow": "onboarding_agente",
+                    "handoff": True}
+        # Otros sub-agentes: usan LLM con historial de sesión
         return AGENTES_IMPLEMENTADOS[label].handle(
             telefono, texto_efectivo, contacto_nombre=contacto_nombre,
-            es_handoff=True,
+            es_handoff=True, sesion_id=sesion_id,
         )
 
-    # Sub-agente aún no migrado: monolito.
+    # 7. Sub-agente aún no migrado → monolito legacy
     return _enviar_al_monolito(telefono, texto, button_id, list_id,
                                contacto_nombre)

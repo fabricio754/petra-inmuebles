@@ -1082,3 +1082,34 @@ CREATE TABLE IF NOT EXISTS petra_intent_activo (
 );
 CREATE INDEX IF NOT EXISTS petra_intent_activo_updated_idx
   ON petra_intent_activo (updated_at DESC);
+
+-- Sesión conversacional del contacto. Una sesión agrupa los mensajes
+-- consecutivos (<5 min entre uno y otro). Si pasan 5+ min sin actividad,
+-- el cron la cierra con un mensaje "Vamos a cerrar esta conversación..."
+-- Al próximo mensaje tras el cierre, se abre una sesión nueva (fresh).
+-- Historial que Claude ve = mensajes DE la sesión actual (NO basado en
+-- ventana temporal arbitraria).
+CREATE TABLE IF NOT EXISTS petra_sesion_chat (
+  id             BIGSERIAL PRIMARY KEY,
+  telefono       TEXT NOT NULL,
+  abierta_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ultimo_msg_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  cerrada_at     TIMESTAMPTZ,
+  razon_cierre   TEXT
+);
+CREATE INDEX IF NOT EXISTS petra_sesion_chat_abierta_idx
+  ON petra_sesion_chat (telefono, cerrada_at)
+  WHERE cerrada_at IS NULL;
+CREATE INDEX IF NOT EXISTS petra_sesion_chat_inactividad_idx
+  ON petra_sesion_chat (ultimo_msg_at)
+  WHERE cerrada_at IS NULL;
+
+-- Dedup de webhooks entrantes: evita que Petra responda 2 veces el mismo
+-- wa_msg_id si Meta reenvía o si hay un retry.
+CREATE TABLE IF NOT EXISTS petra_mensajes_vistos (
+  wa_msg_id  TEXT PRIMARY KEY,
+  telefono   TEXT,
+  visto_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_mensajes_vistos_visto_idx
+  ON petra_mensajes_vistos (visto_at);

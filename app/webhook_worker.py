@@ -519,10 +519,13 @@ def _procesar_webhook_petra(payload):
     try:
         from app import petra_agents
         if petra_agents.esta_activo():
+            # Pasar wa_msg_id para dedup (Meta puede reenviar el mismo
+            # webhook si no respondemos 200 lo suficientemente rápido).
+            wamid = message.get("id") if isinstance(message, dict) else None
             petra_agents.handle_message(
                 telefono=phone, texto=texto,
                 button_id=button_id, list_id=list_id,
-                contacto_nombre=nombre,
+                contacto_nombre=nombre, wa_msg_id=wamid,
             )
             return
     except Exception:
