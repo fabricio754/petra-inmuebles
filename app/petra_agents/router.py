@@ -114,6 +114,17 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
     if label in AGENTES_IMPLEMENTADOS:
         intent_store.set_intent(telefono, label,
                                 razon=f"clasificado:{texto_efectivo[:60]}")
+        # Pre-seed del estado para que el sub-agente vea contexto desde el
+        # primer turno: sin esto, el sub-agente ve "rol: ninguno" al
+        # preguntar nombre, y al recibir la respuesta del user no sabe que
+        # era respuesta a su pregunta previa (interpreta como mensaje
+        # standalone y dispara el menú).
+        if label == "agente_petra":
+            try:
+                _base.dispatch_tool("inscribir_agente_petra", {}, telefono)
+            except Exception:
+                log.exception("[router] pre-seed agente_petra fallo tel=%s",
+                              telefono)
         return AGENTES_IMPLEMENTADOS[label].handle(
             telefono, texto_efectivo, contacto_nombre=contacto_nombre,
             es_handoff=True,
