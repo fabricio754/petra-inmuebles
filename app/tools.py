@@ -418,6 +418,13 @@ def crear_nota():
     log.info("[tools] POST /notas tel=%s autor=%s", tel, autor)
     try:
         with _db._conexion_directa(timeout=10) as conn:
+            # Asegura que el lead existe (stub mínimo) para evitar FK fail.
+            # Massi a veces llama /notas antes que /leads.
+            conn.execute(
+                "INSERT INTO pilot_leads (telefono) VALUES (%s) "
+                "ON CONFLICT (telefono) DO NOTHING",
+                (tel,),
+            )
             row = conn.execute(
                 "INSERT INTO pilot_notas (telefono, autor, texto) "
                 "VALUES (%s, %s, %s) "
@@ -450,6 +457,11 @@ def crear_recordatorio():
     log.info("[tools] POST /recordatorios tel=%s at=%s", tel, disparar.isoformat())
     try:
         with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "INSERT INTO pilot_leads (telefono) VALUES (%s) "
+                "ON CONFLICT (telefono) DO NOTHING",
+                (tel,),
+            )
             row = conn.execute(
                 "INSERT INTO pilot_recordatorios (telefono, disparar_at, texto) "
                 "VALUES (%s, %s, %s) "
@@ -480,6 +492,14 @@ def escalar():
     log.info("[tools] POST /escalar tel=%s", tel)
     try:
         with _db._conexion_directa(timeout=10) as conn:
+            # Crea stub si no existe para que el UPDATE encuentre fila.
+            conn.execute(
+                "INSERT INTO pilot_leads (telefono, requiere_humano, "
+                "requiere_humano_motivo, requiere_humano_at) "
+                "VALUES (%s, TRUE, %s, NOW()) "
+                "ON CONFLICT (telefono) DO NOTHING",
+                (tel, motivo),
+            )
             row = conn.execute(
                 f"UPDATE pilot_leads SET "
                 f"  requiere_humano = TRUE, "
