@@ -138,6 +138,56 @@ def health_full():
     return {"ok": bool(overall_ok), "checks": checks}
 
 
+@app.get("/petra/admin/reset_contacto")
+def admin_reset_contacto():
+    """DEV: resetea un contacto de testing — borra rol agente, progreso de
+    capacitación y últimos N turnos del chat para probar flujos desde cero.
+
+    GET /petra/admin/reset_contacto?token=<PETRA_LLM_TOKEN>&tel=<E164_sin_+>
+
+    Idempotente. No borra el contacto en sí, solo flags y memoria."""
+    required = (os.environ.get("PETRA_LLM_TOKEN") or "").strip()
+    if required:
+        tok = (request.args.get("token") or "").strip()
+        if tok != required:
+            return {"error": "unauthorized"}, 401
+    tel = (request.args.get("tel") or "").strip()
+    if not tel:
+        return {"error": "tel requerido (E.164 sin +)"}, 400
+
+    out = {"tel": tel, "deleted": {}}
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,)
+            ).fetchone()
+            cid = row[0] if row else None
+            if cid:
+                r = conn.execute(
+                    "DELETE FROM petra_contacto_roles WHERE contacto_id=%s",
+                    (cid,),
+                )
+                out["deleted"]["roles"] = r.rowcount
+                try:
+                    r2 = conn.execute(
+                        "DELETE FROM petra_capacitacion_progreso WHERE contacto_id=%s",
+                        (cid,),
+                    )
+                    out["deleted"]["capacitacion"] = r2.rowcount
+                except Exception:
+                    out["deleted"]["capacitacion"] = "n/a"
+            else:
+                out["deleted"]["roles"] = 0
+            r3 = conn.execute(
+                "DELETE FROM petra_llm_logs WHERE telefono=%s", (tel,)
+            )
+            out["deleted"]["llm_logs"] = r3.rowcount
+        return out
+    except Exception as exc:
+        return {"error": str(exc)[:300], "partial": out}, 500
+
+
 @app.post("/captura")
 def captura():
     """Recibe un anuncio desde la extensión de Chrome \"Enviar a Massi\"."""
