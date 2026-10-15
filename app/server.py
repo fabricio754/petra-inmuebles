@@ -149,7 +149,7 @@ def admin_reset_contacto():
     tok = (request.args.get("token") or "").strip()
     acepta = [
         (os.environ.get("PETRA_LLM_TOKEN") or "").strip(),
-        (os.environ.get("PETRA_PANEL_TOKEN") or "").strip(),
+        (os.environ.get("PANEL_TOKEN") or "").strip(),
     ]
     acepta = [t for t in acepta if t]
     if acepta and tok not in acepta:
