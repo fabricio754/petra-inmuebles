@@ -146,11 +146,14 @@ def admin_reset_contacto():
     GET /petra/admin/reset_contacto?token=<PETRA_LLM_TOKEN>&tel=<E164_sin_+>
 
     Idempotente. No borra el contacto en sí, solo flags y memoria."""
-    required = (os.environ.get("PETRA_LLM_TOKEN") or "").strip()
-    if required:
-        tok = (request.args.get("token") or "").strip()
-        if tok != required:
-            return {"error": "unauthorized"}, 401
+    tok = (request.args.get("token") or "").strip()
+    acepta = [
+        (os.environ.get("PETRA_LLM_TOKEN") or "").strip(),
+        (os.environ.get("PETRA_PANEL_TOKEN") or "").strip(),
+    ]
+    acepta = [t for t in acepta if t]
+    if acepta and tok not in acepta:
+        return {"error": "unauthorized"}, 401
     tel = (request.args.get("tel") or "").strip()
     if not tel:
         return {"error": "tel requerido (E.164 sin +)"}, 400
