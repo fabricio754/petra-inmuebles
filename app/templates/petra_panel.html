@@ -381,7 +381,7 @@
         {% set cls = 'ok' if a.estado_agente == 'operativo' else 'warn' if a.estado_agente in ('kit_asignado','certificado') else 'info' %}
         <span class="pill {{ cls }}">{{ a.estado_agente or 'lead' }}</span>
       </td>
-      <td class="mono">{{ a.videos_vistos or 0 }}/5</td>
+      <td class="mono">{{ a.videos_vistos or 0 }}/12</td>
       <td class="muted">{{ a.origen or '—' }}</td>
       <td class="muted nowrap">{{ a.updated_at.strftime('%d/%m %H:%M') if a.updated_at else '—' }}</td>
       <td>
