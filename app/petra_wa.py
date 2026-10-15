@@ -72,6 +72,21 @@ def send_text(to, body):
     })
 
 
+def send_typing_indicator(wa_msg_id):
+    """Marca el mensaje como leído y muestra los 3 puntitos de typing.
+    WhatsApp los muestra hasta que llegue el próximo mensaje nuestro, o
+    máximo 25 segundos. API nueva de Meta (2024): status=read +
+    typing_indicator.type=text."""
+    if not wa_msg_id:
+        return {"ok": True, "skip": "sin wa_msg_id"}
+    return _post({
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": wa_msg_id,
+        "typing_indicator": {"type": "text"},
+    })
+
+
 def send_buttons(to, body, buttons):
     """buttons: lista de dicts {id, title}. Max 3. title max 20 chars."""
     bts = []

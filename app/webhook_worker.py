@@ -517,11 +517,17 @@ def _procesar_webhook_petra(payload):
     # - sino → router determinístico legacy
     # ElevenLabs sólo entra para voz cuando el fan-out está activo.
     try:
-        from app import petra_agents
+        from app import petra_agents, petra_wa
         if petra_agents.esta_activo():
-            # Pasar wa_msg_id para dedup (Meta puede reenviar el mismo
-            # webhook si no respondemos 200 lo suficientemente rápido).
             wamid = message.get("id") if isinstance(message, dict) else None
+            # Typing indicator + read receipt: WhatsApp muestra los 3
+            # puntitos de "escribiendo..." mientras procesamos. Fire-and-
+            # forget — si falla, no bloquea la respuesta real.
+            if wamid:
+                try:
+                    petra_wa.send_typing_indicator(wamid)
+                except Exception:
+                    log.exception("[petra] typing indicator fallo")
             petra_agents.handle_message(
                 telefono=phone, texto=texto,
                 button_id=button_id, list_id=list_id,
