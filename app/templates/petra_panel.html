@@ -370,7 +370,7 @@
   {% if agentes %}
   <table>
     <thead><tr><th>#</th><th>Agente</th><th>Ciudad</th><th>Estado</th>
-      <th>Videos</th><th>Origen</th><th>Actualizado</th><th>Avanzar</th></tr></thead>
+      <th>Videos</th><th>Origen</th><th>Actualizado</th><th>Avanzar</th><th></th></tr></thead>
     <tbody>
     {% for a in agentes %}
     <tr>
@@ -397,6 +397,13 @@
             <option value="descartado">❌ descartar</option>
           </select>
           <button type="submit">Ir</button>
+        </form>
+      </td>
+      <td>
+        <form class="inline" method="post" action="/panel/petra/agente/{{ a.contacto_id }}/eliminar"
+              onsubmit="return confirm('¿Eliminar a {{ a.nombre or a.telefono }} como agente Petra? El contacto queda, solo deja de ser agente.');">
+          <input type="hidden" name="token" value="{{ token }}">
+          <button type="submit" title="Eliminar como agente">🗑</button>
         </form>
       </td>
     </tr>

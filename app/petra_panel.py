@@ -376,6 +376,31 @@ def accion_agente_avanzar(cid):
                             token=request.form.get("token", "")))
 
 
+@petra_panel_bp.post("/agente/<int:cid>/eliminar")
+def accion_agente_eliminar(cid):
+    """Elimina el rol agente_petra de un contacto y su progreso de
+    capacitación. El contacto en sí NO se borra — solo deja de ser agente.
+
+    Útil cuando una persona ya no quiere ser agente, o para re-arrancar el
+    flujo de inscripción desde cero durante testing. Idempotente."""
+    _check_token()
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "DELETE FROM petra_contacto_roles "
+            "WHERE contacto_id=%s AND rol='agente_petra'",
+            (cid,),
+        )
+        try:
+            conn.execute(
+                "DELETE FROM petra_capacitacion_progreso WHERE contacto_id=%s",
+                (cid,),
+            )
+        except Exception:
+            pass
+    return redirect(url_for("petra_panel.panel_home", tab="agentes",
+                            token=request.form.get("token", "")))
+
+
 @petra_panel_bp.post("/error/<int:eid>/resolver")
 def accion_error_resolver(eid):
     _check_token()
