@@ -467,6 +467,15 @@ def _procesar_webhook_petra(payload):
     # tabla legacy `mensajes` para evitar cruzar producción con el piloto).
     if change.get("statuses"):
         log.info("[petra] status recibido (no procesado): %s", change["statuses"][:1])
+    # Fan-out de voz: cuando flipamos USE_OWN_ORCHESTRATOR, Meta nos manda las
+    # calls y nosotros se las reenviamos a ElevenLabs para que las conteste.
+    if change.get("calls"):
+        try:
+            from app import petra_el_bridge, petra_orchestrator
+            if petra_orchestrator.esta_activo():
+                petra_el_bridge.forward_call_to_el(payload)
+        except Exception:
+            log.exception("[petra] fan-out voz fallo")
     if not change.get("messages"):
         return
 
@@ -501,6 +510,22 @@ def _procesar_webhook_petra(payload):
         btn = message.get("button") or {}
         button_id = btn.get("payload") or btn.get("text")
         texto = btn.get("text") or ""
+
+    # Feature flag: si USE_OWN_ORCHESTRATOR=true, nuestro orquestador propio
+    # procesa el mensaje con Claude SDK (tool_use nativo). Si no, cae al router
+    # determinístico legacy. ElevenLabs sólo entra para voz cuando el fan-out
+    # está activo (ver /petra/el/forward).
+    try:
+        from app import petra_orchestrator
+        if petra_orchestrator.esta_activo():
+            petra_orchestrator.handle_message(
+                telefono=phone, texto=texto,
+                button_id=button_id, list_id=list_id,
+                contacto_nombre=nombre,
+            )
+            return
+    except Exception:
+        log.exception("[petra] orquestador propio fallo — cae a legacy")
 
     edificio_slug = _extraer_slug_qr(texto)
     try:
