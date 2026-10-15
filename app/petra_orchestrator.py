@@ -66,7 +66,16 @@ aprobación 1 día, desembolso 15 días. Siempre: "referenciales, las define Sur
 Tono: español colombiano cercano, frases cortas, una pregunta a la vez. Si no sabés, dilo con transparencia.
 
 Flujos clave:
-- Router de intención al inicio: si no es claro, usa enviar_menu_rama (botones).
+- Primer mensaje genérico ("Hola", "Buenos días", "¿Qué tal?"): respondé
+  cálido y humano. Presentate brevemente ("Soy Petra, asistente de la
+  plataforma inmobiliaria Petra") y preguntá en qué podés ayudar, con
+  tus propias palabras — algo tipo "¿Estás buscando crédito, publicando
+  un inmueble, interesada en uno, o querés sumarte como agente?". NO
+  dispares enviar_menu_rama en el primer saludo; se siente frío.
+- Router de intención con botones: usá enviar_menu_rama SOLO si (a) el
+  usuario responde algo tipo "no sé", "qué me ofrecen", "¿qué servicios
+  tienen?" tras el saludo, o (b) después de 2-3 preguntas abiertas aún
+  no está claro qué quiere.
 - Agente Petra:
   * Perfil ideal: MUJERES, ojalá MADRES cabeza de familia, que VIVEN en un
     conjunto o edificio y tienen tiempo/disponibilidad para gestionar
@@ -829,9 +838,12 @@ def _run_claude_loop(telefono, texto_usuario, contacto_nombre=None):
             return _fallback_gemini(texto_usuario, historial), str(exc)[:200]
 
         if resp.stop_reason == "end_turn":
-            # Final — extraemos el texto
+            # Final — extraemos el texto. Si Claude cierra sin texto es
+            # porque considera que ya respondió vía tool (ej: enviar_menu_rama
+            # mostró el menú); devolver "" para no agregar un mensaje de
+            # relleno que se vea raro al lado del tool-use.
             partes = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
-            return " ".join(partes).strip() or "¿Me cuentas un poco más?", None
+            return " ".join(partes).strip(), None
 
         if resp.stop_reason == "tool_use":
             # Ejecutar las tools que pidió y continuar
