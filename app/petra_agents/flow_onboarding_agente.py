@@ -273,21 +273,47 @@ def handle(telefono, texto, es_handoff=False):
                     (meta.get("nombre"), cid),
                 )
                 nombre_corto = meta.get("nombre", "").split()[0] if meta.get("nombre") else ""
-                mensaje = (
+                # Mensaje 1: felicitaciones + anuncio del video
+                felicitaciones = (
                     f"🎉 *¡Felicitaciones {nombre_corto}, ya sos oficialmente Agente Petra!*\n\n"
                     f"Vas a representar a Petra en *{meta.get('conjunto')}*, "
                     f"{meta.get('barrio')}, {meta.get('ciudad')}.\n\n"
-                    "Próximos pasos:\n"
-                    "1️⃣ Te mando ahora un video corto que te explica cómo arranca.\n"
-                    "2️⃣ Durante los próximos 6 días recibirás 2 videos cortos "
-                    "cada mañana (a las 8am) para tu capacitación.\n"
-                    "3️⃣ Al terminar, te enviamos el kit para que lo entregues "
-                    "a la administración de tu edificio.\n\n"
-                    "Dale, voy a buscar tu video de bienvenida… 📹"
+                    "Te mando ahora un video corto que te explica los próximos pasos. 📹"
                 )
-                _enviar(telefono, mensaje)
-                _log(telefono, texto, mensaje, nota="inscripción confirmada")
-                # TODO: disparar envío del video de bienvenida
+                _enviar(telefono, felicitaciones)
+                _log(telefono, texto, felicitaciones, nota="inscripción confirmada (msg 1)")
+
+                # Mensaje 2: enviar video de bienvenida si existe
+                video_row = conn.execute(
+                    "SELECT titulo, url FROM petra_contenidos "
+                    "WHERE tipo='bienvenida' AND activo=TRUE "
+                    "ORDER BY orden LIMIT 1"
+                ).fetchone()
+                if video_row:
+                    titulo, url = video_row
+                    msg_video = f"🎬 *{titulo}*\n\n{url}"
+                    _enviar(telefono, msg_video)
+                    _log(telefono, texto, msg_video, nota="video bienvenida enviado")
+                else:
+                    aviso = ("(El video de bienvenida está en preparación — "
+                             "pronto te lo enviamos ❤️)")
+                    _enviar(telefono, aviso)
+                    _log(telefono, texto, aviso, nota="sin video bienvenida cargado")
+
+                # Mensaje 3: próximos pasos en texto
+                proximos = (
+                    "📋 *Mientras tanto, estos son los próximos pasos:*\n\n"
+                    "1️⃣ Mañana a las 8am te enviamos los primeros 2 videos de tu capacitación.\n"
+                    "2️⃣ Durante los próximos 6 días recibirás 2 videos cortos "
+                    "cada mañana. Después de cada video me confirmás que lo viste "
+                    "para avanzar al siguiente.\n"
+                    "3️⃣ Al terminar los 13 videos, te enviamos el kit con el QR "
+                    "y las instrucciones para entregarle a la administración de "
+                    "tu edificio.\n\n"
+                    "¡Dale, nos vemos mañana! 💪"
+                )
+                _enviar(telefono, proximos)
+                _log(telefono, texto, proximos, nota="proximos pasos")
                 return True
             resp = (
                 "Antes de confirmar me faltan estos datos: "
