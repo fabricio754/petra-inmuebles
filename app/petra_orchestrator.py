@@ -741,16 +741,26 @@ def _cargar_contexto_contacto(telefono):
 # =============================================================================
 # Historial del chat
 # =============================================================================
-def _cargar_historial(telefono, limite=HISTORIAL_MSGS):
-    """Devuelve mensajes recientes en formato [{role, content}]."""
+VENTANA_HISTORIAL_MIN = int(os.environ.get("PETRA_ORCH_VENTANA_MIN", "30"))
+
+
+def _cargar_historial(telefono, limite=HISTORIAL_MSGS,
+                      ventana_min=VENTANA_HISTORIAL_MIN):
+    """Devuelve mensajes recientes de la conversación ACTIVA (últimos
+    ventana_min minutos) en formato [{role, content}]. Mensajes más viejos
+    quedan en DB (visibles en el panel y en el WhatsApp del usuario) pero
+    no se le pasan a Claude: para esos casos la fuente de verdad es el
+    estado estructurado del contacto (rol + metadata) que se inyecta en
+    el system prompt."""
     from app import db as _db
     with _db._conexion_directa(timeout=5) as conn:
         rows = conn.execute(
             "SELECT texto_usuario, texto_asistente FROM petra_llm_logs "
             "WHERE telefono=%s AND rama IN ('claude','orchestrator') "
             "AND texto_usuario IS NOT NULL AND texto_usuario != '' "
+            "AND created_at > NOW() - make_interval(mins => %s) "
             "ORDER BY created_at DESC LIMIT %s",
-            (telefono, limite),
+            (telefono, ventana_min, limite),
         ).fetchall()
     msgs = []
     for user_t, asst_t in reversed(rows):
@@ -810,28 +820,25 @@ def _run_claude_loop(telefono, texto_usuario, contacto_nombre=None):
          "cache_control": {"type": "ephemeral"}},
         {"type": "text",
          "text": (
-             "=== CONTEXTO DEL CONTACTO (fuente de verdad, leído de DB) ===\n"
+             "=== ESTADO DEL CONTACTO (fuente de verdad, leído de DB) ===\n"
              f"{contexto_contacto}\n"
-             "=== fin contexto ===\n"
-             "Este bloque es la verdad sobre el rol y estado del usuario. "
-             "El historial del chat sirve solo para continuidad conversacional, "
-             "nunca para inferir rol o estado. Si el rol dice 'ninguno asignado' "
-             "y el chat anterior lo trataba como agente, es porque un operador "
-             "humano lo removió del rol — trátalo como un contacto nuevo que "
-             "entra al router de intención."
+             "=== fin estado ===\n"
+             "Este bloque es la verdad sobre el rol y los flujos abiertos "
+             "del usuario. El historial del chat que recibas (si lo hay) es "
+             "solo de los últimos minutos — para continuidad dentro de la "
+             "conversación activa. Si no ves historial, es que la "
+             "conversación arrancó recién: trata al usuario según el ESTADO "
+             "de arriba (si rol='ninguno asignado', es un contacto nuevo "
+             "que entra al router de intención; si tiene un rol activo, "
+             "retomá desde donde está según su metadata)."
          )},
     ]
     tools = _tool_schemas()
 
-    # Si el contacto no tiene rol asignado, NO pasarle el historial del chat
-    # a Claude. El chat se preserva en DB (visible en panel y WhatsApp del
-    # usuario), pero Claude arranca sin memoria de flujos anteriores — así
-    # el label de la DB manda. Si el operador borró el rol desde el panel,
-    # el próximo mensaje arranca fresh.
-    rol_asignado = ("rol: " in contexto_contacto
-                    and "rol: ninguno" not in contexto_contacto
-                    and "contacto NUEVO" not in contexto_contacto)
-    historial = _cargar_historial(telefono) if rol_asignado else []
+    # Historial: solo últimos N minutos de la conversación activa. Para
+    # flujos pendientes de hace horas/días, Claude los conoce vía el
+    # contexto DB inyectado en el system (rol, metadata, lead, mandatos).
+    historial = _cargar_historial(telefono)
     historial.append({"role": "user", "content": texto_usuario})
 
     for turno in range(MAX_TURNS):
