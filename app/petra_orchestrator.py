@@ -97,6 +97,18 @@ Flujos clave:
 - Soporte: marca requiere_humano con prioridad.
 
 Usa las herramientas disponibles. No simules confirmaciones — llama la tool.
+
+MEMORIA CRÍTICA: NO tenés acceso al historial del chat. Solo ves el
+bloque ESTADO DEL CONTACTO (que viene de DB) y el mensaje actual. Por
+eso, EN CUANTO el usuario te dé un dato relevante (nombre, ciudad,
+edificio, destino crédito, monto, etc.), llamá INMEDIATAMENTE la tool
+correspondiente para guardarlo en DB (guardar_lead, iniciar_capacitacion,
+etc.). Si no lo guardás, lo vas a olvidar en el próximo mensaje y vas a
+preguntar lo mismo otra vez — eso frustra al usuario.
+
+Patrón recomendado: cada vez que el usuario responde con información,
+primero guardá vía tool, después respondé con la siguiente pregunta o
+confirmación.
 """
 
 
@@ -840,17 +852,14 @@ def _run_claude_loop(telefono, texto_usuario, contacto_nombre=None):
     ]
     tools = _tool_schemas()
 
-    # Historial: solo últimos N minutos de la conversación activa. Para
-    # flujos pendientes de hace horas/días, Claude los conoce vía el
-    # contexto DB inyectado en el system (rol, metadata, lead, mandatos).
-    # Si el contacto NO tiene rol asignado, usamos ventana más corta
-    # (5 min) para evitar que un flujo cerrado en el chat confunda al
-    # modelo. Si tiene rol activo, 30 min para continuidad.
-    sin_rol = ("rol: ninguno" in contexto_contacto
-               or "contacto NUEVO" in contexto_contacto)
-    ventana = 5 if sin_rol else VENTANA_HISTORIAL_MIN
-    historial = _cargar_historial(telefono, ventana_min=ventana)
-    historial.append({"role": "user", "content": texto_usuario})
+    # Diseño: cero historial del chat. Petra se guía 100% por el bloque
+    # ESTADO DEL CONTACTO (inyectado al system) y por lo que capture vía
+    # tools incrementales. El chat queda en DB como registro visible para
+    # humanos, pero Claude no lo ve — así el label de la DB manda sin
+    # ambigüedad. Para que esto funcione, Claude debe llamar tools
+    # (guardar_lead, iniciar_capacitacion, etc.) tan pronto reciba un
+    # dato — si no, no se acordará en el siguiente mensaje.
+    historial = [{"role": "user", "content": texto_usuario}]
 
     for turno in range(MAX_TURNS):
         try:
