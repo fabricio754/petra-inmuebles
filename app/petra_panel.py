@@ -385,6 +385,10 @@ def accion_agente_eliminar(cid):
     flujo de inscripción desde cero durante testing. Idempotente."""
     _check_token()
     with _db._conexion_directa(timeout=10) as conn:
+        tel_row = conn.execute(
+            "SELECT telefono FROM petra_contactos WHERE id=%s", (cid,)
+        ).fetchone()
+        tel = tel_row[0] if tel_row else None
         conn.execute(
             "DELETE FROM petra_contacto_roles "
             "WHERE contacto_id=%s AND rol='agente_petra'",
@@ -397,6 +401,16 @@ def accion_agente_eliminar(cid):
             )
         except Exception:
             pass
+        # Limpiar historial del chat para que Claude no recuerde el flujo
+        # anterior. Sin esto, aunque el rol se borre, el modelo sigue
+        # respondiendo "ya estás inscrito…" porque usa los últimos turnos.
+        if tel:
+            try:
+                conn.execute(
+                    "DELETE FROM petra_llm_logs WHERE telefono=%s", (tel,)
+                )
+            except Exception:
+                pass
     return redirect(url_for("petra_panel.panel_home", tab="agentes",
                             token=request.form.get("token", "")))
 
