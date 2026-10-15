@@ -784,20 +784,28 @@ def _cargar_contexto_contacto(telefono):
             ).fetchall()
             if roles:
                 for rol, meta in roles:
-                    extra = ""
-                    if meta:
-                        if rol == "agente_petra":
-                            edo = meta.get("estado_agente") or "lead"
-                            vv = meta.get("videos_vistos", 0)
-                            edif = meta.get("edificio") or meta.get("conjunto")
-                            ciudad = meta.get("ciudad")
-                            extra = f" [estado={edo}, videos={vv}/5"
-                            if edif:
-                                extra += f", vive en={edif}"
-                            if ciudad:
-                                extra += f", ciudad={ciudad}"
-                            extra += "]"
-                    lineas.append(f"rol: {rol}{extra}")
+                    meta = meta or {}
+                    if rol == "agente_petra":
+                        edo = meta.get("estado_agente") or "lead"
+                        lineas.append(f"rol: {rol} [estado={edo}]")
+                        # Datos del onboarding — explícitos para que
+                        # Claude sepa qué tiene y qué pedir.
+                        campos = [("nombre", meta.get("nombre")),
+                                  ("cedula", meta.get("cedula")),
+                                  ("ciudad", meta.get("ciudad")),
+                                  ("barrio", meta.get("barrio")),
+                                  ("conjunto", meta.get("conjunto") or meta.get("edificio"))]
+                        for k, v in campos:
+                            marca = v if v else "[FALTA — pedí este dato]"
+                            lineas.append(f"  {k}: {marca}")
+                        faltantes = [k for k, v in campos if not v]
+                        if faltantes:
+                            lineas.append(f"  próximo dato a pedir: {faltantes[0]}")
+                        vv = meta.get("videos_vistos", 0)
+                        if vv:
+                            lineas.append(f"  videos vistos: {vv}/13")
+                    else:
+                        lineas.append(f"rol: {rol}")
             else:
                 lineas.append("rol: ninguno asignado")
             try:
