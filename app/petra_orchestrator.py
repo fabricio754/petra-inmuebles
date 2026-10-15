@@ -657,6 +657,79 @@ def _lanzar_keepalive(telefono, cancel_event):
 
 
 # =============================================================================
+# Contexto del contacto desde la DB (fuente de verdad para rol y estado)
+# =============================================================================
+def _cargar_contexto_contacto(telefono):
+    """Lee el estado REAL del contacto desde la DB y lo devuelve como string
+    listo para inyectar al system prompt. Esto es la fuente de verdad: si
+    el operador humano cambia un rol o estado desde el panel, Claude lo ve
+    acá — nunca inferir rol del historial del chat."""
+    from app import db as _db
+    lineas = []
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT id, nombre FROM petra_contactos WHERE telefono=%s",
+                (telefono,),
+            ).fetchone()
+            if not row:
+                return "contacto NUEVO (no registrado aún en petra_contactos)"
+            cid, nombre = row
+            if nombre:
+                lineas.append(f"nombre: {nombre}")
+            roles = conn.execute(
+                "SELECT rol, metadata FROM petra_contacto_roles "
+                "WHERE contacto_id=%s ORDER BY updated_at DESC",
+                (cid,),
+            ).fetchall()
+            if roles:
+                for rol, meta in roles:
+                    extra = ""
+                    if meta:
+                        if rol == "agente_petra":
+                            edo = meta.get("estado_agente") or "lead"
+                            vv = meta.get("videos_vistos", 0)
+                            edif = meta.get("edificio") or meta.get("conjunto")
+                            ciudad = meta.get("ciudad")
+                            extra = f" [estado={edo}, videos={vv}/5"
+                            if edif:
+                                extra += f", vive en={edif}"
+                            if ciudad:
+                                extra += f", ciudad={ciudad}"
+                            extra += "]"
+                    lineas.append(f"rol: {rol}{extra}")
+            else:
+                lineas.append("rol: ninguno asignado")
+            try:
+                lead = conn.execute(
+                    "SELECT ciudad, tipo_inmueble, avaluo, monto_hasta_millones "
+                    "FROM pilot_leads WHERE telefono=%s",
+                    (telefono,),
+                ).fetchone()
+                if lead and any(lead):
+                    campos = [str(v) for v in lead if v]
+                    lineas.append("lead_credito activo: " + ", ".join(campos))
+            except Exception:
+                pass
+            try:
+                mandatos = conn.execute(
+                    "SELECT tipo, estado FROM petra_mandatos "
+                    "WHERE contacto_id=%s AND estado IN ('propuesto','firmado','activo') "
+                    "ORDER BY updated_at DESC LIMIT 3",
+                    (cid,),
+                ).fetchall()
+                if mandatos:
+                    lineas.append("mandatos: " + "; ".join(
+                        f"{m[0]}:{m[1]}" for m in mandatos))
+            except Exception:
+                pass
+    except Exception:
+        log.exception("[orch] _cargar_contexto_contacto fallo tel=%s", telefono)
+        return "no se pudo leer contexto del contacto"
+    return "\n".join(lineas) if lineas else "sin datos"
+
+
+# =============================================================================
 # Historial del chat
 # =============================================================================
 def _cargar_historial(telefono, limite=HISTORIAL_MSGS):
@@ -721,10 +794,23 @@ def _run_claude_loop(telefono, texto_usuario, contacto_nombre=None):
         kwargs["default_headers"] = {"anthropic-workspace-id": workspace}
     client = Anthropic(api_key=api_key, **kwargs)
 
+    contexto_contacto = _cargar_contexto_contacto(telefono)
     system_bloques = [
         {"type": "text",
          "text": SYSTEM_PROMPT.format(telefono=telefono),
          "cache_control": {"type": "ephemeral"}},
+        {"type": "text",
+         "text": (
+             "=== CONTEXTO DEL CONTACTO (fuente de verdad, leído de DB) ===\n"
+             f"{contexto_contacto}\n"
+             "=== fin contexto ===\n"
+             "Este bloque es la verdad sobre el rol y estado del usuario. "
+             "El historial del chat sirve solo para continuidad conversacional, "
+             "nunca para inferir rol o estado. Si el rol dice 'ninguno asignado' "
+             "y el chat anterior lo trataba como agente, es porque un operador "
+             "humano lo removió del rol — trátalo como un contacto nuevo que "
+             "entra al router de intención."
+         )},
     ]
     tools = _tool_schemas()
 
