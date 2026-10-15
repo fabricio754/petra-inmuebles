@@ -823,14 +823,19 @@ def _run_claude_loop(telefono, texto_usuario, contacto_nombre=None):
              "=== ESTADO DEL CONTACTO (fuente de verdad, leído de DB) ===\n"
              f"{contexto_contacto}\n"
              "=== fin estado ===\n"
-             "Este bloque es la verdad sobre el rol y los flujos abiertos "
-             "del usuario. El historial del chat que recibas (si lo hay) es "
-             "solo de los últimos minutos — para continuidad dentro de la "
-             "conversación activa. Si no ves historial, es que la "
-             "conversación arrancó recién: trata al usuario según el ESTADO "
-             "de arriba (si rol='ninguno asignado', es un contacto nuevo "
-             "que entra al router de intención; si tiene un rol activo, "
-             "retomá desde donde está según su metadata)."
+             "REGLA ABSOLUTA: este bloque es la ÚNICA fuente de verdad "
+             "sobre rol y flujos abiertos. El historial del chat que "
+             "recibas (si lo hay) es solo para continuidad conversacional "
+             "de los últimos minutos — NO para inferir estado. Si el chat "
+             "reciente dice 'ya estás inscrito como agente' pero el ESTADO "
+             "arriba dice 'rol: ninguno asignado', es porque un operador "
+             "lo removió — IGNORA lo que diga el chat sobre el rol y "
+             "trátalo como contacto NUEVO. Lo mismo para cualquier flujo: "
+             "si el user pide iniciar algo ('quiero ser agente', 'quiero "
+             "crédito'), SIEMPRE validá primero el ESTADO arriba, nunca "
+             "asumas desde el chat. Si rol='ninguno' y pide 'quiero ser "
+             "agente' → es inscripción NUEVA, arrancá el onboarding desde "
+             "cero (nombre, ciudad, conjunto donde vive)."
          )},
     ]
     tools = _tool_schemas()
@@ -838,7 +843,13 @@ def _run_claude_loop(telefono, texto_usuario, contacto_nombre=None):
     # Historial: solo últimos N minutos de la conversación activa. Para
     # flujos pendientes de hace horas/días, Claude los conoce vía el
     # contexto DB inyectado en el system (rol, metadata, lead, mandatos).
-    historial = _cargar_historial(telefono)
+    # Si el contacto NO tiene rol asignado, usamos ventana más corta
+    # (5 min) para evitar que un flujo cerrado en el chat confunda al
+    # modelo. Si tiene rol activo, 30 min para continuidad.
+    sin_rol = ("rol: ninguno" in contexto_contacto
+               or "contacto NUEVO" in contexto_contacto)
+    ventana = 5 if sin_rol else VENTANA_HISTORIAL_MIN
+    historial = _cargar_historial(telefono, ventana_min=ventana)
     historial.append({"role": "user", "content": texto_usuario})
 
     for turno in range(MAX_TURNS):
