@@ -748,6 +748,16 @@ def chat_completions():
         except Exception as exc:
             log.exception("[petra_llm] claude stream falló")
             err = str(exc)[:500]
+            # Si Claude falla ANTES de emitir cualquier token, al menos
+            # mandamos un fallback para que el usuario no quede en silencio
+            # después del filler de soft timeout.
+            if not acumulado:
+                msg_fallback = (
+                    "Perdón, estoy teniendo un problema técnico momentáneo. "
+                    "¿Me reescribes en un ratito? 🙏"
+                )
+                acumulado.append(msg_fallback)
+                yield _sse_chunk(resp_id, created, delta_content=msg_fallback)
         yield _sse_chunk(resp_id, created, finish_reason="stop")
         yield "data: [DONE]\n\n"
         _log_request(telefono, "claude", texto, "".join(acumulado), messages,
