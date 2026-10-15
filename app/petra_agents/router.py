@@ -110,7 +110,11 @@ def _enviar_al_monolito(telefono, texto, button_id, list_id, contacto_nombre):
     )
 
 
-ESTADOS_FLOW_PYTHON = {"recolectando", "inscrito", "bienvenida_enviada"}
+ESTADOS_FLOW_PYTHON = {
+    "recolectando", "inscrito", "bienvenida_enviada",
+    "esperando_capacitacion_dia1", "en_capacitacion",
+    "capacitacion_completa", "certificado",
+}
 
 
 def _estado_flow_python(telefono):

@@ -223,6 +223,63 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
     return True
 
 
+def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
+    """Fase: la agente está en capacitación activa. Los 12 videos se envían
+    por cron a las 8am (2 por día x 6 días). Acá solo gestionamos
+    confirmaciones ("vi", "listo") y preguntas sobre el calendario."""
+    t_lc = (texto or "").lower().strip()
+    import datetime as _dt
+    vistos = meta.get("videos_vistos", 0)
+    if t_lc in ("vi", "visto", "listo", "ya", "ok", "terminé", "termine"):
+        vistos += 1
+        meta["videos_vistos"] = min(vistos, 12)
+        meta[f"video_{vistos}_visto_at"] = _dt.datetime.utcnow().isoformat()
+        if vistos >= 12:
+            meta["estado_agente"] = "capacitacion_completa"
+            _save_meta(conn, cid, meta)
+            resp = ("¡Terminaste los 12 videos! 🎓🎉\n\n"
+                    "Pasás a la etapa final: nuestro equipo revisa tu "
+                    "caso y te contacta con el kit para la administración "
+                    "de tu edificio. Te avisamos acá apenas esté listo.")
+        else:
+            _save_meta(conn, cid, meta)
+            dia_actual = (vistos - 1) // 2 + 1
+            vid_dia = ((vistos - 1) % 2) + 1
+            quedan = 12 - vistos
+            resp = (f"¡Bien hecho! ✅ Marcado video {vistos}/12 "
+                    f"(día {dia_actual}, video {vid_dia}).\n\n"
+                    f"Te quedan {quedan} videos. "
+                    + ("El próximo llega mañana a las 8am." if vid_dia == 2 or vistos == 12
+                       else "Si ya querés ver el siguiente del día, mandame *SIGUIENTE*."))
+        _enviar(telefono, resp)
+        _log(telefono, texto, resp, nota=f"video marcado {vistos}/12")
+        return True
+    if t_lc in ("siguiente", "proximo", "próximo", "mas", "más"):
+        # Enviar el siguiente video pendiente del día si queda uno
+        row = conn.execute(
+            "SELECT titulo, url FROM petra_contenidos "
+            "WHERE tipo='video_capacitacion' AND activo=TRUE "
+            "AND orden > %s ORDER BY orden LIMIT 1",
+            (vistos,),
+        ).fetchone()
+        if not row:
+            _enviar(telefono, "Por hoy ya está. Mañana a las 8am te mando el próximo. 👋")
+            return True
+        titulo, url = row
+        _enviar(telefono, f"🎬 *{titulo}*\n\n{url}")
+        _enviar(telefono, "Cuando lo veas mandame *LISTO* 💪")
+        _log(telefono, texto, f"[enviado video manual: {titulo}]")
+        return True
+    # Preguntas abiertas: respuesta estándar sin inventar
+    dia = (vistos // 2) + 1
+    resp = (f"Estás en capacitación 👩‍🏫 — vas {vistos}/12 videos.\n\n"
+            f"Los próximos llegan mañana a las 8am. Si tenés alguna duda, "
+            f"escribí *AYUDA* y te paso con un humano.")
+    _enviar(telefono, resp)
+    _log(telefono, texto, resp, nota="pregunta abierta en capacitación")
+    return True
+
+
 def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
     """Fase: ya recibió el video de bienvenida, esperamos que confirme."""
     t_lc = (texto or "").lower().strip()
@@ -277,6 +334,28 @@ def handle(telefono, texto, es_handoff=False):
         # ─── Fase 2b: BIENVENIDA_ENVIADA (ya recibió video, esperando confirmación) ───
         if estado == "bienvenida_enviada":
             return _fase_bienvenida_enviada(conn, telefono, cid, meta, texto)
+
+        # ─── Fase 3: en capacitación o esperando día 1 ───
+        if estado in ("esperando_capacitacion_dia1", "en_capacitacion"):
+            return _fase_capacitacion(conn, telefono, cid, meta, texto, estado)
+
+        if estado == "capacitacion_completa":
+            _enviar(telefono,
+                "¡Felicitaciones! Terminaste tu capacitación 🎓\n\n"
+                "El equipo humano de Petra está revisando tu caso para "
+                "activarte oficialmente. Te avisamos acá cuando esté listo "
+                "con las instrucciones para hablar con la administración "
+                "de tu edificio.")
+            _log(telefono, texto, "[capacitacion_completa stub]")
+            return True
+
+        if estado == "certificado":
+            _enviar(telefono,
+                "¡Buenísimo! Estás certificada. El próximo paso es el kit "
+                "para la administración del edificio. Un asesor te va a "
+                "contactar pronto por este chat. 💪")
+            _log(telefono, texto, "[certificado stub]")
+            return True
 
         if estado != "recolectando":
             log.info("[flow:onboarding] tel=%s estado=%s (no es nuestro)",
