@@ -225,9 +225,28 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
     if proximos_row:
         titulo, url = proximos_row
         _enviar(telefono, f"🗺 *{titulo}*\n\n{url}")
+    # Journey completo como texto, acompañando el video de próximos pasos
+    _enviar(telefono,
+        "📋 *Tu camino como Agente Petra:*\n\n"
+        "1️⃣ *Inscripción* ✅ — ya lo hiciste.\n\n"
+        "2️⃣ *Capacitación* 🎓 — te enviaremos *2 videos cada día durante "
+        "los próximos 6 días* para enseñarte sobre el negocio inmobiliario.\n\n"
+        "3️⃣ *Autorización del conjunto* 🏢 — vas a hablar con el "
+        "administrador sobre las ventajas del QR Petra y conseguir su "
+        "aprobación para activar el conjunto.\n\n"
+        "4️⃣ *Activar el QR* 📬 — te enviaremos un kit de bienvenida con "
+        "el QR para instalar en el conjunto, y además un regalo para ti 🎁\n\n"
+        "5️⃣ *Gestionar citas* 📅 — empieza tu trabajo. Te enviaremos "
+        "citas con propietarios e interesados en tu conjunto y vamos a "
+        "pedirte confirmar tu disponibilidad en el horario planteado.\n\n"
+        "6️⃣ *Registrar inventario* 🔑 — recibirás las llaves de los "
+        "inmuebles que vamos a vender o arrendar, revisarás cada uno y "
+        "nos contarás si hay algo dañado o todo está en buen estado."
+    )
     verbo = "los" if cuantos > 1 else "lo"
     _enviar(telefono,
-            f"Cuando {verbo} termines, mandame *LISTO* y arrancamos tu capacitación. 💪")
+            f"Cuando {verbo} termines, mandame *LISTO* para confirmar y "
+            "arrancar con tu capacitación diaria. 💪")
     import datetime as _dt
     meta["estado_agente"] = "bienvenida_enviada"
     meta["bienvenida_enviada_at"] = _dt.datetime.utcnow().isoformat()
@@ -307,8 +326,9 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
         _save_meta(conn, cid, meta)
         resp = (
             "¡Buenísimo! 🎉\n\n"
-            "Mañana a las *8am* te envío los primeros 2 videos de tu "
-            "capacitación. Durante 6 días recibirás 2 videos cada mañana.\n\n"
+            "Tu capacitación ya arrancó con los 2 videos que te acabo de "
+            "pasar. Mañana a las *8am* te envío la *segunda tanda de "
+            "2 videos*, y así durante los próximos 6 días.\n\n"
             "Nos vemos mañana. 👋"
         )
         _enviar(telefono, resp)
