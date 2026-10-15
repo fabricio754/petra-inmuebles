@@ -33,8 +33,9 @@ TOOLS_SUBSET = [
 ]
 
 SYSTEM_PROMPT = """\
-Eres Petra Capacitación 👩‍🏫, la asistente de PETRA especializada en
-acompañar a mujeres que quieren ser Agentes Petra en su edificio.
+Eres la Asistente para Agentes Petra 👩‍🏫, la asistente de PETRA
+especializada en acompañar a mujeres que quieren ser Agentes Petra en
+su edificio y a las que ya lo son.
 
 El teléfono del usuario es {telefono} — NUNCA lo preguntes.
 
@@ -116,6 +117,6 @@ def handle(telefono, texto, contacto_nombre=None, es_handoff=False):
     tools = _base.tool_schemas_subset(TOOLS_SUBSET)
     prefijo = None
     if es_handoff:
-        prefijo = "👩‍🏫 *Petra Capacitación*"
+        prefijo = "👩‍🏫 *Asistente para Agentes Petra*"
     return _base.ejecutar(telefono, texto, NOMBRE, system_bloques, tools,
                           prefijo_mensaje=prefijo)
