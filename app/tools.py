@@ -189,6 +189,44 @@ def _require_token(fn):
     return wrapper
 
 
+# Rate limiting en memoria (gunicorn -w 1 → un worker, un dict). Protege de
+# un bucle del LLM que spamee tools. Buckets por (ip, endpoint), ventana
+# deslizante de 60s, 30 hits máximo. Si se excede → 429.
+import time as _time
+import threading as _threading
+_RL_LOCK = _threading.Lock()
+_RL_HITS: dict = {}
+_RL_LIMIT = int(os.environ.get("TOOLS_RL_LIMIT_PER_MIN", "30"))
+
+
+def _rate_limit(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        ip = (request.headers.get("X-Forwarded-For") or
+              request.remote_addr or "unknown").split(",")[0].strip()
+        key = (ip, request.endpoint)
+        now = _time.time()
+        cutoff = now - 60.0
+        with _RL_LOCK:
+            hits = [t for t in _RL_HITS.get(key, ()) if t >= cutoff]
+            if len(hits) >= _RL_LIMIT:
+                return jsonify({
+                    "error": "rate_limited",
+                    "limit_per_min": _RL_LIMIT,
+                    "retry_after_s": int(60 - (now - hits[0])) + 1,
+                }), 429
+            hits.append(now)
+            _RL_HITS[key] = hits
+            # GC: si crece mucho, limpia keys muertas
+            if len(_RL_HITS) > 1000:
+                for k in list(_RL_HITS.keys()):
+                    _RL_HITS[k] = [t for t in _RL_HITS[k] if t >= cutoff]
+                    if not _RL_HITS[k]:
+                        del _RL_HITS[k]
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 _LEAD_COLS = (
     "id", "telefono", "nombre", "ciudad", "tipo_inmueble", "avaluo",
     "monto_solicitado", "destino_credito", "requiere_humano",
@@ -214,6 +252,7 @@ def _row_lead(row, cols):
 
 @tools_bp.post("/leads")
 @_require_token
+@_rate_limit
 def crear_o_actualizar_lead():
     body = request.get_json(silent=True) or {}
     tel = _normalizar_telefono(body.get("telefono"))
@@ -318,6 +357,7 @@ def crear_o_actualizar_lead():
 
 @tools_bp.get("/leads/<telefono>")
 @_require_token
+@_rate_limit
 def obtener_lead(telefono):
     tel = _normalizar_telefono(telefono)
     if not tel:
@@ -365,6 +405,7 @@ def obtener_lead(telefono):
 
 @tools_bp.post("/notas")
 @_require_token
+@_rate_limit
 def crear_nota():
     body = request.get_json(silent=True) or {}
     tel = _normalizar_telefono(body.get("telefono"))
@@ -394,6 +435,7 @@ def crear_nota():
 
 @tools_bp.post("/recordatorios")
 @_require_token
+@_rate_limit
 def crear_recordatorio():
     body = request.get_json(silent=True) or {}
     tel = _normalizar_telefono(body.get("telefono"))
@@ -426,6 +468,7 @@ def crear_recordatorio():
 
 @tools_bp.post("/escalar")
 @_require_token
+@_rate_limit
 def escalar():
     body = request.get_json(silent=True) or {}
     tel = _normalizar_telefono(body.get("telefono"))
@@ -464,6 +507,7 @@ _SURETI_REQUIRED = (
 
 @tools_bp.post("/sureti")
 @_require_token
+@_rate_limit
 def enviar_sureti():
     body = request.get_json(silent=True) or {}
     tel = _normalizar_telefono(body.get("telefono"))
@@ -517,6 +561,7 @@ def enviar_sureti():
 
 @tools_bp.post("/agente_inscribir")
 @_require_token
+@_rate_limit
 def agente_inscribir():
     """Tool para que Massimiliano inscriba a un agente Petra.
     ElevenLabs envía automáticamente `telefono` (del system__caller_id).
@@ -581,6 +626,7 @@ def agente_inscribir():
 
 @tools_bp.post("/petra_consultar_oportunidad")
 @_require_token
+@_rate_limit
 def tool_consultar_oportunidad():
     """Devuelve resumen de oportunidades abiertas del contacto.
     Payload: {telefono (auto)}"""
@@ -621,6 +667,7 @@ def tool_consultar_oportunidad():
 
 @tools_bp.post("/petra_abrir_caso")
 @_require_token
+@_rate_limit
 def tool_abrir_caso():
     """Abre caso de soporte para contactos con contrato activo.
     Payload: {telefono (auto), categoria, descripcion, prioridad?}"""
@@ -668,6 +715,7 @@ def tool_abrir_caso():
 
 @tools_bp.post("/petra_otorgar_consentimiento")
 @_require_token
+@_rate_limit
 def tool_otorgar_consentimiento():
     """Registra consentimiento del contacto.
     Payload: {telefono (auto), finalidad, canal?, evidencia_texto?}"""
@@ -706,6 +754,7 @@ def tool_otorgar_consentimiento():
 
 @tools_bp.post("/petra_publicar_inmueble")
 @_require_token
+@_rate_limit
 def tool_publicar_inmueble():
     """Crea un inmueble en un edificio Petra.
     Payload: {telefono (auto), edificio_slug, tipo, modalidad, torre?, piso?,
@@ -793,6 +842,7 @@ def tool_publicar_inmueble():
 # =============================================================================
 @tools_bp.post("/petra_enviar_menu_rama")
 @_require_token
+@_rate_limit
 def tool_enviar_menu_rama():
     """Envía al usuario una lista interactiva con las 4 ramas de Petra.
     Massi la dispara cuando no logra distinguir qué quiere el usuario, o
@@ -829,6 +879,7 @@ def tool_enviar_menu_rama():
 
 @tools_bp.post("/petra_confirmar_visita_botones")
 @_require_token
+@_rate_limit
 def tool_confirmar_visita_botones():
     """Envía 3 botones para que el usuario confirme/reagende/cancele una
     visita agendada. Payload: {telefono (auto), visita_id}"""
@@ -853,6 +904,7 @@ def tool_confirmar_visita_botones():
 
 @tools_bp.post("/petra_elegir_modalidad")
 @_require_token
+@_rate_limit
 def tool_elegir_modalidad():
     """Botones para elegir modalidad al publicar/buscar (venta/arriendo).
     Payload: {telefono (auto), intencion: 'publicar'|'buscar'}"""

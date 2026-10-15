@@ -1047,10 +1047,19 @@ def visitas_proximas_a_recordar(conn, horas_antes=24):
     ).fetchall()
     encoladas = 0
     for (vid, pa, tipo, agente_id, interesado_id, inm_id, torre, piso, edif) in rows:
-        texto = (f"Recordatorio: visita {tipo} el "
-                 f"{pa.strftime('%Y-%m-%d %H:%M') if pa else '?'} "
-                 f"en {edif or 'edificio'} T{torre or '?'} P{piso or '?'}. "
-                 f"Responde SI para confirmar.")
+        cuerpo = (f"Recordatorio: visita {tipo} el "
+                  f"{pa.strftime('%Y-%m-%d %H:%M') if pa else '?'} "
+                  f"en {edif or 'edificio'} T{torre or '?'} P{piso or '?'}. "
+                  f"¿Confirmas?")
+        payload = {
+            "tipo_mensaje": "buttons",
+            "texto": cuerpo[:1024],
+            "buttons": [
+                {"id": f"VISITA_SI_{vid}", "title": "Sí, confirmo"},
+                {"id": f"VISITA_REAGENDAR_{vid}", "title": "Reagendar"},
+                {"id": f"VISITA_NO_{vid}", "title": "Cancelar"},
+            ],
+        }
         for cid in filter(None, [agente_id, interesado_id]):
             tel = conn.execute(
                 "SELECT telefono FROM petra_contactos WHERE id=%s", (cid,),
@@ -1059,10 +1068,10 @@ def visitas_proximas_a_recordar(conn, horas_antes=24):
                 conn.execute(
                     """INSERT INTO petra_outbound_queue
                        (contacto_id, telefono, tipo, payload, origen, estado)
-                       VALUES (%s, %s, 'text', %s::jsonb,
+                       VALUES (%s, %s, 'buttons', %s::jsonb,
                                'recordatorio_visita', 'pendiente')""",
                     (cid, tel[0],
-                     json.dumps({"type": "text", "text": texto}, ensure_ascii=False)),
+                     json.dumps(payload, ensure_ascii=False)),
                 )
                 encoladas += 1
         conn.execute(

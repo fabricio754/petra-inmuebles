@@ -73,6 +73,69 @@ def health():
     return {"status": "ok", "service": "petra-inmuebles-webhook"}
 
 
+@app.get("/petra/health_full")
+def health_full():
+    """Diagnóstico end-to-end: valida DB, env tokens críticos, scheduler.
+    Protegido por PETRA_LLM_TOKEN (query ?token=... o Authorization Bearer)."""
+    import os as _os
+    required = (_os.environ.get("PETRA_LLM_TOKEN") or "").strip()
+    if required:
+        header = request.headers.get("Authorization", "")
+        tok = header[7:].strip() if header.startswith("Bearer ") else ""
+        tok = tok or (request.args.get("token") or "").strip()
+        if tok != required:
+            return {"error": "unauthorized"}, 401
+
+    checks = {}
+    # DB
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=5) as conn:
+            conn.execute("SELECT 1").fetchone()
+            # Conteos rápidos para sanity
+            counts = {}
+            for t in ("petra_contactos", "petra_oportunidades",
+                      "petra_inmuebles", "petra_edificios",
+                      "petra_integracion_errores", "petra_llm_logs"):
+                try:
+                    counts[t] = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                except Exception:
+                    counts[t] = "n/a"
+            # Errores sin resolver
+            err_pend = conn.execute(
+                """SELECT estado, COUNT(*) FROM petra_integracion_errores
+                   WHERE estado IN ('pendiente_retry','reintentando','dead_letter')
+                   GROUP BY estado"""
+            ).fetchall()
+            checks["db"] = {"ok": True, "counts": counts,
+                            "integracion_errores_abiertos": dict(err_pend)}
+    except Exception as exc:
+        checks["db"] = {"ok": False, "error": str(exc)[:200]}
+
+    # Env críticos (no revela valores, solo presencia)
+    env_keys = ["PETRA_LLM_TOKEN", "TOOLS_API_TOKEN", "ANTHROPIC_API_KEY",
+                "ANTHROPIC_WORKSPACE_ID", "META_ACCESS_TOKEN",
+                "META_PHONE_NUMBER_ID", "WA_PILOT_PHONE_ID",
+                "WA_PILOT_TOKEN", "ELEVENLABS_WEBHOOK_SECRET"]
+    checks["env"] = {k: bool((_os.environ.get(k) or "").strip())
+                     for k in env_keys}
+
+    # Scheduler
+    try:
+        from app import scheduler as _sched
+        checks["scheduler"] = {
+            "ok": True,
+            "running": bool(getattr(_sched, "_scheduler", None)
+                            and _sched._scheduler.running),
+        }
+    except Exception as exc:
+        checks["scheduler"] = {"ok": False, "error": str(exc)[:200]}
+
+    overall_ok = (checks.get("db", {}).get("ok")
+                  and checks.get("scheduler", {}).get("ok"))
+    return {"ok": bool(overall_ok), "checks": checks}
+
+
 @app.post("/captura")
 def captura():
     """Recibe un anuncio desde la extensión de Chrome \"Enviar a Massi\"."""
