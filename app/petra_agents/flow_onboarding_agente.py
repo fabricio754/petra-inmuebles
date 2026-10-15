@@ -192,6 +192,63 @@ def _log(telefono, texto_usuario, texto_asistente, nota=""):
         log.exception("[flow:onboarding] log fallo tel=%s", telefono)
 
 
+def _fase_inscrito(conn, telefono, cid, meta, texto):
+    """Fase post-REGISTRARME: enviar video de bienvenida y pasar a
+    estado 'bienvenida_enviada' esperando confirmación de la agente."""
+    video_row = conn.execute(
+        "SELECT titulo, url FROM petra_contenidos "
+        "WHERE tipo='bienvenida' AND activo=TRUE "
+        "ORDER BY orden LIMIT 1"
+    ).fetchone()
+    nombre_corto = (meta.get("nombre") or "").split()[0]
+    if not video_row:
+        _enviar(telefono,
+                f"Hola {nombre_corto}! El video de bienvenida está en "
+                "preparación — pronto te lo mando por acá. ❤️")
+        _log(telefono, texto, "[sin video bienvenida cargado]",
+             nota="fase inscrito sin video")
+        return True
+    titulo, url = video_row
+    _enviar(telefono,
+            f"Hola {nombre_corto}! Acá va tu *video de bienvenida* 🎬")
+    _enviar(telefono, f"🎬 *{titulo}*\n\n{url}")
+    _enviar(telefono,
+            "Cuando lo termines, mandame *LISTO* y arrancamos tu capacitación. 💪")
+    import datetime as _dt
+    meta["estado_agente"] = "bienvenida_enviada"
+    meta["bienvenida_enviada_at"] = _dt.datetime.utcnow().isoformat()
+    _save_meta(conn, cid, meta)
+    _log(telefono, texto, f"[video bienvenida enviado: {titulo}]",
+         nota="fase inscrito → video enviado")
+    return True
+
+
+def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
+    """Fase: ya recibió el video de bienvenida, esperamos que confirme."""
+    t_lc = (texto or "").lower().strip()
+    if t_lc in ("listo", "vi", "visto", "ya", "ya lo vi", "ok", "si",
+                "sí", "terminé", "termine"):
+        import datetime as _dt
+        meta["bienvenida_vista_at"] = _dt.datetime.utcnow().isoformat()
+        meta["estado_agente"] = "esperando_capacitacion_dia1"
+        _save_meta(conn, cid, meta)
+        resp = (
+            "¡Buenísimo! 🎉\n\n"
+            "Mañana a las *8am* te envío los primeros 2 videos de tu "
+            "capacitación. Durante 6 días recibirás 2 videos cada mañana.\n\n"
+            "Nos vemos mañana. 👋"
+        )
+        _enviar(telefono, resp)
+        _log(telefono, texto, resp, nota="bienvenida confirmada, pasa a capacitación")
+        return True
+    # Cualquier otra cosa: recordatorio
+    _enviar(telefono,
+            "Cuando termines de ver el video, mandame *LISTO* para avanzar 🎬")
+    _log(telefono, texto, "[recordatorio: mandar LISTO]",
+         nota="bienvenida_enviada esperando confirmación")
+    return True
+
+
 def handle(telefono, texto, es_handoff=False):
     """Procesa un mensaje del user en el flujo de onboarding.
     Determinístico: sin LLM, siempre predecible."""
@@ -213,11 +270,18 @@ def handle(telefono, texto, es_handoff=False):
 
         estado = meta.get("estado_agente", "recolectando")
 
-        # Si ya está inscrita, no es nuestro flujo
+        # ─── Fase 2: INSCRITO (ya pasó REGISTRARME, falta ver bienvenida) ───
+        if estado == "inscrito":
+            return _fase_inscrito(conn, telefono, cid, meta, texto)
+
+        # ─── Fase 2b: BIENVENIDA_ENVIADA (ya recibió video, esperando confirmación) ───
+        if estado == "bienvenida_enviada":
+            return _fase_bienvenida_enviada(conn, telefono, cid, meta, texto)
+
         if estado != "recolectando":
             log.info("[flow:onboarding] tel=%s estado=%s (no es nuestro)",
                      telefono, estado)
-            return False  # devuelve False para que el router caiga a otro handler
+            return False
 
         # Botones del resumen
         texto_lc = texto.lower()
@@ -273,7 +337,6 @@ def handle(telefono, texto, es_handoff=False):
                     (meta.get("nombre"), cid),
                 )
                 nombre_corto = meta.get("nombre", "").split()[0] if meta.get("nombre") else ""
-                # Mensaje 1: felicitaciones + anuncio del video
                 felicitaciones = (
                     f"🎉 *¡Felicitaciones {nombre_corto}, ya sos oficialmente Agente Petra!*\n\n"
                     f"Vas a representar a Petra en *{meta.get('conjunto')}*, "
@@ -281,40 +344,9 @@ def handle(telefono, texto, es_handoff=False):
                     "Te mando ahora un video corto que te explica los próximos pasos. 📹"
                 )
                 _enviar(telefono, felicitaciones)
-                _log(telefono, texto, felicitaciones, nota="inscripción confirmada (msg 1)")
-
-                # Mensaje 2: enviar video de bienvenida si existe
-                video_row = conn.execute(
-                    "SELECT titulo, url FROM petra_contenidos "
-                    "WHERE tipo='bienvenida' AND activo=TRUE "
-                    "ORDER BY orden LIMIT 1"
-                ).fetchone()
-                if video_row:
-                    titulo, url = video_row
-                    msg_video = f"🎬 *{titulo}*\n\n{url}"
-                    _enviar(telefono, msg_video)
-                    _log(telefono, texto, msg_video, nota="video bienvenida enviado")
-                else:
-                    aviso = ("(El video de bienvenida está en preparación — "
-                             "pronto te lo enviamos ❤️)")
-                    _enviar(telefono, aviso)
-                    _log(telefono, texto, aviso, nota="sin video bienvenida cargado")
-
-                # Mensaje 3: próximos pasos en texto
-                proximos = (
-                    "📋 *Mientras tanto, estos son los próximos pasos:*\n\n"
-                    "1️⃣ Mañana a las 8am te enviamos los primeros 2 videos de tu capacitación.\n"
-                    "2️⃣ Durante los próximos 6 días recibirás 2 videos cortos "
-                    "cada mañana. Después de cada video me confirmás que lo viste "
-                    "para avanzar al siguiente.\n"
-                    "3️⃣ Al terminar los 13 videos, te enviamos el kit con el QR "
-                    "y las instrucciones para entregarle a la administración de "
-                    "tu edificio.\n\n"
-                    "¡Dale, nos vemos mañana! 💪"
-                )
-                _enviar(telefono, proximos)
-                _log(telefono, texto, proximos, nota="proximos pasos")
-                return True
+                _log(telefono, texto, felicitaciones, nota="REGISTRARME confirmado")
+                # Delegamos al flow de Fase 2 el envío del video + transición
+                return _fase_inscrito(conn, telefono, cid, meta, texto)
             resp = (
                 "Antes de confirmar me faltan estos datos: "
                 + ", ".join(NOMBRE_CAMPO[c] for c in faltantes)

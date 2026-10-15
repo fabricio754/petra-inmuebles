@@ -110,8 +110,13 @@ def _enviar_al_monolito(telefono, texto, button_id, list_id, contacto_nombre):
     )
 
 
-def _esta_en_onboarding_agente(telefono):
-    """True si el contacto tiene rol agente_petra con estado=recolectando."""
+ESTADOS_FLOW_PYTHON = {"recolectando", "inscrito", "bienvenida_enviada"}
+
+
+def _estado_flow_python(telefono):
+    """Devuelve el estado si el contacto es agente_petra Y su estado
+    pertenece al conjunto que maneja el flow handler determinístico.
+    Si no, devuelve None (el router debe elegir otra vía)."""
     from app import db as _db
     try:
         with _db._conexion_directa(timeout=5) as conn:
@@ -123,10 +128,11 @@ def _esta_en_onboarding_agente(telefono):
                 "WHERE c.telefono=%s",
                 (telefono,),
             ).fetchone()
-            return row and row[0] == "recolectando"
+            if row and row[0] in ESTADOS_FLOW_PYTHON:
+                return row[0]
     except Exception:
-        log.exception("[router] check onboarding fallo tel=%s", telefono)
-        return False
+        log.exception("[router] check estado fallo tel=%s", telefono)
+    return None
 
 
 def handle_message(telefono, texto, button_id=None, list_id=None,
@@ -151,14 +157,16 @@ def _handle_locked(telefono, texto, button_id, list_id, contacto_nombre):
     sess = sesion.obtener_o_abrir(telefono)
     sesion_id = sess["id"] if sess else None
 
-    # 4. Fast path: si ya está en onboarding de agente (rol+estado), el
-    # flow handler Python determinístico maneja el mensaje. Sin LLM.
-    if _esta_en_onboarding_agente(telefono):
+    # 4. Fast path: si está en un estado que el flow handler Python
+    # determinístico maneja (recolectando / inscrito / bienvenida_enviada),
+    # NO llamamos LLM. Flujo lineal y predecible.
+    estado = _estado_flow_python(telefono)
+    if estado:
         handled = flow_onboarding_agente.handle(
             telefono, texto_efectivo, es_handoff=False,
         )
         if handled:
-            return {"ok": True, "flow": "onboarding_agente"}
+            return {"ok": True, "flow": "onboarding_agente", "estado": estado}
 
     # 5. Intent activo → delegar al sub-agente del intent sin re-clasificar.
     activo = intent_store.leer(telefono)
