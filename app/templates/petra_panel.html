@@ -479,44 +479,115 @@
     <form method="post" action="/panel/petra/contenido/crear">
       <input type="hidden" name="token" value="{{ token }}">
       <label>Tipo</label>
-      <select name="tipo" required>
-        <option value="video_capacitacion">Video de capacitación</option>
-        <option value="documento_pdf">Documento PDF</option>
-        <option value="kit_autorizacion">Kit autorización administrador</option>
-        <option value="script_mensaje">Script / plantilla de mensaje</option>
-        <option value="plantilla_whatsapp">Plantilla WhatsApp aprobada</option>
-        <option value="otro">Otro</option>
+      <select name="tipo" id="cont-tipo" required>
+        <option value="bienvenida">🎬 Video de bienvenida</option>
+        <option value="video_capacitacion" selected>📚 Video de capacitación (día 1-6)</option>
+        <option value="documento_pdf">📄 Documento PDF</option>
+        <option value="kit_autorizacion">📋 Kit autorización administrador</option>
+        <option value="script_mensaje">✍️ Script / plantilla de mensaje</option>
+        <option value="plantilla_whatsapp">📱 Plantilla WhatsApp aprobada</option>
+        <option value="otro">📦 Otro</option>
       </select>
       <label>Título</label>
-      <input type="text" name="titulo" required placeholder="Ej. Video 1 — Qué es Petra">
-      <label>URL (YouTube, Drive, S3…)</label>
+      <input type="text" name="titulo" id="cont-titulo" required placeholder="Ej. Día 1 Video 1 — Qué es Petra">
+      <label>URL (TikTok, YouTube, Drive…)</label>
       <input type="url" name="url" placeholder="https://…">
       <label>O texto inline (si no es URL)</label>
       <textarea name="texto" placeholder="Script, plantilla, FAQ…"></textarea>
-      <label>Orden (menor = primero)</label>
-      <input type="number" name="orden" value="0">
+      <label>Orden (1-12 para capacitación; 1 para bienvenida)</label>
+      <input type="number" name="orden" id="cont-orden" value="1" min="1" max="99">
       <label>Duración (segundos, opcional)</label>
-      <input type="number" name="duracion_seg" placeholder="180">
+      <input type="number" name="duracion_seg" placeholder="60">
       <label>Descripción (opcional)</label>
       <textarea name="descripcion" placeholder="Para qué sirve, a quién va dirigido…"></textarea>
       <button type="submit" class="primary">Guardar</button>
     </form>
   </aside>
   <section>
+    {# ───────── Progreso capacitación agente (13 slots esperados) ───────── #}
+    {% set bienvenida_cargada = contenidos|selectattr('tipo', 'equalto', 'bienvenida')|selectattr('activo')|list %}
+    {% set caps = {} %}
+    {% for c in contenidos if c.tipo == 'video_capacitacion' and c.activo %}
+      {% if caps.update({c.orden: c}) %}{% endif %}
+    {% endfor %}
+    <div class="cont-group">
+      <h3>📋 Capacitación Agente Petra — 13 slots</h3>
+      <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">
+        Al confirmar inscripción, Petra manda el <b>video de bienvenida</b>. Después, cada día a las 8am (durante 6 días), manda <b>2 videos de capacitación</b> en orden.
+      </div>
+      {# Bienvenida #}
+      {% if bienvenida_cargada %}
+        {% set c = bienvenida_cargada[0] %}
+        <div class="cont-card">
+          <div class="cont-order">✓</div>
+          <div class="cont-body">
+            <div class="cont-title">🎬 Bienvenida — {{ c.titulo }}</div>
+            <div class="cont-meta">{% if c.url %}<a href="{{ c.url }}" target="_blank">🔗 {{ c.url[:60] }}</a>{% endif %}</div>
+          </div>
+          <div class="cont-actions">
+            <form method="post" action="/panel/petra/contenido/{{ c.id }}/toggle"><input type="hidden" name="token" value="{{ token }}"><button type="submit">Pausar</button></form>
+            <form method="post" action="/panel/petra/contenido/{{ c.id }}/eliminar" onsubmit="return confirm('¿Eliminar?');"><input type="hidden" name="token" value="{{ token }}"><button type="submit" class="danger">🗑</button></form>
+          </div>
+        </div>
+      {% else %}
+        <div class="cont-card inactive" style="border-style: dashed;">
+          <div class="cont-order">—</div>
+          <div class="cont-body">
+            <div class="cont-title">🎬 Video de bienvenida (FALTA)</div>
+            <div class="cont-meta">Se envía al confirmar la inscripción.</div>
+          </div>
+          <div class="cont-actions">
+            <button type="button" onclick="document.getElementById('cont-tipo').value='bienvenida';document.getElementById('cont-orden').value='1';document.getElementById('cont-titulo').focus();">+ Subir</button>
+          </div>
+        </div>
+      {% endif %}
+      {# 12 videos capacitación: día 1 a 6, 2 por día #}
+      {% for dia in range(1, 7) %}
+        {% for vid in [1, 2] %}
+          {% set ord = (dia - 1) * 2 + vid %}
+          {% if caps.get(ord) %}
+            {% set c = caps[ord] %}
+            <div class="cont-card">
+              <div class="cont-order">D{{ dia }}·{{ vid }}</div>
+              <div class="cont-body">
+                <div class="cont-title">{{ c.titulo }}</div>
+                <div class="cont-meta">{% if c.url %}<a href="{{ c.url }}" target="_blank">🔗 {{ c.url[:60] }}</a>{% endif %}{% if c.duracion_seg %} · {{ c.duracion_seg }}s{% endif %}</div>
+              </div>
+              <div class="cont-actions">
+                <form method="post" action="/panel/petra/contenido/{{ c.id }}/toggle"><input type="hidden" name="token" value="{{ token }}"><button type="submit">Pausar</button></form>
+                <form method="post" action="/panel/petra/contenido/{{ c.id }}/eliminar" onsubmit="return confirm('¿Eliminar?');"><input type="hidden" name="token" value="{{ token }}"><button type="submit" class="danger">🗑</button></form>
+              </div>
+            </div>
+          {% else %}
+            <div class="cont-card inactive" style="border-style: dashed;">
+              <div class="cont-order">D{{ dia }}·{{ vid }}</div>
+              <div class="cont-body">
+                <div class="cont-title">Día {{ dia }}, video {{ vid }} (FALTA)</div>
+                <div class="cont-meta">Orden #{{ ord }}. Se envía el día {{ dia }} de capacitación.</div>
+              </div>
+              <div class="cont-actions">
+                <button type="button" onclick="document.getElementById('cont-tipo').value='video_capacitacion';document.getElementById('cont-orden').value='{{ ord }}';document.getElementById('cont-titulo').focus();">+ Subir</button>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    </div>
+
+    {# ───────── Otros contenidos (sin estructura fija) ───────── #}
     {% if contenidos %}
       {% set agrupados = {} %}
       {% for c in contenidos %}
         {% if agrupados.update({c.tipo: agrupados.get(c.tipo, []) + [c]}) %}{% endif %}
       {% endfor %}
       {% set labels = {
-        'video_capacitacion': '🎬 Videos de capacitación',
         'documento_pdf': '📄 Documentos PDF',
         'kit_autorizacion': '📋 Kit autorización administrador',
         'script_mensaje': '✍️ Scripts / plantillas',
         'plantilla_whatsapp': '📱 Plantillas WhatsApp',
         'otro': '📦 Otros'
       } %}
-      {% for tipo in ['video_capacitacion', 'documento_pdf', 'kit_autorizacion', 'script_mensaje', 'plantilla_whatsapp', 'otro'] %}
+      {% for tipo in ['documento_pdf', 'kit_autorizacion', 'script_mensaje', 'plantilla_whatsapp', 'otro'] %}
         {% if agrupados.get(tipo) %}
         <div class="cont-group">
           <h3>{{ labels[tipo] }}</h3>

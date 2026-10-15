@@ -236,12 +236,13 @@ def panel_home():
 # Contenidos (videos, PDFs, scripts, plantillas) — subida desde el panel
 # =============================================================================
 _TIPOS_CONTENIDO = {
-    "video_capacitacion": "Video de capacitación",
-    "documento_pdf": "Documento PDF",
-    "kit_autorizacion": "Kit autorización administrador",
-    "script_mensaje": "Script / plantilla de mensaje",
-    "plantilla_whatsapp": "Plantilla WhatsApp aprobada",
-    "otro": "Otro",
+    "bienvenida": "🎬 Video de bienvenida (al confirmar inscripción)",
+    "video_capacitacion": "📚 Video de capacitación (días 1 a 6, 2 por día)",
+    "documento_pdf": "📄 Documento PDF",
+    "kit_autorizacion": "📋 Kit autorización administrador",
+    "script_mensaje": "✍️ Script / plantilla de mensaje",
+    "plantilla_whatsapp": "📱 Plantilla WhatsApp aprobada",
+    "otro": "📦 Otro",
 }
 
 
