@@ -385,6 +385,10 @@ def accion_agente_eliminar(cid):
     flujo de inscripción desde cero durante testing. Idempotente."""
     _check_token()
     with _db._conexion_directa(timeout=10) as conn:
+        tel_row = conn.execute(
+            "SELECT telefono FROM petra_contactos WHERE id=%s", (cid,)
+        ).fetchone()
+        tel = tel_row[0] if tel_row else None
         conn.execute(
             "DELETE FROM petra_contacto_roles "
             "WHERE contacto_id=%s AND rol='agente_petra'",
@@ -397,6 +401,16 @@ def accion_agente_eliminar(cid):
             )
         except Exception:
             pass
+        # Cerrar el intent activo en el router multi-agent: si el
+        # contacto estaba siendo atendido por agente_petra, el próximo
+        # mensaje debe volver al router para re-clasificar.
+        if tel:
+            try:
+                conn.execute(
+                    "DELETE FROM petra_intent_activo WHERE telefono=%s", (tel,)
+                )
+            except Exception:
+                pass
         # Nota deliberada: NO borramos petra_llm_logs. El historial del
         # chat se preserva — es contexto conversacional válido. El rol del
         # contacto es responsabilidad del campo petra_contacto_roles y el

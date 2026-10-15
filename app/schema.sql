@@ -1071,3 +1071,14 @@ CREATE TABLE IF NOT EXISTS petra_dashboard_tokens (
 );
 CREATE INDEX IF NOT EXISTS petra_dash_tokens_contacto_idx
   ON petra_dashboard_tokens (contacto_id, rol_vista) WHERE activo = TRUE;
+
+-- Multi-agent: intent activo del contacto (a qué sub-agente estamos
+-- ruteando los mensajes recientes). Expira por inactividad en lectura.
+CREATE TABLE IF NOT EXISTS petra_intent_activo (
+  telefono    TEXT PRIMARY KEY,
+  agente      TEXT NOT NULL,
+  razon       TEXT,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_intent_activo_updated_idx
+  ON petra_intent_activo (updated_at DESC);

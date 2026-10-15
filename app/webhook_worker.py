@@ -511,10 +511,22 @@ def _procesar_webhook_petra(payload):
         button_id = btn.get("payload") or btn.get("text")
         texto = btn.get("text") or ""
 
-    # Feature flag: si USE_OWN_ORCHESTRATOR=true, nuestro orquestador propio
-    # procesa el mensaje con Claude SDK (tool_use nativo). Si no, cae al router
-    # determinístico legacy. ElevenLabs sólo entra para voz cuando el fan-out
-    # está activo (ver /petra/el/forward).
+    # Feature flag en cascada: multi-agent > orchestrator monolítico > legacy.
+    # - USE_MULTI_AGENT=true → router + sub-agentes especializados
+    # - USE_OWN_ORCHESTRATOR=true → orchestrator monolítico con Claude SDK
+    # - sino → router determinístico legacy
+    # ElevenLabs sólo entra para voz cuando el fan-out está activo.
+    try:
+        from app import petra_agents
+        if petra_agents.esta_activo():
+            petra_agents.handle_message(
+                telefono=phone, texto=texto,
+                button_id=button_id, list_id=list_id,
+                contacto_nombre=nombre,
+            )
+            return
+    except Exception:
+        log.exception("[petra] multi-agent fallo — cae a orchestrator")
     try:
         from app import petra_orchestrator
         if petra_orchestrator.esta_activo():
