@@ -109,7 +109,7 @@ def _validar(campo, texto):
     return True, t, None
 
 
-def _resumen(meta):
+def _resumen_texto(meta):
     return (
         "📋 *Confirmemos tus datos:*\n\n"
         f"• Nombre: {meta.get('nombre')}\n"
@@ -117,8 +117,44 @@ def _resumen(meta):
         f"• Ciudad: {meta.get('ciudad')}\n"
         f"• Barrio: {meta.get('barrio')}\n"
         f"• Conjunto: {meta.get('conjunto')}\n\n"
-        "¿Están correctos? Respondé *REGISTRARME* para confirmar, "
-        "o decime qué dato corregir."
+        "¿Están correctos?"
+    )
+
+
+def _enviar_resumen(telefono, meta):
+    from app import petra_wa
+    petra_wa.send_buttons(
+        telefono, _resumen_texto(meta),
+        [
+            {"id": "ONBAG_CONFIRM",   "title": "✅ Registrarme"},
+            {"id": "ONBAG_CORREGIR",  "title": "✏️ Corregir"},
+            {"id": "ONBAG_CANCELAR",  "title": "❌ Cancelar"},
+        ],
+    )
+
+
+def _enviar_lista_correccion(telefono, meta):
+    """Envía una lista interactiva con los 5 campos para elegir cuál corregir."""
+    from app import petra_wa
+    petra_wa.send_list(
+        telefono,
+        "¿Qué dato querés corregir?",
+        "Ver opciones",
+        [{
+            "title": "Datos del onboarding",
+            "rows": [
+                {"id": "ONBAG_FIX_nombre",   "title": "Nombre completo",
+                 "description": meta.get("nombre", "")[:70]},
+                {"id": "ONBAG_FIX_cedula",   "title": "Cédula",
+                 "description": meta.get("cedula", "")[:70]},
+                {"id": "ONBAG_FIX_ciudad",   "title": "Ciudad",
+                 "description": meta.get("ciudad", "")[:70]},
+                {"id": "ONBAG_FIX_barrio",   "title": "Barrio",
+                 "description": meta.get("barrio", "")[:70]},
+                {"id": "ONBAG_FIX_conjunto", "title": "Conjunto/Edificio",
+                 "description": meta.get("conjunto", "")[:70]},
+            ],
+        }],
     )
 
 
@@ -183,9 +219,46 @@ def handle(telefono, texto, es_handoff=False):
                      telefono, estado)
             return False  # devuelve False para que el router caiga a otro handler
 
+        # Botones del resumen
+        texto_lc = texto.lower()
+        if texto == "ONBAG_CORREGIR" or texto_lc in ("corregir", "editar"):
+            if any(meta.get(c) for c in CAMPOS):
+                _enviar_lista_correccion(telefono, meta)
+                _log(telefono, texto, "[lista corrección enviada]",
+                     nota="pulsó corregir")
+                return True
+        if texto == "ONBAG_CANCELAR" or texto_lc in ("cancelar", "cancelo"):
+            # Borrar rol + cerrar sesión
+            conn.execute(
+                "DELETE FROM petra_contacto_roles "
+                "WHERE contacto_id=%s AND rol='agente_petra'",
+                (cid,),
+            )
+            resp = ("Dale, cancelamos tu registro. Si cambiás de idea, "
+                    "volvenos a escribir cuando quieras. 👋")
+            _enviar(telefono, resp)
+            _log(telefono, texto, resp, nota="cancelado por user")
+            from app.petra_agents import sesion, intent_store
+            intent_store.cerrar(telefono)
+            sesion.cerrar(telefono, razon="cancelado_por_user")
+            return True
+        if texto.startswith("ONBAG_FIX_"):
+            campo_fix = texto.replace("ONBAG_FIX_", "")
+            if campo_fix in CAMPOS:
+                meta[campo_fix] = None
+                _save_meta(conn, cid, meta)
+                resp = (
+                    f"Dale, corrijamos *{NOMBRE_CAMPO[campo_fix]}*.\n\n"
+                    + PREGUNTAS[campo_fix].format(**{k: meta.get(k, "") for k in CAMPOS})
+                )
+                _enviar(telefono, resp)
+                _log(telefono, texto, resp, nota=f"correccion seleccionada:{campo_fix}")
+                return True
+
         # Confirmación final
-        if texto.lower() in ("registrarme", "registrar", "confirmo",
-                             "confirmar", "si", "sí", "listo"):
+        if (texto == "ONBAG_CONFIRM" or
+                texto_lc in ("registrarme", "registrar", "confirmo",
+                             "confirmar", "si", "sí", "listo")):
             faltantes = [c for c in CAMPOS if not meta.get(c)]
             if not faltantes:
                 # Marcar como inscrito oficial
@@ -249,17 +322,17 @@ def handle(telefono, texto, es_handoff=False):
                 _enviar(telefono, resp)
                 _log(telefono, texto, resp, nota=f"handoff:pedir {campo}")
                 return True
-            # Todos los campos ya están → directo al resumen
-            resp = _resumen(meta)
-            _enviar(telefono, resp)
-            _log(telefono, texto, resp, nota="handoff:ya tiene todos")
+            # Todos los campos ya están → directo al resumen (con botones)
+            _enviar_resumen(telefono, meta)
+            _log(telefono, texto, _resumen_texto(meta) + " [+botones]",
+                 nota="handoff:ya tiene todos")
             return True
 
         # Mensaje regular del user → es respuesta al campo pendiente
         if not faltantes:
-            resp = _resumen(meta)
-            _enviar(telefono, resp)
-            _log(telefono, texto, resp, nota="ya tiene todos, re-mostrar resumen")
+            _enviar_resumen(telefono, meta)
+            _log(telefono, texto, _resumen_texto(meta) + " [+botones]",
+                 nota="ya tiene todos, re-mostrar resumen")
             return True
 
         campo = faltantes[0]
@@ -283,8 +356,8 @@ def handle(telefono, texto, es_handoff=False):
             _enviar(telefono, resp)
             _log(telefono, texto, resp, nota=f"capturó {campo}, pide {prox}")
         else:
-            # Tenemos los 5 → mostrar resumen
-            resp = _resumen(meta)
-            _enviar(telefono, resp)
-            _log(telefono, texto, resp, nota="capturó último, muestra resumen")
+            # Tenemos los 5 → mostrar resumen con botones
+            _enviar_resumen(telefono, meta)
+            _log(telefono, texto, _resumen_texto(meta) + " [+botones]",
+                 nota="capturó último, muestra resumen")
         return True
