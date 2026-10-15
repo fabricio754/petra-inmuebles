@@ -202,49 +202,78 @@ def _log(telefono, texto_usuario, texto_asistente, nota=""):
 
 
 def _fase_inscrito(conn, telefono, cid, meta, texto):
-    """Fase post-REGISTRARME: enviar video de bienvenida + video de
-    próximos pasos, luego pasar a estado 'bienvenida_enviada' esperando
-    confirmación de la agente."""
+    """Fase post-REGISTRARME. Flujo guiado por botones:
+      - btn 'Ver próximos pasos' → muestra journey + btn 'Ver videos de hoy'
+      - btn 'Ver videos de hoy'  → envía videos + pide LISTO
+    Cualquier otra cosa: re-muestra el botón del paso actual.
+    """
+    from app import petra_wa
     nombre_corto = (meta.get("nombre") or "").split()[0]
-    bienvenida_row = conn.execute(
-        "SELECT titulo, url FROM petra_contenidos "
-        "WHERE tipo='bienvenida' AND activo=TRUE "
-        "ORDER BY orden LIMIT 1"
-    ).fetchone()
-    proximos_row = conn.execute(
-        "SELECT titulo, url FROM petra_contenidos "
-        "WHERE tipo='proximos_pasos' AND activo=TRUE "
-        "ORDER BY orden LIMIT 1"
-    ).fetchone()
-    if not bienvenida_row and not proximos_row:
-        _enviar(telefono,
-                f"Hola {nombre_corto}! Los videos de bienvenida están en "
-                "preparación — pronto te los mando por acá. ❤️")
-        _log(telefono, texto, "[sin videos cargados]",
-             nota="fase inscrito sin videos")
+
+    # Paso 1: user pulsó "Ver próximos pasos" → journey + botón videos
+    if texto == "ONBAG_VER_JOURNEY":
+        journey = (
+            "📋 *Tu camino como Agente Petra:*\n\n"
+            "1️⃣ *Inscripción* ✅ — ya lo hiciste.\n"
+            "2️⃣ *Capacitación* 🎓 — 2 videos cada día durante 6 días.\n"
+            "3️⃣ *Autorización del conjunto* 🏢 — hablás con la administración.\n"
+            "4️⃣ *Activar el QR* 📬 — te enviamos kit + regalo.\n"
+            "5️⃣ *Gestionar citas* 📅 — recibís citas con propietarios/interesados.\n"
+            "6️⃣ *Registrar inventario* 🔑 — recibís llaves y revisás inmuebles.\n\n"
+            "¿Arrancamos con los videos de hoy?"
+        )
+        petra_wa.send_buttons(telefono, journey, [
+            {"id": "ONBAG_VER_VIDEOS_HOY", "title": "Ver videos de hoy"},
+        ])
+        _log(telefono, texto, "[journey + btn Ver videos de hoy]",
+             nota="paso 1: journey enviado")
         return True
-    cuantos = (1 if bienvenida_row else 0) + (1 if proximos_row else 0)
-    # Mensaje 1 (ya se envió felicitaciones). Ahora los videos uno por uno
-    # con pausa entre cada bloque para que no sea avalancha.
-    if bienvenida_row:
-        titulo, url = bienvenida_row
-        _enviar_con_pausa(telefono, f"🎬 *{titulo}*\n\n{url}", pausa_seg=2)
-    if proximos_row:
-        titulo, url = proximos_row
-        _enviar_con_pausa(telefono, f"🗺 *{titulo}*\n\n{url}", pausa_seg=2.5)
-    # Journey + CTA en UN SOLO mensaje (reduce ruido)
-    verbo = "los" if cuantos > 1 else "lo"
-    _enviar(telefono,
-        "📋 *Tu camino como Agente Petra:*\n\n"
-        "1️⃣ *Inscripción* ✅ — ya lo hiciste.\n"
-        "2️⃣ *Capacitación* 🎓 — 2 videos cada día durante 6 días.\n"
-        "3️⃣ *Autorización del conjunto* 🏢 — hablás con la administración.\n"
-        "4️⃣ *Activar el QR* 📬 — te enviamos kit + regalo.\n"
-        "5️⃣ *Gestionar citas* 📅 — recibís citas con propietarios/interesados.\n"
-        "6️⃣ *Registrar inventario* 🔑 — recibís llaves y revisás inmuebles.\n\n"
-        f"👉 Cuando {verbo} termines de ver los videos de arriba, "
-        "mandame *LISTO* para arrancar con tu capacitación diaria. 💪"
+
+    # Paso 2: user pulsó "Ver videos de hoy" → envía videos reales
+    if texto == "ONBAG_VER_VIDEOS_HOY":
+        bienvenida_row = conn.execute(
+            "SELECT titulo, url FROM petra_contenidos "
+            "WHERE tipo='bienvenida' AND activo=TRUE ORDER BY orden LIMIT 1"
+        ).fetchone()
+        proximos_row = conn.execute(
+            "SELECT titulo, url FROM petra_contenidos "
+            "WHERE tipo='proximos_pasos' AND activo=TRUE ORDER BY orden LIMIT 1"
+        ).fetchone()
+        if not bienvenida_row and not proximos_row:
+            _enviar(telefono,
+                f"{nombre_corto}, los videos están en preparación. "
+                "Te aviso apenas estén cargados ❤️")
+            _log(telefono, texto, "[sin videos cargados]")
+            return True
+        if bienvenida_row:
+            titulo, url = bienvenida_row
+            _enviar_con_pausa(telefono, f"🎬 *{titulo}*\n\n{url}", pausa_seg=2)
+        if proximos_row:
+            titulo, url = proximos_row
+            _enviar_con_pausa(telefono, f"🗺 *{titulo}*\n\n{url}", pausa_seg=2)
+        cuantos = (1 if bienvenida_row else 0) + (1 if proximos_row else 0)
+        verbo = "los" if cuantos > 1 else "lo"
+        petra_wa.send_buttons(telefono,
+            f"Cuando {verbo} termines, pulsá el botón para arrancar con "
+            "tu capacitación diaria. 💪",
+            [{"id": "ONBAG_YA_VI_VIDEOS", "title": "Ya los vi"}],
+        )
+        import datetime as _dt
+        meta["estado_agente"] = "bienvenida_enviada"
+        meta["bienvenida_enviada_at"] = _dt.datetime.utcnow().isoformat()
+        _save_meta(conn, cid, meta)
+        _log(telefono, texto, "[videos enviados + btn Ya los vi]",
+             nota="paso 2: videos enviados")
+        return True
+
+    # Cualquier otra cosa: re-mostrar el botón del paso actual
+    petra_wa.send_buttons(telefono,
+        f"Para continuar tu onboarding, pulsá el botón 👇",
+        [{"id": "ONBAG_VER_JOURNEY", "title": "Ver próximos pasos"}],
     )
+    _log(telefono, texto, "[re-muestra btn Ver próximos pasos]",
+         nota="fase inscrito: re-prompt")
+    return True
     import datetime as _dt
     meta["estado_agente"] = "bienvenida_enviada"
     meta["bienvenida_enviada_at"] = _dt.datetime.utcnow().isoformat()
@@ -314,10 +343,11 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
 
 
 def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
-    """Fase: ya recibió el video de bienvenida, esperamos que confirme."""
+    """Fase: ya recibió los videos, esperamos que confirme."""
     t_lc = (texto or "").lower().strip()
-    if t_lc in ("listo", "vi", "visto", "ya", "ya lo vi", "ok", "si",
-                "sí", "terminé", "termine"):
+    if (texto == "ONBAG_YA_VI_VIDEOS" or
+            t_lc in ("listo", "vi", "visto", "ya", "ya lo vi", "ok", "si",
+                     "sí", "terminé", "termine")):
         import datetime as _dt
         meta["bienvenida_vista_at"] = _dt.datetime.utcnow().isoformat()
         meta["estado_agente"] = "esperando_capacitacion_dia1"
@@ -332,10 +362,13 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
         _enviar(telefono, resp)
         _log(telefono, texto, resp, nota="bienvenida confirmada, pasa a capacitación")
         return True
-    # Cualquier otra cosa: recordatorio
-    _enviar(telefono,
-            "Cuando termines de ver el video, mandame *LISTO* para avanzar 🎬")
-    _log(telefono, texto, "[recordatorio: mandar LISTO]",
+    # Cualquier otra cosa: recordatorio con botón
+    from app import petra_wa
+    petra_wa.send_buttons(telefono,
+        "Cuando termines de ver los videos, pulsá el botón para avanzar 🎬",
+        [{"id": "ONBAG_YA_VI_VIDEOS", "title": "Ya los vi"}],
+    )
+    _log(telefono, texto, "[recordatorio: btn Ya los vi]",
          nota="bienvenida_enviada esperando confirmación")
     return True
 
@@ -455,10 +488,14 @@ def handle(telefono, texto, es_handoff=False):
                     f"Vas a representar a Petra en *{meta.get('conjunto')}*, "
                     f"{meta.get('barrio')}, {meta.get('ciudad')}."
                 )
-                _enviar_con_pausa(telefono, felicitaciones, pausa_seg=2)
-                _log(telefono, texto, felicitaciones, nota="REGISTRARME confirmado")
-                # Delegamos al flow de Fase 2 el envío del video + transición
-                return _fase_inscrito(conn, telefono, cid, meta, texto)
+                # Botón para avanzar al journey — user controla el ritmo
+                from app import petra_wa
+                petra_wa.send_buttons(telefono, felicitaciones, [
+                    {"id": "ONBAG_VER_JOURNEY", "title": "Ver próximos pasos"},
+                ])
+                _log(telefono, texto, felicitaciones + " [+btn Ver próximos pasos]",
+                     nota="REGISTRARME confirmado")
+                return True
             resp = (
                 "Antes de confirmar me faltan estos datos: "
                 + ", ".join(NOMBRE_CAMPO[c] for c in faltantes)
