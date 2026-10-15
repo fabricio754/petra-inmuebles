@@ -178,6 +178,55 @@ def panel_home():
                           descripcion, activo, created_at, updated_at
                    FROM petra_contenidos
                    ORDER BY tipo ASC, orden ASC, created_at ASC"""),
+            "autorizaciones": _rows(conn,
+                """SELECT a.id, a.conjunto_nombre, a.estado, a.kit_enviado_at,
+                          a.aprobada_at, a.nota, a.updated_at, a.edificio_id,
+                          c.telefono AS agente_tel, c.nombre AS agente_nombre
+                   FROM petra_autorizaciones_admin a
+                   JOIN petra_contactos c ON c.id = a.agente_id
+                   ORDER BY a.updated_at DESC LIMIT 100"""),
+            "anuncios_pendientes": _rows(conn,
+                """SELECT a.id, a.url_anuncio, a.foto_url, a.portal, a.estado,
+                          a.nota, a.cargado_at, a.created_at,
+                          c.telefono AS agente_tel, c.nombre AS agente_nombre,
+                          e.nombre AS edificio_nombre
+                   FROM petra_anuncios_detectados a
+                   JOIN petra_contactos c ON c.id = a.agente_id
+                   LEFT JOIN petra_edificios e ON e.id = a.edificio_id
+                   ORDER BY a.created_at DESC LIMIT 100"""),
+            "mandatos": _rows(conn,
+                """SELECT m.id, m.tipo, m.estado, m.comision_pct,
+                          m.canon_acordado, m.exclusivo, m.plazo_meses,
+                          m.firmado_at, m.updated_at, m.inmueble_id,
+                          c.telefono, c.nombre
+                   FROM petra_mandatos m
+                   JOIN petra_contactos c ON c.id = m.contacto_id
+                   ORDER BY m.updated_at DESC LIMIT 100"""),
+            "ofertas": _rows(conn,
+                """SELECT o.id, o.oportunidad_id, o.monto, o.estado,
+                          o.condiciones, o.respuesta_propietario,
+                          o.respondida_at, o.created_at,
+                          c.telefono, c.nombre
+                   FROM petra_ofertas o
+                   LEFT JOIN petra_contactos c ON c.id = o.interesado_id
+                   ORDER BY o.created_at DESC LIMIT 100"""),
+            "postulaciones": _rows(conn,
+                """SELECT p.id, p.inmueble_id, p.oportunidad_id, p.estado,
+                          p.codeudor_nombre, p.codeudor_tel, p.ingresos_decl,
+                          p.nota, p.created_at,
+                          c.telefono, c.nombre
+                   FROM petra_postulaciones_arriendo p
+                   LEFT JOIN petra_contactos c ON c.id = p.interesado_id
+                   ORDER BY p.created_at DESC LIMIT 100"""),
+            "pagos_arriendo": _rows(conn,
+                """SELECT pa.id, pa.mes_anio, pa.monto_esperado,
+                          pa.monto_pagado, pa.estado, pa.pagado_at,
+                          pa.comprobante_url, pa.updated_at,
+                          c.telefono, c.nombre, aa.canon
+                   FROM petra_pagos_arriendo pa
+                   JOIN petra_administraciones_arriendo aa ON aa.id = pa.administracion_id
+                   JOIN petra_contactos c ON c.id = aa.propietario_id
+                   ORDER BY pa.mes_anio DESC, pa.updated_at DESC LIMIT 100"""),
             "kpis": _metricas_piloto(conn),
         }
     return render_template("petra_panel.html", **contexto)
@@ -334,4 +383,84 @@ def accion_error_resolver(eid):
     with _db._conexion_directa(timeout=10) as conn:
         petra_core.resolver_error_integracion(conn, eid, nota=request.form.get("nota"))
     return redirect(url_for("petra_panel.panel_home", tab="errores",
+                            token=request.form.get("token", "")))
+
+
+# =============================================================================
+# Acciones Fase A-D (POST desde el panel)
+# =============================================================================
+
+@petra_panel_bp.post("/autorizacion/<int:aid>/estado")
+def accion_autorizacion_estado(aid):
+    _check_token()
+    from app import petra_core
+    estado = (request.form.get("estado") or "").strip()
+    nota = request.form.get("nota") or None
+    with _db._conexion_directa(timeout=10) as conn:
+        petra_core.actualizar_estado_autorizacion(conn, aid, estado, nota=nota)
+    return redirect(url_for("petra_panel.panel_home", tab="autorizaciones",
+                            token=request.form.get("token", "")))
+
+
+@petra_panel_bp.post("/anuncio/<int:aid>/qr_cargado")
+def accion_anuncio_qr_cargado(aid):
+    _check_token()
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            """UPDATE petra_anuncios_detectados
+               SET estado='qr_cargado', cargado_at=NOW(), updated_at=NOW()
+               WHERE id=%s""",
+            (aid,),
+        )
+    return redirect(url_for("petra_panel.panel_home", tab="anuncios",
+                            token=request.form.get("token", "")))
+
+
+@petra_panel_bp.post("/anuncio/<int:aid>/descartar")
+def accion_anuncio_descartar(aid):
+    _check_token()
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE petra_anuncios_detectados SET estado='descartado', updated_at=NOW() WHERE id=%s",
+            (aid,),
+        )
+    return redirect(url_for("petra_panel.panel_home", tab="anuncios",
+                            token=request.form.get("token", "")))
+
+
+@petra_panel_bp.post("/mandato/<int:mid>/firmado")
+def accion_mandato_firmado(mid):
+    _check_token()
+    from app import petra_core
+    with _db._conexion_directa(timeout=10) as conn:
+        petra_core.firmar_mandato(conn, mid, auco_doc_id=request.form.get("auco_doc_id"))
+    return redirect(url_for("petra_panel.panel_home", tab="mandatos",
+                            token=request.form.get("token", "")))
+
+
+@petra_panel_bp.post("/oferta/<int:oid>/responder")
+def accion_oferta_responder(oid):
+    _check_token()
+    from app import petra_core
+    estado = (request.form.get("estado") or "").strip()
+    respuesta = request.form.get("respuesta") or None
+    with _db._conexion_directa(timeout=10) as conn:
+        petra_core.responder_oferta(conn, oid, estado, respuesta=respuesta)
+    return redirect(url_for("petra_panel.panel_home", tab="ofertas",
+                            token=request.form.get("token", "")))
+
+
+@petra_panel_bp.post("/pago/<int:pid>/reportar")
+def accion_pago_reportar(pid):
+    _check_token()
+    from app import petra_core
+    try:
+        monto = int(request.form.get("monto_pagado") or 0)
+    except ValueError:
+        monto = 0
+    with _db._conexion_directa(timeout=10) as conn:
+        petra_core.reportar_pago(conn, pid, monto,
+                                   comprobante_url=request.form.get("comprobante_url") or None,
+                                   nota=request.form.get("nota") or None)
+    return redirect(url_for("petra_panel.panel_home", tab="pagos",
                             token=request.form.get("token", "")))

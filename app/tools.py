@@ -946,3 +946,358 @@ def tool_elegir_modalidad():
     )
     return jsonify({"ok": bool(res.get("ok")), "resultado": res,
                     "mensaje": "Botones de modalidad enviados."}), 200
+
+
+# =============================================================================
+# FASE A — Tools de agente operativo
+# =============================================================================
+@tools_bp.post("/petra_enviar_siguiente_video")
+@_require_token
+@_rate_limit
+def tool_enviar_siguiente_video():
+    """Massi llama cuando el agente dice 'ya vi' o quiere empezar la
+    capacitación. Devuelve el próximo video pendiente (url + título) para
+    que Massi lo pegue en el chat, y lo marca como enviado.
+    Payload: {telefono}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    if not tel:
+        return jsonify({"error": "telefono requerido"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        c = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+        ).fetchone()
+        if not c:
+            return jsonify({"error": "contacto no inscrito como agente"}), 404
+        cid = c[0]
+        # Asegura que ya se encolaron todos los videos
+        rol = conn.execute(
+            """SELECT metadata FROM petra_contacto_roles
+               WHERE contacto_id=%s AND rol='agente_petra' LIMIT 1""",
+            (cid,),
+        ).fetchone()
+        if not rol:
+            return jsonify({"error": "contacto no es agente_petra"}), 404
+        estado_actual = (rol[0] or {}).get("estado_agente")
+        if estado_actual == "inscrito":
+            petra_core.iniciar_capacitacion(conn, cid)
+        sig = petra_core.siguiente_video_pendiente(conn, cid)
+        if not sig:
+            return jsonify({
+                "ok": True,
+                "sin_pendientes": True,
+                "mensaje": "No hay videos pendientes. ¡Capacitación completa!",
+            }), 200
+        petra_core.marcar_video_enviado(conn, cid, sig["contenido_id"])
+    return jsonify({
+        "ok": True,
+        "contenido_id": sig["contenido_id"],
+        "titulo": sig["titulo"],
+        "url": sig["url"],
+        "duracion_seg": sig["duracion_seg"],
+        "descripcion": sig.get("descripcion"),
+        "mensaje": f"Mira este video: {sig['titulo']} → {sig['url']} (dime 'listo' cuando termines).",
+    }), 200
+
+
+@tools_bp.post("/petra_marcar_video_visto")
+@_require_token
+@_rate_limit
+def tool_marcar_video_visto():
+    """Massi llama cuando el agente confirma que vio el video.
+    Payload: {telefono, contenido_id (opcional, si no se da marca el último enviado)}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    cid_video = body.get("contenido_id")
+    if not tel:
+        return jsonify({"error": "telefono requerido"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        c = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+        ).fetchone()
+        if not c:
+            return jsonify({"error": "contacto no encontrado"}), 404
+        cid = c[0]
+        if not cid_video:
+            # Buscar el último enviado sin visto
+            row = conn.execute(
+                """SELECT contenido_id FROM petra_capacitacion_progreso
+                   WHERE contacto_id=%s AND enviado_at IS NOT NULL AND visto_at IS NULL
+                   ORDER BY enviado_at DESC LIMIT 1""",
+                (cid,),
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "no hay videos pendientes marcados como enviados"}), 400
+            cid_video = row[0]
+        certificado, nota = petra_core.marcar_video_visto(conn, cid, cid_video,
+                                                            body.get("comentario"))
+    return jsonify({
+        "ok": True,
+        "certificado": bool(certificado),
+        "progreso": nota,
+        "mensaje": "¡Capacitación completa! Pasas a certificado." if certificado
+                   else f"Marcado. Progreso: {nota}",
+    }), 200
+
+
+@tools_bp.post("/petra_enviar_kit_autorizacion")
+@_require_token
+@_rate_limit
+def tool_enviar_kit_autorizacion():
+    """Massi llama cuando el agente está listo para pedir autorización al
+    admin de su conjunto. Crea registro, marca kit_enviado, devuelve links
+    de kit (PDFs del panel tipo=kit_autorizacion).
+    Payload: {telefono, conjunto_nombre}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    conjunto = (body.get("conjunto_nombre") or "").strip()
+    if not tel or not conjunto:
+        return jsonify({"error": "telefono y conjunto_nombre requeridos"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        c = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+        ).fetchone()
+        if not c:
+            return jsonify({"error": "contacto no encontrado"}), 404
+        aid = petra_core.crear_autorizacion_admin(conn, c[0], conjunto,
+                                                    nota=body.get("nota"))
+        petra_core.marcar_kit_autorizacion_enviado(conn, aid)
+        kits = conn.execute(
+            """SELECT titulo, url, texto FROM petra_contenidos
+               WHERE tipo='kit_autorizacion' AND activo=TRUE
+               ORDER BY orden ASC"""
+        ).fetchall()
+    return jsonify({
+        "ok": True,
+        "autorizacion_id": aid,
+        "kits": [{"titulo": k[0], "url": k[1], "texto": k[2]} for k in kits],
+        "mensaje": f"Autorización registrada para {conjunto}. Te paso el material para el admin.",
+    }), 200
+
+
+@tools_bp.post("/petra_reportar_autorizacion")
+@_require_token
+@_rate_limit
+def tool_reportar_autorizacion():
+    """Agente reporta el resultado: aprobada / rechazada / en_gestion.
+    Payload: {telefono, estado, nota?}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    estado = (body.get("estado") or "").strip().lower()
+    if not tel or estado not in {"aprobada", "rechazada", "en_gestion"}:
+        return jsonify({"error": "telefono y estado válido requeridos"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        c = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+        ).fetchone()
+        if not c:
+            return jsonify({"error": "contacto no encontrado"}), 404
+        row = conn.execute(
+            """SELECT id FROM petra_autorizaciones_admin
+               WHERE agente_id=%s AND estado IN ('pendiente','kit_enviado','en_gestion')
+               ORDER BY created_at DESC LIMIT 1""",
+            (c[0],),
+        ).fetchone()
+        if not row:
+            return jsonify({"error": "sin autorización activa"}), 404
+        petra_core.actualizar_estado_autorizacion(conn, row[0], estado,
+                                                    nota=body.get("nota"))
+    return jsonify({"ok": True, "autorizacion_id": row[0], "estado": estado}), 200
+
+
+@tools_bp.post("/petra_generar_qr_edificio")
+@_require_token
+@_rate_limit
+def tool_generar_qr_edificio():
+    """Massi llama cuando una autorización fue aprobada. Crea edificio
+    (si no existe), genera URL pre-llenada de WhatsApp con slug, y devuelve
+    la URL del QR para que el agente lo descargue/imprima.
+    Payload: {telefono, conjunto_nombre, ciudad?}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    conjunto = (body.get("conjunto_nombre") or "").strip()
+    if not tel or not conjunto:
+        return jsonify({"error": "telefono y conjunto_nombre requeridos"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        c = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+        ).fetchone()
+        if not c:
+            return jsonify({"error": "contacto no encontrado"}), 404
+        edif_id, slug = petra_core.asegurar_edificio_para_agente(
+            conn, c[0], conjunto, ciudad=body.get("ciudad"),
+        )
+        # Vincula al agente con el edificio via rol
+        conn.execute(
+            """UPDATE petra_contacto_roles
+                 SET metadata = jsonb_set(COALESCE(metadata,'{}'::jsonb),
+                                          '{edificios_activados}',
+                                          COALESCE(metadata->'edificios_activados', '[]'::jsonb) || %s::jsonb),
+                     updated_at = NOW()
+               WHERE contacto_id=%s AND rol='agente_petra'""",
+            (json.dumps([edif_id]), c[0]),
+        )
+        petra_core.avanzar_estado_agente(conn, c[0], "kit_asignado")
+    base_url = os.environ.get("PUBLIC_BASE_URL", "https://petra-inmuebles.onrender.com")
+    qr_url = f"{base_url}/petra/edificios/{edif_id}/qr.png"
+    wa_url = f"https://wa.me/{os.environ.get('WA_PILOT_PHONE_NUMBER','').lstrip('+')}?text=Hola%20quiero%20publicar%20en%20{slug}"
+    return jsonify({
+        "ok": True,
+        "edificio_id": edif_id,
+        "qr_slug": slug,
+        "qr_png_url": qr_url,
+        "whatsapp_url": wa_url,
+        "mensaje": f"Listo. Tu QR del conjunto {conjunto} está en {qr_url}. Imprímelo y colócalo en la portería.",
+    }), 200
+
+
+@tools_bp.post("/petra_capturar_anuncio_existente")
+@_require_token
+@_rate_limit
+def tool_capturar_anuncio_existente():
+    """Agente envía URL o foto de un anuncio existente del conjunto para que
+    el equipo le pegue el QR encima.
+    Payload: {telefono, url_anuncio?, foto_url?, portal?, nota?}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    url_an = (body.get("url_anuncio") or "").strip() or None
+    foto = (body.get("foto_url") or "").strip() or None
+    if not tel or (not url_an and not foto):
+        return jsonify({"error": "telefono y (url_anuncio o foto_url) requeridos"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        c = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+        ).fetchone()
+        if not c:
+            return jsonify({"error": "contacto no encontrado"}), 404
+        edif = conn.execute(
+            """SELECT (metadata->'edificios_activados'->>0)::int
+               FROM petra_contacto_roles
+               WHERE contacto_id=%s AND rol='agente_petra' LIMIT 1""",
+            (c[0],),
+        ).fetchone()
+        edificio_id = edif[0] if edif and edif[0] else None
+        row = conn.execute(
+            """INSERT INTO petra_anuncios_detectados
+               (agente_id, edificio_id, url_anuncio, foto_url, portal, nota, estado)
+               VALUES (%s,%s,%s,%s,%s,%s,'pendiente') RETURNING id""",
+            (c[0], edificio_id, url_an, foto, body.get("portal"), body.get("nota")),
+        ).fetchone()
+        # Promover a operativo si está en kit_asignado
+        petra_core.avanzar_estado_agente(conn, c[0], "operativo")
+    return jsonify({
+        "ok": True,
+        "anuncio_id": row[0],
+        "mensaje": "Recibido. El equipo prepara el QR y te avisa cuando esté listo.",
+    }), 200
+
+
+# =============================================================================
+# FASE B — Tools de mandatos
+# =============================================================================
+@tools_bp.post("/petra_registrar_mandato")
+@_require_token
+@_rate_limit
+def tool_registrar_mandato():
+    """Massi llama cuando un propietario confirma que quiere que Petra:
+      - venda su inmueble (tipo=venta)
+      - arriende su inmueble (tipo=arriendo)
+      - administre un arriendo existente (tipo=administracion)
+    Payload: {telefono, tipo, inmueble_id?, comision_pct?, canon_acordado?,
+              exclusivo?, plazo_meses?, nota?}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    tipo = (body.get("tipo") or "").strip().lower()
+    if not tel or tipo not in ("venta", "arriendo", "administracion"):
+        return jsonify({"error": "telefono y tipo valido requeridos"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        c = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+        ).fetchone()
+        if not c:
+            c = conn.execute(
+                "INSERT INTO petra_contactos (telefono) VALUES (%s) RETURNING id",
+                (tel,),
+            ).fetchone()
+        mid, msg = petra_core.registrar_mandato(
+            conn, c[0], tipo,
+            inmueble_id=body.get("inmueble_id"),
+            comision_pct=body.get("comision_pct"),
+            canon_acordado=body.get("canon_acordado"),
+            exclusivo=body.get("exclusivo", False),
+            plazo_meses=body.get("plazo_meses"),
+            nota=body.get("nota"),
+        )
+        if not mid:
+            return jsonify({"error": msg}), 400
+    return jsonify({
+        "ok": True, "mandato_id": mid, "tipo": tipo,
+        "mensaje": f"Mandato de {tipo} registrado. El equipo te contacta para formalizar la firma.",
+    }), 200
+
+
+# =============================================================================
+# FASE C — Tools de ofertas, slots, postulaciones
+# =============================================================================
+@tools_bp.post("/petra_registrar_oferta")
+@_require_token
+@_rate_limit
+def tool_registrar_oferta():
+    """Massi llama cuando un interesado presenta una oferta por un inmueble.
+    Payload: {telefono, oportunidad_id, monto, condiciones?}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    oid = body.get("oportunidad_id")
+    monto = body.get("monto")
+    if not tel or not oid or monto is None:
+        return jsonify({"error": "telefono, oportunidad_id, monto requeridos"}), 400
+    try:
+        monto = int(monto)
+    except Exception:
+        return jsonify({"error": "monto debe ser numero"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        c = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+        ).fetchone()
+        if not c:
+            return jsonify({"error": "contacto no encontrado"}), 404
+        oferta_id = petra_core.registrar_oferta(conn, oid, c[0], monto,
+                                                  condiciones=body.get("condiciones"))
+    return jsonify({
+        "ok": True, "oferta_id": oferta_id,
+        "mensaje": "Oferta registrada. El propietario la recibe y responde pronto.",
+    }), 200
+
+
+@tools_bp.post("/petra_registrar_postulacion_arriendo")
+@_require_token
+@_rate_limit
+def tool_registrar_postulacion_arriendo():
+    """Interesado postula para arrendar un inmueble.
+    Payload: {telefono, inmueble_id?, oportunidad_id?, codeudor_nombre?,
+              codeudor_tel?, ingresos_decl?}"""
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    if not tel:
+        return jsonify({"error": "telefono requerido"}), 400
+    with _db._conexion_directa(timeout=10) as conn:
+        c = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,),
+        ).fetchone()
+        if not c:
+            c = conn.execute(
+                "INSERT INTO petra_contactos (telefono) VALUES (%s) RETURNING id",
+                (tel,),
+            ).fetchone()
+        pid = petra_core.registrar_postulacion_arriendo(
+            conn, c[0],
+            inmueble_id=body.get("inmueble_id"),
+            oportunidad_id=body.get("oportunidad_id"),
+            codeudor_nombre=body.get("codeudor_nombre"),
+            codeudor_tel=body.get("codeudor_tel"),
+            ingresos_decl=body.get("ingresos_decl"),
+        )
+    return jsonify({
+        "ok": True, "postulacion_id": pid,
+        "mensaje": "Postulación recibida. El equipo revisa documentos y te contacta.",
+    }), 200

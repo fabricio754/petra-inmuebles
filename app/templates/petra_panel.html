@@ -135,6 +135,18 @@
      href="?tab=errores&token={{ token }}">⚠️ Errores ({{ errores|length }})</a>
   <a class="tab {% if tab == 'contenidos' %}active{% endif %}"
      href="?tab=contenidos&token={{ token }}">📚 Contenidos ({{ contenidos|length }})</a>
+  <a class="tab {% if tab == 'autorizaciones' %}active{% endif %}"
+     href="?tab=autorizaciones&token={{ token }}">📋 Autorizaciones ({{ autorizaciones|length }})</a>
+  <a class="tab {% if tab == 'anuncios' %}active{% endif %}"
+     href="?tab=anuncios&token={{ token }}">🏷️ Anuncios QR ({{ anuncios_pendientes|length }})</a>
+  <a class="tab {% if tab == 'mandatos' %}active{% endif %}"
+     href="?tab=mandatos&token={{ token }}">📝 Mandatos ({{ mandatos|length }})</a>
+  <a class="tab {% if tab == 'ofertas' %}active{% endif %}"
+     href="?tab=ofertas&token={{ token }}">💵 Ofertas ({{ ofertas|length }})</a>
+  <a class="tab {% if tab == 'postulaciones' %}active{% endif %}"
+     href="?tab=postulaciones&token={{ token }}">🏘️ Postulaciones ({{ postulaciones|length }})</a>
+  <a class="tab {% if tab == 'pagos' %}active{% endif %}"
+     href="?tab=pagos&token={{ token }}">💸 Pagos ({{ pagos_arriendo|length }})</a>
 </nav>
 <main>
 
@@ -535,6 +547,226 @@
       </div>
     {% endif %}
   </section>
+</div>
+{% endif %}
+
+{% if tab == 'autorizaciones' %}
+<div class="panel">
+  <div class="panel-head"><h2>📋 Autorizaciones del administrador</h2>
+    <span class="count">{{ autorizaciones|length }} registros</span></div>
+  {% if autorizaciones %}
+  <table>
+    <thead><tr><th>#</th><th>Agente</th><th>Conjunto</th><th>Estado</th>
+      <th>Kit enviado</th><th>Aprobada</th><th>Nota</th><th>Acciones</th></tr></thead>
+    <tbody>
+    {% for a in autorizaciones %}
+    <tr>
+      <td class="mono">{{ a.id }}</td>
+      <td>{{ a.agente_nombre or '—' }}<br><small class="muted">{{ a.agente_tel }}</small></td>
+      <td>{{ a.conjunto_nombre }}</td>
+      <td><span class="pill">{{ a.estado }}</span></td>
+      <td class="muted nowrap">{{ a.kit_enviado_at.strftime('%d/%m %H:%M') if a.kit_enviado_at else '—' }}</td>
+      <td class="muted nowrap">{{ a.aprobada_at.strftime('%d/%m %H:%M') if a.aprobada_at else '—' }}</td>
+      <td class="mono">{{ (a.nota or '')[:60] }}</td>
+      <td>
+        <form class="inline" method="post" action="/panel/petra/autorizacion/{{ a.id }}/estado">
+          <input type="hidden" name="token" value="{{ token }}">
+          <select name="estado">
+            <option value="aprobada">Aprobada</option>
+            <option value="en_gestion">En gestión</option>
+            <option value="rechazada">Rechazada</option>
+            <option value="descartada">Descartada</option>
+          </select>
+          <input type="text" name="nota" placeholder="nota">
+          <button type="submit" class="primary">Guardar</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">Sin autorizaciones aún.</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'anuncios' %}
+<div class="panel">
+  <div class="panel-head"><h2>🏷️ Anuncios existentes para sobrepublicar QR</h2>
+    <span class="count">{{ anuncios_pendientes|length }}</span></div>
+  {% if anuncios_pendientes %}
+  <table>
+    <thead><tr><th>#</th><th>Agente</th><th>Edificio</th><th>URL / Foto</th>
+      <th>Portal</th><th>Estado</th><th>Nota</th><th>Acción</th></tr></thead>
+    <tbody>
+    {% for a in anuncios_pendientes %}
+    <tr>
+      <td class="mono">{{ a.id }}</td>
+      <td>{{ a.agente_nombre or '—' }}<br><small class="muted">{{ a.agente_tel }}</small></td>
+      <td>{{ a.edificio_nombre or '—' }}</td>
+      <td>
+        {% if a.url_anuncio %}<a href="{{ a.url_anuncio }}" target="_blank">🔗 enlace</a>{% endif %}
+        {% if a.foto_url %}<br><a href="{{ a.foto_url }}" target="_blank">📷 foto</a>{% endif %}
+      </td>
+      <td class="mono">{{ a.portal or '—' }}</td>
+      <td><span class="pill">{{ a.estado }}</span></td>
+      <td class="mono">{{ (a.nota or '')[:60] }}</td>
+      <td>
+        {% if a.estado == 'pendiente' %}
+        <form class="inline" method="post" action="/panel/petra/anuncio/{{ a.id }}/qr_cargado">
+          <input type="hidden" name="token" value="{{ token }}">
+          <button type="submit" class="primary">QR cargado</button>
+        </form>
+        <form class="inline" method="post" action="/panel/petra/anuncio/{{ a.id }}/descartar">
+          <input type="hidden" name="token" value="{{ token }}">
+          <button type="submit">Descartar</button>
+        </form>
+        {% else %}<small class="muted">{{ a.cargado_at.strftime('%d/%m %H:%M') if a.cargado_at else '' }}</small>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">Sin anuncios pendientes. 🎉</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'mandatos' %}
+<div class="panel">
+  <div class="panel-head"><h2>📝 Mandatos (venta / arriendo / administración)</h2>
+    <span class="count">{{ mandatos|length }}</span></div>
+  {% if mandatos %}
+  <table>
+    <thead><tr><th>#</th><th>Propietario</th><th>Tipo</th><th>Estado</th>
+      <th>Comisión</th><th>Canon</th><th>Exclusivo</th><th>Plazo</th>
+      <th>Firmado</th><th>Acción</th></tr></thead>
+    <tbody>
+    {% for m in mandatos %}
+    <tr>
+      <td class="mono">{{ m.id }}</td>
+      <td>{{ m.nombre or '—' }}<br><small class="muted">{{ m.telefono }}</small></td>
+      <td><span class="pill">{{ m.tipo }}</span></td>
+      <td><span class="pill">{{ m.estado }}</span></td>
+      <td class="mono">{{ ('%.2f%%' % m.comision_pct) if m.comision_pct else '—' }}</td>
+      <td class="mono">{{ ('${:,}'.format(m.canon_acordado)) if m.canon_acordado else '—' }}</td>
+      <td>{{ '✓' if m.exclusivo else '—' }}</td>
+      <td class="mono">{{ m.plazo_meses or '—' }}m</td>
+      <td class="muted nowrap">{{ m.firmado_at.strftime('%d/%m') if m.firmado_at else '—' }}</td>
+      <td>
+        {% if m.estado == 'propuesto' %}
+        <form class="inline" method="post" action="/panel/petra/mandato/{{ m.id }}/firmado">
+          <input type="hidden" name="token" value="{{ token }}">
+          <input type="text" name="auco_doc_id" placeholder="auco doc id">
+          <button type="submit" class="primary">Marcar firmado</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">Sin mandatos.</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'ofertas' %}
+<div class="panel">
+  <div class="panel-head"><h2>💵 Ofertas presentadas</h2>
+    <span class="count">{{ ofertas|length }}</span></div>
+  {% if ofertas %}
+  <table>
+    <thead><tr><th>#</th><th>Oportunidad</th><th>Interesado</th><th>Monto</th>
+      <th>Estado</th><th>Condiciones</th><th>Respuesta</th><th>Acción</th></tr></thead>
+    <tbody>
+    {% for o in ofertas %}
+    <tr>
+      <td class="mono">{{ o.id }}</td>
+      <td class="mono">#{{ o.oportunidad_id }}</td>
+      <td>{{ o.nombre or '—' }}<br><small class="muted">{{ o.telefono }}</small></td>
+      <td class="mono">${{ '{:,}'.format(o.monto) }}</td>
+      <td><span class="pill">{{ o.estado }}</span></td>
+      <td class="mono">{{ (o.condiciones or '')[:80] }}</td>
+      <td class="mono">{{ (o.respuesta_propietario or '')[:60] }}</td>
+      <td>
+        {% if o.estado == 'presentada' %}
+        <form class="inline" method="post" action="/panel/petra/oferta/{{ o.id }}/responder">
+          <input type="hidden" name="token" value="{{ token }}">
+          <select name="estado">
+            <option value="aceptada">Aceptar</option>
+            <option value="contraofertada">Contraofertar</option>
+            <option value="rechazada">Rechazar</option>
+          </select>
+          <input type="text" name="respuesta" placeholder="nota">
+          <button type="submit" class="primary">Responder</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">Sin ofertas aún.</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'postulaciones' %}
+<div class="panel">
+  <div class="panel-head"><h2>🏘️ Postulaciones a arriendo</h2>
+    <span class="count">{{ postulaciones|length }}</span></div>
+  {% if postulaciones %}
+  <table>
+    <thead><tr><th>#</th><th>Interesado</th><th>Inmueble</th>
+      <th>Codeudor</th><th>Ingresos</th><th>Estado</th><th>Nota</th></tr></thead>
+    <tbody>
+    {% for p in postulaciones %}
+    <tr>
+      <td class="mono">{{ p.id }}</td>
+      <td>{{ p.nombre or '—' }}<br><small class="muted">{{ p.telefono }}</small></td>
+      <td class="mono">#{{ p.inmueble_id or '—' }}</td>
+      <td>{{ p.codeudor_nombre or '—' }}<br><small class="muted">{{ p.codeudor_tel or '' }}</small></td>
+      <td class="mono">{{ ('${:,}'.format(p.ingresos_decl)) if p.ingresos_decl else '—' }}</td>
+      <td><span class="pill">{{ p.estado }}</span></td>
+      <td class="mono">{{ (p.nota or '')[:80] }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">Sin postulaciones aún.</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'pagos' %}
+<div class="panel">
+  <div class="panel-head"><h2>💸 Pagos de arriendo</h2>
+    <span class="count">{{ pagos_arriendo|length }}</span></div>
+  {% if pagos_arriendo %}
+  <table>
+    <thead><tr><th>#</th><th>Propietario</th><th>Mes</th><th>Esperado</th>
+      <th>Pagado</th><th>Estado</th><th>Comprobante</th><th>Acción</th></tr></thead>
+    <tbody>
+    {% for p in pagos_arriendo %}
+    <tr>
+      <td class="mono">{{ p.id }}</td>
+      <td>{{ p.nombre or '—' }}<br><small class="muted">{{ p.telefono }}</small></td>
+      <td class="mono">{{ p.mes_anio }}</td>
+      <td class="mono">${{ '{:,}'.format(p.monto_esperado) }}</td>
+      <td class="mono">{{ ('${:,}'.format(p.monto_pagado)) if p.monto_pagado else '—' }}</td>
+      <td><span class="pill">{{ p.estado }}</span></td>
+      <td>{% if p.comprobante_url %}<a href="{{ p.comprobante_url }}" target="_blank">📎</a>{% else %}—{% endif %}</td>
+      <td>
+        {% if p.estado == 'pendiente' %}
+        <form class="inline" method="post" action="/panel/petra/pago/{{ p.id }}/reportar">
+          <input type="hidden" name="token" value="{{ token }}">
+          <input type="number" name="monto_pagado" placeholder="monto COP" required>
+          <input type="url" name="comprobante_url" placeholder="url">
+          <button type="submit" class="primary">Reportar pago</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty">Sin pagos registrados aún.</div>{% endif %}
 </div>
 {% endif %}
 

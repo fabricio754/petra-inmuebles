@@ -873,3 +873,201 @@ CREATE TABLE IF NOT EXISTS petra_contenidos (
 );
 CREATE INDEX IF NOT EXISTS petra_contenidos_tipo_idx
   ON petra_contenidos (tipo, orden ASC) WHERE activo = TRUE;
+
+-- =============================================================================
+-- FASE A — Agente Petra operativo
+-- =============================================================================
+
+-- A1. Progreso de capacitación del agente contra petra_contenidos
+CREATE TABLE IF NOT EXISTS petra_capacitacion_progreso (
+  id              BIGSERIAL PRIMARY KEY,
+  contacto_id     INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  contenido_id    INTEGER NOT NULL REFERENCES petra_contenidos(id) ON DELETE CASCADE,
+  enviado_at      TIMESTAMPTZ,
+  visto_at        TIMESTAMPTZ,
+  comentario      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (contacto_id, contenido_id)
+);
+CREATE INDEX IF NOT EXISTS petra_cap_prog_agente_idx
+  ON petra_capacitacion_progreso (contacto_id, visto_at NULLS FIRST);
+
+-- A2. Autorizaciones del administrador del conjunto para instalar el QR
+CREATE TABLE IF NOT EXISTS petra_autorizaciones_admin (
+  id              BIGSERIAL PRIMARY KEY,
+  agente_id       INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  conjunto_nombre TEXT NOT NULL,
+  edificio_id     INTEGER REFERENCES petra_edificios(id) ON DELETE SET NULL,
+  estado          TEXT NOT NULL DEFAULT 'pendiente',
+      -- pendiente | kit_enviado | en_gestion | aprobada | rechazada | descartada
+  kit_enviado_at  TIMESTAMPTZ,
+  aprobada_at     TIMESTAMPTZ,
+  nota            TEXT,
+  metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_autoriz_estado_idx
+  ON petra_autorizaciones_admin (estado, updated_at DESC);
+CREATE INDEX IF NOT EXISTS petra_autoriz_agente_idx
+  ON petra_autorizaciones_admin (agente_id);
+
+-- A4. Anuncios existentes detectados por el agente para sobrepublicar con QR
+CREATE TABLE IF NOT EXISTS petra_anuncios_detectados (
+  id              BIGSERIAL PRIMARY KEY,
+  agente_id       INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  edificio_id     INTEGER REFERENCES petra_edificios(id) ON DELETE SET NULL,
+  url_anuncio     TEXT,
+  foto_url        TEXT,
+  portal          TEXT,
+      -- fincaraiz | metrocuadrado | mercadolibre | olx | otro
+  estado          TEXT NOT NULL DEFAULT 'pendiente',
+      -- pendiente | qr_cargado | descartado
+  nota            TEXT,
+  cargado_at      TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_anuncios_estado_idx
+  ON petra_anuncios_detectados (estado, created_at DESC);
+
+-- =============================================================================
+-- FASE B — Captura de inventario (mandatos de venta/arriendo/administración)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS petra_mandatos (
+  id              BIGSERIAL PRIMARY KEY,
+  contacto_id     INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+      -- propietario
+  inmueble_id     INTEGER REFERENCES petra_inmuebles(id) ON DELETE SET NULL,
+  tipo            TEXT NOT NULL,
+      -- venta | arriendo | administracion
+  comision_pct    NUMERIC(5,2),
+      -- comisión acordada (p.ej. 3.00 = 3%)
+  canon_acordado  BIGINT,
+      -- COP para arriendo/administracion
+  exclusivo       BOOLEAN NOT NULL DEFAULT FALSE,
+  plazo_meses     INTEGER,
+  estado          TEXT NOT NULL DEFAULT 'propuesto',
+      -- propuesto | firmado | activo | finalizado | cancelado
+  auco_doc_id     TEXT,
+      -- id del documento en Auco cuando se mande a firma
+  firmado_at      TIMESTAMPTZ,
+  nota            TEXT,
+  metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_mandatos_estado_idx
+  ON petra_mandatos (estado, tipo, updated_at DESC);
+CREATE INDEX IF NOT EXISTS petra_mandatos_contacto_idx
+  ON petra_mandatos (contacto_id);
+
+CREATE TABLE IF NOT EXISTS petra_administraciones_arriendo (
+  id              BIGSERIAL PRIMARY KEY,
+  mandato_id      INTEGER NOT NULL REFERENCES petra_mandatos(id) ON DELETE CASCADE,
+  propietario_id  INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  inmueble_id     INTEGER REFERENCES petra_inmuebles(id) ON DELETE SET NULL,
+  inquilino_tel   TEXT,
+  inquilino_nombre TEXT,
+  canon           BIGINT NOT NULL,
+  dia_corte       SMALLINT NOT NULL DEFAULT 5,
+      -- día del mes en que vence el canon
+  cuenta_bancaria TEXT,
+      -- cuenta del propietario donde se transfiere
+  estado          TEXT NOT NULL DEFAULT 'activa',
+      -- activa | pausada | terminada
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_admin_arr_estado_idx
+  ON petra_administraciones_arriendo (estado, updated_at DESC);
+
+-- =============================================================================
+-- FASE C — Interesados y cierre (ofertas, slots de visita, postulaciones)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS petra_slots_visita (
+  id              BIGSERIAL PRIMARY KEY,
+  oportunidad_id  INTEGER NOT NULL REFERENCES petra_oportunidades(id) ON DELETE CASCADE,
+  slots           JSONB NOT NULL,
+      -- array de ISO8601: ["2026-10-20T15:00:00-05:00", ...]
+  elegido_at      TIMESTAMPTZ,
+  elegido_idx     SMALLINT,
+  visita_id       INTEGER REFERENCES petra_visitas(id) ON DELETE SET NULL,
+  estado          TEXT NOT NULL DEFAULT 'propuesto',
+      -- propuesto | confirmado | cancelado | expirado
+  propuesto_por   TEXT,
+      -- panel | massi | agente
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_slots_oport_idx
+  ON petra_slots_visita (oportunidad_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS petra_ofertas (
+  id              BIGSERIAL PRIMARY KEY,
+  oportunidad_id  INTEGER NOT NULL REFERENCES petra_oportunidades(id) ON DELETE CASCADE,
+  interesado_id   INTEGER REFERENCES petra_contactos(id) ON DELETE SET NULL,
+  monto           BIGINT NOT NULL,
+  condiciones     TEXT,
+  estado          TEXT NOT NULL DEFAULT 'presentada',
+      -- presentada | aceptada | rechazada | contraofertada | retirada
+  respuesta_propietario TEXT,
+  respondida_at   TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_ofertas_oport_idx
+  ON petra_ofertas (oportunidad_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS petra_postulaciones_arriendo (
+  id              BIGSERIAL PRIMARY KEY,
+  oportunidad_id  INTEGER REFERENCES petra_oportunidades(id) ON DELETE SET NULL,
+  inmueble_id     INTEGER REFERENCES petra_inmuebles(id) ON DELETE SET NULL,
+  interesado_id   INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  codeudor_nombre TEXT,
+  codeudor_tel    TEXT,
+  ingresos_decl   BIGINT,
+  docs_entregados JSONB NOT NULL DEFAULT '[]'::jsonb,
+  estado          TEXT NOT NULL DEFAULT 'recibida',
+      -- recibida | en_estudio | aprobada | rechazada | contrato_firmado
+  nota            TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_postul_estado_idx
+  ON petra_postulaciones_arriendo (estado, created_at DESC);
+
+-- =============================================================================
+-- FASE D — Pagos de arriendo (administración mensual)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS petra_pagos_arriendo (
+  id              BIGSERIAL PRIMARY KEY,
+  administracion_id INTEGER NOT NULL REFERENCES petra_administraciones_arriendo(id) ON DELETE CASCADE,
+  mes_anio        TEXT NOT NULL,
+      -- 'YYYY-MM'
+  monto_esperado  BIGINT NOT NULL,
+  monto_pagado    BIGINT,
+  estado          TEXT NOT NULL DEFAULT 'pendiente',
+      -- pendiente | pagado | parcial | atrasado | condonado
+  pagado_at       TIMESTAMPTZ,
+  comprobante_url TEXT,
+  nota            TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (administracion_id, mes_anio)
+);
+CREATE INDEX IF NOT EXISTS petra_pagos_arr_estado_idx
+  ON petra_pagos_arriendo (estado, mes_anio DESC);
+
+-- Tokens de dashboard pública (propietario / agente ven sus datos read-only)
+CREATE TABLE IF NOT EXISTS petra_dashboard_tokens (
+  token           TEXT PRIMARY KEY,
+  contacto_id     INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  rol_vista       TEXT NOT NULL,
+      -- agente | propietario
+  activo          BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ultimo_acceso_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS petra_dash_tokens_contacto_idx
+  ON petra_dashboard_tokens (contacto_id, rol_vista) WHERE activo = TRUE;

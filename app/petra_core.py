@@ -262,6 +262,12 @@ def crear_visita(conn, tipo, inmueble_id=None, oportunidad_id=None,
     audit(conn, "sistema", None, "petra_core", "crear_visita",
           "visita", vid,
           despues={"tipo": tipo, "inmueble_id": inmueble_id, "agente_id": agente_id})
+    # A5. Notificar automáticamente al agente con 3 botones.
+    if agente_id:
+        try:
+            encolar_notificacion_visita_agente(conn, vid)
+        except Exception:
+            log.exception("[petra_core] encolar_notificacion_visita_agente fallo vid=%s", vid)
     return vid
 
 
@@ -1225,3 +1231,422 @@ def importar_contactos_legacy():
         "errores": errores,
         "dry_run": dry,
     })
+
+
+# =============================================================================
+# FASE A — Agente Petra operativo
+# =============================================================================
+
+def _rol_agente_metadata(conn, contacto_id):
+    """Devuelve el JSONB metadata del rol agente_petra, o {} si no existe."""
+    row = conn.execute(
+        """SELECT metadata FROM petra_contacto_roles
+           WHERE contacto_id=%s AND rol='agente_petra' LIMIT 1""",
+        (contacto_id,),
+    ).fetchone()
+    return row[0] if row and row[0] else {}
+
+
+def iniciar_capacitacion(conn, contacto_id):
+    """A1. Encola los videos activos y transiciona el agente a en_capacitacion.
+    Devuelve: lista de (contenido_id, titulo, url, orden)."""
+    rows = conn.execute(
+        """SELECT id, titulo, url, orden FROM petra_contenidos
+           WHERE tipo='video_capacitacion' AND activo=TRUE
+           ORDER BY orden ASC, created_at ASC"""
+    ).fetchall()
+    for (vid, _t, _u, _o) in rows:
+        conn.execute(
+            """INSERT INTO petra_capacitacion_progreso (contacto_id, contenido_id)
+               VALUES (%s,%s) ON CONFLICT (contacto_id, contenido_id) DO NOTHING""",
+            (contacto_id, vid),
+        )
+    avanzar_estado_agente(conn, contacto_id, "en_capacitacion")
+    return [{"id": r[0], "titulo": r[1], "url": r[2], "orden": r[3]} for r in rows]
+
+
+def siguiente_video_pendiente(conn, contacto_id):
+    """A1. Devuelve el próximo video no visto por este agente, o None."""
+    row = conn.execute(
+        """SELECT c.id, c.titulo, c.url, c.descripcion, c.duracion_seg, p.id AS prog_id
+           FROM petra_contenidos c
+           LEFT JOIN petra_capacitacion_progreso p
+             ON p.contenido_id = c.id AND p.contacto_id = %s
+           WHERE c.tipo='video_capacitacion' AND c.activo=TRUE
+             AND (p.visto_at IS NULL)
+           ORDER BY c.orden ASC, c.created_at ASC LIMIT 1""",
+        (contacto_id,),
+    ).fetchone()
+    if not row:
+        return None
+    return {"contenido_id": row[0], "titulo": row[1], "url": row[2],
+            "descripcion": row[3], "duracion_seg": row[4], "progreso_id": row[5]}
+
+
+def marcar_video_enviado(conn, contacto_id, contenido_id):
+    conn.execute(
+        """INSERT INTO petra_capacitacion_progreso (contacto_id, contenido_id, enviado_at)
+           VALUES (%s,%s,NOW())
+           ON CONFLICT (contacto_id, contenido_id)
+             DO UPDATE SET enviado_at = COALESCE(petra_capacitacion_progreso.enviado_at, NOW())""",
+        (contacto_id, contenido_id),
+    )
+
+
+def marcar_video_visto(conn, contacto_id, contenido_id, comentario=None):
+    """A1. Marca visto. Si fue el último, promueve a 'certificado'."""
+    conn.execute(
+        """INSERT INTO petra_capacitacion_progreso (contacto_id, contenido_id, visto_at, comentario)
+           VALUES (%s,%s,NOW(),%s)
+           ON CONFLICT (contacto_id, contenido_id) DO UPDATE
+             SET visto_at = COALESCE(petra_capacitacion_progreso.visto_at, NOW()),
+                 comentario = COALESCE(EXCLUDED.comentario, petra_capacitacion_progreso.comentario)""",
+        (contacto_id, contenido_id, comentario),
+    )
+    # Actualiza contador en el rol
+    meta = _rol_agente_metadata(conn, contacto_id)
+    vistos = conn.execute(
+        """SELECT COUNT(*) FROM petra_capacitacion_progreso
+           WHERE contacto_id=%s AND visto_at IS NOT NULL""",
+        (contacto_id,),
+    ).fetchone()[0]
+    total_activos = conn.execute(
+        "SELECT COUNT(*) FROM petra_contenidos WHERE tipo='video_capacitacion' AND activo=TRUE"
+    ).fetchone()[0]
+    meta["videos_vistos"] = vistos
+    conn.execute(
+        """UPDATE petra_contacto_roles SET metadata=%s::jsonb, updated_at=NOW()
+           WHERE contacto_id=%s AND rol='agente_petra'""",
+        (json.dumps(meta), contacto_id),
+    )
+    if total_activos > 0 and vistos >= total_activos:
+        avanzar_estado_agente(conn, contacto_id, "certificado")
+        return True, "certificado"
+    return False, f"vistos {vistos}/{total_activos}"
+
+
+# A2. Autorizaciones del administrador
+
+def crear_autorizacion_admin(conn, agente_id, conjunto_nombre, edificio_id=None, nota=None):
+    row = conn.execute(
+        """INSERT INTO petra_autorizaciones_admin
+           (agente_id, conjunto_nombre, edificio_id, nota, estado)
+           VALUES (%s,%s,%s,%s,'pendiente')
+           RETURNING id""",
+        (agente_id, conjunto_nombre, edificio_id, nota),
+    ).fetchone()
+    audit(conn, "sistema", None, "petra_core", "crear_autorizacion",
+          "autorizacion_admin", row[0],
+          despues={"agente_id": agente_id, "conjunto": conjunto_nombre})
+    return row[0]
+
+
+def marcar_kit_autorizacion_enviado(conn, autorizacion_id):
+    conn.execute(
+        """UPDATE petra_autorizaciones_admin
+           SET estado='kit_enviado', kit_enviado_at=NOW(), updated_at=NOW()
+           WHERE id=%s AND estado='pendiente'""",
+        (autorizacion_id,),
+    )
+
+
+def actualizar_estado_autorizacion(conn, autorizacion_id, estado, nota=None):
+    """Transiciones: pendiente → kit_enviado → en_gestion → aprobada|rechazada."""
+    valid = {"pendiente", "kit_enviado", "en_gestion", "aprobada", "rechazada", "descartada"}
+    if estado not in valid:
+        return False, "estado invalido"
+    extra = ", aprobada_at=NOW()" if estado == "aprobada" else ""
+    conn.execute(
+        f"""UPDATE petra_autorizaciones_admin
+           SET estado=%s, nota=COALESCE(%s, nota), updated_at=NOW(){extra}
+           WHERE id=%s""",
+        (estado, nota, autorizacion_id),
+    )
+    return True, "ok"
+
+
+# A3. Generación de QR del edificio
+
+def generar_qr_png_bytes(url):
+    """Genera un PNG del QR y devuelve bytes."""
+    import qrcode
+    import io
+    img = qrcode.make(url)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def asegurar_edificio_para_agente(conn, agente_id, conjunto_nombre, ciudad=None):
+    """Crea petra_edificios si no existe, usa qr_slug derivado del nombre + agente."""
+    slug_base = re.sub(r"[^a-z0-9]+", "-",
+                       (conjunto_nombre or "edificio").lower()).strip("-")[:40]
+    slug = f"{slug_base}-{agente_id}"
+    row = conn.execute(
+        "SELECT id FROM petra_edificios WHERE qr_slug=%s", (slug,),
+    ).fetchone()
+    if row:
+        return row[0], slug
+    row = conn.execute(
+        """INSERT INTO petra_edificios (nombre, ciudad, qr_slug, activo)
+           VALUES (%s,%s,%s,TRUE) RETURNING id""",
+        (conjunto_nombre, ciudad, slug),
+    ).fetchone()
+    return row[0], slug
+
+
+# A5. Notificación al agente cuando se agenda una visita
+
+def encolar_notificacion_visita_agente(conn, visita_id):
+    """Encola botones de confirmación al agente de la visita."""
+    row = conn.execute(
+        """SELECT v.id, v.programada_at, v.tipo, v.agente_id,
+                  i.torre, i.piso, e.nombre, c.telefono
+             FROM petra_visitas v
+        LEFT JOIN petra_inmuebles i ON i.id = v.inmueble_id
+        LEFT JOIN petra_edificios  e ON e.id = i.edificio_id
+             JOIN petra_contactos  c ON c.id = v.agente_id
+            WHERE v.id = %s""",
+        (visita_id,),
+    ).fetchone()
+    if not row:
+        return False
+    (vid, pa, tipo, agente_id, torre, piso, edif, tel) = row
+    cuerpo = (f"Nueva visita {tipo} agendada el "
+              f"{pa.strftime('%Y-%m-%d %H:%M') if pa else '?'} "
+              f"en {edif or 'edificio'} T{torre or '?'} P{piso or '?'}. "
+              f"¿Puedes asistir?")
+    payload = {
+        "tipo_mensaje": "buttons",
+        "texto": cuerpo[:1024],
+        "buttons": [
+            {"id": f"VISITA_AGENTE_SI_{vid}", "title": "Sí, asisto"},
+            {"id": f"VISITA_AGENTE_REAGENDAR_{vid}", "title": "Reagendar"},
+            {"id": f"VISITA_AGENTE_NO_{vid}", "title": "No puedo"},
+        ],
+    }
+    conn.execute(
+        """INSERT INTO petra_outbound_queue
+           (contacto_id, telefono, tipo, payload, origen, estado)
+           VALUES (%s,%s,'buttons',%s::jsonb,'notificacion_visita_agente','pendiente')""",
+        (agente_id, tel, json.dumps(payload, ensure_ascii=False)),
+    )
+    return True
+
+
+# =============================================================================
+# FASE B — Mandatos (venta / arriendo / administración)
+# =============================================================================
+
+def registrar_mandato(conn, contacto_id, tipo, inmueble_id=None,
+                     comision_pct=None, canon_acordado=None,
+                     exclusivo=False, plazo_meses=None, nota=None):
+    """Crea un petra_mandato en estado 'propuesto' y agrega el rol."""
+    if tipo not in ("venta", "arriendo", "administracion"):
+        return None, "tipo invalido"
+    row = conn.execute(
+        """INSERT INTO petra_mandatos
+           (contacto_id, inmueble_id, tipo, comision_pct, canon_acordado,
+            exclusivo, plazo_meses, nota, estado)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'propuesto')
+           RETURNING id""",
+        (contacto_id, inmueble_id, tipo, comision_pct, canon_acordado,
+         bool(exclusivo), plazo_meses, nota),
+    ).fetchone()
+    rol = {
+        "venta": "propietario_vendedor",
+        "arriendo": "propietario_arrendador",
+        "administracion": "propietario_administrado",
+    }[tipo]
+    conn.execute(
+        """INSERT INTO petra_contacto_roles (contacto_id, rol, estado, metadata)
+           VALUES (%s,%s,'activo','{}'::jsonb)
+           ON CONFLICT (contacto_id, rol, edificio_id) DO UPDATE SET
+             estado='activo', updated_at=NOW()""",
+        (contacto_id, rol),
+    )
+    audit(conn, "sistema", None, "petra_core", "registrar_mandato",
+          "mandato", row[0],
+          despues={"contacto_id": contacto_id, "tipo": tipo})
+    return row[0], "ok"
+
+
+def firmar_mandato(conn, mandato_id, auco_doc_id=None):
+    conn.execute(
+        """UPDATE petra_mandatos
+           SET estado='firmado', firmado_at=NOW(),
+               auco_doc_id=COALESCE(%s, auco_doc_id),
+               updated_at=NOW()
+           WHERE id=%s""",
+        (auco_doc_id, mandato_id),
+    )
+
+
+def crear_administracion_arriendo(conn, mandato_id, propietario_id,
+                                   inmueble_id, canon, dia_corte=5,
+                                   inquilino_tel=None, inquilino_nombre=None,
+                                   cuenta_bancaria=None):
+    row = conn.execute(
+        """INSERT INTO petra_administraciones_arriendo
+           (mandato_id, propietario_id, inmueble_id, inquilino_tel,
+            inquilino_nombre, canon, dia_corte, cuenta_bancaria, estado)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'activa') RETURNING id""",
+        (mandato_id, propietario_id, inmueble_id, inquilino_tel,
+         inquilino_nombre, canon, dia_corte, cuenta_bancaria),
+    ).fetchone()
+    audit(conn, "sistema", None, "petra_core", "crear_admin_arriendo",
+          "administracion", row[0], despues={"canon": canon, "dia_corte": dia_corte})
+    return row[0]
+
+
+# =============================================================================
+# FASE C — Ofertas, slots de visita, postulaciones
+# =============================================================================
+
+def proponer_slots_visita(conn, oportunidad_id, slots_iso, propuesto_por="panel"):
+    """slots_iso: lista de strings ISO8601. Crea una fila en petra_slots_visita."""
+    row = conn.execute(
+        """INSERT INTO petra_slots_visita (oportunidad_id, slots, propuesto_por, estado)
+           VALUES (%s, %s::jsonb, %s, 'propuesto') RETURNING id""",
+        (oportunidad_id, json.dumps(slots_iso), propuesto_por),
+    ).fetchone()
+    return row[0]
+
+
+def confirmar_slot_visita(conn, slot_row_id, elegido_idx):
+    row = conn.execute(
+        """UPDATE petra_slots_visita
+           SET elegido_idx=%s, elegido_at=NOW(), estado='confirmado', updated_at=NOW()
+           WHERE id=%s RETURNING oportunidad_id, slots""",
+        (elegido_idx, slot_row_id),
+    ).fetchone()
+    return row
+
+
+def registrar_oferta(conn, oportunidad_id, interesado_id, monto, condiciones=None):
+    row = conn.execute(
+        """INSERT INTO petra_ofertas (oportunidad_id, interesado_id, monto, condiciones, estado)
+           VALUES (%s,%s,%s,%s,'presentada') RETURNING id""",
+        (oportunidad_id, interesado_id, monto, condiciones),
+    ).fetchone()
+    audit(conn, "sistema", None, "petra_core", "registrar_oferta",
+          "oferta", row[0], despues={"monto": monto})
+    return row[0]
+
+
+def responder_oferta(conn, oferta_id, estado, respuesta=None):
+    """estado: aceptada | rechazada | contraofertada."""
+    if estado not in ("aceptada", "rechazada", "contraofertada", "retirada"):
+        return False, "estado invalido"
+    conn.execute(
+        """UPDATE petra_ofertas
+           SET estado=%s, respuesta_propietario=COALESCE(%s, respuesta_propietario),
+               respondida_at=NOW(), updated_at=NOW()
+           WHERE id=%s""",
+        (estado, respuesta, oferta_id),
+    )
+    return True, "ok"
+
+
+def registrar_postulacion_arriendo(conn, interesado_id, inmueble_id=None,
+                                    oportunidad_id=None, codeudor_nombre=None,
+                                    codeudor_tel=None, ingresos_decl=None,
+                                    docs=None):
+    row = conn.execute(
+        """INSERT INTO petra_postulaciones_arriendo
+           (interesado_id, inmueble_id, oportunidad_id, codeudor_nombre,
+            codeudor_tel, ingresos_decl, docs_entregados, estado)
+           VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,'recibida') RETURNING id""",
+        (interesado_id, inmueble_id, oportunidad_id, codeudor_nombre,
+         codeudor_tel, ingresos_decl, json.dumps(docs or [])),
+    ).fetchone()
+    return row[0]
+
+
+# =============================================================================
+# FASE D — Pagos mensuales de arriendo
+# =============================================================================
+
+def generar_pagos_mes(conn, mes_anio=None):
+    """Para cada administración activa, crea la fila de pago del mes si no existe.
+    mes_anio: 'YYYY-MM' (default: mes actual UTC)."""
+    import datetime as _dt
+    if not mes_anio:
+        mes_anio = _dt.datetime.utcnow().strftime("%Y-%m")
+    rows = conn.execute(
+        "SELECT id, canon FROM petra_administraciones_arriendo WHERE estado='activa'"
+    ).fetchall()
+    creados = 0
+    for (aid, canon) in rows:
+        try:
+            conn.execute(
+                """INSERT INTO petra_pagos_arriendo
+                   (administracion_id, mes_anio, monto_esperado, estado)
+                   VALUES (%s,%s,%s,'pendiente')
+                   ON CONFLICT (administracion_id, mes_anio) DO NOTHING""",
+                (aid, mes_anio, canon),
+            )
+            creados += 1
+        except Exception:
+            log.exception("[petra_core] generar_pagos_mes fallo admin=%s", aid)
+    return {"mes": mes_anio, "creados": creados, "admins_activas": len(rows)}
+
+
+def reportar_pago(conn, pago_id, monto_pagado, comprobante_url=None, nota=None):
+    estado = "pagado" if monto_pagado else "pendiente"
+    conn.execute(
+        """UPDATE petra_pagos_arriendo
+           SET monto_pagado=%s, estado=%s, pagado_at=NOW(),
+               comprobante_url=COALESCE(%s, comprobante_url),
+               nota=COALESCE(%s, nota), updated_at=NOW()
+           WHERE id=%s""",
+        (monto_pagado, estado, comprobante_url, nota, pago_id),
+    )
+
+
+# =============================================================================
+# Dashboard pública (readonly) por token
+# =============================================================================
+import secrets as _secrets
+
+
+def crear_dashboard_token(conn, contacto_id, rol_vista):
+    """Crea un token de 32 chars para dashboard readonly. Reusa si ya hay activo."""
+    if rol_vista not in ("agente", "propietario"):
+        return None
+    existing = conn.execute(
+        """SELECT token FROM petra_dashboard_tokens
+           WHERE contacto_id=%s AND rol_vista=%s AND activo=TRUE LIMIT 1""",
+        (contacto_id, rol_vista),
+    ).fetchone()
+    if existing:
+        return existing[0]
+    tok = _secrets.token_urlsafe(24)
+    conn.execute(
+        """INSERT INTO petra_dashboard_tokens (token, contacto_id, rol_vista)
+           VALUES (%s,%s,%s)""",
+        (tok, contacto_id, rol_vista),
+    )
+    return tok
+
+
+@petra_core_bp.get("/edificios/<int:edif_id>/qr.png")
+def servir_qr_edificio(edif_id):
+    """Devuelve el PNG del QR del edificio. URL pública para imprimir."""
+    from flask import send_file
+    import io
+    with _db._conexion_directa(timeout=5) as conn:
+        row = conn.execute(
+            "SELECT qr_slug FROM petra_edificios WHERE id=%s", (edif_id,),
+        ).fetchone()
+    if not row:
+        return jsonify({"error": "edificio no encontrado"}), 404
+    slug = row[0]
+    base = os.environ.get("WA_PILOT_PHONE_NUMBER", "").lstrip("+")
+    wa_url = f"https://wa.me/{base}?text=Hola%20quiero%20publicar%20en%20{slug}" if base \
+             else f"https://petra-inmuebles.onrender.com/petra/qr/{slug}"
+    png = generar_qr_png_bytes(wa_url)
+    return send_file(io.BytesIO(png), mimetype="image/png",
+                     as_attachment=False,
+                     download_name=f"qr-{slug}.png")

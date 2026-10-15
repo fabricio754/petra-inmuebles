@@ -68,6 +68,16 @@ def iniciar():
     _scheduler.add_job(_petra_retry_integraciones, "interval", minutes=5,
                        id="petra_retry_integraciones",
                        max_instances=1, coalesce=True)
+    # Fase D — generar filas de pago de arriendo el 1er día del mes 06:00 Bogotá
+    _scheduler.add_job(_petra_generar_pagos_arriendo, "cron",
+                       day=1, hour=6, minute=0,
+                       id="petra_generar_pagos_arriendo",
+                       max_instances=1, coalesce=True)
+    # Fase A — nudge diario a autorizaciones admin estancadas (10am Bogotá)
+    _scheduler.add_job(_petra_nudge_autorizaciones, "cron",
+                       hour=10, minute=0,
+                       id="petra_nudge_autorizaciones",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -415,3 +425,59 @@ def _petra_retry_integraciones():
                     )
     except Exception:
         log.exception("[Scheduler] petra_retry_integraciones fallo")
+
+
+# Fase D — pagos de arriendo mensuales
+def _petra_generar_pagos_arriendo():
+    try:
+        from app import db as _db, petra_core
+        with _db._conexion_directa(timeout=20) as conn:
+            res = petra_core.generar_pagos_mes(conn)
+        log.info("[Scheduler] petra_generar_pagos_arriendo: %s", res)
+    except Exception:
+        log.exception("[Scheduler] petra_generar_pagos_arriendo fallo")
+
+
+# Fase A — nudge a autorizaciones admin estancadas (3/7/14 días)
+def _petra_nudge_autorizaciones():
+    """Encola un recordatorio al agente para autorizaciones en estado
+    'kit_enviado' o 'en_gestion' que lleven 3/7/14 días sin actualización."""
+    try:
+        from app import db as _db
+        import json as _json
+        with _db._conexion_directa(timeout=20) as conn:
+            rows = conn.execute(
+                """SELECT a.id, a.agente_id, c.telefono, a.conjunto_nombre,
+                          EXTRACT(DAY FROM NOW() - a.updated_at)::int AS dias
+                   FROM petra_autorizaciones_admin a
+                   JOIN petra_contactos c ON c.id = a.agente_id
+                   WHERE a.estado IN ('kit_enviado','en_gestion')
+                     AND EXTRACT(DAY FROM NOW() - a.updated_at)::int IN (3,7,14)
+                   ORDER BY a.updated_at ASC"""
+            ).fetchall()
+            for (aid, agente_id, tel, conjunto, dias) in rows:
+                texto = (
+                    f"Hola 👋 Han pasado {dias} días desde que te mandamos el "
+                    f"material para el administrador de {conjunto}. "
+                    f"¿Cómo va? Cuéntame si pudiste hablar con él."
+                )
+                payload = {"tipo_mensaje": "buttons", "texto": texto,
+                           "buttons": [
+                               {"id": f"AUTH_{aid}_APROBADA", "title": "Ya aprobaron"},
+                               {"id": f"AUTH_{aid}_EN_GESTION", "title": "Sigo en eso"},
+                               {"id": f"AUTH_{aid}_RECHAZADA", "title": "No se pudo"},
+                           ]}
+                conn.execute(
+                    """INSERT INTO petra_outbound_queue
+                       (contacto_id, telefono, tipo, payload, origen, estado)
+                       VALUES (%s,%s,'buttons',%s::jsonb,'nudge_autorizacion','pendiente')""",
+                    (agente_id, tel, _json.dumps(payload, ensure_ascii=False)),
+                )
+                conn.execute(
+                    "UPDATE petra_autorizaciones_admin SET updated_at=NOW() WHERE id=%s",
+                    (aid,),
+                )
+        if rows:
+            log.info("[Scheduler] petra_nudge_autorizaciones: %d enviados", len(rows))
+    except Exception:
+        log.exception("[Scheduler] petra_nudge_autorizaciones fallo")
