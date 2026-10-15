@@ -17,7 +17,7 @@ import requests
 
 log = logging.getLogger("petra")
 
-GRAPH_API_VERSION = "v20.0"
+GRAPH_API_VERSION = os.environ.get("META_GRAPH_VERSION", "v22.0")
 ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
 PHONE_NUMBER_ID = os.environ.get("META_PHONE_NUMBER_ID", "")
 
@@ -115,7 +115,12 @@ def _dispatch(payload, human_summary, log_out=True):
     # (connect_timeout, read_timeout): corta más rápido para no bloquear threads.
     resp = requests.post(_graph_url(), headers=headers, json=payload, timeout=(5, 10))
     if resp.status_code >= 300:
-        log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
+        if _is_bsuid(dest) and "131009" in (resp.text or ""):
+            log.error("[WhatsApp API] BSUID rechazado por Meta (dest=%s). "
+                      "La WABA/app no tiene habilitada la capability user_identity_change. "
+                      "body=%s", dest, resp.text[:300])
+        else:
+            log.error("[ERROR WhatsApp API] %s: %s", resp.status_code, resp.text)
     else:
         log.info("[OK WhatsApp API] %s → %s: %s", resp.status_code, dest, human_summary)
 
