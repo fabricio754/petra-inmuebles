@@ -133,6 +133,8 @@
      href="?tab=agentes&token={{ token }}">🤝 Agentes ({{ agentes|length }})</a>
   <a class="tab {% if tab == 'errores' %}active{% endif %}"
      href="?tab=errores&token={{ token }}">⚠️ Errores ({{ errores|length }})</a>
+  <a class="tab {% if tab == 'contenidos' %}active{% endif %}"
+     href="?tab=contenidos&token={{ token }}">📚 Contenidos ({{ contenidos|length }})</a>
 </nav>
 <main>
 
@@ -427,6 +429,112 @@
     </tbody>
   </table>
   {% else %}<div class="empty">Sin errores pendientes. 🎉</div>{% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'contenidos' %}
+<style>
+  .cont-grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+  .cont-form { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; height: fit-content; position: sticky; top: 20px; }
+  .cont-form h3 { margin: 0 0 12px; font-size: 15px; }
+  .cont-form label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 10px 0 4px; }
+  .cont-form input, .cont-form select, .cont-form textarea { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px; box-sizing: border-box; }
+  .cont-form textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+  .cont-form button { margin-top: 12px; width: 100%; }
+  .cont-group { margin-bottom: 24px; }
+  .cont-group h3 { font-size: 14px; margin: 0 0 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; }
+  .cont-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; }
+  .cont-card.inactive { opacity: 0.5; }
+  .cont-order { color: var(--muted); font-weight: 700; min-width: 24px; }
+  .cont-body { flex: 1; min-width: 0; }
+  .cont-title { font-weight: 600; margin-bottom: 2px; }
+  .cont-meta { font-size: 11px; color: var(--muted); }
+  .cont-meta a { color: var(--accent); }
+  .cont-actions { display: flex; gap: 6px; }
+  .cont-actions form { display: inline; margin: 0; }
+  .cont-actions button { padding: 4px 10px; font-size: 11px; }
+</style>
+<div class="cont-grid">
+  <aside class="cont-form">
+    <h3>📥 Subir contenido</h3>
+    <form method="post" action="/panel/petra/contenido/crear">
+      <input type="hidden" name="token" value="{{ token }}">
+      <label>Tipo</label>
+      <select name="tipo" required>
+        <option value="video_capacitacion">Video de capacitación</option>
+        <option value="documento_pdf">Documento PDF</option>
+        <option value="kit_autorizacion">Kit autorización administrador</option>
+        <option value="script_mensaje">Script / plantilla de mensaje</option>
+        <option value="plantilla_whatsapp">Plantilla WhatsApp aprobada</option>
+        <option value="otro">Otro</option>
+      </select>
+      <label>Título</label>
+      <input type="text" name="titulo" required placeholder="Ej. Video 1 — Qué es Petra">
+      <label>URL (YouTube, Drive, S3…)</label>
+      <input type="url" name="url" placeholder="https://…">
+      <label>O texto inline (si no es URL)</label>
+      <textarea name="texto" placeholder="Script, plantilla, FAQ…"></textarea>
+      <label>Orden (menor = primero)</label>
+      <input type="number" name="orden" value="0">
+      <label>Duración (segundos, opcional)</label>
+      <input type="number" name="duracion_seg" placeholder="180">
+      <label>Descripción (opcional)</label>
+      <textarea name="descripcion" placeholder="Para qué sirve, a quién va dirigido…"></textarea>
+      <button type="submit" class="primary">Guardar</button>
+    </form>
+  </aside>
+  <section>
+    {% if contenidos %}
+      {% set agrupados = {} %}
+      {% for c in contenidos %}
+        {% if agrupados.update({c.tipo: agrupados.get(c.tipo, []) + [c]}) %}{% endif %}
+      {% endfor %}
+      {% set labels = {
+        'video_capacitacion': '🎬 Videos de capacitación',
+        'documento_pdf': '📄 Documentos PDF',
+        'kit_autorizacion': '📋 Kit autorización administrador',
+        'script_mensaje': '✍️ Scripts / plantillas',
+        'plantilla_whatsapp': '📱 Plantillas WhatsApp',
+        'otro': '📦 Otros'
+      } %}
+      {% for tipo in ['video_capacitacion', 'documento_pdf', 'kit_autorizacion', 'script_mensaje', 'plantilla_whatsapp', 'otro'] %}
+        {% if agrupados.get(tipo) %}
+        <div class="cont-group">
+          <h3>{{ labels[tipo] }}</h3>
+          {% for c in agrupados[tipo] %}
+          <div class="cont-card {% if not c.activo %}inactive{% endif %}">
+            <div class="cont-order">#{{ c.orden }}</div>
+            <div class="cont-body">
+              <div class="cont-title">{{ c.titulo }}</div>
+              <div class="cont-meta">
+                {% if c.url %}<a href="{{ c.url }}" target="_blank">🔗 {{ c.url[:60] }}{% if c.url|length > 60 %}…{% endif %}</a>{% endif %}
+                {% if c.texto %}<span>📝 {{ c.texto[:120] }}{% if c.texto|length > 120 %}…{% endif %}</span>{% endif %}
+                {% if c.duracion_seg %}· {{ c.duracion_seg }}s{% endif %}
+                {% if c.descripcion %}<br><span>{{ c.descripcion }}</span>{% endif %}
+              </div>
+            </div>
+            <div class="cont-actions">
+              <form method="post" action="/panel/petra/contenido/{{ c.id }}/toggle">
+                <input type="hidden" name="token" value="{{ token }}">
+                <button type="submit">{{ 'Pausar' if c.activo else 'Activar' }}</button>
+              </form>
+              <form method="post" action="/panel/petra/contenido/{{ c.id }}/eliminar"
+                    onsubmit="return confirm('¿Eliminar «{{ c.titulo }}»?');">
+                <input type="hidden" name="token" value="{{ token }}">
+                <button type="submit" class="danger">🗑</button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <div class="empty">
+        Sin contenidos aún. Sube el primero desde el formulario de la izquierda. 👈
+      </div>
+    {% endif %}
+  </section>
 </div>
 {% endif %}
 

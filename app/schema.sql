@@ -848,3 +848,28 @@ CREATE TABLE IF NOT EXISTS vistas_guardadas (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS vistas_ruta_idx ON vistas_guardadas (ruta, created_at DESC);
+
+-- =============================================================================
+-- Contenidos del piloto Petra: videos de capacitación, PDFs, scripts,
+-- plantillas de texto. Fabricio los sube desde el panel; Massi los usa.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS petra_contenidos (
+  id            BIGSERIAL PRIMARY KEY,
+  tipo          TEXT NOT NULL,
+    -- video_capacitacion | documento_pdf | script_mensaje | kit_autorizacion |
+    -- plantilla_whatsapp | otro
+  orden         INTEGER NOT NULL DEFAULT 0,
+  titulo        TEXT NOT NULL,
+  url           TEXT,
+    -- URL externa (YouTube, Drive, S3, etc.)
+  texto         TEXT,
+    -- Contenido inline cuando NO hay URL (scripts, plantillas, FAQ)
+  duracion_seg  INTEGER,
+  descripcion   TEXT,
+  activo        BOOLEAN NOT NULL DEFAULT TRUE,
+  metadata      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_contenidos_tipo_idx
+  ON petra_contenidos (tipo, orden ASC) WHERE activo = TRUE;

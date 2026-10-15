@@ -173,9 +173,81 @@ def panel_home():
                    ORDER BY
                      CASE estado WHEN 'dead_letter' THEN 0 ELSE 1 END,
                      created_at DESC LIMIT 100"""),
+            "contenidos": _rows(conn,
+                """SELECT id, tipo, orden, titulo, url, texto, duracion_seg,
+                          descripcion, activo, created_at, updated_at
+                   FROM petra_contenidos
+                   ORDER BY tipo ASC, orden ASC, created_at ASC"""),
             "kpis": _metricas_piloto(conn),
         }
     return render_template("petra_panel.html", **contexto)
+
+
+# =============================================================================
+# Contenidos (videos, PDFs, scripts, plantillas) — subida desde el panel
+# =============================================================================
+_TIPOS_CONTENIDO = {
+    "video_capacitacion": "Video de capacitación",
+    "documento_pdf": "Documento PDF",
+    "kit_autorizacion": "Kit autorización administrador",
+    "script_mensaje": "Script / plantilla de mensaje",
+    "plantilla_whatsapp": "Plantilla WhatsApp aprobada",
+    "otro": "Otro",
+}
+
+
+@petra_panel_bp.post("/contenido/crear")
+def contenido_crear():
+    _check_token()
+    tipo = (request.form.get("tipo") or "").strip()
+    titulo = (request.form.get("titulo") or "").strip()
+    url = (request.form.get("url") or "").strip() or None
+    texto = (request.form.get("texto") or "").strip() or None
+    descripcion = (request.form.get("descripcion") or "").strip() or None
+    try:
+        orden = int(request.form.get("orden") or 0)
+    except ValueError:
+        orden = 0
+    try:
+        duracion = int(request.form.get("duracion_seg")) if request.form.get("duracion_seg") else None
+    except ValueError:
+        duracion = None
+    if tipo not in _TIPOS_CONTENIDO or not titulo:
+        return redirect(url_for("petra_panel.panel_home", tab="contenidos",
+                                token=request.form.get("token", "")))
+    if not url and not texto:
+        return redirect(url_for("petra_panel.panel_home", tab="contenidos",
+                                token=request.form.get("token", "")))
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            """INSERT INTO petra_contenidos
+               (tipo, orden, titulo, url, texto, duracion_seg, descripcion)
+               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            (tipo, orden, titulo, url, texto, duracion, descripcion),
+        )
+    return redirect(url_for("petra_panel.panel_home", tab="contenidos",
+                            token=request.form.get("token", "")))
+
+
+@petra_panel_bp.post("/contenido/<int:cid>/toggle")
+def contenido_toggle(cid):
+    _check_token()
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE petra_contenidos SET activo = NOT activo, updated_at=NOW() WHERE id=%s",
+            (cid,),
+        )
+    return redirect(url_for("petra_panel.panel_home", tab="contenidos",
+                            token=request.form.get("token", "")))
+
+
+@petra_panel_bp.post("/contenido/<int:cid>/eliminar")
+def contenido_eliminar(cid):
+    _check_token()
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute("DELETE FROM petra_contenidos WHERE id=%s", (cid,))
+    return redirect(url_for("petra_panel.panel_home", tab="contenidos",
+                            token=request.form.get("token", "")))
 
 
 # =============================================================================
