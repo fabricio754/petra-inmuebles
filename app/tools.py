@@ -786,3 +786,91 @@ def tool_publicar_inmueble():
         "inmueble_id": inm_id,
         "mensaje": f"Publicado en {edif_nombre}.",
     }), 200
+
+
+# =============================================================================
+# Flujo 2 — Mensajes interactivos (botones / listas) desde Massimiliano
+# =============================================================================
+@tools_bp.post("/petra_enviar_menu_rama")
+@_require_token
+def tool_enviar_menu_rama():
+    """Envía al usuario una lista interactiva con las 4 ramas de Petra.
+    Massi la dispara cuando no logra distinguir qué quiere el usuario, o
+    como primer prompt tras un saludo neutro.
+    Payload: {telefono (auto)}"""
+    from app import petra_wa as _wa
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    if not tel:
+        return jsonify({"error": "telefono requerido"}), 400
+    res = _wa.send_list(
+        tel,
+        "¿Con qué te ayudo? Elige una opción:",
+        "Ver opciones",
+        [{
+            "title": "Petra",
+            "rows": [
+                {"id": "RAMA_PUBLICAR", "title": "Publicar inmueble",
+                 "description": "Vender o arrendar tu propiedad"},
+                {"id": "RAMA_BUSCAR", "title": "Buscar inmueble",
+                 "description": "Explorar inventario disponible"},
+                {"id": "RAMA_CREDITO", "title": "Pedir crédito",
+                 "description": "Crédito con garantía inmobiliaria"},
+                {"id": "RAMA_AGENTE", "title": "Ser Agente Petra",
+                 "description": "Ganar comisión en tu edificio"},
+                {"id": "RAMA_SOPORTE", "title": "Soporte",
+                 "description": "Hablar con una persona"},
+            ],
+        }],
+    )
+    return jsonify({"ok": bool(res.get("ok")), "resultado": res,
+                    "mensaje": "Menú de ramas enviado."}), 200
+
+
+@tools_bp.post("/petra_confirmar_visita_botones")
+@_require_token
+def tool_confirmar_visita_botones():
+    """Envía 3 botones para que el usuario confirme/reagende/cancele una
+    visita agendada. Payload: {telefono (auto), visita_id}"""
+    from app import petra_wa as _wa
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    vid = body.get("visita_id")
+    if not tel or not vid:
+        return jsonify({"error": "telefono y visita_id requeridos"}), 400
+    res = _wa.send_buttons(
+        tel,
+        f"¿Confirmas tu visita? (ref #{vid})",
+        [
+            {"id": f"VISITA_SI_{vid}", "title": "Sí, confirmo"},
+            {"id": f"VISITA_REAGENDAR_{vid}", "title": "Reagendar"},
+            {"id": f"VISITA_NO_{vid}", "title": "Cancelar"},
+        ],
+    )
+    return jsonify({"ok": bool(res.get("ok")), "resultado": res,
+                    "mensaje": "Botones de confirmación enviados."}), 200
+
+
+@tools_bp.post("/petra_elegir_modalidad")
+@_require_token
+def tool_elegir_modalidad():
+    """Botones para elegir modalidad al publicar/buscar (venta/arriendo).
+    Payload: {telefono (auto), intencion: 'publicar'|'buscar'}"""
+    from app import petra_wa as _wa
+    body = request.get_json(silent=True) or {}
+    tel = _normalizar_telefono(body.get("telefono"))
+    intencion = (body.get("intencion") or "publicar").strip().lower()
+    if not tel:
+        return jsonify({"error": "telefono requerido"}), 400
+    verbo = "publicar" if intencion == "publicar" else "buscar"
+    res = _wa.send_buttons(
+        tel,
+        f"¿Qué modalidad quieres {verbo}?",
+        [
+            {"id": f"MOD_VENTA_{intencion}", "title": "Venta"},
+            {"id": f"MOD_ARRIENDO_{intencion}", "title": "Arriendo"},
+            {"id": f"MOD_AMBAS_{intencion}", "title": "Ambas"},
+        ],
+    )
+    return jsonify({"ok": bool(res.get("ok")), "resultado": res,
+                    "mensaje": "Botones de modalidad enviados."}), 200
