@@ -364,27 +364,62 @@
 {% endif %}
 
 {% if tab == 'agentes' %}
+<style>
+@media (max-width: 768px) {
+  .tabla-agentes thead { display: none; }
+  .tabla-agentes, .tabla-agentes tbody { display: block; width: 100%; }
+  .tabla-agentes tr {
+    display: block;
+    border: 1px solid #e2e2ea;
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+    background: #fff;
+  }
+  .tabla-agentes td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border: none;
+    text-align: right;
+  }
+  .tabla-agentes td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #6b6b7a;
+    text-align: left;
+    flex: 0 0 auto;
+  }
+  .tabla-agentes td.card-full { display: block; text-align: left; }
+  .tabla-agentes td.card-full::before { display: block; margin-bottom: 4px; }
+  .tabla-agentes td form.inline { width: 100%; display: flex; gap: 6px; }
+  .tabla-agentes td form.inline select { flex: 1; }
+  .tabla-agentes td form.inline button { padding: 10px 14px; }
+}
+</style>
 <div class="panel">
   <div class="panel-head"><h2>🤝 Agentes Petra</h2>
     <span class="count">{{ agentes|length }} (últ 100)</span></div>
   {% if agentes %}
-  <table>
+  <table class="tabla-agentes">
     <thead><tr><th>#</th><th>Agente</th><th>Ciudad</th><th>Estado</th>
       <th>Videos</th><th>Origen</th><th>Actualizado</th><th>Avanzar</th><th></th></tr></thead>
     <tbody>
     {% for a in agentes %}
     <tr>
-      <td class="mono">{{ a.contacto_id }}</td>
-      <td>{{ a.nombre or '—' }}<br><span class="mono muted">{{ a.telefono }}</span></td>
-      <td>{{ a.ciudad or '—' }}</td>
-      <td>
+      <td class="mono" data-label="#">{{ a.contacto_id }}</td>
+      <td data-label="Agente">{{ a.nombre or '—' }}<br><span class="mono muted">{{ a.telefono }}</span></td>
+      <td data-label="Ciudad">{{ a.ciudad or '—' }}</td>
+      <td data-label="Estado">
         {% set cls = 'ok' if a.estado_agente == 'operativo' else 'warn' if a.estado_agente in ('kit_asignado','certificado') else 'info' %}
         <span class="pill {{ cls }}">{{ a.estado_agente or 'lead' }}</span>
       </td>
-      <td class="mono">{{ a.videos_vistos or 0 }}/12</td>
-      <td class="muted">{{ a.origen or '—' }}</td>
-      <td class="muted nowrap">{{ a.updated_at.strftime('%d/%m %H:%M') if a.updated_at else '—' }}</td>
-      <td>
+      <td class="mono" data-label="Videos">{{ a.videos_vistos or 0 }}/12</td>
+      <td class="muted" data-label="Origen">{{ a.origen or '—' }}</td>
+      <td class="muted nowrap" data-label="Actualizado">{{ a.updated_at.strftime('%d/%m %H:%M') if a.updated_at else '—' }}</td>
+      <td class="card-full" data-label="Avanzar">
         <form class="inline" method="post" action="/panel/petra/agente/{{ a.contacto_id }}/avanzar">
           <input type="hidden" name="token" value="{{ token }}">
           <select name="estado">
@@ -399,11 +434,11 @@
           <button type="submit">Ir</button>
         </form>
       </td>
-      <td>
+      <td class="card-full" data-label="Eliminar">
         <form class="inline" method="post" action="/panel/petra/agente/{{ a.contacto_id }}/eliminar"
               onsubmit="return confirm('¿Eliminar a {{ a.nombre or a.telefono }} como agente Petra? El contacto queda, solo deja de ser agente.');">
           <input type="hidden" name="token" value="{{ token }}">
-          <button type="submit" title="Eliminar como agente">🗑</button>
+          <button type="submit" class="danger" title="Eliminar como agente">🗑 Eliminar como agente</button>
         </form>
       </td>
     </tr>
