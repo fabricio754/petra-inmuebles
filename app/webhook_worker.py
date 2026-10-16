@@ -463,10 +463,16 @@ def _procesar_webhook_petra(payload):
     except (KeyError, IndexError, TypeError):
         return
 
-    # Status/calls en el piloto: por ahora solo loguear (no re-usamos la
-    # tabla legacy `mensajes` para evitar cruzar producción con el piloto).
+    # Statuses del piloto: los procesamos igual que legacy — como el bot
+    # productivo (Massi) va a migrar a Petra y los contactos convergen a la
+    # misma tabla `mensajes`, mantener el `estado_entrega` sincronizado
+    # alimenta los chulos ✓✓ del chat en la ficha de agente del panel.
     if change.get("statuses"):
-        log.info("[petra] status recibido (no procesado): %s", change["statuses"][:1])
+        for s in change["statuses"]:
+            try:
+                _procesar_status(s)
+            except Exception:
+                log.exception("[petra] status procesamiento fallo")
     # Fan-out de voz: cuando flipamos USE_OWN_ORCHESTRATOR, Meta nos manda las
     # calls y nosotros se las reenviamos a ElevenLabs para que las conteste.
     if change.get("calls"):
@@ -510,6 +516,21 @@ def _procesar_webhook_petra(payload):
         btn = message.get("button") or {}
         button_id = btn.get("payload") or btn.get("text")
         texto = btn.get("text") or ""
+
+    # Log del IN en la tabla `mensajes` para que el panel renderice el chat.
+    # No depende del dispatch posterior — si el handler falla, igual queda
+    # registrado qué llegó.
+    wamid_in = message.get("id") if isinstance(message, dict) else None
+    try:
+        resumen_in = texto or f"[{mtype or 'unknown'}]"
+        db.log_mensaje(
+            phone, "in", mtype or "unknown", resumen_in[:500],
+            {"wa_msg_id": wamid_in, "button_id": button_id,
+             "list_id": list_id, "message": message},
+            wa_msg_id=wamid_in,
+        )
+    except Exception:
+        log.exception("[petra] log_mensaje in fallo (no crítico)")
 
     # Feature flag en cascada: multi-agent > orchestrator monolítico > legacy.
     # - USE_MULTI_AGENT=true → router + sub-agentes especializados

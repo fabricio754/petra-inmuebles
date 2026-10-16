@@ -78,12 +78,50 @@ def _post(payload):
                       dest, resp.text[:300])
         else:
             log.error("[petra_wa] ERROR %s: %s", resp.status_code, resp.text[:500])
+        _log_mensaje_out(dest, payload, resp.status_code, None)
         return {"ok": False, "status": resp.status_code, "body": resp.text[:500]}
     try:
         wa_msg_id = resp.json().get("messages", [{}])[0].get("id")
     except Exception:
         wa_msg_id = None
+    _log_mensaje_out(dest, payload, resp.status_code, wa_msg_id)
     return {"ok": True, "status": resp.status_code, "wa_msg_id": wa_msg_id}
+
+
+def _resumen_payload(payload):
+    """Convierte un payload Meta en texto corto legible para el panel."""
+    t = payload.get("type") or ""
+    if t == "text":
+        return (payload.get("text") or {}).get("body", "")[:500]
+    if t == "interactive":
+        inter = payload.get("interactive") or {}
+        body_text = (inter.get("body") or {}).get("text", "")[:300]
+        itype = inter.get("type")
+        if itype == "button":
+            btns = (inter.get("action") or {}).get("buttons") or []
+            labels = [((b.get("reply") or {}).get("title") or "") for b in btns]
+            return f"{body_text}\n[Botones: {', '.join(labels)}]"
+        if itype == "list":
+            label = (inter.get("action") or {}).get("button") or "Elegir"
+            return f"{body_text}\n[Lista: {label}]"
+        return body_text
+    return f"[{t or 'unknown'}]"
+
+
+def _log_mensaje_out(dest, payload, status_code, wa_msg_id):
+    """Persiste el OUT en la tabla `mensajes` para que el panel pueda
+    renderizar el chat con chulos de entrega. No propaga errores."""
+    try:
+        from app import db
+        tipo = payload.get("type") or "text"
+        resumen = _resumen_payload(payload)
+        db.log_mensaje(
+            dest, "out", tipo, resumen,
+            {"status": status_code, "payload": payload},
+            wa_msg_id=wa_msg_id,
+        )
+    except Exception:
+        log.exception("[petra_wa] log_mensaje out fallo (no crítico)")
 
 
 def send_text(to, body):
