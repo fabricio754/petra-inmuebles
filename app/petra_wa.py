@@ -21,11 +21,21 @@ el pipeline completo sin número activo (dev/local/sandbox).
 """
 import logging
 import os
+import re
 import requests
 
 log = logging.getLogger("petra")
 
-_GRAPH_VERSION = os.environ.get("META_GRAPH_VERSION", "v20.0")
+_GRAPH_VERSION = os.environ.get("META_GRAPH_VERSION", "v22.0")
+_BSUID_RE = re.compile(r"^[A-Z]{2}\.\d+$")
+
+
+def _is_bsuid(to):
+    """BSUID = Business-Scoped User ID ("CO.123..."): dos letras país + punto + dígitos.
+    Llega en lugar del teléfono cuando el usuario oculta el número con un
+    WhatsApp username (rollout Meta mayo-julio 2026). Meta exige entregarlo
+    en `recipient` (no `to`) junto con `recipient_type: "individual"`."""
+    return bool(to) and bool(_BSUID_RE.match(to))
 
 
 def _creds():
@@ -44,6 +54,13 @@ def _post(payload):
         log.info("[petra_wa] STUB send to=%s type=%s (no credenciales)",
                  payload.get("to"), payload.get("type"))
         return {"ok": True, "stub": True, "nota": "credenciales no configuradas"}
+    dest = payload.get("to") or payload.get("recipient") or ""
+    if _is_bsuid(dest) and "to" in payload:
+        # Meta valida "to" como E.164 → BSUID va en "recipient" + recipient_type.
+        # Mandar ambos devuelve 131009 (to gana y es rechazado).
+        payload = {k: v for k, v in payload.items() if k != "to"}
+        payload["recipient_type"] = "individual"
+        payload["recipient"] = dest
     try:
         resp = requests.post(
             _url(phone_id),
@@ -54,7 +71,13 @@ def _post(payload):
         log.exception("[petra_wa] send fallo transporte")
         return {"ok": False, "error": f"transport: {exc}"}
     if resp.status_code >= 300:
-        log.error("[petra_wa] ERROR %s: %s", resp.status_code, resp.text[:500])
+        if _is_bsuid(dest) and "131009" in (resp.text or ""):
+            log.error("[petra_wa] BSUID rechazado por Meta (dest=%s). "
+                      "Revisar que el WABA emisor esté en el mismo Business "
+                      "Portfolio que generó el BSUID. body=%s",
+                      dest, resp.text[:300])
+        else:
+            log.error("[petra_wa] ERROR %s: %s", resp.status_code, resp.text[:500])
         return {"ok": False, "status": resp.status_code, "body": resp.text[:500]}
     try:
         wa_msg_id = resp.json().get("messages", [{}])[0].get("id")
