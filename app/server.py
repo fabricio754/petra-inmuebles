@@ -191,6 +191,75 @@ def admin_reset_contacto():
         return {"error": str(exc)[:300], "partial": out}, 500
 
 
+@app.post("/petra/admin/recovery_bsuid")
+def admin_recovery_bsuid():
+    """Envía un mensaje de recovery a una lista de BSUIDs atascados, cerrando
+    primero su sesión activa y limpiando metadata.nombre basura. Diseñado
+    one-shot para desatascar interesadas afectadas por un bug previo de envío.
+
+    Body JSON:
+      token     — PETRA_LLM_TOKEN o PANEL_TOKEN
+      mensaje   — texto a enviar
+      telefonos — lista de BSUIDs ("CO.XXX")
+
+    Devuelve resultado por BSUID."""
+    body = request.get_json(silent=True) or {}
+    tok = str(body.get("token") or "").strip()
+    acepta = [
+        (os.environ.get("PETRA_LLM_TOKEN") or "").strip(),
+        (os.environ.get("PANEL_TOKEN") or "").strip(),
+    ]
+    acepta = [t for t in acepta if t]
+    if acepta and tok not in acepta:
+        return {"error": "unauthorized"}, 401
+    mensaje = str(body.get("mensaje") or "").strip()
+    tels = body.get("telefonos") or []
+    if not mensaje or not isinstance(tels, list) or not tels:
+        return {"error": "mensaje y telefonos requeridos"}, 400
+
+    from app import db as _db
+    from app import petra_wa
+    resultados = []
+    for tel in tels:
+        tel = str(tel).strip()
+        item = {"tel": tel}
+        try:
+            with _db._conexion_directa(timeout=10) as conn:
+                # Cerrar sesión activa (si hay) → próximo mensaje arranca sesión nueva.
+                conn.execute(
+                    "UPDATE petra_sesion_chat SET cerrada_at=NOW(), "
+                    "razon_cierre='recovery_bug_bsuid' "
+                    "WHERE telefono=%s AND cerrada_at IS NULL",
+                    (tel,),
+                )
+                # Limpiar metadata.nombre (puede estar basura del bug previo)
+                # para que el flow arranque desde "¿cuál es tu nombre?".
+                conn.execute(
+                    "UPDATE petra_contacto_roles "
+                    "SET metadata = metadata - 'nombre' "
+                    "WHERE contacto_id = (SELECT id FROM petra_contactos WHERE telefono=%s)",
+                    (tel,),
+                )
+        except Exception as exc:
+            item["ok"] = False
+            item["detalle"] = f"db: {str(exc)[:200]}"
+            resultados.append(item)
+            continue
+        try:
+            r = petra_wa.send_text(tel, mensaje)
+            item["ok"] = bool(r.get("ok"))
+            item["status"] = r.get("status")
+            if not item["ok"]:
+                item["detalle"] = str(r)[:300]
+        except Exception as exc:
+            item["ok"] = False
+            item["detalle"] = f"send: {str(exc)[:200]}"
+        resultados.append(item)
+    return {"total": len(resultados),
+            "ok": sum(1 for x in resultados if x.get("ok")),
+            "resultados": resultados}
+
+
 @app.post("/captura")
 def captura():
     """Recibe un anuncio desde la extensión de Chrome \"Enviar a Massi\"."""
