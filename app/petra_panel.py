@@ -799,3 +799,35 @@ def accion_admin_revertir_cap_hoy():
         flash = f"error:{str(exc)[:80]}"
     return redirect(url_for("petra_panel.panel_home", tab="contenidos",
                             token=token, flash=flash))
+
+
+@petra_panel_bp.post("/agente/<int:cid>/revertir_cap")
+def accion_agente_revertir_cap(cid):
+    """Resetea el progreso de capacitación de UNA agente: cap_dia_enviado,
+    cap_ultimo_envio_fecha, videos_vistos. Si estaba en 'en_capacitacion'
+    vuelve a 'esperando_capacitacion_dia1'. Útil cuando un envío falló
+    (ventana 24h de Meta) pero el metadata quedó avanzado, o para
+    reiniciar la capacitación."""
+    _check_token()
+    token = request.form.get("token", "")
+    import json as _json
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT r.metadata FROM petra_contacto_roles r "
+            "WHERE r.contacto_id=%s AND r.rol='agente_petra'", (cid,)
+        ).fetchone()
+        if not row:
+            abort(404)
+        m = row[0] or {}
+        m.pop("cap_dia_enviado", None)
+        m.pop("cap_ultimo_envio_fecha", None)
+        m.pop("videos_vistos", None)
+        if m.get("estado_agente") == "en_capacitacion":
+            m["estado_agente"] = "esperando_capacitacion_dia1"
+        conn.execute(
+            "UPDATE petra_contacto_roles SET metadata=%s::jsonb "
+            "WHERE contacto_id=%s AND rol='agente_petra'",
+            (_json.dumps(m), cid),
+        )
+    return redirect(url_for("petra_panel.ficha_agente", cid=cid,
+                            token=token, flash="cap_reseteada"))

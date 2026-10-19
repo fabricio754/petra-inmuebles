@@ -219,6 +219,18 @@ a:hover { text-decoration: underline; }
   {% set pct = (videos_vistos * 100 // 12) if videos_vistos else 0 %}
   <div class="progreso-barra"><div style="width: {{ pct }}%"></div></div>
   <div class="progreso-sub">{{ videos_vistos }} / 12 videos vistos ({{ pct }}%)</div>
+
+  {% if flash == 'cap_reseteada' %}
+    <div class="aviso ok" style="margin-top:10px">↩ Capacitación reseteada. La agente vuelve a esperando_capacitacion_dia1 con 0/12 videos.</div>
+  {% endif %}
+
+  <div class="acciones" style="margin-top:12px">
+    <form method="post" action="/panel/petra/agente/{{ agente.id }}/revertir_cap"
+          onsubmit="return confirm('Resetear la capacitación de {{ agente.nombre or agente.telefono }}? Volverá a esperando_capacitacion_dia1 con 0/12 videos. Útil si un envío falló por ventana 24h.');">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn warn">↩ Resetear capacitación</button>
+    </form>
+  </div>
 </div>
 
 {# ========== Chat ========== #}
