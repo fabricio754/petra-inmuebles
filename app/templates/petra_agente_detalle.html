@@ -145,6 +145,10 @@ a:hover { text-decoration: underline; }
   <div class="aviso warn">Bot pausado para esta agente. No va a responder hasta que lo reactives.</div>
 {% elif flash == 'bot_reactivado' %}
   <div class="aviso ok">Bot reactivado. Vuelve a responder automáticamente.</div>
+{% elif flash and flash.startswith('correccion_') and flash.endswith('_ok') %}
+  <div class="aviso ok">
+    Pedí la corrección. La agente recibió un mensaje proactivo y, cuando responda, el flow captura el dato nuevo.
+  </div>
 {% elif flash and flash.startswith('error') %}
   <div class="aviso err">Error al enviar: {{ flash[6:] }}</div>
 {% endif %}
@@ -192,6 +196,20 @@ a:hover { text-decoration: underline; }
     <div class="fila"><span class="k">Barrio</span><span class="v {% if not meta.get('barrio') %}falta{% endif %}">{{ meta.get('barrio') or '— falta —' }}</span></div>
     <div class="fila"><span class="k">Conjunto</span><span class="v {% if not meta.get('conjunto') %}falta{% endif %}">{{ meta.get('conjunto') or '— falta —' }}</span></div>
     <div class="fila"><span class="k">Primer contacto</span><span class="v">{{ agente.contacto_desde.strftime('%d/%m/%Y') if agente.contacto_desde else '—' }}</span></div>
+  </div>
+
+  <h2 style="margin-top:16px">✏️ Corregir un dato</h2>
+  <div style="font-size:13px; color:var(--muted); margin-bottom:8px">
+    Resetea el campo + manda un mensaje proactivo a la agente pidiéndolo. Cuando responda, el flow captura el dato nuevo y vuelve al resumen.
+  </div>
+  <div class="acciones">
+    {% for campo, etiqueta in [('nombre','Nombre'),('cedula','Cédula'),('ciudad','Ciudad'),('barrio','Barrio'),('conjunto','Conjunto')] %}
+    <form method="post" action="/panel/petra/agente/{{ agente.id }}/pedir_corregir/{{ campo }}"
+          onsubmit="return confirm('Resetear {{ etiqueta|lower }} y pedírselo a {{ agente.nombre or agente.telefono }} por WhatsApp?');">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn">↻ {{ etiqueta }}</button>
+    </form>
+    {% endfor %}
   </div>
 </div>
 
