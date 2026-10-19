@@ -319,7 +319,7 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
         petra_wa.send_buttons(telefono,
             f"Cuando {verbo} termines, pulsá el botón para arrancar con "
             "tu capacitación diaria. 💪",
-            [{"id": "ONBAG_YA_VI_VIDEOS", "title": "Ya los vi"}],
+            [{"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}],
         )
         import datetime as _dt
         meta["estado_agente"] = "bienvenida_enviada"
@@ -428,32 +428,58 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
 
 
 def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
-    """Fase: ya recibió los videos, esperamos que confirme."""
+    """Fase: ya recibió los videos de bienvenida, esperamos confirmación.
+    Al pulsar 'Empezar ahora' (o listo/vi/etc), disparamos día 1 de
+    capacitación en el momento — sin esperar al cron de las 8am."""
     t_lc = (texto or "").lower().strip()
-    if (texto == "ONBAG_YA_VI_VIDEOS" or
+    acepta = ONBAG_EMPEZAR_AHORA = "ONBAG_EMPEZAR_AHORA"
+    legacy_ya_vi = "ONBAG_YA_VI_VIDEOS"  # botón viejo, por si queda en WhatsApp
+    if (texto in (ONBAG_EMPEZAR_AHORA, legacy_ya_vi) or
             t_lc in ("listo", "vi", "visto", "ya", "ya lo vi", "ok", "si",
-                     "sí", "terminé", "termine")):
-        import datetime as _dt
+                     "sí", "terminé", "termine", "empezar", "empezar ahora",
+                     "arrancar")):
+        import datetime as _dt, json as _json, time as _time
+        try:
+            from zoneinfo import ZoneInfo
+            hoy_bogota = _dt.datetime.now(ZoneInfo("America/Bogota")).date().isoformat()
+        except Exception:
+            hoy_bogota = _dt.datetime.utcnow().date().isoformat()
         meta["bienvenida_vista_at"] = _dt.datetime.utcnow().isoformat()
         meta["estado_agente"] = "esperando_capacitacion_dia1"
         _save_meta(conn, cid, meta)
-        resp = (
-            "¡Buenísimo! 🎉\n\n"
-            "Tu capacitación ya arrancó con los 2 videos que te acabo de "
-            "pasar. Mañana a las *8am* te envío la *segunda tanda de "
-            "2 videos*, y así durante los próximos 6 días.\n\n"
-            "Nos vemos mañana. 👋"
-        )
-        _enviar(telefono, resp)
-        _log(telefono, texto, resp, nota="bienvenida confirmada, pasa a capacitación")
+        # Disparar día 1 inmediatamente reusando la función del cron.
+        try:
+            from app.scheduler import _cap_enviar_para_agente
+            from app import petra_wa as _pwa
+            enviado = _cap_enviar_para_agente(
+                conn, cid, telefono, meta, hoy_bogota,
+                _pwa, _time, _json, ignorar_dedup_fecha=True,
+            )
+        except Exception:
+            log.exception("[flow:onboarding] fallo disparar día 1 inmediato tel=%s", telefono)
+            enviado = False
+        if enviado:
+            _log(telefono, texto, "[día 1 enviado inmediato por botón Empezar ahora]",
+                 nota="empezar_ahora → día 1 disparado")
+        else:
+            # Fallback: no se pudo enviar (sin videos, pausa, etc). Mensaje
+            # explicativo con la ruta normal del cron.
+            resp = (
+                "¡Buenísimo! 🎉\n\n"
+                "Tu capacitación arranca mañana a las *8am* con los primeros "
+                "2 videos. Y así durante 7 días.\n\n"
+                "Nos vemos mañana. 👋"
+            )
+            _enviar(telefono, resp)
+            _log(telefono, texto, resp, nota="empezar_ahora pero sin envío (fallback)")
         return True
     # Cualquier otra cosa: recordatorio con botón
     from app import petra_wa
     petra_wa.send_buttons(telefono,
         "Cuando termines de ver los videos, pulsá el botón para avanzar 🎬",
-        [{"id": "ONBAG_YA_VI_VIDEOS", "title": "Ya los vi"}],
+        [{"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}],
     )
-    _log(telefono, texto, "[recordatorio: btn Ya los vi]",
+    _log(telefono, texto, "[recordatorio: btn Empezar ahora]",
          nota="bienvenida_enviada esperando confirmación")
     return True
 
