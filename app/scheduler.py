@@ -511,9 +511,12 @@ def _petra_cerrar_sesiones_inactivas():
 # =============================================================================
 
 
-def _petra_enviar_capacitacion_diaria():
+def _petra_enviar_capacitacion_diaria(ignorar_dedup_fecha=False):
     """Para cada agente en capacitación activa, envía los 2 videos del
     día siguiente SOLO si ya confirmó los del día anterior.
+
+    ignorar_dedup_fecha: si True, bypasea la regla "no mandar 2 veces el
+    mismo día". Útil para pruebas y re-disparos admin desde el panel.
 
     Kill switch: env var PETRA_CRON_CAPACITACION_OFF=true salta el job sin
     hacer nada. Útil para pausar envíos durante pruebas o incidentes sin
@@ -575,7 +578,8 @@ def _petra_enviar_capacitacion_diaria():
         try:
             with _db._conexion_directa(timeout=15) as conn:
                 ok = _cap_enviar_para_agente(conn, cid, tel, meta, hoy_bogota,
-                                             petra_wa, _time, _json)
+                                             petra_wa, _time, _json,
+                                             ignorar_dedup_fecha=ignorar_dedup_fecha)
                 if ok:
                     enviados += 1
         except Exception:
@@ -584,7 +588,8 @@ def _petra_enviar_capacitacion_diaria():
 
 
 def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
-                            petra_wa, _time, _json):
+                            petra_wa, _time, _json,
+                            ignorar_dedup_fecha=False):
     """Procesa una agente. Devuelve True si envió videos hoy."""
     dia_enviado = int(meta.get("cap_dia_enviado", 0) or 0)
     videos_vistos = int(meta.get("videos_vistos", 0) or 0)
@@ -597,8 +602,8 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
     if videos_vistos < dia_enviado * 2:
         return False
 
-    # Dedup por fecha
-    if meta.get("cap_ultimo_envio_fecha") == hoy_iso:
+    # Dedup por fecha (saltable solo desde el endpoint admin para pruebas)
+    if not ignorar_dedup_fecha and meta.get("cap_ultimo_envio_fecha") == hoy_iso:
         return False
 
     dia_a_enviar = dia_enviado + 1
