@@ -415,9 +415,15 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
             dia_actual = vistos // 2
             quedan = total - vistos
             dias_restantes = (total - vistos) // 2
-            resp = (f"¡Bien hecho! ✅ Marcaste los 2 videos del día {dia_actual}/{dias_total}.\n\n"
-                    f"Te quedan {quedan} videos ({dias_restantes} días). "
-                    "Mañana a las 8am te mando el próximo par — o si querés verlos ya, pulsá el botón 👇")
+            resp = (
+                f"🎉 *¡Felicitaciones, cerraste el día {dia_actual} de {dias_total}!* 🌟\n\n"
+                f"Ya viste *{vistos}/{total} videos* ✅ Cada uno te suma herramientas, "
+                "confianza y conocimiento para arrancar como Agente Petra en tu edificio 🏢💜\n\n"
+                f"Te quedan solo *{quedan} videos ({dias_restantes} días)* para completar "
+                "toda tu capacitación. Vas re bien, dale con todo 💪\n\n"
+                "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas "
+                "el ritmo. O si tenés ganas de seguir avanzando ahora mismo, apretá el botón 👇"
+            )
         if vistos >= total:
             _enviar(telefono, resp)
         else:
