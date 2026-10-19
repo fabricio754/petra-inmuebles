@@ -455,6 +455,23 @@
 {% endif %}
 
 {% if tab == 'contenidos' %}
+<div class="panel" style="margin-bottom:16px">
+  <div class="panel-head"><h2>⚡ Disparar capacitación ahora</h2></div>
+  <p style="font-size:13px; color:var(--muted); margin:4px 0 10px">
+    Ejecuta el cron de capacitación en el momento (sin esperar las 8am del día siguiente).
+    Respeta <code>PETRA_PILOTO_WHITELIST</code> y la regla "solo avanza si confirmó". Útil para pruebas.
+  </p>
+  {% if flash == 'cap_cron_ok' %}
+    <p style="padding:8px 12px; background:#d9f5e2; color:#1b7a3d; border-radius:6px; font-size:13px">✅ Cron disparado. Revisá los logs y la ficha de las agentes para ver si recibieron los videos.</p>
+  {% elif flash and flash.startswith('error') %}
+    <p style="padding:8px 12px; background:#fde0de; color:#c0362f; border-radius:6px; font-size:13px">❌ Error: {{ flash[6:] }}</p>
+  {% endif %}
+  <form method="post" action="/panel/petra/admin/run_capacitacion"
+        onsubmit="return confirm('Disparar el cron de capacitación AHORA? Enviará los videos del día siguiente a toda agente lista (respetando whitelist si está seteada).');">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button type="submit" class="danger">⚡ Disparar cron capacitación</button>
+  </form>
+</div>
 <style>
   .cont-grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
   .cont-form { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; height: fit-content; position: sticky; top: 20px; }
