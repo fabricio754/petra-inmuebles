@@ -48,6 +48,20 @@ def _url(phone_id):
     return f"https://graph.facebook.com/{_GRAPH_VERSION}/{phone_id}/messages"
 
 
+def _en_whitelist(dest):
+    """Whitelist opcional de teléfonos / BSUIDs destino.
+
+    Si env var PETRA_PILOTO_WHITELIST está seteada (CSV de números/BSUIDs),
+    _post SOLO envía a los que están en la lista. El resto se descarta en
+    silencio (dry-run). Útil para probar features sin spam a producción.
+    Si la env var está ausente o vacía → modo normal, envía a todos."""
+    wl = (os.environ.get("PETRA_PILOTO_WHITELIST") or "").strip()
+    if not wl:
+        return True
+    permitidos = {s.strip() for s in wl.split(",") if s.strip()}
+    return dest in permitidos
+
+
 def _post(payload):
     phone_id, token = _creds()
     if not phone_id or not token:
@@ -55,6 +69,11 @@ def _post(payload):
                  payload.get("to"), payload.get("type"))
         return {"ok": True, "stub": True, "nota": "credenciales no configuradas"}
     dest = payload.get("to") or payload.get("recipient") or ""
+    if not _en_whitelist(dest):
+        log.info("[petra_wa] WHITELIST: dest=%s NO está en PETRA_PILOTO_WHITELIST — skip (dry-run)",
+                 dest)
+        return {"ok": True, "whitelist_skip": True,
+                "nota": f"dest {dest} fuera de whitelist"}
     if _is_bsuid(dest) and "to" in payload:
         # Meta valida "to" como E.164 → BSUID va en "recipient" + recipient_type.
         # Mandar ambos devuelve 131009 (to gana y es rechazado).
