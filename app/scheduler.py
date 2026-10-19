@@ -515,6 +515,10 @@ def _petra_enviar_capacitacion_diaria():
     """Para cada agente en capacitación activa, envía los 2 videos del
     día siguiente SOLO si ya confirmó los del día anterior.
 
+    Kill switch: env var PETRA_CRON_CAPACITACION_OFF=true salta el job sin
+    hacer nada. Útil para pausar envíos durante pruebas o incidentes sin
+    tocar código. Para reactivar: borrar la env var (o setearla vacía).
+
     Reglas:
       - Solo rol=agente_petra con estado_agente IN ('esperando_capacitacion_dia1',
         'en_capacitacion').
@@ -529,6 +533,9 @@ def _petra_enviar_capacitacion_diaria():
       - Al enviar día 1 por primera vez, cambia estado_agente a
         'en_capacitacion' (desde 'esperando_capacitacion_dia1').
     """
+    if (os.environ.get("PETRA_CRON_CAPACITACION_OFF") or "").strip().lower() in ("1", "true", "yes"):
+        log.info("[cap-cron] deshabilitado por PETRA_CRON_CAPACITACION_OFF — skip")
+        return
     import datetime as _dt
     import json as _json
     import time as _time
