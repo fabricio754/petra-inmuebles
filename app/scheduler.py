@@ -83,6 +83,12 @@ def iniciar():
                        hour=10, minute=0,
                        id="petra_nudge_autorizaciones",
                        max_instances=1, coalesce=True)
+    # Capacitación de agentes: 2 videos por día x 6 días, 8am Bogotá.
+    # Solo avanza al día siguiente si la agente confirmó los del anterior.
+    _scheduler.add_job(_petra_enviar_capacitacion_diaria, "cron",
+                       hour=8, minute=0,
+                       id="petra_capacitacion_diaria",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -498,3 +504,126 @@ def _petra_cerrar_sesiones_inactivas():
             log.info("[Scheduler] cerradas %d sesiones por inactividad", n)
     except Exception:
         log.exception("[Scheduler] cerrar_sesiones_inactivas fallo")
+
+
+# =============================================================================
+# Capacitación diaria de agentes Petra (cron 8am Bogotá)
+# =============================================================================
+
+
+def _petra_enviar_capacitacion_diaria():
+    """Para cada agente en capacitación activa, envía los 2 videos del
+    día siguiente SOLO si ya confirmó los del día anterior.
+
+    Reglas:
+      - Solo rol=agente_petra con estado_agente IN ('esperando_capacitacion_dia1',
+        'en_capacitacion').
+      - Respeta metadata.bot_pausado=true → skip.
+      - Respeta opt_out → skip.
+      - Avance: envía día N+1 solo si videos_vistos >= N*2 (confirmó
+        'LISTO' por cada video del día anterior).
+      - Dedup por fecha: si cap_ultimo_envio_fecha == hoy_bogota → skip
+        (idempotente ante reinicios del scheduler).
+      - Silencioso si no hay 2 videos cargados en petra_contenidos para
+        el día que corresponde: log y skip.
+      - Al enviar día 1 por primera vez, cambia estado_agente a
+        'en_capacitacion' (desde 'esperando_capacitacion_dia1').
+    """
+    import datetime as _dt
+    import json as _json
+    import time as _time
+    try:
+        from zoneinfo import ZoneInfo
+    except Exception:
+        log.exception("[cap-cron] zoneinfo no disponible")
+        return
+    try:
+        from app import db as _db, petra_wa
+    except Exception:
+        log.exception("[cap-cron] imports fallaron")
+        return
+
+    hoy_bogota = _dt.datetime.now(ZoneInfo("America/Bogota")).date().isoformat()
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            cur = conn.execute(
+                "SELECT c.id, c.telefono, r.metadata "
+                "FROM petra_contactos c "
+                "JOIN petra_contacto_roles r ON r.contacto_id = c.id "
+                "WHERE r.rol = 'agente_petra' "
+                "  AND r.metadata->>'estado_agente' IN "
+                "      ('esperando_capacitacion_dia1','en_capacitacion') "
+                "  AND COALESCE(r.metadata->>'bot_pausado','false') <> 'true' "
+                "  AND COALESCE(c.opt_out, FALSE) = FALSE"
+            )
+            agentes = cur.fetchall()
+    except Exception:
+        log.exception("[cap-cron] consulta de agentes fallo")
+        return
+
+    log.info("[cap-cron] evaluando %s agentes", len(agentes))
+    enviados = 0
+    for row in agentes:
+        cid, tel, meta = row[0], row[1], row[2] or {}
+        try:
+            with _db._conexion_directa(timeout=15) as conn:
+                ok = _cap_enviar_para_agente(conn, cid, tel, meta, hoy_bogota,
+                                             petra_wa, _time, _json)
+                if ok:
+                    enviados += 1
+        except Exception:
+            log.exception("[cap-cron] fallo para tel=%s", tel)
+    log.info("[cap-cron] enviados: %s/%s", enviados, len(agentes))
+
+
+def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
+                            petra_wa, _time, _json):
+    """Procesa una agente. Devuelve True si envió videos hoy."""
+    dia_enviado = int(meta.get("cap_dia_enviado", 0) or 0)
+    videos_vistos = int(meta.get("videos_vistos", 0) or 0)
+
+    # Terminó capacitación
+    if dia_enviado >= 6:
+        return False
+
+    # Regla "solo avanza si confirmó": esperamos LISTO por los anteriores
+    if videos_vistos < dia_enviado * 2:
+        return False
+
+    # Dedup por fecha
+    if meta.get("cap_ultimo_envio_fecha") == hoy_iso:
+        return False
+
+    dia_a_enviar = dia_enviado + 1
+    offset = (dia_a_enviar - 1) * 2
+    cur = conn.execute(
+        "SELECT titulo, url FROM petra_contenidos "
+        "WHERE tipo='video_capacitacion' AND activo=TRUE "
+        "ORDER BY orden LIMIT 2 OFFSET %s", (offset,),
+    )
+    videos = cur.fetchall()
+    if len(videos) < 2:
+        log.info("[cap-cron] día %s sin 2 videos cargados — skip tel=%s",
+                 dia_a_enviar, telefono)
+        return False
+
+    # Enviar los 2 videos del día + CTA
+    for titulo, url in videos:
+        petra_wa.send_text(telefono, f"🎬 *{titulo}*\n\n{url}")
+        _time.sleep(2)
+    petra_wa.send_text(telefono,
+        f"Son los videos del día {dia_a_enviar}/6 💪\n\n"
+        "Cuando los veas, mandame *LISTO* por cada uno para avanzar.")
+
+    # Actualizar metadata
+    meta["cap_dia_enviado"] = dia_a_enviar
+    meta["cap_ultimo_envio_fecha"] = hoy_iso
+    if meta.get("estado_agente") == "esperando_capacitacion_dia1":
+        meta["estado_agente"] = "en_capacitacion"
+    conn.execute(
+        "UPDATE petra_contacto_roles SET metadata = %s::jsonb "
+        "WHERE contacto_id = %s AND rol = 'agente_petra'",
+        (_json.dumps(meta), cid),
+    )
+    log.info("[cap-cron] enviado día %s a tel=%s", dia_a_enviar, telefono)
+    return True
