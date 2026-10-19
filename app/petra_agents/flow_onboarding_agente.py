@@ -416,9 +416,40 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
             dias_restantes = (total - vistos) // 2
             resp = (f"¡Bien hecho! ✅ Marcaste los 2 videos del día {dia_actual}/{dias_total}.\n\n"
                     f"Te quedan {quedan} videos ({dias_restantes} días). "
-                    "El próximo par llega mañana a las 8am.")
-        _enviar(telefono, resp)
+                    "Mañana a las 8am te mando el próximo par — o si querés verlos ya, pulsá el botón 👇")
+        if vistos >= total:
+            _enviar(telefono, resp)
+        else:
+            from app import petra_wa as _pwa
+            _pwa.send_buttons(telefono, resp, [
+                {"id": "ONBAG_SIGUIENTE_DIA", "title": "⏭ Ver día siguiente"},
+            ])
         _log(telefono, texto, resp, nota=f"día marcado {vistos}/{total}")
+        return True
+    # Botón "Ver día siguiente": dispara el próximo día inmediatamente,
+    # sin esperar al cron de las 8am. Reusa la función del cron.
+    if texto == "ONBAG_SIGUIENTE_DIA":
+        import datetime as _dt_, json as _json_, time as _time_
+        try:
+            from zoneinfo import ZoneInfo
+            hoy_bogota = _dt_.datetime.now(ZoneInfo("America/Bogota")).date().isoformat()
+        except Exception:
+            hoy_bogota = _dt_.datetime.utcnow().date().isoformat()
+        try:
+            from app.scheduler import _cap_enviar_para_agente
+            from app import petra_wa as _pwa
+            enviado = _cap_enviar_para_agente(
+                conn, cid, telefono, meta, hoy_bogota,
+                _pwa, _time_, _json_, ignorar_dedup_fecha=True,
+            )
+        except Exception:
+            log.exception("[flow:cap] fallo disparar día siguiente tel=%s", telefono)
+            enviado = False
+        if not enviado:
+            _enviar(telefono, "Hmm, no pude mandarte el siguiente par ahora. "
+                              "Mañana a las 8am te llega sin falta. 🙏")
+        _log(telefono, texto, f"[ver día siguiente — enviado={enviado}]",
+             nota="siguiente_dia manual")
         return True
     if t_lc in ("siguiente", "proximo", "próximo", "mas", "más"):
         # Enviar el siguiente video pendiente del día si queda uno
