@@ -510,3 +510,149 @@ def accion_pago_reportar(pid):
                                    nota=request.form.get("nota") or None)
     return redirect(url_for("petra_panel.panel_home", tab="pagos",
                             token=request.form.get("token", "")))
+
+
+# =============================================================================
+# Ficha de agente Petra: vista detallada con chat, datos, progreso, timeline.
+# Reconstruida desde cero (NO reusa panel_detalle.html legacy, pero sí la
+# tabla `mensajes` para el chat con chulos ✓✓).
+# =============================================================================
+
+import datetime as _dt
+
+
+def _cargar_ficha_agente(conn, cid):
+    """Trae todo lo que la ficha necesita en un dict. Ordenado para render."""
+    cur = conn.execute(
+        "SELECT c.id, c.telefono, c.nombre, c.email, c.opt_out, "
+        "       c.created_at AS contacto_desde, "
+        "       r.rol, r.estado, r.metadata, r.estado_desde, "
+        "       r.proximo_contacto_at, r.updated_at AS rol_updated_at "
+        "FROM petra_contactos c "
+        "LEFT JOIN petra_contacto_roles r "
+        "  ON r.contacto_id = c.id AND r.rol = 'agente_petra' "
+        "WHERE c.id = %s", (cid,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    cols = [d[0] for d in cur.description]
+    agente = dict(zip(cols, row))
+    tel = agente["telefono"]
+
+    mensajes = _rows(conn,
+        "SELECT id, direccion, tipo, resumen, fecha, wa_msg_id, "
+        "       estado_entrega, estado_entrega_at, estado_entrega_error "
+        "FROM mensajes WHERE telefono = %s "
+        "ORDER BY fecha ASC LIMIT 500", (tel,))
+
+    # Agrupa por día para el separador en el chat
+    ultimo_dia = None
+    for m in mensajes:
+        f = m.get("fecha")
+        dia = f.date() if f else None
+        m["nuevo_dia"] = dia != ultimo_dia
+        if m["nuevo_dia"] and dia:
+            m["etiqueta_dia"] = dia.strftime("%d/%m/%Y")
+        m["hora_hm"] = f.strftime("%H:%M") if f else "—"
+        ultimo_dia = dia
+
+    ultimo_in = conn.execute(
+        "SELECT MAX(fecha) FROM mensajes WHERE telefono = %s AND direccion = 'in'",
+        (tel,)).fetchone()
+    ultimo_in_at = ultimo_in[0] if ultimo_in else None
+    puede_responder = False
+    if ultimo_in_at:
+        delta = _dt.datetime.now(tz=ultimo_in_at.tzinfo or _dt.timezone.utc) - ultimo_in_at
+        puede_responder = delta.total_seconds() < 24 * 3600
+
+    progreso = _rows(conn,
+        "SELECT p.contenido_id, p.visto_at, ct.titulo, ct.tipo AS tipo_contenido "
+        "FROM petra_capacitacion_progreso p "
+        "LEFT JOIN petra_contenidos ct ON ct.id = p.contenido_id "
+        "WHERE p.contacto_id = %s ORDER BY p.visto_at ASC", (cid,))
+    videos_vistos = len([p for p in progreso if (p.get("tipo_contenido") or "").startswith("capacitacion")])
+
+    timeline = _rows(conn,
+        "SELECT accion, actor_tipo, actor_label, metadata, created_at "
+        "FROM petra_auditoria_eventos "
+        "WHERE entidad_tipo = 'contacto' AND entidad_id = %s "
+        "ORDER BY created_at DESC LIMIT 50", (cid,))
+
+    meta = agente.get("metadata") or {}
+    bot_pausado = str(meta.get("bot_pausado", "")).lower() == "true"
+
+    return {
+        "agente": agente,
+        "meta": meta,
+        "mensajes": mensajes,
+        "ultimo_in_at": ultimo_in_at,
+        "puede_responder": puede_responder,
+        "progreso": progreso,
+        "videos_vistos": videos_vistos,
+        "timeline": timeline,
+        "bot_pausado": bot_pausado,
+    }
+
+
+@petra_panel_bp.get("/agente/<int:cid>")
+def ficha_agente(cid):
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = request.args.get("flash", "")
+    with _db._conexion_directa(timeout=10) as conn:
+        ctx = _cargar_ficha_agente(conn, cid)
+    if not ctx:
+        abort(404)
+    ctx["token"] = token
+    ctx["flash"] = flash
+    return render_template("petra_agente_detalle.html", **ctx)
+
+
+@petra_panel_bp.post("/agente/<int:cid>/responder")
+def accion_agente_responder(cid):
+    _check_token()
+    texto = (request.form.get("texto") or "").strip()
+    token = request.form.get("token", "")
+    if not texto:
+        return redirect(url_for("petra_panel.ficha_agente", cid=cid,
+                                token=token, flash="vacio"))
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT telefono FROM petra_contactos WHERE id = %s", (cid,)
+        ).fetchone()
+    if not row:
+        abort(404)
+    tel = row[0]
+    from app import petra_wa
+    r = petra_wa.send_text(tel, texto)
+    flash = "enviado" if r.get("ok") else f"error:{str(r)[:80]}"
+    return redirect(url_for("petra_panel.ficha_agente", cid=cid,
+                            token=token, flash=flash))
+
+
+def _set_bot_pausado(cid, pausado):
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE petra_contacto_roles "
+            "SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), "
+            "                         '{bot_pausado}', to_jsonb(%s::boolean)) "
+            "WHERE contacto_id = %s AND rol = 'agente_petra'",
+            (pausado, cid))
+
+
+@petra_panel_bp.post("/agente/<int:cid>/pausar_bot")
+def accion_agente_pausar_bot(cid):
+    _check_token()
+    _set_bot_pausado(cid, True)
+    return redirect(url_for("petra_panel.ficha_agente", cid=cid,
+                            token=request.form.get("token", ""),
+                            flash="bot_pausado"))
+
+
+@petra_panel_bp.post("/agente/<int:cid>/reactivar_bot")
+def accion_agente_reactivar_bot(cid):
+    _check_token()
+    _set_bot_pausado(cid, False)
+    return redirect(url_for("petra_panel.ficha_agente", cid=cid,
+                            token=request.form.get("token", ""),
+                            flash="bot_reactivado"))
