@@ -656,3 +656,72 @@ def accion_agente_reactivar_bot(cid):
     return redirect(url_for("petra_panel.ficha_agente", cid=cid,
                             token=request.form.get("token", ""),
                             flash="bot_reactivado"))
+
+
+# =============================================================================
+# Corregir dato de agente: resetea el campo + estado=recolectando + mensaje
+# proactivo. El flow determinístico vuelve a capturar la respuesta y avanza.
+# =============================================================================
+
+_CAMPOS_CORREGIBLES = {"nombre", "cedula", "ciudad", "barrio", "conjunto"}
+
+_MSG_PEDIR_CAMPO = {
+    "nombre":   "Hola! 👋 ¿Me podrías decir tu nombre completo?",
+    "cedula":   "Hola {nombre}! Me faltó tu cédula. ¿Me la mandás? (solo números)",
+    "ciudad":   "Hola {nombre}! ¿En qué ciudad vivís?",
+    "barrio":   "Hola {nombre}! ¿En qué barrio vivís?",
+    "conjunto": "Hola {nombre}! ¿Cómo se llama el conjunto o edificio donde vivís?",
+}
+
+
+@petra_panel_bp.post("/agente/<int:cid>/pedir_corregir/<campo>")
+def accion_agente_pedir_corregir(cid, campo):
+    """Resetea un campo específico de la agente, cierra la sesión activa
+    para que el flow arranque limpio, y manda un mensaje proactivo
+    pidiendo ese dato. Cuando la agente responda, el handler determinístico
+    vuelve a capturar el valor y avanza al resumen de confirmación."""
+    _check_token()
+    token = request.form.get("token", "")
+    if campo not in _CAMPOS_CORREGIBLES:
+        return redirect(url_for("petra_panel.ficha_agente", cid=cid,
+                                token=token, flash=f"error:campo invalido"))
+
+    import json as _json
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT c.telefono, r.metadata "
+            "FROM petra_contactos c "
+            "JOIN petra_contacto_roles r ON r.contacto_id = c.id "
+            "WHERE c.id = %s AND r.rol = 'agente_petra'",
+            (cid,)
+        ).fetchone()
+        if not row:
+            abort(404)
+        tel, meta = row[0], (row[1] or {})
+        nombre_actual = str(meta.get("nombre") or "").split(" ")[0] or ""
+        # Reset del campo + volver a estado recolectando
+        meta.pop(campo, None)
+        meta["estado_agente"] = "recolectando"
+        conn.execute(
+            "UPDATE petra_contacto_roles SET metadata = %s::jsonb "
+            "WHERE contacto_id = %s AND rol = 'agente_petra'",
+            (_json.dumps(meta), cid),
+        )
+        # Cerrar sesión activa para que la próxima respuesta arranque limpia
+        conn.execute(
+            "UPDATE petra_sesion_chat SET cerrada_at = NOW(), "
+            "razon_cierre = 'correccion_manual_panel' "
+            "WHERE telefono = %s AND cerrada_at IS NULL",
+            (tel,),
+        )
+
+    # Mensaje proactivo
+    plantilla = _MSG_PEDIR_CAMPO[campo]
+    mensaje = plantilla.format(nombre=nombre_actual) if "{nombre}" in plantilla else plantilla
+    # Si no tenemos nombre y la plantilla lo pide, limpiar los dobles espacios
+    mensaje = mensaje.replace("Hola ! ", "Hola! ").replace("Hola !", "Hola!")
+    from app import petra_wa
+    r = petra_wa.send_text(tel, mensaje)
+    flash = f"correccion_{campo}_ok" if r.get("ok") else f"error:{str(r)[:80]}"
+    return redirect(url_for("petra_panel.ficha_agente", cid=cid,
+                            token=token, flash=flash))
