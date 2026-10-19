@@ -278,8 +278,8 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
         journey = (
             "📋 *Tu camino como Agente Petra:*\n\n"
             "1️⃣ *Inscripción* ✅ — ya lo hiciste.\n"
-            "2️⃣ *Capacitación* 🎓 — 2 videos cada día durante 6 días.\n"
-            "3️⃣ *Autorización del conjunto* 🏢 — hablás con la administración.\n"
+            "2️⃣ *Capacitación* 🎓 — 2 videos cada día durante 7 días.\n"
+            "3️⃣ *Autorización del conjunto* 🏢 — hablás con el administrador de tu conjunto.\n"
             "4️⃣ *Activar el QR* 📬 — te enviamos kit + regalo.\n"
             "5️⃣ *Gestionar citas* 📅 — recibís citas con propietarios/interesados.\n"
             "6️⃣ *Registrar inventario* 🔑 — recibís llaves y revisás inmuebles.\n\n"
