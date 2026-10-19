@@ -154,8 +154,44 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
                               contacto_nombre)
 
 
+def _bot_pausado(telefono):
+    """¿El operador humano pausó el bot para este contacto desde el panel?
+
+    Lee `petra_contacto_roles.metadata->>'bot_pausado'` del rol agente_petra.
+    'true' → pausado hasta que el panel lo reactive explícitamente
+    (no hay TTL automático: lo controla el humano).
+    Cualquier otro valor o ausencia → bot activo."""
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(r.metadata->>'bot_pausado', 'false') "
+                "FROM petra_contacto_roles r "
+                "JOIN petra_contactos c ON c.id = r.contacto_id "
+                "WHERE c.telefono = %s AND r.rol = 'agente_petra'",
+                (telefono,),
+            ).fetchone()
+    except Exception:
+        log.exception("[router] lectura bot_pausado fallo tel=%s", telefono)
+        return False
+    return bool(row and row[0] and str(row[0]).lower() == "true")
+
+
 def _handle_locked(telefono, texto, button_id, list_id, contacto_nombre):
     texto_efectivo = button_id or list_id or texto or ""
+
+    # Pausa manual desde el panel: el humano está hablando con la agente,
+    # el bot auto se queda callado. El IN ya quedó logueado en el webhook.
+    # Se mantiene la sesión abierta para que el chat del panel vea la
+    # actividad reciente. Reactivación: botón en el panel.
+    if _bot_pausado(telefono):
+        log.info("[router] bot pausado (panel) para %s — IN logueado, no respondo",
+                 telefono)
+        try:
+            sesion.obtener_o_abrir(telefono)
+        except Exception:
+            log.exception("[router] obtener_o_abrir fallo tel=%s", telefono)
+        return {"ok": True, "pausado": True}
 
     # 3. Sesión — abrir si no hay, actualizar último_msg_at.
     sess = sesion.obtener_o_abrir(telefono)
