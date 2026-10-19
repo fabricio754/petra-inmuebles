@@ -614,10 +614,17 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
                  dia_a_enviar, telefono)
         return False
 
-    # Enviar los 2 videos del día + CTA
-    for titulo, url in videos:
-        petra_wa.send_text(telefono, f"🎬 *{titulo}*\n\n{url}")
-        _time.sleep(2)
+    # Enviar los 2 videos del día + CTA. Si el primer envío cae en
+    # whitelist_skip (dry-run), abortamos sin actualizar metadata — la
+    # agente no vio nada, no hay avance real.
+    primera = petra_wa.send_text(telefono, f"🎬 *{videos[0][0]}*\n\n{videos[0][1]}")
+    if primera.get("whitelist_skip"):
+        log.info("[cap-cron] whitelist bloquea tel=%s — no se actualiza metadata",
+                 telefono)
+        return False
+    _time.sleep(2)
+    petra_wa.send_text(telefono, f"🎬 *{videos[1][0]}*\n\n{videos[1][1]}")
+    _time.sleep(2)
     petra_wa.send_text(telefono,
         f"Son los videos del día {dia_a_enviar}/6 💪\n\n"
         "Cuando los veas, mandame *LISTO* por cada uno para avanzar.")
