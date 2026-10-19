@@ -747,3 +747,55 @@ def accion_admin_run_capacitacion():
         flash = f"error:{str(exc)[:80]}"
     return redirect(url_for("petra_panel.panel_home", tab="contenidos",
                             token=token, flash=flash))
+
+
+@petra_panel_bp.post("/admin/revertir_cap_hoy")
+def accion_admin_revertir_cap_hoy():
+    """Resetea cap_dia_enviado y cap_ultimo_envio_fecha de todos los agentes
+    cuyo cap_ultimo_envio_fecha es HOY (zona Bogotá) EXCEPTO los que están
+    en PETRA_PILOTO_WHITELIST (ellos sí recibieron). Útil para deshacer el
+    efecto de un disparo del cron hecho mientras la whitelist estaba
+    activa (los demás agentes quedaron con cap_dia_enviado incrementado
+    pero sin haber recibido nada)."""
+    _check_token()
+    token = request.form.get("token", "")
+    import datetime as _dt, json as _json
+    try:
+        from zoneinfo import ZoneInfo
+        hoy = _dt.datetime.now(ZoneInfo("America/Bogota")).date().isoformat()
+    except Exception:
+        hoy = _dt.datetime.utcnow().date().isoformat()
+    wl = (os.environ.get("PETRA_PILOTO_WHITELIST") or "").strip()
+    whitelist = {s.strip() for s in wl.split(",") if s.strip()}
+    revertidos = []
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            cur = conn.execute(
+                "SELECT c.id, c.telefono, r.metadata "
+                "FROM petra_contactos c "
+                "JOIN petra_contacto_roles r ON r.contacto_id=c.id "
+                "WHERE r.rol='agente_petra' "
+                "AND r.metadata->>'cap_ultimo_envio_fecha' = %s", (hoy,)
+            )
+            filas = cur.fetchall()
+            for cid, tel, meta in filas:
+                if tel in whitelist:
+                    continue  # a esta sí le llegó realmente
+                m = meta or {}
+                m.pop("cap_dia_enviado", None)
+                m.pop("cap_ultimo_envio_fecha", None)
+                # Si el envío la había promovido de esperando_capacitacion_dia1,
+                # también revertimos el estado.
+                if m.get("estado_agente") == "en_capacitacion" and not m.get("videos_vistos"):
+                    m["estado_agente"] = "esperando_capacitacion_dia1"
+                conn.execute(
+                    "UPDATE petra_contacto_roles SET metadata = %s::jsonb "
+                    "WHERE contacto_id=%s AND rol='agente_petra'",
+                    (_json.dumps(m), cid),
+                )
+                revertidos.append(tel)
+        flash = f"revertidos_{len(revertidos)}"
+    except Exception as exc:
+        flash = f"error:{str(exc)[:80]}"
+    return redirect(url_for("petra_panel.panel_home", tab="contenidos",
+                            token=token, flash=flash))

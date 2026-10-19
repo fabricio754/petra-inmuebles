@@ -463,14 +463,23 @@
   </p>
   {% if flash == 'cap_cron_ok' %}
     <p style="padding:8px 12px; background:#d9f5e2; color:#1b7a3d; border-radius:6px; font-size:13px">✅ Cron disparado. Revisá los logs y la ficha de las agentes para ver si recibieron los videos.</p>
+  {% elif flash and flash.startswith('revertidos_') %}
+    <p style="padding:8px 12px; background:#d9f5e2; color:#1b7a3d; border-radius:6px; font-size:13px">↩ Revertido progreso de capacitación en {{ flash[11:] }} agentes (los bloqueados por whitelist).</p>
   {% elif flash and flash.startswith('error') %}
     <p style="padding:8px 12px; background:#fde0de; color:#c0362f; border-radius:6px; font-size:13px">❌ Error: {{ flash[6:] }}</p>
   {% endif %}
-  <form method="post" action="/panel/petra/admin/run_capacitacion"
-        onsubmit="return confirm('Disparar el cron de capacitación AHORA? Enviará los videos del día siguiente a toda agente lista (respetando whitelist si está seteada).');">
-    <input type="hidden" name="token" value="{{ token }}">
-    <button type="submit" class="danger">⚡ Disparar cron capacitación</button>
-  </form>
+  <div style="display:flex; gap:8px; flex-wrap:wrap">
+    <form method="post" action="/panel/petra/admin/run_capacitacion"
+          onsubmit="return confirm('Disparar el cron de capacitación AHORA? Enviará los videos del día siguiente a toda agente lista (respetando whitelist si está seteada).');">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="danger">⚡ Disparar cron capacitación</button>
+    </form>
+    <form method="post" action="/panel/petra/admin/revertir_cap_hoy"
+          onsubmit="return confirm('Revertir el progreso de capacitación de HOY para las agentes que estuvieron bloqueadas por whitelist (no recibieron realmente)?');">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit">↩ Revertir envíos bloqueados por whitelist</button>
+    </form>
+  </div>
 </div>
 <style>
   .cont-grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
