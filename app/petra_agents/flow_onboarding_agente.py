@@ -474,10 +474,53 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
         _enviar(telefono, "Cuando lo veas mandame *LISTO* 💪")
         _log(telefono, texto, f"[enviado video manual: {titulo}]")
         return True
-    # Preguntas abiertas en capacitación: 3 variantes rotativas + anti-spam.
-    # Nunca ofrecemos "humano" ni pausamos el bot — la conversación sigue
-    # fluida y nos ganamos espacio hasta que haya comando real (LISTO,
-    # SIGUIENTE) o cambio de día.
+    # Intento de intención: "reenviar/perdí/mandame los videos" → re-enviamos
+    # los 2 videos del día actual (cap_dia_enviado) sin tocar metadata.
+    if any(kw in t_lc for kw in ("reenviar", "reenvia", "re-enviar", "perdi", "perdí",
+                                   "mandame", "mándame", "manda los videos",
+                                   "volver a enviar", "volver ah enviar",
+                                   "no vi", "no me llego", "no me llegó")):
+        dia_actual_env = int(meta.get("cap_dia_enviado", 0) or 0)
+        if dia_actual_env >= 1:
+            if cap_v >= 2 and dia_actual_env == 1:
+                row_b = conn.execute(
+                    "SELECT titulo, url FROM petra_contenidos "
+                    "WHERE tipo='bienvenida' AND activo=TRUE ORDER BY orden LIMIT 1"
+                ).fetchone()
+                row_p = conn.execute(
+                    "SELECT titulo, url FROM petra_contenidos "
+                    "WHERE tipo='proximos_pasos' AND activo=TRUE ORDER BY orden LIMIT 1"
+                ).fetchone()
+                videos = [r for r in (row_b, row_p) if r]
+            else:
+                offset_dia = (dia_actual_env - 2) if cap_v >= 2 else (dia_actual_env - 1)
+                offset = offset_dia * 2
+                cur_v = conn.execute(
+                    "SELECT titulo, url FROM petra_contenidos "
+                    "WHERE tipo='video_capacitacion' AND activo=TRUE "
+                    "ORDER BY orden LIMIT 2 OFFSET %s", (offset,),
+                )
+                videos = cur_v.fetchall()
+            if len(videos) >= 2:
+                from app import petra_wa as _pwa
+                import time as _t
+                _pwa.send_text(telefono,
+                    f"¡Claro! Acá los tenés de nuevo 💜 — videos del día *{dia_actual_env}/{dias_total}*:")
+                _t.sleep(1)
+                _pwa.send_text(telefono, f"🎬 *{videos[0][0]}*\n\n{videos[0][1]}")
+                _t.sleep(2)
+                _pwa.send_text(telefono, f"🎬 *{videos[1][0]}*\n\n{videos[1][1]}")
+                _t.sleep(2)
+                _pwa.send_buttons(telefono,
+                    "Cuando los termines, pulsá el botón 👇",
+                    [{"id": "ONBAG_LISTO", "title": "✅ Listo"}],
+                )
+                _log(telefono, texto, f"[reenvío día {dia_actual_env}]",
+                     nota="reenvío manual por intención")
+                return True
+
+    # Preguntas abiertas en capacitación: variantes rotativas + anti-spam.
+    # Mostramos siempre botón "Ver día siguiente" si quedan días.
     import datetime as _dt
     now = _dt.datetime.utcnow()
     ultimo_at = meta.get("ultimo_fallback_at")
@@ -491,17 +534,20 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
         except Exception:
             pass
     variantes = [
-        f"👋 ¡Hola! Vas {vistos}/12 videos. El próximo llega mañana a las 8am ⏰",
-        f"Vi tu mensaje 💜. Seguimos con los videos mañana a las 8am — vas {vistos}/12.",
-        f"¡Dale! 💪 Mañana a las 8am te paso el próximo. Vas {vistos}/12.",
+        f"👋 ¡Hola! Vas {vistos}/{total} videos. El próximo par llega mañana a las 8am ⏰",
+        f"Vi tu mensaje 💜. Seguimos mañana a las 8am — vas {vistos}/{total}.",
+        f"¡Dale! 💪 Mañana a las 8am te paso los próximos. Vas {vistos}/{total}.",
     ]
     idx = int(meta.get("ultimo_fallback_idx", -1) or -1)
     idx = (idx + 1) % len(variantes)
-    resp = variantes[idx]
+    resp = variantes[idx] + "\n\nO si querés avanzar ya, pulsá el botón 👇"
     meta["ultimo_fallback_idx"] = idx
     meta["ultimo_fallback_at"] = now.isoformat()
     _save_meta(conn, cid, meta)
-    _enviar(telefono, resp)
+    from app import petra_wa as _pwa2
+    _pwa2.send_buttons(telefono, resp, [
+        {"id": "ONBAG_SIGUIENTE_DIA", "title": "⏭ Ver día siguiente"},
+    ])
     _log(telefono, texto, resp, nota=f"fallback capacitación v{idx}")
     return True
 
