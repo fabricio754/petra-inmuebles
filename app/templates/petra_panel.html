@@ -649,13 +649,16 @@
         {% if agrupados.update({c.tipo: agrupados.get(c.tipo, []) + [c]}) %}{% endif %}
       {% endfor %}
       {% set labels = {
+        'video_autorizacion': "🎬 Video 'Cómo pedir autorización' (post-capacitación)",
+        'demo_autorizacion': '📱 Demo del producto (post-capacitación)',
+        'pieza_grafica_autorizacion': '🖼 Piezas gráficas para el admin (hasta 2)',
         'documento_pdf': '📄 Documentos PDF',
         'kit_autorizacion': '📋 Kit autorización administrador',
         'script_mensaje': '✍️ Scripts / plantillas',
         'plantilla_whatsapp': '📱 Plantillas WhatsApp',
         'otro': '📦 Otros'
       } %}
-      {% for tipo in ['documento_pdf', 'kit_autorizacion', 'script_mensaje', 'plantilla_whatsapp', 'otro'] %}
+      {% for tipo in ['video_autorizacion', 'demo_autorizacion', 'pieza_grafica_autorizacion', 'documento_pdf', 'kit_autorizacion', 'script_mensaje', 'plantilla_whatsapp', 'otro'] %}
         {% if agrupados.get(tipo) %}
         <div class="cont-group">
           <h3>{{ labels[tipo] }}</h3>
