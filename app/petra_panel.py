@@ -236,9 +236,12 @@ def panel_home():
 # Contenidos (videos, PDFs, scripts, plantillas) — subida desde el panel
 # =============================================================================
 _TIPOS_CONTENIDO = {
-    "bienvenida": "🎬 Video de bienvenida (al confirmar inscripción)",
-    "proximos_pasos": "🗺 Video de próximos pasos (va junto al de bienvenida)",
-    "video_capacitacion": "📚 Video de capacitación (días 1 a 6, 2 por día)",
+    "bienvenida": "🎬 Video de bienvenida (día 1 cap v2 — al pulsar 'Empezar ahora')",
+    "proximos_pasos": "🗺 Video de próximos pasos (día 1 cap v2 — va con el de bienvenida)",
+    "video_capacitacion": "📚 Video de capacitación (días 2-7 cap v2, 2 por día)",
+    "video_autorizacion": "🎬 Video 'Cómo pedir autorización al administrador' (al terminar capacitación)",
+    "demo_autorizacion": "📱 Demo del producto (al terminar capacitación)",
+    "pieza_grafica_autorizacion": "🖼 Pieza gráfica para mostrarle al admin (hasta 2, en orden)",
     "documento_pdf": "📄 Documento PDF",
     "kit_autorizacion": "📋 Kit autorización administrador",
     "script_mensaje": "✍️ Script / plantilla de mensaje",
