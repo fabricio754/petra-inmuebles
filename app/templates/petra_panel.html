@@ -474,6 +474,12 @@
       <input type="hidden" name="token" value="{{ token }}">
       <button type="submit" class="danger">⚡ Disparar cron capacitación</button>
     </form>
+    <form method="post" action="/panel/petra/admin/run_capacitacion"
+          onsubmit="return confirm('Disparar IGNORANDO dedup de fecha? Útil para pruebas: permite enviar día N+1 el mismo día que se mandó día N.');">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="ignore_date" value="true">
+      <button type="submit" class="danger">⚡ Disparar cron (ignorar dedup fecha)</button>
+    </form>
     <form method="post" action="/panel/petra/admin/revertir_cap_hoy"
           onsubmit="return confirm('Revertir el progreso de capacitación de HOY para las agentes que estuvieron bloqueadas por whitelist (no recibieron realmente)?');">
       <input type="hidden" name="token" value="{{ token }}">

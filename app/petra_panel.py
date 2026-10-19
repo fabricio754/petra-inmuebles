@@ -739,9 +739,10 @@ def accion_agente_pedir_corregir(cid, campo):
 def accion_admin_run_capacitacion():
     _check_token()
     token = request.form.get("token", "")
+    ignore_date = (request.form.get("ignore_date") or "").strip().lower() in ("1", "true", "on", "yes")
     try:
         from app.scheduler import _petra_enviar_capacitacion_diaria
-        _petra_enviar_capacitacion_diaria()
+        _petra_enviar_capacitacion_diaria(ignorar_dedup_fecha=ignore_date)
         flash = "cap_cron_ok"
     except Exception as exc:
         flash = f"error:{str(exc)[:80]}"
