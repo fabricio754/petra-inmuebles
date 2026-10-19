@@ -240,6 +240,24 @@ def _enviar(telefono, texto):
     petra_wa.send_text(telefono, texto)
 
 
+def _responder_con_llm(telefono, texto, sesion_id=None):
+    """Delega el mensaje al sub-agente LLM agente_petra, que tiene el
+    contexto del rol/estado y puede responder cualquier pregunta libre.
+    Usado como fallback en las fases donde el flow determinístico no
+    reconoce el mensaje como comando (listo, botón, reenvío, etc.)."""
+    try:
+        from app.petra_agents import agente_petra
+        return agente_petra.handle(
+            telefono, texto, es_handoff=False, sesion_id=sesion_id,
+        )
+    except Exception:
+        log.exception("[flow] delegación a LLM fallo tel=%s", telefono)
+        _enviar(telefono,
+            "Perdón, no te pude responder bien ahora. Un asesor te "
+            "contacta pronto 💜")
+        return True
+
+
 def _enviar_material_autorizacion(conn, telefono):
     """Envía los 3 contenidos post-capacitación: video, demo, piezas.
     Silencio por tipo si no hay cargado. Se usa al terminar la capacitación
@@ -418,7 +436,7 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
     return True
 
 
-def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
+def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None):
     """Fase: la agente está en capacitación activa. Los 12 videos se envían
     por cron a las 8am (2 por día x 6 días). Acá solo gestionamos
     confirmaciones ("vi", "listo") y preguntas sobre el calendario."""
@@ -567,37 +585,27 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
                      nota="reenvío manual por intención")
                 return True
 
-    # Preguntas abiertas en capacitación: variantes rotativas + anti-spam.
-    # Mostramos siempre botón "Ver día siguiente" si quedan días.
+    # Preguntas abiertas en capacitación: delegamos al LLM agente_petra
+    # que tiene el contexto del estado/fase y puede responder cualquier duda.
+    # Anti-spam 30s para no gatillar múltiples llamadas al LLM por mensajes
+    # rapidísimos del mismo contacto.
     import datetime as _dt
     now = _dt.datetime.utcnow()
-    ultimo_at = meta.get("ultimo_fallback_at")
+    ultimo_at = meta.get("ultimo_llm_at")
     if ultimo_at:
         try:
             dt_last = _dt.datetime.fromisoformat(ultimo_at)
-            if (now - dt_last).total_seconds() < 120:  # 2 min
-                _log(telefono, texto, "[silencio: fallback <2min]",
-                     nota="anti-spam fallback capacitación")
+            if (now - dt_last).total_seconds() < 30:
+                _log(telefono, texto, "[silencio: LLM <30s]",
+                     nota="anti-spam LLM capacitación")
                 return True
         except Exception:
             pass
-    variantes = [
-        f"👋 ¡Hola! Vas {vistos}/{total} videos. El próximo par llega mañana a las 8am ⏰",
-        f"Vi tu mensaje 💜. Seguimos mañana a las 8am — vas {vistos}/{total}.",
-        f"¡Dale! 💪 Mañana a las 8am te paso los próximos. Vas {vistos}/{total}.",
-    ]
-    idx = int(meta.get("ultimo_fallback_idx", -1) or -1)
-    idx = (idx + 1) % len(variantes)
-    resp = variantes[idx] + "\n\nO si querés avanzar ya, pulsá el botón 👇"
-    meta["ultimo_fallback_idx"] = idx
-    meta["ultimo_fallback_at"] = now.isoformat()
+    meta["ultimo_llm_at"] = now.isoformat()
     _save_meta(conn, cid, meta)
-    from app import petra_wa as _pwa2
-    _pwa2.send_buttons(telefono, resp, [
-        {"id": "ONBAG_SIGUIENTE_DIA", "title": "⏭ Ver día siguiente"},
-    ])
-    _log(telefono, texto, resp, nota=f"fallback capacitación v{idx}")
-    return True
+    _log(telefono, texto, "[delegado a LLM agente_petra]",
+         nota=f"fase capacitación {vistos}/{total}")
+    return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
 
 def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
@@ -657,7 +665,7 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
     return True
 
 
-def handle(telefono, texto, es_handoff=False):
+def handle(telefono, texto, es_handoff=False, sesion_id=None):
     """Procesa un mensaje del user en el flujo de onboarding.
     Determinístico: sin LLM, siempre predecible."""
     from app import db as _db
@@ -688,15 +696,12 @@ def handle(telefono, texto, es_handoff=False):
 
         # ─── Fase 3: en capacitación o esperando día 1 ───
         if estado in ("esperando_capacitacion_dia1", "en_capacitacion"):
-            return _fase_capacitacion(conn, telefono, cid, meta, texto, estado)
+            return _fase_capacitacion(conn, telefono, cid, meta, texto, estado,
+                                      sesion_id=sesion_id)
 
         if estado == "capacitacion_completa":
-            _enviar(telefono,
-                "¡Terminaste la capacitación 🎓! Si no viste el mensaje con "
-                "el próximo paso (autorización del administrador), mandame "
-                "*LISTO* y te lo reenvío.")
-            _log(telefono, texto, "[capacitacion_completa stub]")
-            return True
+            _log(telefono, texto, "[delegado a LLM capacitacion_completa]")
+            return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
         # ─── Fase 4: autorización pendiente — esperando botón "✅ Ya tengo autorización" ───
         if estado == "autorizacion_pendiente":
@@ -729,30 +734,17 @@ def handle(telefono, texto, es_handoff=False):
                 _log(telefono, texto, "[reenvío material autorización]",
                      nota="palabra clave pidió reenviar material")
                 return True
-            # Cualquier otra cosa: recordatorio con botón
-            from app import petra_wa as _pwa_aut
-            _pwa_aut.send_buttons(telefono,
-                "Cuando tengas la autorización del administrador, pulsá el botón 👇\n\n"
-                "_Si querés que te reenvíe el material de apoyo (video, demo, piezas gráficas), decime \"reenviar material\"._",
-                [{"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"}],
-            )
-            _log(telefono, texto, "[recordatorio botón autorización]")
-            return True
+            # Pregunta libre → delegamos al LLM
+            _log(telefono, texto, "[delegado a LLM autorizacion_pendiente]")
+            return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
         if estado == "kit_pendiente":
-            _enviar(telefono,
-                "Estamos preparando tu kit con el QR 📬. Te avisamos acá "
-                "cuando esté en camino. 💜")
-            _log(telefono, texto, "[kit_pendiente stub]")
-            return True
+            _log(telefono, texto, "[delegado a LLM kit_pendiente]")
+            return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
         if estado == "certificado":
-            _enviar(telefono,
-                "¡Buenísimo! Estás certificada. El próximo paso es el kit "
-                "para la administración del edificio. Un asesor te va a "
-                "contactar pronto por este chat. 💪")
-            _log(telefono, texto, "[certificado stub]")
-            return True
+            _log(telefono, texto, "[delegado a LLM certificado]")
+            return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
         if estado != "recolectando":
             log.info("[flow:onboarding] tel=%s estado=%s (no es nuestro)",
