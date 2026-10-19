@@ -332,13 +332,35 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
         _enviar(telefono, "Cuando lo veas mandame *LISTO* 💪")
         _log(telefono, texto, f"[enviado video manual: {titulo}]")
         return True
-    # Preguntas abiertas: respuesta estándar sin inventar
-    dia = (vistos // 2) + 1
-    resp = (f"Estás en capacitación 👩‍🏫 — vas {vistos}/12 videos.\n\n"
-            f"Los próximos llegan mañana a las 8am. Si tenés alguna duda, "
-            f"escribí *AYUDA* y te paso con un humano.")
+    # Preguntas abiertas en capacitación: 3 variantes rotativas + anti-spam.
+    # Nunca ofrecemos "humano" ni pausamos el bot — la conversación sigue
+    # fluida y nos ganamos espacio hasta que haya comando real (LISTO,
+    # SIGUIENTE) o cambio de día.
+    import datetime as _dt
+    now = _dt.datetime.utcnow()
+    ultimo_at = meta.get("ultimo_fallback_at")
+    if ultimo_at:
+        try:
+            dt_last = _dt.datetime.fromisoformat(ultimo_at)
+            if (now - dt_last).total_seconds() < 120:  # 2 min
+                _log(telefono, texto, "[silencio: fallback <2min]",
+                     nota="anti-spam fallback capacitación")
+                return True
+        except Exception:
+            pass
+    variantes = [
+        f"👋 ¡Hola! Vas {vistos}/12 videos. El próximo llega mañana a las 8am ⏰",
+        f"Vi tu mensaje 💜. Seguimos con los videos mañana a las 8am — vas {vistos}/12.",
+        f"¡Dale! 💪 Mañana a las 8am te paso el próximo. Vas {vistos}/12.",
+    ]
+    idx = int(meta.get("ultimo_fallback_idx", -1) or -1)
+    idx = (idx + 1) % len(variantes)
+    resp = variantes[idx]
+    meta["ultimo_fallback_idx"] = idx
+    meta["ultimo_fallback_at"] = now.isoformat()
+    _save_meta(conn, cid, meta)
     _enviar(telefono, resp)
-    _log(telefono, texto, resp, nota="pregunta abierta en capacitación")
+    _log(telefono, texto, resp, nota=f"fallback capacitación v{idx}")
     return True
 
 
