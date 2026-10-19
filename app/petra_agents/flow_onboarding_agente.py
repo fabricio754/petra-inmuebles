@@ -91,19 +91,82 @@ def _save_meta(conn, cid, meta):
         )
 
 
+_SALUDOS = {"hola", "holaa", "holaaa", "ola", "buenas", "buenos",
+            "hey", "hi", "hello", "qué tal", "que tal"}
+_FRASES_RECHAZO = (
+    "no vivo", "no vive", "no tengo", "no hay", "no es ", "no se ", "no sé",
+    "ningun", "ninguna", "ninguno", "nada", "nadie",
+    "perdon", "perdón", "disculpa", "sorry",
+)
+_EMOTICONES_NEG = (":(", ":-(", ":/", ":c", ":'(", "😔", "😢", "😞")
+_RE_PALABRA_ALFA = re.compile(r"^[A-Za-zÁÉÍÓÚáéíóúÑñÜü'\-]+$")
+
+
+def _parece_saludo(t_lc):
+    palabras = t_lc.split()
+    if not palabras:
+        return False
+    primera = palabras[0].strip(",.!?¡¿:;")
+    return primera in _SALUDOS
+
+
+def _parece_rechazo(t_lc):
+    if any(em in t_lc for em in _EMOTICONES_NEG):
+        return True
+    for f in _FRASES_RECHAZO:
+        if f in t_lc:
+            return True
+    return False
+
+
 def _validar(campo, texto):
     """Valida/normaliza una respuesta. Devuelve (valido, valor_normalizado, msg_error)."""
     t = (texto or "").strip()
     if not t:
         return False, None, "Hmm, no recibí nada. Mandame tu respuesta en texto."
+    t_lc = t.lower()
+
     if campo == "cedula":
         digitos = re.sub(r"\D", "", t)
         if len(digitos) < 6 or len(digitos) > 12:
             return False, None, "La cédula debería tener entre 6 y 12 dígitos. Mandámela otra vez por favor 🙏"
         return True, digitos, None
+
     if campo == "nombre":
-        if len(t.split()) < 2:
-            return False, None, "Por favor mandame tu nombre y apellido completos 🙏"
+        if _parece_saludo(t_lc):
+            return False, None, "Eso parece un saludo 😊. Mandame tu nombre y apellido completos."
+        palabras_alfa = [p for p in t.split()
+                         if len(p) >= 2 and _RE_PALABRA_ALFA.match(p)]
+        if len(palabras_alfa) < 2:
+            return False, None, "Por favor mandame tu nombre y apellido completos (al menos 2 palabras, solo letras) 🙏"
+        if len(t) > 80:
+            return False, None, "Ese nombre es muy largo. Mandame solo nombre y apellido 🙏"
+        return True, t, None
+
+    if campo == "conjunto":
+        if _parece_rechazo(t_lc):
+            return False, None, (
+                "Entiendo 💜. Para ser Agente Petra necesitás vivir en un "
+                "conjunto o edificio residencial. ¿Vivís en alguno? "
+                "Si sí, mandame el nombre; si no, escribí *CANCELAR*."
+            )
+        if len(t) < 2:
+            return False, None, "Mandame el nombre del conjunto o edificio 🙏"
+        if len(t) > 80:
+            return False, None, "Es muy largo. Mandame solo el nombre del conjunto o edificio 🙏"
+        return True, t, None
+
+    if campo in ("ciudad", "barrio"):
+        if _parece_saludo(t_lc):
+            etiqueta = "la ciudad" if campo == "ciudad" else "el barrio"
+            return False, None, f"Mandame el nombre de {etiqueta} 🙏"
+        if len(t) < 2:
+            return False, None, "Esa respuesta es muy corta. Mandame el nombre 🙏"
+        if len(t) > 80:
+            return False, None, "Es muy largo. Mandame algo más corto 🙏"
+        return True, t, None
+
+    # Fallback genérico (por si se agregan campos nuevos)
     if len(t) > 200:
         return False, None, "Esa respuesta es muy larga. Mandame algo más corto 🙏"
     return True, t, None
