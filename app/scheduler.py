@@ -651,9 +651,11 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
     _time.sleep(2)
     petra_wa.send_text(telefono, f"🎬 *{videos[1][0]}*\n\n{videos[1][1]}")
     _time.sleep(2)
-    petra_wa.send_text(telefono,
+    petra_wa.send_buttons(telefono,
         f"Son los videos del día {dia_a_enviar}/{max_dia} 💪\n\n"
-        "Cuando los veas, mandame *LISTO* para avanzar.")
+        "Cuando los termines, pulsá el botón 👇",
+        [{"id": "ONBAG_LISTO", "title": "✅ Listo"}],
+    )
 
     # Actualizar metadata
     meta["cap_dia_enviado"] = dia_a_enviar

@@ -396,7 +396,8 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
     cap_v = int(meta.get("cap_version", 1) or 1)
     total = 14 if cap_v >= 2 else 12
     dias_total = 7 if cap_v >= 2 else 6
-    if t_lc in ("vi", "visto", "listo", "ya", "ok", "terminé", "termine"):
+    if (texto == "ONBAG_LISTO" or
+            t_lc in ("vi", "visto", "listo", "ya", "ok", "terminé", "termine")):
         # UN "listo" cuenta por los 2 videos del día. Lleva al próximo
         # múltiplo de 2 y cap al total según cap_version.
         vistos = min(((vistos // 2) + 1) * 2, total)
