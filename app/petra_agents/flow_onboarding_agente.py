@@ -273,7 +273,11 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
     from app import petra_wa
     nombre_corto = (meta.get("nombre") or "").split()[0]
 
-    # Paso 1: user pulsó "Ver próximos pasos" → journey + botón videos
+    cap_v = int(meta.get("cap_version", 1) or 1)
+
+    # Paso 1: user pulsó "Ver próximos pasos" → journey + botón.
+    # v2: botón "Empezar ahora" (dispara día 1 = bienvenida+próximos directo).
+    # v1 (legacy): botón "Ver videos de hoy" (pre-step que envía videos).
     if texto == "ONBAG_VER_JOURNEY":
         journey = (
             "📋 *Tu camino como Agente Petra:*\n\n"
@@ -285,11 +289,45 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
             "6️⃣ *Registrar inventario* 🔑 — recibís llaves y revisás inmuebles.\n\n"
             "¿Arrancamos con los videos de hoy?"
         )
-        petra_wa.send_buttons(telefono, journey, [
-            {"id": "ONBAG_VER_VIDEOS_HOY", "title": "Ver videos de hoy"},
-        ])
-        _log(telefono, texto, "[journey + btn Ver videos de hoy]",
-             nota="paso 1: journey enviado")
+        boton = ({"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}
+                 if cap_v >= 2
+                 else {"id": "ONBAG_VER_VIDEOS_HOY", "title": "Ver videos de hoy"})
+        petra_wa.send_buttons(telefono, journey, [boton])
+        _log(telefono, texto, f"[journey + btn {boton['title']}]",
+             nota=f"paso 1: journey enviado (cap_v{cap_v})")
+        return True
+
+    # v2 — paso directo: user pulsó "Empezar ahora" desde el journey.
+    # Dispara día 1 (bienvenida+próximos pasos) inmediatamente vía cron.
+    if texto == "ONBAG_EMPEZAR_AHORA" and cap_v >= 2:
+        import datetime as _dt, json as _json, time as _time
+        try:
+            from zoneinfo import ZoneInfo
+            hoy_bogota = _dt.datetime.now(ZoneInfo("America/Bogota")).date().isoformat()
+        except Exception:
+            hoy_bogota = _dt.datetime.utcnow().date().isoformat()
+        meta["estado_agente"] = "esperando_capacitacion_dia1"
+        meta["bienvenida_vista_at"] = _dt.datetime.utcnow().isoformat()
+        _save_meta(conn, cid, meta)
+        try:
+            from app.scheduler import _cap_enviar_para_agente
+            from app import petra_wa as _pwa
+            enviado = _cap_enviar_para_agente(
+                conn, cid, telefono, meta, hoy_bogota,
+                _pwa, _time, _json, ignorar_dedup_fecha=True,
+            )
+        except Exception:
+            log.exception("[flow:onboarding] fallo disparar día 1 v2 tel=%s", telefono)
+            enviado = False
+        if enviado:
+            _log(telefono, texto, "[v2 día 1 enviado inmediato]",
+                 nota="v2 empezar_ahora → día 1 disparado")
+        else:
+            resp = ("¡Buenísimo! 🎉\n\nTu capacitación arranca mañana a las "
+                    "*8am* con los primeros 2 videos. Y así durante 7 días.\n\n"
+                    "Nos vemos mañana. 👋")
+            _enviar(telefono, resp)
+            _log(telefono, texto, resp, nota="v2 empezar_ahora fallback")
         return True
 
     # Paso 2: user pulsó "Ver videos de hoy" → envía videos reales
@@ -319,7 +357,7 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
         petra_wa.send_buttons(telefono,
             f"Cuando {verbo} termines, pulsá el botón para arrancar con "
             "tu capacitación diaria. 💪",
-            [{"id": "ONBAG_YA_VI_VIDEOS", "title": "Ya los vi"}],
+            [{"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}],
         )
         import datetime as _dt
         meta["estado_agente"] = "bienvenida_enviada"
@@ -355,29 +393,32 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
     t_lc = (texto or "").lower().strip()
     import datetime as _dt
     vistos = meta.get("videos_vistos", 0)
+    cap_v = int(meta.get("cap_version", 1) or 1)
+    total = 14 if cap_v >= 2 else 12
+    dias_total = 7 if cap_v >= 2 else 6
     if t_lc in ("vi", "visto", "listo", "ya", "ok", "terminé", "termine"):
-        vistos += 1
-        meta["videos_vistos"] = min(vistos, 12)
-        meta[f"video_{vistos}_visto_at"] = _dt.datetime.utcnow().isoformat()
-        if vistos >= 12:
+        # UN "listo" cuenta por los 2 videos del día. Lleva al próximo
+        # múltiplo de 2 y cap al total según cap_version.
+        vistos = min(((vistos // 2) + 1) * 2, total)
+        meta["videos_vistos"] = vistos
+        meta[f"dia_{vistos // 2}_visto_at"] = _dt.datetime.utcnow().isoformat()
+        if vistos >= total:
             meta["estado_agente"] = "capacitacion_completa"
             _save_meta(conn, cid, meta)
-            resp = ("¡Terminaste los 12 videos! 🎓🎉\n\n"
+            resp = (f"¡Terminaste los {total} videos! 🎓🎉\n\n"
                     "Pasás a la etapa final: nuestro equipo revisa tu "
                     "caso y te contacta con el kit para la administración "
                     "de tu edificio. Te avisamos acá apenas esté listo.")
         else:
             _save_meta(conn, cid, meta)
-            dia_actual = (vistos - 1) // 2 + 1
-            vid_dia = ((vistos - 1) % 2) + 1
-            quedan = 12 - vistos
-            resp = (f"¡Bien hecho! ✅ Marcado video {vistos}/12 "
-                    f"(día {dia_actual}, video {vid_dia}).\n\n"
-                    f"Te quedan {quedan} videos. "
-                    + ("El próximo llega mañana a las 8am." if vid_dia == 2 or vistos == 12
-                       else "Si ya querés ver el siguiente del día, mandame *SIGUIENTE*."))
+            dia_actual = vistos // 2
+            quedan = total - vistos
+            dias_restantes = (total - vistos) // 2
+            resp = (f"¡Bien hecho! ✅ Marcaste los 2 videos del día {dia_actual}/{dias_total}.\n\n"
+                    f"Te quedan {quedan} videos ({dias_restantes} días). "
+                    "El próximo par llega mañana a las 8am.")
         _enviar(telefono, resp)
-        _log(telefono, texto, resp, nota=f"video marcado {vistos}/12")
+        _log(telefono, texto, resp, nota=f"día marcado {vistos}/{total}")
         return True
     if t_lc in ("siguiente", "proximo", "próximo", "mas", "más"):
         # Enviar el siguiente video pendiente del día si queda uno
@@ -428,32 +469,58 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
 
 
 def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
-    """Fase: ya recibió los videos, esperamos que confirme."""
+    """Fase: ya recibió los videos de bienvenida, esperamos confirmación.
+    Al pulsar 'Empezar ahora' (o listo/vi/etc), disparamos día 1 de
+    capacitación en el momento — sin esperar al cron de las 8am."""
     t_lc = (texto or "").lower().strip()
-    if (texto == "ONBAG_YA_VI_VIDEOS" or
+    acepta = ONBAG_EMPEZAR_AHORA = "ONBAG_EMPEZAR_AHORA"
+    legacy_ya_vi = "ONBAG_YA_VI_VIDEOS"  # botón viejo, por si queda en WhatsApp
+    if (texto in (ONBAG_EMPEZAR_AHORA, legacy_ya_vi) or
             t_lc in ("listo", "vi", "visto", "ya", "ya lo vi", "ok", "si",
-                     "sí", "terminé", "termine")):
-        import datetime as _dt
+                     "sí", "terminé", "termine", "empezar", "empezar ahora",
+                     "arrancar")):
+        import datetime as _dt, json as _json, time as _time
+        try:
+            from zoneinfo import ZoneInfo
+            hoy_bogota = _dt.datetime.now(ZoneInfo("America/Bogota")).date().isoformat()
+        except Exception:
+            hoy_bogota = _dt.datetime.utcnow().date().isoformat()
         meta["bienvenida_vista_at"] = _dt.datetime.utcnow().isoformat()
         meta["estado_agente"] = "esperando_capacitacion_dia1"
         _save_meta(conn, cid, meta)
-        resp = (
-            "¡Buenísimo! 🎉\n\n"
-            "Tu capacitación ya arrancó con los 2 videos que te acabo de "
-            "pasar. Mañana a las *8am* te envío la *segunda tanda de "
-            "2 videos*, y así durante los próximos 6 días.\n\n"
-            "Nos vemos mañana. 👋"
-        )
-        _enviar(telefono, resp)
-        _log(telefono, texto, resp, nota="bienvenida confirmada, pasa a capacitación")
+        # Disparar día 1 inmediatamente reusando la función del cron.
+        try:
+            from app.scheduler import _cap_enviar_para_agente
+            from app import petra_wa as _pwa
+            enviado = _cap_enviar_para_agente(
+                conn, cid, telefono, meta, hoy_bogota,
+                _pwa, _time, _json, ignorar_dedup_fecha=True,
+            )
+        except Exception:
+            log.exception("[flow:onboarding] fallo disparar día 1 inmediato tel=%s", telefono)
+            enviado = False
+        if enviado:
+            _log(telefono, texto, "[día 1 enviado inmediato por botón Empezar ahora]",
+                 nota="empezar_ahora → día 1 disparado")
+        else:
+            # Fallback: no se pudo enviar (sin videos, pausa, etc). Mensaje
+            # explicativo con la ruta normal del cron.
+            resp = (
+                "¡Buenísimo! 🎉\n\n"
+                "Tu capacitación arranca mañana a las *8am* con los primeros "
+                "2 videos. Y así durante 7 días.\n\n"
+                "Nos vemos mañana. 👋"
+            )
+            _enviar(telefono, resp)
+            _log(telefono, texto, resp, nota="empezar_ahora pero sin envío (fallback)")
         return True
     # Cualquier otra cosa: recordatorio con botón
     from app import petra_wa
     petra_wa.send_buttons(telefono,
         "Cuando termines de ver los videos, pulsá el botón para avanzar 🎬",
-        [{"id": "ONBAG_YA_VI_VIDEOS", "title": "Ya los vi"}],
+        [{"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}],
     )
-    _log(telefono, texto, "[recordatorio: btn Ya los vi]",
+    _log(telefono, texto, "[recordatorio: btn Empezar ahora]",
          nota="bienvenida_enviada esperando confirmación")
     return True
 
@@ -556,8 +623,11 @@ def handle(telefono, texto, es_handoff=False):
                              "confirmar", "si", "sí", "listo")):
             faltantes = [c for c in CAMPOS if not meta.get(c)]
             if not faltantes:
-                # Marcar como inscrito oficial
+                # Marcar como inscrito oficial + flow v2 (14 videos / 7 días,
+                # día 1 = bienvenida+próximos pasos). Agentes antiguas sin
+                # cap_version siguen en v1 (12 videos / 6 días).
                 meta["estado_agente"] = "inscrito"
+                meta["cap_version"] = 2
                 import datetime as _dt
                 meta["inscrito_at"] = _dt.datetime.utcnow().isoformat()
                 _save_meta(conn, cid, meta)

@@ -590,12 +590,20 @@ def _petra_enviar_capacitacion_diaria(ignorar_dedup_fecha=False):
 def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
                             petra_wa, _time, _json,
                             ignorar_dedup_fecha=False):
-    """Procesa una agente. Devuelve True si envió videos hoy."""
+    """Procesa una agente. Devuelve True si envió videos hoy.
+
+    Flow version (meta.cap_version):
+      v1 (default): 12 videos / 6 días. Todos los días son video_capacitacion.
+      v2: 14 videos / 7 días. Día 1 = bienvenida+proximos_pasos;
+          días 2-7 = video_capacitacion offset (dia-2)*2.
+    """
+    cap_v = int(meta.get("cap_version", 1) or 1)
     dia_enviado = int(meta.get("cap_dia_enviado", 0) or 0)
     videos_vistos = int(meta.get("videos_vistos", 0) or 0)
+    max_dia = 7 if cap_v >= 2 else 6
 
     # Terminó capacitación
-    if dia_enviado >= 6:
+    if dia_enviado >= max_dia:
         return False
 
     # Regla "solo avanza si confirmó": esperamos LISTO por los anteriores
@@ -607,16 +615,29 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
         return False
 
     dia_a_enviar = dia_enviado + 1
-    offset = (dia_a_enviar - 1) * 2
-    cur = conn.execute(
-        "SELECT titulo, url FROM petra_contenidos "
-        "WHERE tipo='video_capacitacion' AND activo=TRUE "
-        "ORDER BY orden LIMIT 2 OFFSET %s", (offset,),
-    )
-    videos = cur.fetchall()
+    # Resolver qué videos corresponden al día según cap_version
+    if cap_v >= 2 and dia_a_enviar == 1:
+        row_b = conn.execute(
+            "SELECT titulo, url FROM petra_contenidos "
+            "WHERE tipo='bienvenida' AND activo=TRUE ORDER BY orden LIMIT 1"
+        ).fetchone()
+        row_p = conn.execute(
+            "SELECT titulo, url FROM petra_contenidos "
+            "WHERE tipo='proximos_pasos' AND activo=TRUE ORDER BY orden LIMIT 1"
+        ).fetchone()
+        videos = [r for r in (row_b, row_p) if r]
+    else:
+        offset_dia = (dia_a_enviar - 2) if cap_v >= 2 else (dia_a_enviar - 1)
+        offset = offset_dia * 2
+        cur = conn.execute(
+            "SELECT titulo, url FROM petra_contenidos "
+            "WHERE tipo='video_capacitacion' AND activo=TRUE "
+            "ORDER BY orden LIMIT 2 OFFSET %s", (offset,),
+        )
+        videos = cur.fetchall()
     if len(videos) < 2:
-        log.info("[cap-cron] día %s sin 2 videos cargados — skip tel=%s",
-                 dia_a_enviar, telefono)
+        log.info("[cap-cron] día %s (v%s) sin 2 videos cargados — skip tel=%s",
+                 dia_a_enviar, cap_v, telefono)
         return False
 
     # Enviar los 2 videos del día + CTA. Si el primer envío cae en
@@ -631,8 +652,8 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
     petra_wa.send_text(telefono, f"🎬 *{videos[1][0]}*\n\n{videos[1][1]}")
     _time.sleep(2)
     petra_wa.send_text(telefono,
-        f"Son los videos del día {dia_a_enviar}/6 💪\n\n"
-        "Cuando los veas, mandame *LISTO* por cada uno para avanzar.")
+        f"Son los videos del día {dia_a_enviar}/{max_dia} 💪\n\n"
+        "Cuando los veas, mandame *LISTO* para avanzar.")
 
     # Actualizar metadata
     meta["cap_dia_enviado"] = dia_a_enviar
@@ -644,5 +665,5 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
         "WHERE contacto_id = %s AND rol = 'agente_petra'",
         (_json.dumps(meta), cid),
     )
-    log.info("[cap-cron] enviado día %s a tel=%s", dia_a_enviar, telefono)
+    log.info("[cap-cron] enviado día %s (v%s) a tel=%s", dia_a_enviar, cap_v, telefono)
     return True
