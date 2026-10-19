@@ -511,7 +511,7 @@
 <div class="cont-grid">
   <aside class="cont-form">
     <h3>📥 Subir contenido</h3>
-    <form method="post" action="/panel/petra/contenido/crear">
+    <form method="post" action="/panel/petra/contenido/crear" enctype="multipart/form-data">
       <input type="hidden" name="token" value="{{ token }}">
       <label>Tipo</label>
       <select name="tipo" id="cont-tipo" required>
@@ -531,7 +531,9 @@
       <input type="text" name="titulo" id="cont-titulo" required placeholder="Ej. Día 1 Video 1 — Qué es Petra">
       <label>URL (TikTok, YouTube, Drive…)</label>
       <input type="url" name="url" placeholder="https://…">
-      <label>O texto inline (si no es URL)</label>
+      <label>O subí un archivo (imagen o video, máx 16MB)</label>
+      <input type="file" name="archivo" accept="image/*,video/*">
+      <label>O texto inline (si no es URL/archivo)</label>
       <textarea name="texto" placeholder="Script, plantilla, FAQ…"></textarea>
       <label>Orden (1-12 para capacitación; 1 para bienvenida)</label>
       <input type="number" name="orden" id="cont-orden" value="1" min="1" max="99">

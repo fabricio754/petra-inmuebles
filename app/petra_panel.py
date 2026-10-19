@@ -250,6 +250,65 @@ _TIPOS_CONTENIDO = {
 }
 
 
+_MEDIA_DIR = "/var/data/media"
+_MEDIA_MAX_BYTES = 16 * 1024 * 1024  # 16MB (límite WhatsApp)
+_MEDIA_ALLOWED_EXT = {
+    ".jpg", ".jpeg", ".png", ".gif", ".webp",  # imágenes
+    ".mp4", ".mov", ".avi", ".webm", ".mkv",   # videos
+}
+
+
+def _guardar_archivo_media(file_storage, public_base_url=""):
+    """Guarda un archivo subido en /var/data/media con nombre uuid+ext.
+    Devuelve URL pública relativa (/petra/media/<name>) o None si no es
+    válido. No propaga excepciones."""
+    import os as _os
+    import uuid as _uuid
+    try:
+        _os.makedirs(_MEDIA_DIR, exist_ok=True)
+    except Exception:
+        return None
+    nombre = (file_storage.filename or "").strip()
+    if not nombre:
+        return None
+    _, ext = _os.path.splitext(nombre.lower())
+    if ext not in _MEDIA_ALLOWED_EXT:
+        return None
+    # Chequear tamaño leyendo el stream (werkzeug ya tiene content_length)
+    try:
+        file_storage.stream.seek(0, 2)  # SEEK_END
+        size = file_storage.stream.tell()
+        file_storage.stream.seek(0)
+    except Exception:
+        size = 0
+    if size > _MEDIA_MAX_BYTES:
+        return None
+    nuevo = f"{_uuid.uuid4().hex}{ext}"
+    destino = _os.path.join(_MEDIA_DIR, nuevo)
+    try:
+        file_storage.save(destino)
+    except Exception:
+        return None
+    # URL pública relativa (el server tiene ruta /petra/media/<name>)
+    base = (public_base_url or os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    return f"{base}/petra/media/{nuevo}" if base else f"/petra/media/{nuevo}"
+
+
+@petra_panel_bp.get("/media/<name>")
+def servir_media(name):
+    """Sirve un archivo subido desde /var/data/media. Público sin token para
+    que Meta/WhatsApp pueda hacer fetch de la URL al enviar como preview."""
+    import os as _os
+    from flask import send_from_directory
+    # Sanitize: solo nombre simple sin paths
+    if "/" in name or ".." in name:
+        abort(404)
+    full = _os.path.join(_MEDIA_DIR, name)
+    if not _os.path.exists(full):
+        abort(404)
+    return send_from_directory(_MEDIA_DIR, name)
+
+
 @petra_panel_bp.post("/contenido/crear")
 def contenido_crear():
     _check_token()
@@ -266,6 +325,12 @@ def contenido_crear():
         duracion = int(request.form.get("duracion_seg")) if request.form.get("duracion_seg") else None
     except ValueError:
         duracion = None
+    # Si subieron archivo, lo guardamos y usamos su URL como url del contenido
+    archivo = request.files.get("archivo")
+    if archivo and archivo.filename:
+        url_archivo = _guardar_archivo_media(archivo)
+        if url_archivo:
+            url = url_archivo
     if tipo not in _TIPOS_CONTENIDO or not titulo:
         return redirect(url_for("petra_panel.panel_home", tab="contenidos",
                                 token=request.form.get("token", "")))
