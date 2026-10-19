@@ -404,12 +404,53 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
         meta["videos_vistos"] = vistos
         meta[f"dia_{vistos // 2}_visto_at"] = _dt.datetime.utcnow().isoformat()
         if vistos >= total:
-            meta["estado_agente"] = "capacitacion_completa"
+            meta["estado_agente"] = "autorizacion_pendiente"
             _save_meta(conn, cid, meta)
-            resp = (f"¡Terminaste los {total} videos! 🎓🎉\n\n"
-                    "Pasás a la etapa final: nuestro equipo revisa tu "
-                    "caso y te contacta con el kit para la administración "
-                    "de tu edificio. Te avisamos acá apenas esté listo.")
+            from app import petra_wa as _pwa_cap
+            import time as _t_cap
+            # Mensaje de felicitación + arranque del paso 3 del journey.
+            _pwa_cap.send_text(telefono,
+                f"🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
+                "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
+                "📍 *Siguiente paso: Autorización del conjunto* 🏢\n\n"
+                "Ahora toca hablar con el administrador de tu edificio para "
+                "que te autorice a representar a Petra ahí. Te paso material "
+                "de apoyo 👇"
+            )
+            _t_cap.sleep(1)
+            # Recursos de apoyo: video, demo, piezas gráficas. Silencio si no
+            # están cargados en el panel.
+            vid_aut = conn.execute(
+                "SELECT titulo, url FROM petra_contenidos "
+                "WHERE tipo='video_autorizacion' AND activo=TRUE "
+                "ORDER BY orden LIMIT 1"
+            ).fetchone()
+            if vid_aut:
+                _pwa_cap.send_text(telefono, f"🎬 *{vid_aut[0]}*\n\n{vid_aut[1]}")
+                _t_cap.sleep(2)
+            demo = conn.execute(
+                "SELECT titulo, url FROM petra_contenidos "
+                "WHERE tipo='demo_autorizacion' AND activo=TRUE "
+                "ORDER BY orden LIMIT 1"
+            ).fetchone()
+            if demo:
+                _pwa_cap.send_text(telefono, f"📱 *{demo[0]}*\n\n{demo[1]}")
+                _t_cap.sleep(2)
+            piezas = conn.execute(
+                "SELECT titulo, url FROM petra_contenidos "
+                "WHERE tipo='pieza_grafica_autorizacion' AND activo=TRUE "
+                "ORDER BY orden LIMIT 2"
+            ).fetchall()
+            for p in piezas:
+                _pwa_cap.send_text(telefono, f"🖼 *{p[0]}*\n\n{p[1]}")
+                _t_cap.sleep(2)
+            _pwa_cap.send_buttons(telefono,
+                "Cuando tengas la autorización del administrador, pulsá el botón 👇",
+                [{"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"}],
+            )
+            _log(telefono, texto, "[capacitación completa → autorización + recursos]",
+                 nota="capacitacion_completa → autorizacion_pendiente")
+            return True
         else:
             _save_meta(conn, cid, meta)
             dia_actual = vistos // 2
@@ -644,12 +685,44 @@ def handle(telefono, texto, es_handoff=False):
 
         if estado == "capacitacion_completa":
             _enviar(telefono,
-                "¡Felicitaciones! Terminaste tu capacitación 🎓\n\n"
-                "El equipo humano de Petra está revisando tu caso para "
-                "activarte oficialmente. Te avisamos acá cuando esté listo "
-                "con las instrucciones para hablar con la administración "
-                "de tu edificio.")
+                "¡Terminaste la capacitación 🎓! Si no viste el mensaje con "
+                "el próximo paso (autorización del administrador), mandame "
+                "*LISTO* y te lo reenvío.")
             _log(telefono, texto, "[capacitacion_completa stub]")
+            return True
+
+        # ─── Fase 4: autorización pendiente — esperando botón "✅ Ya tengo autorización" ───
+        if estado == "autorizacion_pendiente":
+            if texto == "ONBAG_YA_TENGO_AUTORIZACION" or (texto or "").lower().strip() in (
+                "autorizado", "autorizacion", "autorización", "tengo autorizacion",
+                "tengo autorización", "ya tengo"):
+                meta["estado_agente"] = "kit_pendiente"
+                _save_meta(conn, cid, meta)
+                _enviar(telefono,
+                    "🎉 *¡Buenísimo!*\n\n"
+                    "📍 *Siguiente paso: Activar el QR* 📬\n\n"
+                    "Te vamos a enviar un kit con el QR y un regalito a la "
+                    "dirección de tu edificio. Te confirmamos acá cuando "
+                    "esté en camino.\n\n"
+                    "Mientras tanto, podés ir preparando: identificar "
+                    "propietarios interesados en tu conjunto, pensar qué "
+                    "inmuebles podrían salir, etc. 💜")
+                _log(telefono, texto, "[autorizacion confirmada → kit_pendiente]")
+                return True
+            # Cualquier otra cosa: recordatorio con botón
+            from app import petra_wa as _pwa_aut
+            _pwa_aut.send_buttons(telefono,
+                "Cuando tengas la autorización del administrador, pulsá el botón 👇",
+                [{"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"}],
+            )
+            _log(telefono, texto, "[recordatorio botón autorización]")
+            return True
+
+        if estado == "kit_pendiente":
+            _enviar(telefono,
+                "Estamos preparando tu kit con el QR 📬. Te avisamos acá "
+                "cuando esté en camino. 💜")
+            _log(telefono, texto, "[kit_pendiente stub]")
             return True
 
         if estado == "certificado":
