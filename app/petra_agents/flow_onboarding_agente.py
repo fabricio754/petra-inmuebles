@@ -356,9 +356,12 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
     import datetime as _dt
     vistos = meta.get("videos_vistos", 0)
     if t_lc in ("vi", "visto", "listo", "ya", "ok", "terminé", "termine"):
-        vistos += 1
-        meta["videos_vistos"] = min(vistos, 12)
-        meta[f"video_{vistos}_visto_at"] = _dt.datetime.utcnow().isoformat()
+        # UN "listo" cuenta por los 2 videos del día (una sola confirmación
+        # por tanda diaria). Si por alguna razón quedó impar, también lo
+        # corrige: cap a múltiplo de 2 y máximo 12.
+        vistos = min(((vistos // 2) + 1) * 2, 12)
+        meta["videos_vistos"] = vistos
+        meta[f"dia_{vistos // 2}_visto_at"] = _dt.datetime.utcnow().isoformat()
         if vistos >= 12:
             meta["estado_agente"] = "capacitacion_completa"
             _save_meta(conn, cid, meta)
@@ -368,16 +371,14 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
                     "de tu edificio. Te avisamos acá apenas esté listo.")
         else:
             _save_meta(conn, cid, meta)
-            dia_actual = (vistos - 1) // 2 + 1
-            vid_dia = ((vistos - 1) % 2) + 1
+            dia_actual = vistos // 2
             quedan = 12 - vistos
-            resp = (f"¡Bien hecho! ✅ Marcado video {vistos}/12 "
-                    f"(día {dia_actual}, video {vid_dia}).\n\n"
-                    f"Te quedan {quedan} videos. "
-                    + ("El próximo llega mañana a las 8am." if vid_dia == 2 or vistos == 12
-                       else "Si ya querés ver el siguiente del día, mandame *SIGUIENTE*."))
+            dias_restantes = (12 - vistos) // 2
+            resp = (f"¡Bien hecho! ✅ Marcaste los 2 videos del día {dia_actual}.\n\n"
+                    f"Te quedan {quedan} videos ({dias_restantes} días). "
+                    "El próximo par llega mañana a las 8am.")
         _enviar(telefono, resp)
-        _log(telefono, texto, resp, nota=f"video marcado {vistos}/12")
+        _log(telefono, texto, resp, nota=f"día marcado {vistos}/12")
         return True
     if t_lc in ("siguiente", "proximo", "próximo", "mas", "más"):
         # Enviar el siguiente video pendiente del día si queda uno
