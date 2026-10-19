@@ -240,6 +240,38 @@ def _enviar(telefono, texto):
     petra_wa.send_text(telefono, texto)
 
 
+def _enviar_material_autorizacion(conn, telefono):
+    """Envía los 3 contenidos post-capacitación: video, demo, piezas.
+    Silencio por tipo si no hay cargado. Se usa al terminar la capacitación
+    y como respuesta a palabras clave en fase autorizacion_pendiente."""
+    from app import petra_wa as _pwa
+    import time as _t
+    vid = conn.execute(
+        "SELECT titulo, url FROM petra_contenidos "
+        "WHERE tipo='video_autorizacion' AND activo=TRUE "
+        "ORDER BY orden LIMIT 1"
+    ).fetchone()
+    if vid:
+        _pwa.send_text(telefono, f"🎬 *{vid[0]}*\n\n{vid[1]}")
+        _t.sleep(2)
+    demo = conn.execute(
+        "SELECT titulo, url FROM petra_contenidos "
+        "WHERE tipo='demo_autorizacion' AND activo=TRUE "
+        "ORDER BY orden LIMIT 1"
+    ).fetchone()
+    if demo:
+        _pwa.send_text(telefono, f"📱 *{demo[0]}*\n\n{demo[1]}")
+        _t.sleep(2)
+    piezas = conn.execute(
+        "SELECT titulo, url FROM petra_contenidos "
+        "WHERE tipo='pieza_grafica_autorizacion' AND activo=TRUE "
+        "ORDER BY orden LIMIT 2"
+    ).fetchall()
+    for p in piezas:
+        _pwa.send_text(telefono, f"🖼 *{p[0]}*\n\n{p[1]}")
+        _t.sleep(2)
+
+
 def _enviar_con_pausa(telefono, texto, pausa_seg=1.5):
     """Envía texto y pausa antes del próximo mensaje. Útil para encadenar
     varios mensajes sin que lleguen todos juntos y abrumen al usuario."""
@@ -418,32 +450,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado):
                 "de apoyo 👇"
             )
             _t_cap.sleep(1)
-            # Recursos de apoyo: video, demo, piezas gráficas. Silencio si no
-            # están cargados en el panel.
-            vid_aut = conn.execute(
-                "SELECT titulo, url FROM petra_contenidos "
-                "WHERE tipo='video_autorizacion' AND activo=TRUE "
-                "ORDER BY orden LIMIT 1"
-            ).fetchone()
-            if vid_aut:
-                _pwa_cap.send_text(telefono, f"🎬 *{vid_aut[0]}*\n\n{vid_aut[1]}")
-                _t_cap.sleep(2)
-            demo = conn.execute(
-                "SELECT titulo, url FROM petra_contenidos "
-                "WHERE tipo='demo_autorizacion' AND activo=TRUE "
-                "ORDER BY orden LIMIT 1"
-            ).fetchone()
-            if demo:
-                _pwa_cap.send_text(telefono, f"📱 *{demo[0]}*\n\n{demo[1]}")
-                _t_cap.sleep(2)
-            piezas = conn.execute(
-                "SELECT titulo, url FROM petra_contenidos "
-                "WHERE tipo='pieza_grafica_autorizacion' AND activo=TRUE "
-                "ORDER BY orden LIMIT 2"
-            ).fetchall()
-            for p in piezas:
-                _pwa_cap.send_text(telefono, f"🖼 *{p[0]}*\n\n{p[1]}")
-                _t_cap.sleep(2)
+            _enviar_material_autorizacion(conn, telefono)
             _pwa_cap.send_buttons(telefono,
                 "Cuando tengas la autorización del administrador, pulsá el botón 👇",
                 [{"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"}],
@@ -709,10 +716,24 @@ def handle(telefono, texto, es_handoff=False):
                     "inmuebles podrían salir, etc. 💜")
                 _log(telefono, texto, "[autorizacion confirmada → kit_pendiente]")
                 return True
+            # ¿Pide reenvío del material de apoyo?
+            t_norm = (texto or "").lower().strip()
+            PALABRAS_REENVIO_MAT = (
+                "material", "materiales", "reenvi", "reenví", "mándame", "mandame",
+                "manda", "volver a enviar", "no me llego", "no me llegó", "no llego",
+                "no llegó", "video", "videos", "demo", "pieza", "piezas", "gráfica",
+                "grafica", "ejemplo", "ejemplos", "apoyo",
+            )
+            if any(p in t_norm for p in PALABRAS_REENVIO_MAT):
+                _enviar_material_autorizacion(conn, telefono)
+                _log(telefono, texto, "[reenvío material autorización]",
+                     nota="palabra clave pidió reenviar material")
+                return True
             # Cualquier otra cosa: recordatorio con botón
             from app import petra_wa as _pwa_aut
             _pwa_aut.send_buttons(telefono,
-                "Cuando tengas la autorización del administrador, pulsá el botón 👇",
+                "Cuando tengas la autorización del administrador, pulsá el botón 👇\n\n"
+                "_Si querés que te reenvíe el material de apoyo (video, demo, piezas gráficas), decime \"reenviar material\"._",
                 [{"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"}],
             )
             _log(telefono, texto, "[recordatorio botón autorización]")
