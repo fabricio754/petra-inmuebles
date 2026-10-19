@@ -725,3 +725,25 @@ def accion_agente_pedir_corregir(cid, campo):
     flash = f"correccion_{campo}_ok" if r.get("ok") else f"error:{str(r)[:80]}"
     return redirect(url_for("petra_panel.ficha_agente", cid=cid,
                             token=token, flash=flash))
+
+
+# =============================================================================
+# Admin: ejecutar manualmente el cron de capacitación.
+# Útil para pruebas o cuando se cargan videos nuevos y no se quiere esperar
+# hasta las 8am del día siguiente. Respeta PETRA_CRON_CAPACITACION_OFF y
+# PETRA_PILOTO_WHITELIST, igual que el cron automático.
+# =============================================================================
+
+
+@petra_panel_bp.post("/admin/run_capacitacion")
+def accion_admin_run_capacitacion():
+    _check_token()
+    token = request.form.get("token", "")
+    try:
+        from app.scheduler import _petra_enviar_capacitacion_diaria
+        _petra_enviar_capacitacion_diaria()
+        flash = "cap_cron_ok"
+    except Exception as exc:
+        flash = f"error:{str(exc)[:80]}"
+    return redirect(url_for("petra_panel.panel_home", tab="contenidos",
+                            token=token, flash=flash))
