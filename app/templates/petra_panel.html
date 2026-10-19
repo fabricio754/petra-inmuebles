@@ -375,7 +375,10 @@
     {% for a in agentes %}
     <tr>
       <td class="mono">{{ a.contacto_id }}</td>
-      <td>{{ a.nombre or '—' }}<br><span class="mono muted">{{ a.telefono }}</span></td>
+      <td>
+        <a href="/panel/petra/agente/{{ a.contacto_id }}?token={{ token }}">{{ a.nombre or '— sin nombre —' }}</a>
+        <br><span class="mono muted">{{ a.telefono }}</span>
+      </td>
       <td>{{ a.ciudad or '—' }}</td>
       <td>
         {% set cls = 'ok' if a.estado_agente == 'operativo' else 'warn' if a.estado_agente in ('kit_asignado','certificado') else 'info' %}

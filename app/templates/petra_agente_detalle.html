@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ agente.nombre or agente.telefono }} · Petra</title>
+<style>
+:root {
+  --bg: #f6f6f9;
+  --card: #ffffff;
+  --border: #e2e2ea;
+  --text: #1a1a24;
+  --muted: #6b6b7a;
+  --accent: #6b4ee8;
+  --accent-soft: #efeaff;
+  --ok: #1b7a3d;
+  --ok-bg: #d9f5e2;
+  --warn: #8a5a00;
+  --warn-bg: #fdeeca;
+  --info: #3a4ab0;
+  --info-bg: #e3e8fa;
+  --danger: #c0362f;
+  --danger-bg: #fde0de;
+  --bubble-in: #ffffff;
+  --bubble-out: #efeaff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.4;
+}
+.container { max-width: 760px; margin: 0 auto; padding: 12px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.back { display: inline-block; margin-bottom: 8px; font-size: 14px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.card h2 { margin: 0 0 10px; font-size: 15px; color: var(--muted); font-weight: 600; }
+
+.header .nombre { font-size: 20px; font-weight: 700; margin: 0 0 2px; }
+.header .tel { font-family: ui-monospace, Menlo, monospace; color: var(--muted); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.pill { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.info { background: var(--info-bg); color: var(--info); }
+.pill.danger { background: var(--danger-bg); color: var(--danger); }
+.pill.muted { background: #ececf3; color: var(--muted); }
+
+.acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.acciones form { margin: 0; }
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border);
+  font-size: 14px; cursor: pointer; background: var(--card); color: var(--text);
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.warn { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+.btn.full { width: 100%; justify-content: center; }
+.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+.datos-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.datos-grid .fila { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.datos-grid .fila:last-child { border-bottom: none; }
+.datos-grid .k { color: var(--muted); }
+.datos-grid .v { color: var(--text); text-align: right; word-break: break-word; }
+.datos-grid .v.falta { color: var(--danger); font-style: italic; }
+
+.progreso-barra { height: 10px; background: #ececf3; border-radius: 5px; overflow: hidden; }
+.progreso-barra > div { height: 100%; background: var(--accent); }
+.progreso-sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+.chat { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow-y: auto; }
+.chat .dia-sep { text-align: center; color: var(--muted); font-size: 12px; margin: 10px 0; }
+.chat li { margin: 6px 0; display: flex; }
+.chat li.in { justify-content: flex-start; }
+.chat li.out { justify-content: flex-end; }
+.chat .bubble {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 1px 2px rgba(0,0,0,.05);
+}
+.chat li.in .bubble { background: var(--bubble-in); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.chat li.out .bubble { background: var(--bubble-out); border-bottom-right-radius: 4px; }
+.chat .meta-msg { font-size: 11px; color: var(--muted); margin-top: 3px; display: flex; gap: 4px; align-items: center; }
+.chat li.out .meta-msg { justify-content: flex-end; }
+.chat .chulo-sent { color: var(--muted); }
+.chat .chulo-delivered { color: var(--muted); }
+.chat .chulo-read { color: #4a90e2; }
+.chat .chulo-failed { color: var(--danger); }
+.chat .msg-wrap { max-width: 100%; display: flex; flex-direction: column; }
+.chat li.in .msg-wrap { align-items: flex-start; }
+.chat li.out .msg-wrap { align-items: flex-end; }
+
+.responder-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.responder-form textarea {
+  width: 100%; min-height: 70px; padding: 10px; font-size: 14px;
+  border: 1px solid var(--border); border-radius: 8px; resize: vertical;
+  font-family: inherit;
+}
+.aviso { padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 10px; }
+.aviso.err { background: var(--danger-bg); color: var(--danger); }
+.aviso.ok { background: var(--ok-bg); color: var(--ok); }
+.aviso.warn { background: var(--warn-bg); color: var(--warn); }
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline li { padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+.timeline li:last-child { border-bottom: none; }
+.timeline .accion { font-weight: 600; }
+.timeline .ts { color: var(--muted); font-size: 12px; }
+
+.vacio { color: var(--muted); font-style: italic; padding: 10px 0; text-align: center; font-size: 13px; }
+
+@media (min-width: 760px) {
+  .acciones .btn { padding: 8px 12px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<a class="back" href="/panel/petra?tab=agentes&token={{ token }}">← volver a Agentes</a>
+
+{# ========== Avisos ========== #}
+{% if flash == 'enviado' %}
+  <div class="aviso ok">Mensaje enviado. Puede tardar unos segundos en aparecer con los chulos ✓✓.</div>
+{% elif flash == 'vacio' %}
+  <div class="aviso err">Mensaje vacío — nada que enviar.</div>
+{% elif flash == 'bot_pausado' %}
+  <div class="aviso warn">Bot pausado para esta agente. No va a responder hasta que lo reactives.</div>
+{% elif flash == 'bot_reactivado' %}
+  <div class="aviso ok">Bot reactivado. Vuelve a responder automáticamente.</div>
+{% elif flash and flash.startswith('error') %}
+  <div class="aviso err">Error al enviar: {{ flash[6:] }}</div>
+{% endif %}
+
+{# ========== Header ========== #}
+<div class="card header">
+  <div class="nombre">{{ agente.nombre or meta.get('nombre') or '— sin nombre —' }}</div>
+  <div class="tel">📱 {{ agente.telefono }}</div>
+  <div class="chips">
+    {% set estado = meta.get('estado_agente') or 'lead' %}
+    {% set cls = 'ok' if estado == 'operativo' else 'warn' if estado in ('kit_asignado','certificado') else 'info' %}
+    <span class="pill {{ cls }}">{{ estado }}</span>
+    {% if bot_pausado %}<span class="pill danger">⏸ bot pausado</span>{% endif %}
+    {% if agente.opt_out %}<span class="pill muted">opt-out</span>{% endif %}
+    {% if meta.get('ciudad') %}<span class="pill muted">📍 {{ meta.get('ciudad') }}</span>{% endif %}
+    {% if meta.get('conjunto') %}<span class="pill muted">🏢 {{ meta.get('conjunto') }}</span>{% endif %}
+  </div>
+  <div class="acciones">
+    {% if bot_pausado %}
+      <form method="post" action="/panel/petra/agente/{{ agente.id }}/reactivar_bot">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button type="submit" class="btn warn">▶ Reactivar bot</button>
+      </form>
+    {% else %}
+      <form method="post" action="/panel/petra/agente/{{ agente.id }}/pausar_bot">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button type="submit" class="btn">⏸ Pausar bot</button>
+      </form>
+    {% endif %}
+    <form method="post" action="/panel/petra/agente/{{ agente.id }}/eliminar"
+          onsubmit="return confirm('¿Eliminar a {{ agente.nombre or agente.telefono }} como agente Petra?');">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn danger">🗑 Eliminar como agente</button>
+    </form>
+  </div>
+</div>
+
+{# ========== Datos del agente ========== #}
+<div class="card">
+  <h2>👤 Datos de la agente</h2>
+  <div class="datos-grid">
+    <div class="fila"><span class="k">Nombre</span><span class="v {% if not meta.get('nombre') %}falta{% endif %}">{{ meta.get('nombre') or '— falta —' }}</span></div>
+    <div class="fila"><span class="k">Cédula</span><span class="v {% if not meta.get('cedula') %}falta{% endif %}">{{ meta.get('cedula') or '— falta —' }}</span></div>
+    <div class="fila"><span class="k">Ciudad</span><span class="v {% if not meta.get('ciudad') %}falta{% endif %}">{{ meta.get('ciudad') or '— falta —' }}</span></div>
+    <div class="fila"><span class="k">Barrio</span><span class="v {% if not meta.get('barrio') %}falta{% endif %}">{{ meta.get('barrio') or '— falta —' }}</span></div>
+    <div class="fila"><span class="k">Conjunto</span><span class="v {% if not meta.get('conjunto') %}falta{% endif %}">{{ meta.get('conjunto') or '— falta —' }}</span></div>
+    <div class="fila"><span class="k">Primer contacto</span><span class="v">{{ agente.contacto_desde.strftime('%d/%m/%Y') if agente.contacto_desde else '—' }}</span></div>
+  </div>
+</div>
+
+{# ========== Progreso de capacitación ========== #}
+<div class="card">
+  <h2>📊 Progreso de capacitación</h2>
+  {% set pct = (videos_vistos * 100 // 12) if videos_vistos else 0 %}
+  <div class="progreso-barra"><div style="width: {{ pct }}%"></div></div>
+  <div class="progreso-sub">{{ videos_vistos }} / 12 videos vistos ({{ pct }}%)</div>
+</div>
+
+{# ========== Chat ========== #}
+<div class="card">
+  <h2>💬 Conversación ({{ mensajes|length }})</h2>
+  {% if mensajes %}
+    <ul class="chat" id="chat">
+      {% for m in mensajes %}
+        {% if m.nuevo_dia and m.etiqueta_dia %}
+          <li class="dia-sep">— {{ m.etiqueta_dia }} —</li>
+        {% endif %}
+        <li class="{{ m.direccion }}">
+          <div class="msg-wrap">
+            <div class="bubble">{{ m.resumen or '[sin texto]' }}</div>
+            <div class="meta-msg">
+              <span>{{ m.hora_hm }}</span>
+              {% if m.direccion == 'out' %}
+                {% set est = m.estado_entrega or 'pending' %}
+                <span class="chulo-{{ est }}" title="{{ est }}">
+                  {% if est == 'read' %}✓✓{% elif est == 'delivered' %}✓✓{% elif est == 'sent' %}✓{% elif est == 'failed' %}⚠{% else %}🕒{% endif %}
+                </span>
+                {% if est == 'failed' and m.estado_entrega_error %}
+                  <span style="color:var(--danger)">{{ m.estado_entrega_error[:40] }}</span>
+                {% endif %}
+              {% endif %}
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="vacio">Sin mensajes todavía.</div>
+  {% endif %}
+
+  {# Responder #}
+  {% if puede_responder and not bot_pausado %}
+    <div class="aviso warn">
+      ⚠ El bot está activo. Pausalo antes de responder manualmente para que no se solapen.
+    </div>
+  {% endif %}
+
+  <form class="responder-form" method="post" action="/panel/petra/agente/{{ agente.id }}/responder">
+    <input type="hidden" name="token" value="{{ token }}">
+    <textarea name="texto" placeholder="Escribí como Petra…" maxlength="1500"
+              {% if not puede_responder %}disabled{% endif %}></textarea>
+    <button type="submit" class="btn primary full" {% if not puede_responder %}disabled{% endif %}>Enviar</button>
+  </form>
+
+  {% if not puede_responder %}
+    <div class="aviso err" style="margin-top:10px">
+      {% if ultimo_in_at %}
+        Último mensaje de la agente: {{ ultimo_in_at.strftime('%d/%m/%Y %H:%M') }} UTC.
+        Fuera de la ventana de 24 h — WhatsApp solo acepta plantillas aprobadas.
+      {% else %}
+        Esta agente todavía no te escribió. Para iniciar la conversación hay que enviar una plantilla aprobada.
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+{# ========== Timeline ========== #}
+<div class="card">
+  <h2>🕒 Timeline ({{ timeline|length }})</h2>
+  {% if timeline %}
+    <ul class="timeline">
+      {% for t in timeline %}
+        <li>
+          <div class="accion">{{ t.accion }}</div>
+          <div class="ts">{{ t.actor_label or t.actor_tipo or 'sistema' }} · {{ t.created_at.strftime('%d/%m %H:%M') if t.created_at else '—' }}</div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="vacio">Sin eventos registrados todavía.</div>
+  {% endif %}
+</div>
+
+</div>
+
+<script>
+// Auto-scroll al último mensaje
+(function() {
+  var chat = document.getElementById('chat');
+  if (chat && chat.lastElementChild) {
+    chat.lastElementChild.scrollIntoView({block: 'end'});
+  }
+})();
+</script>
+</body>
+</html>
