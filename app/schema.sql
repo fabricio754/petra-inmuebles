@@ -1256,6 +1256,18 @@ UPDATE petra_media_estacion
    SET url = '/panel' || url
  WHERE url LIKE '/petra/media/%';
 
+-- Fix idempotente del párrafo duplicado "Mañana a las 8am..." en
+-- capacitacion.msg_dia_completo. Deja solo la segunda versión (la que
+-- menciona el botón). Solo corre si el contenido actual trae las dos.
+UPDATE petra_textos
+   SET contenido = REPLACE(
+         contenido,
+         E'Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas el ritmo 👋\r\n\r\n',
+         ''),
+       updated_at = NOW()
+ WHERE clave = 'capacitacion.msg_dia_completo'
+   AND contenido LIKE E'%Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas el ritmo 👋\r\n\r\nMañana%';
+
 -- Botones custom con ACCIÓN: por defecto 'enviar_texto' (envía texto_respuesta).
 --   'disparar_boton' + payload=<ONBAG_X>: el flow procesa como si pulsaran
 --   el botón default X (ej. ONBAG_LISTO avanza al próximo día de capacitación).
