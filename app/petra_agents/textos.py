@@ -242,10 +242,16 @@ SEED_TEXTOS = [
      [], "capacitacion"),
 
     # ─── Autorización ───
+    ("autorizacion.cta_iniciar",
+     "📍 *Siguiente paso:* pulsá el botón para arrancar con la gestión de la "
+     "autorización 💜",
+     "Mensaje al terminar capacitación. Un solo botón [🚀 Iniciar].",
+     [], "autorizacion"),
     ("autorizacion.cta_botones",
      "Preparé material de apoyo para que lo lleves a la reunión 💜",
      "Texto que acompaña los 3 botones [Ver material][Tengo duda][Ya tengo "
-     "autorización].", [], "autorizacion"),
+     "autorización]. Se envía cuando pulsa 🚀 Iniciar.",
+     [], "autorizacion"),
     ("autorizacion.msg_envio_material",
      "Perfecto 💜 Acá te paso el material de apoyo para que "
      "lo lleves a la reunión con el administrador:",
