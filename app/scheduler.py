@@ -684,8 +684,12 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
             "Cuando los termines, apretá el botón 👇"
         ),
         dia_a_enviar=dia_a_enviar, max_dia=max_dia,
-    ), [{"id": "ONBAG_LISTO",
-         "title": _t_textos_boton("ONBAG_LISTO", "✅ Listo")}])
+    ), [
+        {"id": "ONBAG_LISTO",
+         "title": _t_textos_boton("ONBAG_LISTO", "✅ Listo")},
+        {"id": "ONBAG_SIGUIENTE_DIA",
+         "title": _t_textos_boton("ONBAG_SIGUIENTE_DIA", "⏭ Siguiente video")},
+    ])
 
     # Actualizar metadata
     meta["cap_dia_enviado"] = dia_a_enviar
