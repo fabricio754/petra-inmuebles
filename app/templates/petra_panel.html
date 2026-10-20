@@ -1855,6 +1855,64 @@
           </details>
         </div>
       {% endif %}
+      {% if p.estado_real and (p.botones_default or p.botones_custom is defined) %}
+        <div class="estacion-sect">
+          <h4>🔘 Botones de esta estación</h4>
+          {% if p.botones_default %}
+            <div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Botones default (del flow)</div>
+            <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;">
+              {% for b in p.botones_default %}
+                <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; background:#f8f8f8; border-radius:6px; border-left:2px solid {% if b.oculto %}#c0392b{% else %}#27ae60{% endif %};">
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-size:13px; font-weight:600; {% if b.oculto %}text-decoration:line-through; color:#999;{% endif %}">{{ b.titulo }}</div>
+                    <div style="font-size:11px; color:var(--muted); font-family:ui-monospace,monospace;">{{ b.id }}{% if b.oculto %} · OCULTO{% endif %}</div>
+                  </div>
+                  <form method="POST" action="{{ url_for('petra_panel.botones_override_toggle') }}" style="margin:0;">
+                    <input type="hidden" name="token" value="{{ token }}">
+                    <input type="hidden" name="estado_key" value="{{ p.estado_real }}">
+                    <input type="hidden" name="boton_id" value="{{ b.id }}">
+                    <input type="hidden" name="ocultar" value="{% if b.oculto %}0{% else %}1{% endif %}">
+                    <button type="submit" style="padding:4px 10px; border-radius:5px; border:1px solid {% if b.oculto %}#27ae60{% else %}#c0392b{% endif %}; background:transparent; color:{% if b.oculto %}#27ae60{% else %}#c0392b{% endif %}; cursor:pointer; font-size:11px;">
+                      {% if b.oculto %}👁 Mostrar{% else %}🚫 Ocultar{% endif %}
+                    </button>
+                  </form>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if p.botones_custom %}
+            <div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Botones personalizados</div>
+            <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;">
+              {% for b in p.botones_custom %}
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:8px 10px; background:#f8f8f8; border-radius:6px; border-left:2px solid var(--accent, #6b2fa5);">
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-size:13px; font-weight:600;">{{ b.titulo }}</div>
+                    <div style="font-size:12px; color:#444; margin-top:3px; white-space:pre-wrap;">↩ {{ b.texto_respuesta }}</div>
+                  </div>
+                  <form method="POST" action="{{ url_for('petra_panel.botones_eliminar', bid=b.id) }}" style="margin:0;"
+                        onsubmit="return confirm('¿Borrar este botón?');">
+                    <input type="hidden" name="token" value="{{ token }}">
+                    <input type="hidden" name="estado_key" value="{{ p.estado_real }}">
+                    <button type="submit" style="padding:4px 10px; border-radius:5px; border:1px solid #c0392b; background:transparent; color:#c0392b; cursor:pointer; font-size:11px;">🗑</button>
+                  </form>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <details style="margin-top:4px;">
+            <summary style="cursor:pointer; font-size:12px; color:var(--accent, #6b2fa5); font-weight:600;">
+              ➕ Agregar botón personalizado
+            </summary>
+            <form method="POST" action="{{ url_for('petra_panel.botones_custom_crear') }}" style="margin-top:10px; display:grid; gap:8px;">
+              <input type="hidden" name="token" value="{{ token }}">
+              <input type="hidden" name="estado_key" value="{{ p.estado_real }}">
+              <input type="text" name="titulo" placeholder="Texto del botón (máx 20 caracteres)" maxlength="20" required style="padding:6px 10px; border:1px solid var(--line, #ccc); border-radius:5px; font-size:13px;">
+              <textarea name="texto_respuesta" placeholder="Qué responde el bot cuando se pulsa este botón" required rows="3" style="padding:6px 10px; border:1px solid var(--line, #ccc); border-radius:5px; font-size:13px; font-family:inherit;"></textarea>
+              <button type="submit" style="background: var(--accent, #6b2fa5); color:white; border:0; padding:7px 14px; border-radius:5px; cursor:pointer; font-weight:600; font-size:13px; justify-self:start;">💾 Agregar</button>
+            </form>
+          </details>
+        </div>
+      {% endif %}
       {% if p.transiciones %}
         <div class="estacion-sect">
           <h4>↷ Qué pasa después</h4>

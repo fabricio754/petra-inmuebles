@@ -1190,3 +1190,31 @@ CREATE TABLE IF NOT EXISTS petra_media_estacion (
 );
 CREATE INDEX IF NOT EXISTS petra_media_estacion_idx
   ON petra_media_estacion (estado_key, orden) WHERE activo = TRUE;
+
+-- =============================================================================
+-- Botones personalizables por estación (editable desde el panel).
+-- tipo='custom':   botón NUEVO que agrega el admin; cuando el agente lo pulsa
+--                  el bot responde con `texto_respuesta` y se queda en el
+--                  mismo estado. button_id en WhatsApp = CUSTOM_<id>.
+-- tipo='override': regla sobre un botón DEFAULT (ONBAG_*). Si activo=FALSE
+--                  el botón default no se envía. (Opcional: titulo overridea
+--                  el label; hoy ese override ya existe vía petra_textos.)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS petra_botones_estacion (
+  id              SERIAL PRIMARY KEY,
+  estado_key      TEXT NOT NULL,
+  tipo            TEXT NOT NULL DEFAULT 'custom',
+  boton_id        TEXT NOT NULL,
+    -- 'custom'   → se autogenera CUSTOM_<id>
+    -- 'override' → id del botón default (ej. ONBAG_YA_TENGO_AUTORIZACION)
+  titulo          TEXT,
+  texto_respuesta TEXT,
+  orden           INTEGER NOT NULL DEFAULT 0,
+  activo          BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_botones_estacion_idx
+  ON petra_botones_estacion (estado_key);
+CREATE UNIQUE INDEX IF NOT EXISTS petra_botones_estacion_override_uq
+  ON petra_botones_estacion (estado_key, boton_id)
+  WHERE tipo = 'override';

@@ -22,6 +22,20 @@ import logging
 import re
 
 from app.petra_agents.textos import t as _t, boton as _b
+from app.petra_agents import botones_estacion as _botones
+
+
+def _send_buttons(telefono, texto, defaults, estado_key=None):
+    """Wrapper de petra_wa.send_buttons que aplica las reglas de
+    `petra_botones_estacion`: oculta defaults marcados override+inactivo
+    y agrega botones custom (cap 3 por mensaje WhatsApp)."""
+    from app import petra_wa
+    final = _botones.aplicar_reglas(estado_key, defaults) if estado_key else defaults
+    if not final:
+        # Si quedó vacío (todos ocultos y sin customs), mandá solo el texto
+        petra_wa.send_text(telefono, texto)
+        return
+    petra_wa.send_buttons(telefono, texto, final)
 
 log = logging.getLogger("petra")
 
@@ -200,14 +214,14 @@ def _resumen_texto(meta):
 
 
 def _enviar_resumen(telefono, meta):
-    from app import petra_wa
-    petra_wa.send_buttons(
+    _send_buttons(
         telefono, _resumen_texto(meta),
         [
             {"id": "ONBAG_CONFIRM", "title": _b("ONBAG_CONFIRM", "✅ Registrarme")},
             {"id": "ONBAG_CORREGIR", "title": _b("ONBAG_CORREGIR", "✏️ Corregir")},
             {"id": "ONBAG_CANCELAR", "title": _b("ONBAG_CANCELAR", "❌ Cancelar")},
         ],
+        estado_key="registro_pendiente_confirmacion",
     )
 
 
@@ -436,7 +450,7 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
         boton = ({"id": "ONBAG_EMPEZAR_AHORA", "title": _b("ONBAG_EMPEZAR_AHORA", "Empezar ahora")}
                  if cap_v >= 2
                  else {"id": "ONBAG_VER_VIDEOS_HOY", "title": _b("ONBAG_VER_VIDEOS_HOY", "Ver videos de hoy")})
-        petra_wa.send_buttons(telefono, journey, [boton])
+        _send_buttons(telefono, journey, [boton], estado_key="inscrito")
         _log(telefono, texto, f"[journey + btn {boton['title']}]",
              nota=f"paso 1: journey enviado (cap_v{cap_v})")
         return True
@@ -503,10 +517,11 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
             _enviar_con_pausa(telefono, f"🗺 *{titulo}*\n\n{url}", pausa_seg=2)
         cuantos = (1 if bienvenida_row else 0) + (1 if proximos_row else 0)
         verbo = "los" if cuantos > 1 else "lo"
-        petra_wa.send_buttons(telefono,
+        _send_buttons(telefono,
             f"Cuando {verbo} termines, pulsá el botón para arrancar con "
             "tu capacitación diaria. 💪",
             [{"id": "ONBAG_EMPEZAR_AHORA", "title": _b("ONBAG_EMPEZAR_AHORA", "Empezar ahora")}],
+            estado_key="bienvenida_enviada",
         )
         import datetime as _dt
         _set_estado(meta, "bienvenida_enviada")
@@ -517,9 +532,10 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
         return True
 
     # Cualquier otra cosa: re-mostrar el botón del paso actual
-    petra_wa.send_buttons(telefono,
+    _send_buttons(telefono,
         f"Para continuar tu onboarding, pulsá el botón 👇",
         [{"id": "ONBAG_VER_JOURNEY", "title": _b("ONBAG_VER_JOURNEY", "Ver próximos pasos")}],
+        estado_key="inscrito",
     )
     _log(telefono, texto, "[re-muestra btn Ver próximos pasos]",
          nota="fase inscrito: re-prompt")
@@ -1146,7 +1162,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             import time as _t_cap
             # Mensaje de felicitación + botón "Iniciar" en el mismo mensaje.
             # Al pulsar Iniciar, se muestran los 3 botones de autorización.
-            _pwa_cap.send_buttons(telefono, _t(
+            _send_buttons(telefono, _t(
                 "capacitacion.msg_completada_header",
                 fallback=(
                     "🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
@@ -1158,7 +1174,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                 ),
             ), [
                 {"id": "ONBAG_INICIAR_AUTORIZACION", "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
-            ])
+            ], estado_key="autorizacion_pendiente")
             _log(telefono, texto, "[capacitación completa → esperando botón material/autorización]",
                  nota="capacitacion_completa → autorizacion_pendiente")
             return True
@@ -1273,9 +1289,10 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                 _tm.sleep(2)
                 _pwa.send_media_o_texto(telefono, videos[1][0], videos[1][1])
                 _tm.sleep(2)
-                _pwa.send_buttons(telefono,
+                _send_buttons(telefono,
                     "Cuando los termines, pulsá el botón 👇",
                     [{"id": "ONBAG_LISTO", "title": _b("ONBAG_LISTO", "✅ Listo")}],
+                    estado_key="en_capacitacion",
                 )
                 _log(telefono, texto, f"[reenvío día {dia_actual_env}]",
                      nota="reenvío manual por intención")
@@ -1354,11 +1371,11 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
             _log(telefono, texto, resp, nota="empezar_ahora pero sin envío (fallback)")
         return True
     # Cualquier otra cosa: recordatorio con botón
-    from app import petra_wa
-    petra_wa.send_buttons(telefono, _t(
+    _send_buttons(telefono, _t(
         "capacitacion.msg_recordatorio_empezar",
         fallback="Cuando termines de ver los videos, pulsá el botón para avanzar 🎬",
-    ), [{"id": "ONBAG_EMPEZAR_AHORA", "title": _b("ONBAG_EMPEZAR_AHORA", "Empezar ahora")}])
+    ), [{"id": "ONBAG_EMPEZAR_AHORA", "title": _b("ONBAG_EMPEZAR_AHORA", "Empezar ahora")}],
+       estado_key="bienvenida_enviada")
     _log(telefono, texto, "[recordatorio: btn Empezar ahora]",
          nota="bienvenida_enviada esperando confirmación")
     return True
@@ -1416,6 +1433,16 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         estado = meta.get("estado_agente", "recolectando")
 
+        # Intercept de botones CUSTOM_<id> definidos desde el panel.
+        # Responden con `texto_respuesta` y mantienen el estado actual.
+        if texto and texto.startswith("CUSTOM_"):
+            info = _botones.resolver_custom(texto)
+            if info:
+                _enviar(telefono, info.get("texto_respuesta") or "")
+                _log(telefono, texto, info.get("texto_respuesta") or "",
+                     nota=f"custom-boton estado={estado}")
+                return True
+
         # ─── Fase 2: INSCRITO (ya pasó REGISTRARME, falta ver bienvenida) ───
         if estado == "inscrito":
             return _fase_inscrito(conn, telefono, cid, meta, texto)
@@ -1437,15 +1464,14 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         if estado == "autorizacion_pendiente":
             # Botón "🚀 Iniciar" → muestra los 3 botones de autorización.
             if texto == "ONBAG_INICIAR_AUTORIZACION":
-                from app import petra_wa as _pwa_ini
-                _pwa_ini.send_buttons(telefono, _t(
+                _send_buttons(telefono, _t(
                     "autorizacion.cta_botones",
                     fallback="Preparé material de apoyo para que lo lleves a la reunión 💜",
                 ), [
                     {"id": "ONBAG_VER_MATERIAL", "title": _b("ONBAG_VER_MATERIAL", "📎 Ver material")},
                     {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
                     {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Ya tengo autorización")},
-                ])
+                ], estado_key="autorizacion_pendiente")
                 _log(telefono, texto, "[iniciar autorización → 3 botones]",
                      nota="botón Iniciar")
                 return True
@@ -1495,13 +1521,13 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 _enviar_recordatorio_capacitacion(conn, telefono)
                 # Después: material propiamente dicho (video, demo, piezas)
                 _enviar_material_autorizacion(conn, telefono)
-                _pwa_mat.send_buttons(telefono, _t(
+                _send_buttons(telefono, _t(
                     "autorizacion.msg_post_material",
                     fallback="Cuando tengas la autorización del administrador, pulsá el botón 👇",
                 ), [
                     {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
                     {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Ya tengo autorización")},
-                ])
+                ], estado_key="autorizacion_pendiente")
                 _log(telefono, texto, "[envío material autorización]",
                      nota="botón o palabra clave pidió material")
                 return True
@@ -1609,10 +1635,9 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                     ciudad=meta.get("ciudad") or "",
                 )
                 # Botón para avanzar al journey — user controla el ritmo
-                from app import petra_wa
-                petra_wa.send_buttons(telefono, felicitaciones, [
+                _send_buttons(telefono, felicitaciones, [
                     {"id": "ONBAG_VER_JOURNEY", "title": _b("ONBAG_VER_JOURNEY", "Ver próximos pasos")},
-                ])
+                ], estado_key="inscrito")
                 _log(telefono, texto, felicitaciones + " [+btn Ver próximos pasos]",
                      nota="REGISTRARME confirmado")
                 return True
