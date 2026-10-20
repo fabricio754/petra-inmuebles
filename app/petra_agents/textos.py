@@ -196,6 +196,12 @@ SEED_TEXTOS = [
      "lo lleves a la reunión con el administrador:",
      "Mensaje al pulsar 'Ver material', antes de enviar los contenidos.",
      [], "autorizacion"),
+    ("autorizacion.msg_recordatorio_video",
+     "Antes de ir con el administrador, repasá este video de "
+     "capacitación donde te expliqué cómo abordarlo 💜:",
+     "Introducción al video recordatorio (si está cargado en Contenidos "
+     "como tipo 'video_recordatorio_autorizacion').",
+     [], "autorizacion"),
     ("autorizacion.msg_post_material",
      "Cuando tengas la autorización del administrador, pulsá el botón 👇",
      "Texto que acompaña los botones después de enviar el material.",
