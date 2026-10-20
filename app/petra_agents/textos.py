@@ -346,6 +346,53 @@ SEED_TEXTOS = [
      "decime *registrar inmueble*.",
      "Mensaje al terminar la captura exitosamente.", [], "inventario"),
 
+    # ─── Nudges (remarketing automático) ───
+    ("nudges.recolectando_12h",
+     "¡Hola {nombre}! 👋 Vi que empezaste a inscribirte como Agente Petra "
+     "pero no terminaste. ¿Querés que te ayude a completar los datos? "
+     "Solo me faltan unas respuestas más 💜",
+     "Agente en recolectando por 12h+. Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.inscrito_12h",
+     "¡Hola {nombre}! 💜 Ya estás inscrita como Agente Petra, pero vi que "
+     "todavía no viste tu video de bienvenida. ¿Querés arrancar? Solo "
+     "escribí *empezar* y te paso los primeros videos.",
+     "Agente inscrita pero sin ver bienvenida. Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.bienvenida_enviada_12h",
+     "¡Hola {nombre}! 👋 Vi que recibiste el video de bienvenida pero no "
+     "arrancaste la capacitación. Pulsá *Empezar ahora* o escribime "
+     "*listo* y te mando los próximos videos 💪",
+     "Agente que recibió bienvenida pero no inició capacitación. "
+     "Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.capacitacion_24h",
+     "¡Hola {nombre}! 💜 Vi que pausaste la capacitación. ¿Querés que te "
+     "mande los próximos videos? Si no, decime cuándo te queda bien y "
+     "te espero.",
+     "Agente en capacitación sin confirmar videos por 24h+. Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.autorizacion_pendiente_48h",
+     "¡Hola {nombre}! 👋 Vi que llevás unos días con la gestión de la "
+     "autorización del admin. ¿Cómo vas? Si necesitás ayuda con qué "
+     "decirle o repasar el material, decime y te lo paso de nuevo 💜",
+     "Agente en autorización por 48h+. Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.kit_pendiente_24h",
+     "¡Hola {nombre}! 💜 Para enviarte el kit con tu QR necesito tu "
+     "dirección completa. ¿Me pasás los datos que te pedí (torre, "
+     "apto, barrio, ciudad)?",
+     "Agente que empezó dirección pero no la completó en 24h+. "
+     "Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.kit_enviado_72h",
+     "¡Hola {nombre}! 👋 ¿Ya recibiste tu kit? Si ya instalaste el QR, "
+     "pulsá *✅ Ya instalé el QR* para activarte. Si todavía no te "
+     "llegó, decime y te ayudo a rastrearlo.",
+     "Agente que recibió kit pero no confirmó instalación en 72h+. "
+     "Variable: nombre.",
+     ["nombre"], "nudges"),
+
     # ─── Fallbacks genéricos ───
     ("fallback.llm_error",
      "Perdón, no te pude responder bien ahora. Un asesor te "

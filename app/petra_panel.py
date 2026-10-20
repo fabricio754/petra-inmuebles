@@ -234,6 +234,9 @@ def panel_home():
     textos_lista = _textos_mod.listar_textos()
     contexto["textos"] = textos_lista
     contexto["textos_por_categoria"] = _agrupar_textos(textos_lista)
+    # Nudges — reglas de remarketing (FASE F)
+    from app.petra_agents import nudges as _nudges_mod
+    contexto["nudges"] = _nudges_mod.listar_reglas(solo_activas=False)
     # Inmuebles capturados por agentes (FASE E)
     with _db._conexion_directa(timeout=10) as conn:
         contexto["inmuebles"] = _rows(conn,
@@ -1414,4 +1417,87 @@ def inmueble_nota(iid):
     return redirect(url_for(
         "petra_panel.panel_home", tab="inmuebles", token=token,
         flash="inmueble_nota",
+    ))
+
+
+# =============================================================================
+# FASE F — Nudges (reglas de remarketing)
+# =============================================================================
+
+@petra_panel_bp.post("/nudges/upsert")
+def nudges_upsert():
+    """Crea o actualiza una regla de nudge."""
+    _check_token()
+    token = request.form.get("token", "")
+    clave = (request.form.get("clave") or "").strip()
+    estado_origen = (request.form.get("estado_origen") or "").strip()
+    texto_clave = (request.form.get("texto_clave") or "").strip()
+    horas = int(request.form.get("horas") or "12")
+    descripcion = (request.form.get("descripcion") or "").strip() or None
+    activo = request.form.get("activo") == "on" or not request.form.get("clave_existente")
+    if not clave or not estado_origen or not texto_clave or horas < 1:
+        abort(400)
+    from app.petra_agents import nudges as _n
+    _n.upsert_regla(clave, estado_origen, horas, texto_clave,
+                    descripcion=descripcion, activo=activo)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="nudges", token=token,
+        flash="nudge_guardado",
+    ))
+
+
+@petra_panel_bp.post("/nudges/<clave>/toggle")
+def nudges_toggle(clave):
+    _check_token()
+    token = request.form.get("token", "")
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE petra_nudges SET activo = NOT activo, updated_at=NOW() "
+            "WHERE clave=%s", (clave,),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="nudges", token=token,
+        flash="nudge_toggled",
+    ))
+
+
+@petra_panel_bp.post("/nudges/<clave>/eliminar")
+def nudges_eliminar(clave):
+    _check_token()
+    token = request.form.get("token", "")
+    from app.petra_agents import nudges as _n
+    _n.eliminar_regla(clave)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="nudges", token=token,
+        flash="nudge_eliminado",
+    ))
+
+
+@petra_panel_bp.post("/nudges/seed")
+def nudges_seed():
+    """Carga las reglas base. Idempotente."""
+    _check_token()
+    token = request.form.get("token", "")
+    forzar = request.form.get("forzar") == "1"
+    from app.petra_agents import nudges as _n
+    ins, upd, omi = _n.seed_reglas(forzar=forzar)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="nudges", token=token,
+        flash=f"nudges_seed_{ins}_{upd}_{omi}",
+    ))
+
+
+@petra_panel_bp.post("/nudges/evaluar_ahora")
+def nudges_evaluar_ahora():
+    """Dispara la evaluación de nudges manualmente (bypass del cron)."""
+    _check_token()
+    token = request.form.get("token", "")
+    from app.petra_agents import nudges as _n
+    try:
+        reglas, enviados = _n.evaluar_y_enviar()
+        flash = f"nudges_evaluado_{reglas}_{enviados}"
+    except Exception:
+        flash = "nudges_evaluacion_error"
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="nudges", token=token, flash=flash,
     ))
