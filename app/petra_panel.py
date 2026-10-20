@@ -229,7 +229,26 @@ def panel_home():
                    ORDER BY pa.mes_anio DESC, pa.updated_at DESC LIMIT 100"""),
             "kpis": _metricas_piloto(conn),
         }
+    # Textos editables (FASE A). Se cargan por categoría para el panel.
+    from app.petra_agents import textos as _textos_mod
+    textos_lista = _textos_mod.listar_textos()
+    contexto["textos"] = textos_lista
+    contexto["textos_por_categoria"] = _agrupar_textos(textos_lista)
     return render_template("petra_panel.html", **contexto)
+
+
+def _agrupar_textos(textos):
+    """Agrupa la lista plana de textos por categoría (dict ordenado)."""
+    orden_categorias = [
+        "inscripcion", "capacitacion", "autorizacion",
+        "activacion", "citas", "inventario", "nudges", "fallback", "otro",
+    ]
+    agrupado = {cat: [] for cat in orden_categorias}
+    for t in textos:
+        cat = t.get("categoria") or "otro"
+        agrupado.setdefault(cat, []).append(t)
+    # Quita categorías vacías para no mostrar secciones huecas
+    return {k: v for k, v in agrupado.items() if v}
 
 
 # =============================================================================
@@ -900,3 +919,61 @@ def accion_agente_revertir_cap(cid):
         )
     return redirect(url_for("petra_panel.ficha_agente", cid=cid,
                             token=token, flash="cap_reseteada"))
+
+
+# =============================================================================
+# FASE A — Textos editables desde panel
+# =============================================================================
+
+@petra_panel_bp.post("/textos/upsert")
+def textos_upsert():
+    """Crea o actualiza un texto editable del bot."""
+    _check_token()
+    token = request.form.get("token", "")
+    clave = (request.form.get("clave") or "").strip()
+    contenido = request.form.get("contenido") or ""
+    descripcion = request.form.get("descripcion") or None
+    categoria = (request.form.get("categoria") or "otro").strip()
+    variables_raw = (request.form.get("variables") or "").strip()
+    variables = [v.strip() for v in variables_raw.split(",") if v.strip()]
+    if not clave or not contenido:
+        abort(400, "clave y contenido son obligatorios")
+    from app.petra_agents import textos as _textos_mod
+    ok = _textos_mod.upsert_texto(
+        clave=clave, contenido=contenido, descripcion=descripcion,
+        variables=variables, categoria=categoria, updated_by="panel",
+    )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="textos", token=token,
+        flash=("texto_guardado" if ok else "texto_error"),
+    ))
+
+
+@petra_panel_bp.post("/textos/eliminar")
+def textos_eliminar():
+    """Borra una clave. El flow volverá a usar su fallback hardcodeado."""
+    _check_token()
+    token = request.form.get("token", "")
+    clave = (request.form.get("clave") or "").strip()
+    if not clave:
+        abort(400)
+    from app.petra_agents import textos as _textos_mod
+    _textos_mod.eliminar_texto(clave)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="textos", token=token,
+        flash="texto_eliminado",
+    ))
+
+
+@petra_panel_bp.post("/textos/seed")
+def textos_seed():
+    """Carga los textos baseline (idempotente: no sobrescribe lo editado)."""
+    _check_token()
+    token = request.form.get("token", "")
+    forzar = request.form.get("forzar") == "1"
+    from app.petra_agents import textos as _textos_mod
+    ins, upd, omi = _textos_mod.seed_textos(forzar_sobrescribir=forzar)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="textos", token=token,
+        flash=f"seed_{ins}_{upd}_{omi}",
+    ))

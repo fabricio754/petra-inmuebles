@@ -1113,3 +1113,25 @@ CREATE TABLE IF NOT EXISTS petra_mensajes_vistos (
 );
 CREATE INDEX IF NOT EXISTS petra_mensajes_vistos_visto_idx
   ON petra_mensajes_vistos (visto_at);
+
+-- =============================================================================
+-- FASE A — Textos editables desde panel
+-- =============================================================================
+-- Diccionario de textos del bot editable sin tocar código.
+-- Clave = dot-notation estable (ej. "autorizacion.msg_bienvenida").
+-- Contenido = plantilla con placeholders {var} que el helper `t()` llena.
+-- Si una clave no existe en DB, el código cae a su hardcode fallback.
+CREATE TABLE IF NOT EXISTS petra_textos (
+  clave         TEXT PRIMARY KEY,
+  contenido     TEXT NOT NULL,
+  descripcion   TEXT,
+    -- Nota para humanos: qué es este texto, cuándo se envía
+  variables     TEXT[] NOT NULL DEFAULT '{}'::text[],
+    -- Lista de placeholders disponibles (ej. {'nombre','conjunto'})
+  categoria     TEXT NOT NULL DEFAULT 'otro',
+    -- Agrupador en el panel (inscripcion | capacitacion | autorizacion | ...)
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by    TEXT
+);
+CREATE INDEX IF NOT EXISTS petra_textos_categoria_idx
+  ON petra_textos (categoria, clave);

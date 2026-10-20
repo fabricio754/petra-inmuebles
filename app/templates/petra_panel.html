@@ -147,6 +147,8 @@
      href="?tab=postulaciones&token={{ token }}">🏘️ Postulaciones ({{ postulaciones|length }})</a>
   <a class="tab {% if tab == 'pagos' %}active{% endif %}"
      href="?tab=pagos&token={{ token }}">💸 Pagos ({{ pagos_arriendo|length }})</a>
+  <a class="tab {% if tab == 'textos' %}active{% endif %}"
+     href="?tab=textos&token={{ token }}">✏️ Textos ({{ textos|length }})</a>
 </nav>
 <main>
 
@@ -917,6 +919,161 @@
   </table>
   {% else %}<div class="empty">Sin pagos registrados aún.</div>{% endif %}
 </div>
+{% endif %}
+
+{% if tab == 'textos' %}
+<style>
+  .textos-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .textos-head h2 { margin: 0 0 4px; }
+  .textos-head p { margin: 0; color: var(--muted); font-size: 14px; }
+  .textos-actions { display: flex; gap: 8px; }
+  .texto-categoria { margin-bottom: 28px; }
+  .texto-categoria h3 {
+    margin: 0 0 10px; padding: 6px 12px; border-radius: 6px;
+    background: var(--accent-soft, #f1e8fa); color: var(--accent, #6b2fa5);
+    display: inline-block; font-size: 14px; letter-spacing: .05em;
+    text-transform: uppercase; font-weight: 700;
+  }
+  .texto-card {
+    background: var(--surface, white); border: 1px solid var(--line, #e6e6e6);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+  }
+  .texto-card details { margin: 0; }
+  .texto-card summary {
+    cursor: pointer; font-weight: 600; display: flex; justify-content: space-between;
+    gap: 10px; align-items: center; list-style: none;
+  }
+  .texto-card summary::-webkit-details-marker { display: none; }
+  .texto-card summary::after { content: "▸"; color: var(--muted); font-size: 12px; }
+  .texto-card details[open] summary::after { content: "▾"; }
+  .texto-clave { font-family: ui-monospace, monospace; font-size: 13px; }
+  .texto-descripcion { color: var(--muted); font-size: 13px; margin: 4px 0 8px; }
+  .texto-preview {
+    white-space: pre-wrap; background: #f8f8f8; padding: 10px; border-radius: 6px;
+    font-size: 13px; margin: 8px 0; max-height: 200px; overflow-y: auto;
+  }
+  .texto-vars { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .texto-vars code { background: #eee; padding: 1px 5px; border-radius: 3px; }
+  .texto-form { margin-top: 12px; display: grid; gap: 8px; }
+  .texto-form textarea {
+    width: 100%; min-height: 100px; font-family: inherit; font-size: 14px;
+    padding: 8px; border: 1px solid var(--line, #ccc); border-radius: 6px;
+    resize: vertical;
+  }
+  .texto-form input[type=text] {
+    padding: 6px 8px; border: 1px solid var(--line, #ccc); border-radius: 6px;
+    font-size: 13px;
+  }
+  .texto-form-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .texto-form-row label { font-size: 12px; color: var(--muted); min-width: 90px; }
+  .texto-form .btn-row { display: flex; gap: 8px; margin-top: 4px; }
+  .texto-form button { padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+  .btn-save { background: var(--accent, #6b2fa5); color: white; border: 0; }
+  .btn-delete { background: transparent; color: #c0392b; border: 1px solid #c0392b; }
+  .nuevo-texto-form {
+    background: #fcfcff; border: 1px dashed var(--accent, #6b2fa5);
+    border-radius: 10px; padding: 16px; margin-bottom: 24px;
+  }
+  .nuevo-texto-form h3 { margin: 0 0 10px; }
+</style>
+
+<div class="textos-head">
+  <div>
+    <h2>✏️ Textos del bot</h2>
+    <p>Editá acá los mensajes que envía el bot. Los cambios aplican en ≤60 segundos (cache TTL). Si borrás una clave, el bot vuelve a usar el texto por defecto hardcodeado.</p>
+  </div>
+  <div class="textos-actions">
+    <form method="POST" action="{{ url_for('petra_panel.textos_seed') }}" style="display: inline;">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" title="Carga los textos base sin sobrescribir los que ya editaste">
+        🌱 Cargar textos base
+      </button>
+    </form>
+    <form method="POST" action="{{ url_for('petra_panel.textos_seed') }}" style="display: inline;"
+          onsubmit="return confirm('Esto va a RESETEAR todos los textos editados a sus valores por defecto. ¿Seguro?');">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="forzar" value="1">
+      <button type="submit" style="background:#c0392b;color:white;border:0;" title="Reemplaza TODOS los textos con los baseline (perdés ediciones)">
+        ♻️ Reset total
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Formulario para crear un texto nuevo -->
+<details class="nuevo-texto-form">
+  <summary style="cursor:pointer;font-weight:700;">➕ Agregar un texto nuevo</summary>
+  <form method="POST" action="{{ url_for('petra_panel.textos_upsert') }}" class="texto-form" style="margin-top:12px;">
+    <input type="hidden" name="token" value="{{ token }}">
+    <div class="texto-form-row">
+      <label>Clave:</label>
+      <input type="text" name="clave" required placeholder="ej. autorizacion.msg_nuevo" style="flex:1;">
+    </div>
+    <div class="texto-form-row">
+      <label>Categoría:</label>
+      <input type="text" name="categoria" value="otro" placeholder="inscripcion / capacitacion / ...">
+    </div>
+    <div class="texto-form-row">
+      <label>Descripción:</label>
+      <input type="text" name="descripcion" placeholder="Para qué se usa este texto" style="flex:1;">
+    </div>
+    <div class="texto-form-row">
+      <label>Variables:</label>
+      <input type="text" name="variables" placeholder="nombre, conjunto (separadas por coma)" style="flex:1;">
+    </div>
+    <textarea name="contenido" required placeholder="El texto que enviará el bot. Usá {nombre}, {conjunto}, etc. para variables."></textarea>
+    <div class="btn-row">
+      <button type="submit" class="btn-save">Guardar</button>
+    </div>
+  </form>
+</details>
+
+{% if not textos %}
+  <div style="padding: 24px; background: #fff8e1; border-radius: 10px; border-left: 4px solid #f39c12;">
+    <strong>No hay textos cargados todavía.</strong>
+    <p style="margin: 6px 0 0;">Hacé clic en <strong>🌱 Cargar textos base</strong> arriba para empezar.</p>
+  </div>
+{% endif %}
+
+{% for categoria, textos_cat in textos_por_categoria.items() %}
+  <div class="texto-categoria">
+    <h3>{{ categoria }}</h3>
+    {% for t in textos_cat %}
+      <div class="texto-card">
+        <details>
+          <summary>
+            <span class="texto-clave">{{ t.clave }}</span>
+            <span style="font-size:12px;color:var(--muted);">{{ t.updated_at.strftime('%d %b %H:%M') if t.updated_at else '' }}</span>
+          </summary>
+          {% if t.descripcion %}<div class="texto-descripcion">{{ t.descripcion }}</div>{% endif %}
+          <div class="texto-preview">{{ t.contenido }}</div>
+          {% if t.variables %}
+            <div class="texto-vars">
+              Variables disponibles:
+              {% for v in t.variables %}<code>{{ '{' ~ v ~ '}' }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+            </div>
+          {% endif %}
+          <form method="POST" action="{{ url_for('petra_panel.textos_upsert') }}" class="texto-form">
+            <input type="hidden" name="token" value="{{ token }}">
+            <input type="hidden" name="clave" value="{{ t.clave }}">
+            <input type="hidden" name="categoria" value="{{ t.categoria }}">
+            <input type="hidden" name="descripcion" value="{{ t.descripcion or '' }}">
+            <input type="hidden" name="variables" value="{{ t.variables|join(',') }}">
+            <textarea name="contenido" required>{{ t.contenido }}</textarea>
+            <div class="btn-row">
+              <button type="submit" class="btn-save">💾 Guardar cambios</button>
+              <button type="submit" class="btn-delete"
+                      formaction="{{ url_for('petra_panel.textos_eliminar') }}"
+                      onclick="return confirm('¿Borrar esta clave? El bot volverá a usar el texto por defecto del código.');">
+                🗑 Borrar
+              </button>
+            </div>
+          </form>
+        </details>
+      </div>
+    {% endfor %}
+  </div>
+{% endfor %}
 {% endif %}
 
 </main>
