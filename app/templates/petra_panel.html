@@ -326,6 +326,68 @@
 {% endif %}
 
 {% if tab == 'visitas' %}
+<style>
+  .cita-form-wrap {
+    background: #fcfcff; border: 1px dashed var(--accent, #6b2fa5);
+    border-radius: 10px; padding: 16px 18px; margin-bottom: 24px;
+  }
+  .cita-form-wrap summary { cursor: pointer; font-weight: 700; }
+  .cita-form { display: grid; gap: 10px; margin-top: 14px; }
+  .cita-form .row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: center; }
+  .cita-form label { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .cita-form input, .cita-form select, .cita-form textarea {
+    padding: 8px 10px; border: 1px solid var(--line, #ccc); border-radius: 6px;
+    font-size: 14px; font-family: inherit;
+  }
+  .cita-form button {
+    background: var(--accent, #6b2fa5); color: white; border: 0;
+    padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;
+    justify-self: start;
+  }
+</style>
+
+<details class="cita-form-wrap" {% if request.args.get('flash','').startswith('cita_') %}open{% endif %}>
+  <summary>➕ Crear cita manual (notifica a la agente por WhatsApp)</summary>
+  {% if request.args.get('flash') == 'cita_agente_no_activa' %}
+    <div style="padding:10px;background:#fdecec;border-radius:6px;margin-top:10px;color:#c0392b;">
+      La agente no está en estado "activa" — primero debe terminar el flujo de activación (QR instalado).
+    </div>
+  {% endif %}
+  <form method="POST" action="{{ url_for('petra_panel.cita_crear') }}" class="cita-form">
+    <input type="hidden" name="token" value="{{ token }}">
+    <div class="row">
+      <label>Agente *</label>
+      <select name="agente_cid" required>
+        <option value="">— elegí la agente —</option>
+        {% for a in agentes_activas %}
+          <option value="{{ a.cid }}">{{ a.nombre or '(sin nombre)' }} · +{{ a.telefono }}{% if a.conjunto %} · {{ a.conjunto }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="row">
+      <label>Nombre interesado *</label>
+      <input type="text" name="interesado_nombre" required placeholder="Juan Pérez">
+    </div>
+    <div class="row">
+      <label>Tel interesado</label>
+      <input type="text" name="interesado_tel" placeholder="573001234567 (opcional)">
+    </div>
+    <div class="row">
+      <label>Inmueble</label>
+      <input type="text" name="inmueble_desc" placeholder="Apto 702 Torre 3 (texto libre)">
+    </div>
+    <div class="row">
+      <label>Fecha y hora *</label>
+      <input type="datetime-local" name="fecha_hora" required>
+    </div>
+    <div class="row">
+      <label>Nota (opcional)</label>
+      <textarea name="nota" rows="2" placeholder="Detalles de la cita"></textarea>
+    </div>
+    <div><button type="submit">📲 Crear cita y notificar a la agente</button></div>
+  </form>
+</details>
+
 <div class="panel">
   <div class="panel-head"><h2>📅 Visitas</h2>
     <span class="count">{{ visitas|length }} (últ 100)</span></div>

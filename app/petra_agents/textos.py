@@ -267,6 +267,41 @@ SEED_TEXTOS = [
      "Mensaje final al confirmar QR instalado. Pasa a estado 'activa'.",
      [], "activacion"),
 
+    # ─── Citas ───
+    ("citas.msg_intro_video",
+     "Antes de que empiecen a llegar interesados, mirá este video "
+     "corto donde te explico cómo manejar las citas 💜 👇",
+     "Intro al video de citas, se envía 1 sola vez al pasar a estado=activa.",
+     [], "citas"),
+    ("citas.msg_nueva_cita",
+     "📅 *¡Nueva cita!*\n\n"
+     "👤 *Interesado:* {interesado}\n"
+     "🏠 *Inmueble:* {inmueble}\n"
+     "🕒 *Propuesta:* {cuando}\n"
+     "\n¿Podés atenderla?",
+     "Mensaje que recibe la agente cuando se crea una cita desde el panel. "
+     "Variables: interesado, inmueble, cuando.",
+     ["interesado", "inmueble", "cuando"], "citas"),
+    ("citas.msg_confirmada",
+     "¡Dale! 💜 Confirmada la cita con *{interesado}* para el "
+     "*{cuando}*. Te recuerdo 30 min antes 📲",
+     "Mensaje al pulsar 'Puedo'. Variables: interesado, cuando.",
+     ["interesado", "cuando"], "citas"),
+    ("citas.msg_cancelada",
+     "Ok, cancelo la cita 💜. Si querés proponer otro día más "
+     "adelante, decime.",
+     "Mensaje al pulsar 'No puedo'.", [], "citas"),
+    ("citas.msg_pedir_contrapropuesta",
+     "Dale, decime qué día y hora te quedarían bien y yo le "
+     "paso tu propuesta al interesado 💜\n\n"
+     "(Ej: *jueves a las 3pm*, *mañana 10am*, etc.)",
+     "Mensaje al pulsar 'Proponer otro día'.", [], "citas"),
+    ("citas.msg_contrapropuesta_recibida",
+     "¡Perfecto! Le paso al interesado tu propuesta: *{propuesta}* 💜\n\n"
+     "Te aviso cuando confirme.",
+     "Mensaje al recibir la contrapropuesta en texto. Variable: propuesta.",
+     ["propuesta"], "citas"),
+
     # ─── Fallbacks genéricos ───
     ("fallback.llm_error",
      "Perdón, no te pude responder bien ahora. Un asesor te "

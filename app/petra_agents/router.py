@@ -114,7 +114,7 @@ ESTADOS_FLOW_PYTHON = {
     "recolectando", "inscrito", "bienvenida_enviada",
     "esperando_capacitacion_dia1", "en_capacitacion",
     "capacitacion_completa", "autorizacion_pendiente",
-    "kit_pendiente", "certificado",
+    "kit_pendiente", "kit_enviado", "activa", "certificado",
 }
 
 
