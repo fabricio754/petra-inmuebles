@@ -205,6 +205,7 @@ def _handle_locked(telefono, texto, button_id, list_id, contacto_nombre):
     if estado:
         handled = flow_onboarding_agente.handle(
             telefono, texto_efectivo, es_handoff=False,
+            sesion_id=sesion_id,
         )
         if handled:
             return {"ok": True, "flow": "onboarding_agente", "estado": estado}
@@ -235,6 +236,7 @@ def _handle_locked(telefono, texto, button_id, list_id, contacto_nombre):
         if label == "agente_petra":
             flow_onboarding_agente.handle(
                 telefono, texto_efectivo, es_handoff=True,
+                sesion_id=sesion_id,
             )
             return {"ok": True, "flow": "onboarding_agente",
                     "handoff": True}
