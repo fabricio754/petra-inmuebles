@@ -25,29 +25,68 @@ def _conn():
     return _db._conexion_directa(timeout=5)
 
 
+def _row_to_dict(r):
+    return {
+        "id": r[0], "estado_key": r[1], "tipo": r[2],
+        "boton_id": r[3], "titulo": r[4],
+        "texto_respuesta": r[5], "orden": r[6], "activo": r[7],
+        "clave_texto": r[8] if len(r) > 8 else None,
+    }
+
+
 def listar_por_estado(estado_key):
     """Lista TODAS las reglas (custom + override) para un estado."""
     try:
         with _conn() as conn:
             rows = conn.execute(
                 "SELECT id, estado_key, tipo, boton_id, titulo, "
-                "texto_respuesta, orden, activo "
+                "texto_respuesta, orden, activo, clave_texto "
                 "FROM petra_botones_estacion "
                 "WHERE estado_key=%s "
                 "ORDER BY tipo, orden, id",
                 (estado_key,),
             ).fetchall()
-        return [
-            {
-                "id": r[0], "estado_key": r[1], "tipo": r[2],
-                "boton_id": r[3], "titulo": r[4],
-                "texto_respuesta": r[5], "orden": r[6], "activo": r[7],
-            }
-            for r in rows
-        ]
+        return [_row_to_dict(r) for r in rows]
     except Exception:
         log.exception("[botones] listar fallo estado=%s", estado_key)
         return []
+
+
+def listar_por_clave(clave_texto):
+    """Lista botones adjuntos a un mensaje específico (clave de petra_textos)."""
+    try:
+        with _conn() as conn:
+            rows = conn.execute(
+                "SELECT id, estado_key, tipo, boton_id, titulo, "
+                "texto_respuesta, orden, activo, clave_texto "
+                "FROM petra_botones_estacion "
+                "WHERE clave_texto=%s "
+                "ORDER BY orden, id",
+                (clave_texto,),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    except Exception:
+        log.exception("[botones] listar fallo clave=%s", clave_texto)
+        return []
+
+
+def botones_de_clave(clave_texto):
+    """Devuelve los botones (como lista {id, title}) para adjuntar al mensaje
+    con esa clave de texto. Hasta 3, respetando activo. Cada custom se envía
+    como CUSTOM_<id>, cada override con su boton_id tal cual."""
+    rows = listar_por_clave(clave_texto)
+    out = []
+    for r in rows:
+        if not r["activo"]:
+            continue
+        titulo = (r["titulo"] or "")[:20].strip()
+        if not titulo:
+            continue
+        if r["tipo"] == "custom":
+            out.append({"id": f"CUSTOM_{r['id']}", "title": titulo})
+        else:
+            out.append({"id": r["boton_id"], "title": titulo})
+    return out[:MAX_BOTONES_WA]
 
 
 def aplicar_reglas(estado_key, defaults):
@@ -103,22 +142,25 @@ def resolver_custom(button_id):
         return None
 
 
-def crear_custom(estado_key, titulo, texto_respuesta, orden=0):
-    """Crea un botón custom nuevo. Devuelve id."""
+def crear_custom(estado_key, titulo, texto_respuesta, orden=0, clave_texto=None):
+    """Crea un botón custom nuevo. Devuelve id.
+    Si `clave_texto` se pasa, el botón se adjunta al mensaje puntual
+    con esa clave en vez de a toda la estación."""
     estado_key = (estado_key or "").strip()
     titulo = (titulo or "").strip()[:20]
     texto_respuesta = (texto_respuesta or "").strip()
+    clave_texto = (clave_texto or "").strip() or None
     if not estado_key or not titulo or not texto_respuesta:
         raise ValueError("estado_key, titulo y texto_respuesta son requeridos")
     with _conn() as conn:
         row = conn.execute(
             "INSERT INTO petra_botones_estacion "
-            "(estado_key, tipo, boton_id, titulo, texto_respuesta, orden, activo) "
-            "VALUES (%s, 'custom', '', %s, %s, %s, TRUE) RETURNING id",
-            (estado_key, titulo, texto_respuesta, int(orden or 0)),
+            "(estado_key, tipo, boton_id, titulo, texto_respuesta, orden, "
+            "activo, clave_texto) "
+            "VALUES (%s, 'custom', '', %s, %s, %s, TRUE, %s) RETURNING id",
+            (estado_key, titulo, texto_respuesta, int(orden or 0), clave_texto),
         ).fetchone()
         new_id = row[0]
-        # boton_id se setea como CUSTOM_<id> para trazabilidad
         conn.execute(
             "UPDATE petra_botones_estacion SET boton_id=%s WHERE id=%s",
             (f"CUSTOM_{new_id}", new_id),

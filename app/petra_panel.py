@@ -239,18 +239,40 @@ def panel_home():
     from app.petra_agents import textos as _textos_mod
     todos_textos = _textos_mod.listar_textos()
     textos_por_clave = {t["clave"]: t for t in todos_textos}
-    # Carga toda la media_estacion de una vez agrupada por estado real
+    # Carga toda la media_estacion de una vez. Las agrupa por estado (fallback
+    # cuando clave_texto es NULL) y por clave de mensaje puntual.
     media_por_estado = {}
+    media_por_clave = {}
     try:
         with _db._conexion_directa(timeout=10) as conn:
             rows = conn.execute(
-                "SELECT id, estado_key, titulo, url, activo, created_at "
+                "SELECT id, estado_key, clave_texto, titulo, url, activo, created_at "
                 "FROM petra_media_estacion ORDER BY estado_key, orden, id"
             ).fetchall()
         for r in rows:
-            media_por_estado.setdefault(r[1], []).append({
-                "id": r[0], "titulo": r[2], "url": r[3],
-                "activo": r[4], "created_at": r[5],
+            item = {
+                "id": r[0], "titulo": r[3], "url": r[4],
+                "activo": r[5], "created_at": r[6],
+                "clave_texto": r[2],
+            }
+            if r[2]:
+                media_por_clave.setdefault(r[2], []).append(item)
+            else:
+                media_por_estado.setdefault(r[1], []).append(item)
+    except Exception:
+        pass
+    # Mensajes extra agrupados por parent_clave
+    extras_por_clave = {}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = conn.execute(
+                "SELECT id, parent_clave, orden, contenido, activo "
+                "FROM petra_mensajes_extra "
+                "ORDER BY parent_clave, orden, id"
+            ).fetchall()
+        for r in rows:
+            extras_por_clave.setdefault(r[1], []).append({
+                "id": r[0], "orden": r[2], "contenido": r[3], "activo": r[4],
             })
     except Exception:
         pass
@@ -279,19 +301,25 @@ def panel_home():
         ],
     }
     botones_por_estado = {}
+    botones_por_clave = {}
     try:
         with _db._conexion_directa(timeout=10) as conn:
             rows = conn.execute(
                 "SELECT id, estado_key, tipo, boton_id, titulo, "
-                "texto_respuesta, orden, activo "
+                "texto_respuesta, orden, activo, clave_texto "
                 "FROM petra_botones_estacion ORDER BY estado_key, tipo, orden, id"
             ).fetchall()
         for r in rows:
-            botones_por_estado.setdefault(r[1], []).append({
+            item = {
                 "id": r[0], "tipo": r[2], "boton_id": r[3],
                 "titulo": r[4], "texto_respuesta": r[5],
                 "orden": r[6], "activo": r[7],
-            })
+                "clave_texto": r[8],
+            }
+            if r[8]:
+                botones_por_clave.setdefault(r[8], []).append(item)
+            else:
+                botones_por_estado.setdefault(r[1], []).append(item)
     except Exception:
         pass
     presets_extended = []
@@ -304,6 +332,10 @@ def panel_home():
                 "contenido": (t["contenido"] if t else None),
                 "descripcion": (t["descripcion"] if t else None),
                 "cargado": bool(t),
+                "activo": (t.get("activo", True) if t else True),
+                "media": media_por_clave.get(clave, []),
+                "botones": botones_por_clave.get(clave, []),
+                "extras": extras_por_clave.get(clave, []),
             })
         estado_real = _sim_mod.estado_real_del_preset(k)
         defaults_est = DEFAULTS_BOTONES_POR_ESTADO.get(estado_real, []) if estado_real else []
@@ -1126,6 +1158,58 @@ def textos_eliminar():
     ))
 
 
+@petra_panel_bp.post("/textos/toggle_activo")
+def textos_toggle_activo():
+    """Oculta (activo=false) o re-activa un mensaje. Más suave que eliminar
+    porque la config queda guardada."""
+    _check_token()
+    token = request.form.get("token", "")
+    clave = (request.form.get("clave") or "").strip()
+    activo = request.form.get("activo", "0") in ("1", "true", "on")
+    preset = (request.form.get("preset") or "").strip()
+    if not clave:
+        abort(400)
+    from app.petra_agents import textos as _textos_mod
+    _textos_mod.set_activo(clave, activo)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token,
+        preset=preset,
+        flash=("texto_activado" if activo else "texto_ocultado"),
+    ))
+
+
+@petra_panel_bp.post("/mensajes_extra/crear")
+def mensajes_extra_crear():
+    """Agrega un mensaje extra que el bot envía DESPUÉS del mensaje padre."""
+    _check_token()
+    token = request.form.get("token", "")
+    parent_clave = (request.form.get("parent_clave") or "").strip()
+    contenido = (request.form.get("contenido") or "").strip()
+    preset = (request.form.get("preset") or "").strip()
+    from app.petra_agents import mensajes_extra as _mex
+    try:
+        _mex.crear(parent_clave, contenido)
+    except ValueError as e:
+        abort(400, str(e))
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token,
+        preset=preset, flash="extra_agregado",
+    ))
+
+
+@petra_panel_bp.post("/mensajes_extra/<int:mid>/eliminar")
+def mensajes_extra_eliminar(mid):
+    _check_token()
+    token = request.form.get("token", "")
+    preset = (request.form.get("preset") or "").strip()
+    from app.petra_agents import mensajes_extra as _mex
+    _mex.eliminar(mid)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token,
+        preset=preset, flash="extra_eliminado",
+    ))
+
+
 @petra_panel_bp.post("/textos/seed")
 def textos_seed():
     """Carga los textos baseline (idempotente: no sobrescribe lo editado)."""
@@ -1641,6 +1725,7 @@ def media_estacion_crear():
     _check_token()
     token = request.form.get("token", "")
     estado_key = (request.form.get("estado_key") or "").strip()
+    clave_texto = (request.form.get("clave_texto") or "").strip() or None
     titulo = (request.form.get("titulo") or "").strip() or None
     url_externa = (request.form.get("url_externa") or "").strip() or None
     archivo = request.files.get("archivo")
@@ -1657,17 +1742,23 @@ def media_estacion_crear():
     else:
         abort(400, "sube un archivo o pega una URL")
     with _db._conexion_directa(timeout=10) as conn:
-        # orden incremental dentro del estado
-        row = conn.execute(
-            "SELECT COALESCE(MAX(orden), 0) + 1 FROM petra_media_estacion "
-            "WHERE estado_key=%s", (estado_key,),
-        ).fetchone()
+        # orden incremental: por clave_texto si está, sino por estación
+        if clave_texto:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(orden), 0) + 1 FROM petra_media_estacion "
+                "WHERE clave_texto=%s", (clave_texto,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(orden), 0) + 1 FROM petra_media_estacion "
+                "WHERE estado_key=%s AND clave_texto IS NULL", (estado_key,),
+            ).fetchone()
         orden = row[0] if row else 1
         conn.execute(
             "INSERT INTO petra_media_estacion "
-            "(estado_key, orden, titulo, url, activo) "
-            "VALUES (%s, %s, %s, %s, TRUE)",
-            (estado_key, orden, titulo, url_final),
+            "(estado_key, clave_texto, orden, titulo, url, activo) "
+            "VALUES (%s, %s, %s, %s, %s, TRUE)",
+            (estado_key, clave_texto, orden, titulo, url_final),
         )
     return redirect(url_for(
         "petra_panel.panel_home", tab="simulador", token=token,
@@ -1700,11 +1791,13 @@ def botones_custom_crear():
     _check_token()
     token = request.form.get("token", "")
     estado_key = (request.form.get("estado_key") or "").strip()
+    clave_texto = (request.form.get("clave_texto") or "").strip() or None
     titulo = (request.form.get("titulo") or "").strip()
     texto_respuesta = (request.form.get("texto_respuesta") or "").strip()
     from app.petra_agents import botones_estacion as _b_est
     try:
-        _b_est.crear_custom(estado_key, titulo, texto_respuesta)
+        _b_est.crear_custom(estado_key, titulo, texto_respuesta,
+                            clave_texto=clave_texto)
     except ValueError as e:
         abort(400, str(e))
     return redirect(url_for(
