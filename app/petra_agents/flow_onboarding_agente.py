@@ -1141,20 +1141,13 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                     "confianza y conocimiento para arrancar como Agente Petra en tu edificio 🏢💜\n\n"
                     "Te quedan solo *{quedan} videos ({dias_restantes} días)* para completar "
                     "toda tu capacitación. Vas re bien, dale con todo 💪\n\n"
-                    "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas "
-                    "el ritmo. O si tenés ganas de seguir avanzando ahora mismo, apretá el botón 👇"
+                    "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas el ritmo 👋"
                 ),
                 dia_actual=dia_actual, dias_total=dias_total,
                 vistos=vistos, total=total,
                 quedan=quedan, dias_restantes=dias_restantes,
             )
-        if vistos >= total:
-            _enviar(telefono, resp)
-        else:
-            from app import petra_wa as _pwa
-            _pwa.send_buttons(telefono, resp, [
-                {"id": "ONBAG_SIGUIENTE_DIA", "title": "⏭ Ver día siguiente"},
-            ])
+        _enviar(telefono, resp)
         _log(telefono, texto, resp, nota=f"día marcado {vistos}/{total}")
         return True
     # Botón "Ver día siguiente": dispara el próximo día inmediatamente,
