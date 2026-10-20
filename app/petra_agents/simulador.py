@@ -29,6 +29,7 @@ SIM_TELEFONO = "SIM_PETRA_01"
 
 PRESETS = {
     "nuevo": {
+        "grupo": "inscripcion", "categoria": "captacion",
         "label": "🆕 Nuevo (recién llegó, pide ser agente)",
         "rol": False,          # borra el rol
         "contexto": "El contacto NO tiene rol todavía. Al escribir cualquier cosa el router lo clasifica y arranca el flow de inscripción.",
@@ -39,6 +40,7 @@ PRESETS = {
         ],
     },
     "recolectando_vacio": {
+        "grupo": "inscripcion", "categoria": "registro",
         "label": "📝 Inscripción empezada (0 datos)",
         "rol": True,
         "metadata": {"estado_agente": "recolectando"},
@@ -56,6 +58,7 @@ PRESETS = {
         ],
     },
     "recolectando_mitad": {
+        "grupo": "inscripcion", "categoria": "registro",
         "label": "📝 Inscripción a mitad (nombre + cédula + ciudad)",
         "rol": True,
         "metadata": {
@@ -75,6 +78,7 @@ PRESETS = {
         ],
     },
     "inscrito": {
+        "grupo": "inscripcion", "categoria": "registro",
         "label": "✅ Inscrita (datos completos, botón Ver próximos pasos)",
         "rol": True,
         "metadata": {
@@ -93,6 +97,7 @@ PRESETS = {
         ],
     },
     "bienvenida_enviada": {
+        "grupo": "inscripcion", "categoria": "capacitacion",
         "label": "🎬 Vio bienvenida, esperando botón Empezar ahora",
         "rol": True,
         "metadata": {
@@ -113,6 +118,7 @@ PRESETS = {
         ],
     },
     "en_capacitacion_dia3": {
+        "grupo": "inscripcion", "categoria": "capacitacion",
         "label": "📚 En capacitación, día 3 (4 videos vistos)",
         "rol": True,
         "metadata": {
@@ -139,6 +145,7 @@ PRESETS = {
         ],
     },
     "capacitacion_casi_lista": {
+        "grupo": "inscripcion", "categoria": "capacitacion",
         "label": "🏁 Capacitación casi lista (día 6, 12/14 videos)",
         "rol": True,
         "metadata": {
@@ -160,6 +167,7 @@ PRESETS = {
         ],
     },
     "autorizacion_pendiente": {
+        "grupo": "inscripcion", "categoria": "autorizacion",
         "label": "📍 Autorización pendiente (acaba de terminar capacitación)",
         "rol": True,
         "metadata": {
@@ -189,6 +197,7 @@ PRESETS = {
         ],
     },
     "kit_pendiente_direccion": {
+        "grupo": "inscripcion", "categoria": "activacion",
         "label": "📦 Confirmó autorización (pidiendo dirección — torre)",
         "rol": True,
         "metadata": {
@@ -215,6 +224,7 @@ PRESETS = {
         ],
     },
     "kit_pendiente_direccion_lista": {
+        "grupo": "inscripcion", "categoria": "activacion",
         "label": "📬 Dirección completa, esperando que humano marque kit enviado",
         "rol": True,
         "metadata": {
@@ -237,6 +247,7 @@ PRESETS = {
         ],
     },
     "kit_enviado": {
+        "grupo": "inscripcion", "categoria": "activacion",
         "label": "🚚 Kit enviado (esperando botón Ya instalé el QR)",
         "rol": True,
         "metadata": {
@@ -259,6 +270,7 @@ PRESETS = {
         ],
     },
     "activa": {
+        "grupo": "dia_a_dia", "categoria": "activa",
         "label": "🚀 Activa (fase operativa, puede manejar citas e inmuebles)",
         "rol": True,
         "metadata": {

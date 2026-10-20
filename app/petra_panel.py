@@ -350,6 +350,8 @@ def panel_home():
         customs = [r for r in reglas_est if r["tipo"] == "custom"]
         presets_extended.append({
             "key": k, "label": v["label"], "contexto": v.get("contexto", ""),
+            "grupo": v.get("grupo", "otros"),
+            "categoria": v.get("categoria", "otros"),
             "textos": textos_resueltos,
             "transiciones": v.get("transiciones", []),
             "estado_real": estado_real,
