@@ -469,7 +469,8 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             )
             _t_cap.sleep(1)
             _pwa_cap.send_buttons(telefono,
-                "Preparé material de apoyo para que lo lleves a la reunión 💜",
+                "Preparé material de apoyo para que lo lleves a la reunión 💜\n\n"
+                "¿Tenés alguna duda? Escribime y te respondo.",
                 [
                     {"id": "ONBAG_VER_MATERIAL", "title": "📎 Ver material"},
                     {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
@@ -740,7 +741,8 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                 _t_mat.sleep(1)
                 _enviar_material_autorizacion(conn, telefono)
                 _pwa_mat.send_buttons(telefono,
-                    "Cuando tengas la autorización del administrador, pulsá el botón 👇",
+                    "¿Tenés alguna duda? Escribime y te respondo 💜\n\n"
+                    "Y cuando tengas la autorización del administrador, pulsá el botón 👇",
                     [{"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"}],
                 )
                 _log(telefono, texto, "[envío material autorización]",
