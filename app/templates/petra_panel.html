@@ -147,8 +147,8 @@
      href="?tab=postulaciones&token={{ token }}">🏘️ Postulaciones ({{ postulaciones|length }})</a>
   <a class="tab {% if tab == 'pagos' %}active{% endif %}"
      href="?tab=pagos&token={{ token }}">💸 Pagos ({{ pagos_arriendo|length }})</a>
-  <a class="tab {% if tab == 'textos' %}active{% endif %}"
-     href="?tab=textos&token={{ token }}">✏️ Textos ({{ textos|length }})</a>
+  {# Tab Textos oculto: ahora todo vive en 🧪 Simulador / Flujo. El endpoint
+     sigue vivo porque los links "✏️ Editar" dentro de cada mensaje lo usan. #}
   <a class="tab {% if tab == 'faq' %}active{% endif %}"
      href="?tab=faq&token={{ token }}">❓ FAQ ({{ faqs|length }})</a>
   <a class="tab {% if tab == 'kits' %}active{% endif %}"
@@ -1797,19 +1797,126 @@
         <div class="estacion-sect">
           <h4>💬 Mensajes que envía el bot aquí</h4>
           {% for t in p.textos %}
-            <div class="texto-row {% if not t.cargado %}no-cargado{% endif %}">
-              <div class="texto-row-body">
-                <div class="texto-row-clave">{{ t.clave }}</div>
-                {% if t.cargado %}
-                  <div class="texto-row-preview">{{ t.contenido }}</div>
-                {% else %}
-                  <div class="texto-row-nopcargado">⚠️ No cargado en DB — se usa el fallback hardcoded. Cargalo desde el tab Textos para poder editarlo.</div>
-                {% endif %}
+            <div class="msg-card {% if not t.cargado %}no-cargado{% endif %} {% if not t.activo %}ocultado{% endif %}" style="margin-bottom:14px; border:1px solid var(--line, #e5e5e5); border-radius:8px; overflow:hidden; background:#fff;">
+              <div style="padding:10px 12px; background:#fafafa; border-bottom:1px solid var(--line, #eee); display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <code style="font-size:11px; color:var(--accent, #6b2fa5); font-weight:600;">{{ t.clave }}</code>
+                {% if not t.activo %}<span style="font-size:10px; padding:2px 6px; background:#c0392b; color:white; border-radius:3px;">OCULTO</span>{% endif %}
+                {% if not t.cargado %}<span style="font-size:10px; padding:2px 6px; background:#f39c12; color:white; border-radius:3px;">FALLBACK</span>{% endif %}
+                <span style="flex:1;"></span>
+                <a href="?tab=textos&token={{ token }}#texto-{{ t.clave }}" style="font-size:12px; padding:4px 10px; border:1px solid var(--accent, #6b2fa5); color:var(--accent, #6b2fa5); border-radius:4px; text-decoration:none;">✏️ Editar</a>
+                <form method="POST" action="{{ url_for('petra_panel.textos_toggle_activo') }}" style="margin:0;">
+                  <input type="hidden" name="token" value="{{ token }}">
+                  <input type="hidden" name="clave" value="{{ t.clave }}">
+                  <input type="hidden" name="preset" value="{{ p.key }}">
+                  <input type="hidden" name="activo" value="{% if t.activo %}0{% else %}1{% endif %}">
+                  <button type="submit" style="font-size:12px; padding:4px 10px; border:1px solid {% if t.activo %}#c0392b{% else %}#27ae60{% endif %}; color:{% if t.activo %}#c0392b{% else %}#27ae60{% endif %}; background:transparent; border-radius:4px; cursor:pointer;">
+                    {% if t.activo %}🗑 Ocultar{% else %}👁 Mostrar{% endif %}
+                  </button>
+                </form>
               </div>
-              <a class="texto-row-edit"
-                 href="?tab=textos&token={{ token }}#texto-{{ t.clave }}">
-                ✏️ Editar
-              </a>
+              <div style="padding:12px;">
+                {% if t.cargado %}
+                  <div style="white-space:pre-wrap; font-size:13px; line-height:1.4; color:{% if t.activo %}#111{% else %}#999{% endif %}; {% if not t.activo %}text-decoration:line-through;{% endif %}">{{ t.contenido }}</div>
+                {% else %}
+                  <div style="font-size:12px; color:var(--muted);">⚠️ No cargado en DB — se usa el fallback hardcoded.</div>
+                {% endif %}
+
+                {# --- Media adjunta a ESTE mensaje --- #}
+                {% if t.media %}
+                  <div style="margin-top:10px; display:flex; flex-direction:column; gap:4px;">
+                    {% for m in t.media %}
+                      <div style="display:flex; align-items:center; gap:8px; padding:6px 8px; background:#f8f4ff; border-radius:4px; border-left:2px solid var(--accent, #6b2fa5); font-size:12px;">
+                        <span>📎</span>
+                        <div style="flex:1; min-width:0;">
+                          <div style="font-weight:600;">{{ m.titulo or '(sin título)' }}</div>
+                          <div style="font-family:ui-monospace,monospace; color:var(--muted); font-size:10px; word-break:break-all;">{{ m.url }}</div>
+                        </div>
+                        <form method="POST" action="{{ url_for('petra_panel.media_estacion_eliminar', mid=m.id) }}" style="margin:0;" onsubmit="return confirm('¿Borrar esta media?');">
+                          <input type="hidden" name="token" value="{{ token }}">
+                          <input type="hidden" name="estado_key" value="{{ p.key }}">
+                          <button type="submit" style="padding:2px 6px; border-radius:3px; border:1px solid #c0392b; background:transparent; color:#c0392b; cursor:pointer; font-size:10px;">🗑</button>
+                        </form>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+
+                {# --- Botones adjuntos a ESTE mensaje --- #}
+                {% if t.botones %}
+                  <div style="margin-top:10px; display:flex; flex-direction:column; gap:4px;">
+                    {% for b in t.botones %}
+                      <div style="display:flex; align-items:flex-start; gap:8px; padding:6px 8px; background:#eef5e9; border-radius:4px; border-left:2px solid #27ae60; font-size:12px;">
+                        <span>🔘</span>
+                        <div style="flex:1; min-width:0;">
+                          <div style="font-weight:600;">{{ b.titulo }}</div>
+                          <div style="color:#444; margin-top:2px; white-space:pre-wrap;">↩ {{ b.texto_respuesta }}</div>
+                        </div>
+                        <form method="POST" action="{{ url_for('petra_panel.botones_eliminar', bid=b.id) }}" style="margin:0;" onsubmit="return confirm('¿Borrar este botón?');">
+                          <input type="hidden" name="token" value="{{ token }}">
+                          <input type="hidden" name="estado_key" value="{{ p.key }}">
+                          <button type="submit" style="padding:2px 6px; border-radius:3px; border:1px solid #c0392b; background:transparent; color:#c0392b; cursor:pointer; font-size:10px;">🗑</button>
+                        </form>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+
+                {# --- Mensajes extra DESPUÉS de este --- #}
+                {% if t.extras %}
+                  <div style="margin-top:10px; display:flex; flex-direction:column; gap:4px;">
+                    {% for e in t.extras %}
+                      <div style="display:flex; align-items:flex-start; gap:8px; padding:6px 8px; background:#f0f8ff; border-radius:4px; border-left:2px solid #3498db; font-size:12px;">
+                        <span>➕</span>
+                        <div style="flex:1; min-width:0; white-space:pre-wrap;">{{ e.contenido }}</div>
+                        <form method="POST" action="{{ url_for('petra_panel.mensajes_extra_eliminar', mid=e.id) }}" style="margin:0;" onsubmit="return confirm('¿Borrar este mensaje extra?');">
+                          <input type="hidden" name="token" value="{{ token }}">
+                          <input type="hidden" name="preset" value="{{ p.key }}">
+                          <button type="submit" style="padding:2px 6px; border-radius:3px; border:1px solid #c0392b; background:transparent; color:#c0392b; cursor:pointer; font-size:10px;">🗑</button>
+                        </form>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+
+                {# --- Acciones: adjuntar media/botón/extra --- #}
+                <div style="margin-top:12px; display:flex; gap:6px; flex-wrap:wrap;">
+                  <details style="flex:1; min-width:180px;">
+                    <summary style="cursor:pointer; font-size:11px; color:var(--accent, #6b2fa5); font-weight:600;">📎 Adjuntar imagen/video</summary>
+                    <form method="POST" action="{{ url_for('petra_panel.media_estacion_crear') }}" enctype="multipart/form-data" style="margin-top:6px; display:flex; flex-direction:column; gap:4px;">
+                      <input type="hidden" name="token" value="{{ token }}">
+                      <input type="hidden" name="estado_key" value="{{ p.estado_real or p.key }}">
+                      <input type="hidden" name="clave_texto" value="{{ t.clave }}">
+                      <input type="text" name="titulo" placeholder="Título (opcional)" style="padding:4px 8px; border:1px solid var(--line, #ccc); border-radius:3px; font-size:11px;">
+                      <input type="file" name="archivo" accept="image/*,video/*" style="font-size:11px;">
+                      <input type="text" name="url_externa" placeholder="o URL externa" style="padding:4px 8px; border:1px solid var(--line, #ccc); border-radius:3px; font-size:11px;">
+                      <button type="submit" style="background:var(--accent, #6b2fa5); color:white; border:0; padding:4px 10px; border-radius:3px; font-size:11px; cursor:pointer; justify-self:start;">Guardar</button>
+                    </form>
+                  </details>
+                  {% if p.estado_real %}
+                    <details style="flex:1; min-width:180px;">
+                      <summary style="cursor:pointer; font-size:11px; color:#27ae60; font-weight:600;">🔘 Agregar botón</summary>
+                      <form method="POST" action="{{ url_for('petra_panel.botones_custom_crear') }}" style="margin-top:6px; display:flex; flex-direction:column; gap:4px;">
+                        <input type="hidden" name="token" value="{{ token }}">
+                        <input type="hidden" name="estado_key" value="{{ p.estado_real }}">
+                        <input type="hidden" name="clave_texto" value="{{ t.clave }}">
+                        <input type="text" name="titulo" placeholder="Texto botón (≤20)" maxlength="20" required style="padding:4px 8px; border:1px solid var(--line, #ccc); border-radius:3px; font-size:11px;">
+                        <textarea name="texto_respuesta" placeholder="Respuesta cuando lo pulsan" required rows="2" style="padding:4px 8px; border:1px solid var(--line, #ccc); border-radius:3px; font-size:11px; font-family:inherit;"></textarea>
+                        <button type="submit" style="background:#27ae60; color:white; border:0; padding:4px 10px; border-radius:3px; font-size:11px; cursor:pointer; justify-self:start;">Agregar</button>
+                      </form>
+                    </details>
+                  {% endif %}
+                  <details style="flex:1; min-width:180px;">
+                    <summary style="cursor:pointer; font-size:11px; color:#3498db; font-weight:600;">➕ Mensaje extra después</summary>
+                    <form method="POST" action="{{ url_for('petra_panel.mensajes_extra_crear') }}" style="margin-top:6px; display:flex; flex-direction:column; gap:4px;">
+                      <input type="hidden" name="token" value="{{ token }}">
+                      <input type="hidden" name="parent_clave" value="{{ t.clave }}">
+                      <input type="hidden" name="preset" value="{{ p.key }}">
+                      <textarea name="contenido" placeholder="Mensaje que se envía después de este" required rows="2" style="padding:4px 8px; border:1px solid var(--line, #ccc); border-radius:3px; font-size:11px; font-family:inherit;"></textarea>
+                      <button type="submit" style="background:#3498db; color:white; border:0; padding:4px 10px; border-radius:3px; font-size:11px; cursor:pointer; justify-self:start;">Agregar</button>
+                    </form>
+                  </details>
+                </div>
+              </div>
             </div>
           {% endfor %}
         </div>

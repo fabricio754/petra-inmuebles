@@ -27,15 +27,21 @@ _CACHE_LOCK = threading.Lock()
 
 
 def _leer_db(clave):
-    """Devuelve el contenido guardado para `clave`, o None si no existe."""
+    """Devuelve el contenido guardado para `clave`, o None si no existe.
+    Si el texto está marcado activo=FALSE, devuelve '' (string vacío)."""
     try:
         from app import db as _db
         with _db._conexion_directa(timeout=5) as conn:
             row = conn.execute(
-                "SELECT contenido FROM petra_textos WHERE clave=%s",
+                "SELECT contenido, activo FROM petra_textos WHERE clave=%s",
                 (clave,),
             ).fetchone()
-        return row[0] if row else None
+        if not row:
+            return None
+        contenido, activo = row[0], row[1]
+        if activo is False:
+            return ""  # ocultado desde panel — se saltea
+        return contenido
     except Exception:
         log.exception("[textos] lectura DB fallo clave=%s", clave)
         return None
@@ -103,7 +109,7 @@ def listar_textos():
         with _db._conexion_directa(timeout=10) as conn:
             rows = conn.execute(
                 "SELECT clave, contenido, descripcion, variables, categoria, "
-                "updated_at, updated_by "
+                "updated_at, updated_by, activo "
                 "FROM petra_textos ORDER BY categoria, clave"
             ).fetchall()
         return [
@@ -111,6 +117,7 @@ def listar_textos():
                 "clave": r[0], "contenido": r[1], "descripcion": r[2],
                 "variables": list(r[3] or []), "categoria": r[4],
                 "updated_at": r[5], "updated_by": r[6],
+                "activo": (r[7] if r[7] is not None else True),
             }
             for r in rows
         ]
@@ -144,6 +151,24 @@ def upsert_texto(clave, contenido, descripcion=None, variables=None,
         return True
     except Exception:
         log.exception("[textos] upsert fallo clave=%s", clave)
+        return False
+
+
+def set_activo(clave, activo):
+    """Marca una clave como activa (bot la envía) o inactiva (la saltea).
+    Más seguro que `eliminar_texto` para "ocultar" un mensaje, porque la
+    config (categoría, variables) queda guardada para re-activar."""
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "UPDATE petra_textos SET activo=%s, updated_at=NOW() WHERE clave=%s",
+                (bool(activo), clave),
+            )
+        invalidar_cache(clave)
+        return True
+    except Exception:
+        log.exception("[textos] set_activo fallo clave=%s", clave)
         return False
 
 

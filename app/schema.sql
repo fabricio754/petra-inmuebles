@@ -1218,3 +1218,33 @@ CREATE INDEX IF NOT EXISTS petra_botones_estacion_idx
 CREATE UNIQUE INDEX IF NOT EXISTS petra_botones_estacion_override_uq
   ON petra_botones_estacion (estado_key, boton_id)
   WHERE tipo = 'override';
+
+-- Soft-delete y adjuntos por MENSAJE (no por estación)
+-- Cada entrada de petra_textos puede ocultarse (activo=FALSE) — el bot la
+-- saltea. Y la media/botones puede atarse a una clave específica para que
+-- el bot los mande junto a ese mensaje puntual (en lugar de "por estación").
+ALTER TABLE petra_textos
+  ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE petra_media_estacion
+  ADD COLUMN IF NOT EXISTS clave_texto TEXT;
+ALTER TABLE petra_botones_estacion
+  ADD COLUMN IF NOT EXISTS clave_texto TEXT;
+CREATE INDEX IF NOT EXISTS petra_media_estacion_clave_idx
+  ON petra_media_estacion (clave_texto) WHERE clave_texto IS NOT NULL;
+CREATE INDEX IF NOT EXISTS petra_botones_estacion_clave_idx
+  ON petra_botones_estacion (clave_texto) WHERE clave_texto IS NOT NULL;
+
+-- Mensajes extra: textos que el bot envía ADICIONALMENTE después de un
+-- mensaje "padre". Los agrega el admin desde el panel sin tocar código.
+-- parent_clave apunta a una clave de petra_textos. orden define el orden
+-- de envío relativo entre varios extras del mismo padre.
+CREATE TABLE IF NOT EXISTS petra_mensajes_extra (
+  id            SERIAL PRIMARY KEY,
+  parent_clave  TEXT NOT NULL,
+  orden         INTEGER NOT NULL DEFAULT 0,
+  contenido     TEXT NOT NULL,
+  activo        BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_mensajes_extra_parent_idx
+  ON petra_mensajes_extra (parent_clave, orden) WHERE activo = TRUE;

@@ -23,6 +23,7 @@ import re
 
 from app.petra_agents.textos import t as _t, boton as _b
 from app.petra_agents import botones_estacion as _botones
+from app.petra_agents import mensajes_extra as _extras
 
 
 def _send_buttons(telefono, texto, defaults, estado_key=None):
@@ -32,10 +33,63 @@ def _send_buttons(telefono, texto, defaults, estado_key=None):
     from app import petra_wa
     final = _botones.aplicar_reglas(estado_key, defaults) if estado_key else defaults
     if not final:
-        # Si quedó vacío (todos ocultos y sin customs), mandá solo el texto
         petra_wa.send_text(telefono, texto)
         return
     petra_wa.send_buttons(telefono, texto, final)
+
+
+def _enviar_media_por_clave(telefono, clave_texto):
+    """Envía la media/videos adjuntos a UN MENSAJE puntual (clave_texto),
+    no a toda la estación. Silencio si no hay nada cargado."""
+    from app import db as _db
+    from app import petra_wa as _pwa_m
+    import time as _tm_m
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            rows = conn.execute(
+                "SELECT titulo, url FROM petra_media_estacion "
+                "WHERE clave_texto=%s AND activo=TRUE "
+                "ORDER BY orden, id",
+                (clave_texto,),
+            ).fetchall()
+    except Exception:
+        log.exception("[flow:media-msg] query fallo clave=%s", clave_texto)
+        return
+    for titulo, url in rows:
+        try:
+            _pwa_m.send_media_o_texto(telefono, titulo or "", url)
+            _tm_m.sleep(1.5)
+        except Exception:
+            log.exception("[flow:media-msg] envío fallo url=%s", url)
+
+
+def _sm(telefono, clave, fallback=None, **variables):
+    """Helper central para enviar UN MENSAJE del flow:
+    - lee el texto editable por `clave` (petra_textos). Si activo=FALSE, saltea.
+    - si hay botones adjuntos a esa clave, lo manda con botones; sino texto plano.
+    - después manda la media adjunta a esa clave.
+    - después manda cualquier mensaje extra (petra_mensajes_extra) adjunto.
+
+    Reemplaza al patrón `_sm(telefono, clave, fallback=..., **vars)`
+    y lo mejora con los nuevos controles del panel.
+    """
+    from app import petra_wa
+    texto = _t(clave, fallback=fallback, **variables)
+    if not texto or texto.strip() == "":
+        return  # mensaje ocultado desde el panel
+    botones_adjuntos = _botones.botones_de_clave(clave)
+    if botones_adjuntos:
+        petra_wa.send_buttons(telefono, texto, botones_adjuntos)
+    else:
+        petra_wa.send_text(telefono, texto)
+    try:
+        _enviar_media_por_clave(telefono, clave)
+    except Exception:
+        log.exception("[flow:_sm] media hook fallo clave=%s", clave)
+    try:
+        _extras.enviar_extras(telefono, clave, variables)
+    except Exception:
+        log.exception("[flow:_sm] extras hook fallo clave=%s", clave)
 
 log = logging.getLogger("petra")
 
@@ -329,13 +383,13 @@ def _responder_con_llm(telefono, texto, sesion_id=None):
         )
     except Exception:
         log.exception("[flow] delegación a LLM fallo tel=%s", telefono)
-        _enviar(telefono, _t(
+        _sm(telefono, 
             "fallback.llm_error",
             fallback=(
                 "Perdón, no te pude responder bien ahora. Un asesor te "
                 "contacta pronto 💜"
             ),
-        ))
+        )
         return True
 
 
@@ -584,13 +638,13 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
 
     # Si ya capturamos todo, le recordamos que estamos esperando el kit
     if not paso and all(direccion.get(c) for c in DIRECCION_CAMPOS):
-        _enviar(telefono, _t(
+        _sm(telefono, 
             "activacion.msg_direccion_completa",
             fallback=(
                 "Tengo tu dirección completa 📍. Estamos preparando tu "
                 "kit — te avisamos acá cuando esté en camino 📦💜"
             ),
-        ))
+        )
         _log(telefono, texto, "[kit_pendiente: direccion ya completa]")
         return True
 
@@ -608,10 +662,10 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
             prox = faltantes[0]
             meta["direccion_paso"] = prox
             _save_meta(conn, cid, meta)
-            _enviar(telefono, _t(
+            _sm(telefono, 
                 DIRECCION_PREGUNTAS[prox],
                 fallback=DIRECCION_FALLBACKS[prox],
-            ))
+            )
             _log(telefono, texto, f"[kit_pendiente: capturó {paso}, pide {prox}]")
             return True
         # Terminó la captura
@@ -619,7 +673,7 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
         meta["direccion_capturada_at"] = _dt.datetime.utcnow().isoformat()
         _save_meta(conn, cid, meta)
         resumen = _formatear_direccion(direccion)
-        _enviar(telefono, _t(
+        _sm(telefono, 
             "activacion.msg_direccion_completa",
             fallback=(
                 "¡Listo! Tengo tu dirección 📍\n\n"
@@ -627,7 +681,7 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
                 "Estamos preparando tu kit (QR + regalito 💜). "
                 "Te avisamos acá cuando esté en camino 📦"
             ),
-        ))
+        )
         _log(telefono, texto, "[kit_pendiente: direccion completa capturada]")
         return True
 
@@ -637,10 +691,10 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
         prox = faltantes[0]
         meta["direccion_paso"] = prox
         _save_meta(conn, cid, meta)
-        _enviar(telefono, _t(
+        _sm(telefono, 
             DIRECCION_PREGUNTAS[prox],
             fallback=DIRECCION_FALLBACKS[prox],
-        ))
+        )
         _log(telefono, texto, f"[kit_pendiente: fallback pide {prox}]")
         return True
     return True
@@ -667,7 +721,7 @@ def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
         _set_estado(meta, "activa")
         meta["activada_at"] = _dt.datetime.utcnow().isoformat()
         _save_meta(conn, cid, meta)
-        _enviar(telefono, _t(
+        _sm(telefono, 
             "activacion.msg_qr_instalado",
             fallback=(
                 "🎉 *¡Felicitaciones! Ya sos una Agente Petra activa.* 💜\n\n"
@@ -676,7 +730,7 @@ def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
                 "a avisar cada vez que llegue un interesado 📲\n\n"
                 "¡Mucho éxito! 🚀"
             ),
-        ))
+        )
         _enviar_video_citas_una_vez(conn, cid, meta, telefono)
         _log(telefono, texto, "[kit_enviado → activa]")
         return True
@@ -817,14 +871,14 @@ def _iniciar_inventario(conn, telefono, cid, meta):
         "WHERE tipo='video_inventario' AND activo=TRUE "
         "ORDER BY orden LIMIT 1"
     ).fetchone()
-    _enviar(telefono, _t(
+    _sm(telefono, 
         "inventario.msg_arranque",
         fallback=(
             "¡Buenísimo! 🏠 Vamos a cargar el inmueble en el sistema.\n\n"
             "Te voy a hacer unas preguntas para registrarlo. Si querés "
             "cancelar en cualquier momento, decime *cancelar inmueble*."
         ),
-    ))
+    )
     if vid:
         import time as _tm
         _tm.sleep(1)
@@ -832,7 +886,7 @@ def _iniciar_inventario(conn, telefono, cid, meta):
         _tm.sleep(2)
     # Primera pregunta
     clave, fallback = INVENTARIO_PREGUNTAS[INVENTARIO_PASOS[0]]
-    _enviar(telefono, _t(clave, fallback=fallback))
+    _sm(telefono, clave, fallback=fallback)
     _log(telefono, "", "[inventario: arranque]")
     return True
 
@@ -866,7 +920,7 @@ def _capturar_paso_inventario(conn, telefono, cid, meta, texto, paso):
         meta["inventario_paso"] = prox
         _save_meta(conn, cid, meta)
         clave, fallback = INVENTARIO_PREGUNTAS[prox]
-        _enviar(telefono, _t(clave, fallback=fallback))
+        _sm(telefono, clave, fallback=fallback)
         _log(telefono, texto, f"[inventario: capturó {paso}, pide {prox}]")
         return True
 
@@ -991,7 +1045,7 @@ def _finalizar_inventario(conn, telefono, cid, meta, datos):
     meta.pop("inventario_datos", None)
     _save_meta(conn, cid, meta)
     resumen = _formatear_resumen_inmueble(datos)
-    _enviar(telefono, _t(
+    _sm(telefono, 
         "inventario.msg_completado",
         fallback=(
             "✅ *¡Inmueble registrado!*\n\n"
@@ -999,7 +1053,7 @@ def _finalizar_inventario(conn, telefono, cid, meta, datos):
             "Lo revisamos y lo publicamos pronto 💜. Si querés cargar otro, "
             "decime *registrar inmueble*."
         ),
-    ))
+    )
     _log(telefono, "", "[inventario: completado]")
     return True
 
@@ -1048,7 +1102,7 @@ def _manejar_boton_cita(conn, telefono, cid, meta, texto):
             "UPDATE petra_visitas SET estado='confirmada', updated_at=NOW() "
             "WHERE id=%s", (vid,),
         )
-        _enviar(telefono, _t(
+        _sm(telefono, 
             "citas.msg_confirmada",
             fallback=(
                 "¡Dale! 💜 Confirmada la cita con *{interesado}* para el "
@@ -1056,7 +1110,7 @@ def _manejar_boton_cita(conn, telefono, cid, meta, texto):
             ),
             interesado=interesado or "el interesado",
             cuando=_fmt_fecha(programada_at),
-        ))
+        )
         meta.pop("cita_esperando_propuesta_id", None)
         _save_meta(conn, cid, meta)
         _log(telefono, texto, f"[cita {vid} confirmada]")
@@ -1067,13 +1121,13 @@ def _manejar_boton_cita(conn, telefono, cid, meta, texto):
             "UPDATE petra_visitas SET estado='cancelada', updated_at=NOW() "
             "WHERE id=%s", (vid,),
         )
-        _enviar(telefono, _t(
+        _sm(telefono, 
             "citas.msg_cancelada",
             fallback=(
                 "Ok, cancelo la cita 💜. Si querés proponer otro día más "
                 "adelante, decime."
             ),
-        ))
+        )
         meta.pop("cita_esperando_propuesta_id", None)
         _save_meta(conn, cid, meta)
         _log(telefono, texto, f"[cita {vid} cancelada]")
@@ -1082,14 +1136,14 @@ def _manejar_boton_cita(conn, telefono, cid, meta, texto):
     if accion == "PROPONER":
         meta["cita_esperando_propuesta_id"] = vid
         _save_meta(conn, cid, meta)
-        _enviar(telefono, _t(
+        _sm(telefono, 
             "citas.msg_pedir_contrapropuesta",
             fallback=(
                 "Dale, decime qué día y hora te quedarían bien y yo le "
                 "paso tu propuesta al interesado 💜\n\n"
                 "(Ej: *jueves a las 3pm*, *mañana 10am*, etc.)"
             ),
-        ))
+        )
         _log(telefono, texto, f"[cita {vid} → pide contrapropuesta]")
         return True
 
@@ -1107,14 +1161,14 @@ def _capturar_contrapropuesta_cita(conn, telefono, cid, meta, texto, vid):
         "'\n[Agente propone: ' || %s || ']', updated_at=NOW() "
         "WHERE id=%s", (texto[:500], vid),
     )
-    _enviar(telefono, _t(
+    _sm(telefono, 
         "citas.msg_contrapropuesta_recibida",
         fallback=(
             "¡Perfecto! Le paso al interesado tu propuesta: *{propuesta}* 💜\n\n"
             "Te aviso cuando confirme."
         ),
         propuesta=texto[:200],
-    ))
+    )
     meta.pop("cita_esperando_propuesta_id", None)
     _save_meta(conn, cid, meta)
     _log(telefono, texto, f"[cita {vid} contrapropuesta: {texto[:100]}]")
@@ -1223,13 +1277,13 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             log.exception("[flow:cap] fallo disparar día siguiente tel=%s", telefono)
             enviado = False
         if not enviado:
-            _enviar(telefono, _t(
+            _sm(telefono, 
                 "capacitacion.msg_siguiente_dia_fallo",
                 fallback=(
                     "Hmm, no pude mandarte el siguiente par ahora. "
                     "Mañana a las 8am te llega sin falta. 🙏"
                 ),
-            ))
+            )
         _log(telefono, texto, f"[ver día siguiente — enviado={enviado}]",
              nota="siguiente_dia manual")
         return True
@@ -1242,10 +1296,10 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             (vistos,),
         ).fetchone()
         if not row:
-            _enviar(telefono, _t(
+            _sm(telefono, 
                 "capacitacion.msg_por_hoy_ya",
                 fallback="Por hoy ya está. Mañana a las 8am te mando el próximo. 👋",
-            ))
+            )
             return True
         titulo, url = row
         _enviar(telefono, f"🎬 *{titulo}*\n\n{url}")
@@ -1485,7 +1539,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 _set_estado(meta, "kit_pendiente")
                 meta["direccion_paso"] = "torre"
                 _save_meta(conn, cid, meta)
-                _enviar(telefono, _t(
+                _sm(telefono, 
                     "activacion.msg_pedir_direccion_inicio",
                     fallback=(
                         "🎉 *¡Buenísimo! Ya tenés la autorización del "
@@ -1497,7 +1551,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                         "*¿En qué torre vivís?* (ej. Torre 3, Bloque A, etc. "
                         "Si no aplica, respondé *N/A*)"
                     ),
-                ))
+                )
                 _log(telefono, texto,
                      "[autorizacion confirmada → kit_pendiente/pide torre]")
                 return True
@@ -1536,10 +1590,10 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 return True
             # Botón "❓ Tengo una duda" → prompt para que escriba la pregunta
             if texto == "ONBAG_TENGO_DUDA":
-                _enviar(telefono, _t(
+                _sm(telefono, 
                     "autorizacion.msg_prompt_duda",
                     fallback="¡Claro! 💜 Escribime tu pregunta y te respondo acá mismo.",
-                ))
+                )
                 _log(telefono, texto, "[prompt escribir duda]",
                      nota="botón tengo una duda")
                 return True
