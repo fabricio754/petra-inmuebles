@@ -671,16 +671,20 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
     _time.sleep(2)
     petra_wa.send_text(telefono, f"🎬 *{videos[1][0]}*\n\n{videos[1][1]}")
     _time.sleep(2)
-    petra_wa.send_buttons(telefono,
-        f"🎬✨ *¡Nuevo día de capacitación!*\n\n"
-        f"Acá te dejo los 2 videos del día *{dia_a_enviar} de {max_dia}* 💜\n\n"
-        "Mirálos con calma, cuando puedas — ni muy rápido ni muy lento. "
-        "Aprendé a tu ritmo, pausá si lo necesitás, y volvé cuando estés lista.\n\n"
-        "Cada video que ves te acerca un paso más a ser una Agente Petra "
-        "experta en tu edificio 🏢💪\n\n"
-        "Cuando los termines, apretá el botón 👇",
-        [{"id": "ONBAG_LISTO", "title": "✅ Listo"}],
-    )
+    from app.petra_agents.textos import t as _t_textos
+    petra_wa.send_buttons(telefono, _t_textos(
+        "capacitacion.msg_cron_diario",
+        fallback=(
+            "🎬✨ *¡Nuevo día de capacitación!*\n\n"
+            "Acá te dejo los 2 videos del día *{dia_a_enviar} de {max_dia}* 💜\n\n"
+            "Mirálos con calma, cuando puedas — ni muy rápido ni muy lento. "
+            "Aprendé a tu ritmo, pausá si lo necesitás, y volvé cuando estés lista.\n\n"
+            "Cada video que ves te acerca un paso más a ser una Agente Petra "
+            "experta en tu edificio 🏢💪\n\n"
+            "Cuando los termines, apretá el botón 👇"
+        ),
+        dia_a_enviar=dia_a_enviar, max_dia=max_dia,
+    ), [{"id": "ONBAG_LISTO", "title": "✅ Listo"}])
 
     # Actualizar metadata
     meta["cap_dia_enviado"] = dia_a_enviar

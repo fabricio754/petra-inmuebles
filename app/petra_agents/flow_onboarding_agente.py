@@ -433,9 +433,14 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
             _log(telefono, texto, "[v2 día 1 enviado inmediato]",
                  nota="v2 empezar_ahora → día 1 disparado")
         else:
-            resp = ("¡Buenísimo! 🎉\n\nTu capacitación arranca mañana a las "
+            resp = _t(
+                "capacitacion.msg_arranca_manana",
+                fallback=(
+                    "¡Buenísimo! 🎉\n\nTu capacitación arranca mañana a las "
                     "*8am* con los primeros 2 videos. Y así durante 7 días.\n\n"
-                    "Nos vemos mañana. 👋")
+                    "Nos vemos mañana. 👋"
+                ),
+            )
             _enviar(telefono, resp)
             _log(telefono, texto, resp, nota="v2 empezar_ahora fallback")
         return True
@@ -1134,14 +1139,20 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             dia_actual = vistos // 2
             quedan = total - vistos
             dias_restantes = (total - vistos) // 2
-            resp = (
-                f"🎉 *¡Felicitaciones, cerraste el día {dia_actual} de {dias_total}!* 🌟\n\n"
-                f"Ya viste *{vistos}/{total} videos* ✅ Cada uno te suma herramientas, "
-                "confianza y conocimiento para arrancar como Agente Petra en tu edificio 🏢💜\n\n"
-                f"Te quedan solo *{quedan} videos ({dias_restantes} días)* para completar "
-                "toda tu capacitación. Vas re bien, dale con todo 💪\n\n"
-                "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas "
-                "el ritmo. O si tenés ganas de seguir avanzando ahora mismo, apretá el botón 👇"
+            resp = _t(
+                "capacitacion.msg_dia_completo",
+                fallback=(
+                    "🎉 *¡Felicitaciones, cerraste el día {dia_actual} de {dias_total}!* 🌟\n\n"
+                    "Ya viste *{vistos}/{total} videos* ✅ Cada uno te suma herramientas, "
+                    "confianza y conocimiento para arrancar como Agente Petra en tu edificio 🏢💜\n\n"
+                    "Te quedan solo *{quedan} videos ({dias_restantes} días)* para completar "
+                    "toda tu capacitación. Vas re bien, dale con todo 💪\n\n"
+                    "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas "
+                    "el ritmo. O si tenés ganas de seguir avanzando ahora mismo, apretá el botón 👇"
+                ),
+                dia_actual=dia_actual, dias_total=dias_total,
+                vistos=vistos, total=total,
+                quedan=quedan, dias_restantes=dias_restantes,
             )
         if vistos >= total:
             _enviar(telefono, resp)
@@ -1172,8 +1183,13 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             log.exception("[flow:cap] fallo disparar día siguiente tel=%s", telefono)
             enviado = False
         if not enviado:
-            _enviar(telefono, "Hmm, no pude mandarte el siguiente par ahora. "
-                              "Mañana a las 8am te llega sin falta. 🙏")
+            _enviar(telefono, _t(
+                "capacitacion.msg_siguiente_dia_fallo",
+                fallback=(
+                    "Hmm, no pude mandarte el siguiente par ahora. "
+                    "Mañana a las 8am te llega sin falta. 🙏"
+                ),
+            ))
         _log(telefono, texto, f"[ver día siguiente — enviado={enviado}]",
              nota="siguiente_dia manual")
         return True
@@ -1186,7 +1202,10 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             (vistos,),
         ).fetchone()
         if not row:
-            _enviar(telefono, "Por hoy ya está. Mañana a las 8am te mando el próximo. 👋")
+            _enviar(telefono, _t(
+                "capacitacion.msg_por_hoy_ya",
+                fallback="Por hoy ya está. Mañana a las 8am te mando el próximo. 👋",
+            ))
             return True
         titulo, url = row
         _enviar(telefono, f"🎬 *{titulo}*\n\n{url}")
@@ -1223,8 +1242,11 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             if len(videos) >= 2:
                 from app import petra_wa as _pwa
                 import time as _t
-                _pwa.send_text(telefono,
-                    f"¡Claro! Acá los tenés de nuevo 💜 — videos del día *{dia_actual_env}/{dias_total}*:")
+                _pwa.send_text(telefono, _t(
+                    "capacitacion.msg_reenvio_videos",
+                    fallback="¡Claro! Acá los tenés de nuevo 💜 — videos del día *{dia_actual_env}/{dias_total}*:",
+                    dia_actual_env=dia_actual_env, dias_total=dias_total,
+                ))
                 _t.sleep(1)
                 _pwa.send_text(telefono, f"🎬 *{videos[0][0]}*\n\n{videos[0][1]}")
                 _t.sleep(2)
@@ -1298,21 +1320,24 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
         else:
             # Fallback: no se pudo enviar (sin videos, pausa, etc). Mensaje
             # explicativo con la ruta normal del cron.
-            resp = (
-                "¡Buenísimo! 🎉\n\n"
-                "Tu capacitación arranca mañana a las *8am* con los primeros "
-                "2 videos. Y así durante 7 días.\n\n"
-                "Nos vemos mañana. 👋"
+            resp = _t(
+                "capacitacion.msg_arranca_manana",
+                fallback=(
+                    "¡Buenísimo! 🎉\n\n"
+                    "Tu capacitación arranca mañana a las *8am* con los primeros "
+                    "2 videos. Y así durante 7 días.\n\n"
+                    "Nos vemos mañana. 👋"
+                ),
             )
             _enviar(telefono, resp)
             _log(telefono, texto, resp, nota="empezar_ahora pero sin envío (fallback)")
         return True
     # Cualquier otra cosa: recordatorio con botón
     from app import petra_wa
-    petra_wa.send_buttons(telefono,
-        "Cuando termines de ver los videos, pulsá el botón para avanzar 🎬",
-        [{"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}],
-    )
+    petra_wa.send_buttons(telefono, _t(
+        "capacitacion.msg_recordatorio_empezar",
+        fallback="Cuando termines de ver los videos, pulsá el botón para avanzar 🎬",
+    ), [{"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}])
     _log(telefono, texto, "[recordatorio: btn Empezar ahora]",
          nota="bienvenida_enviada esperando confirmación")
     return True
@@ -1505,10 +1530,17 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                     (meta.get("nombre"), cid),
                 )
                 nombre_corto = meta.get("nombre", "").split()[0] if meta.get("nombre") else ""
-                felicitaciones = (
-                    f"🎉 *¡Felicitaciones {nombre_corto}, ya sos oficialmente Agente Petra!*\n\n"
-                    f"Vas a representar a Petra en *{meta.get('conjunto')}*, "
-                    f"{meta.get('barrio')}, {meta.get('ciudad')}."
+                felicitaciones = _t(
+                    "inscripcion.msg_felicitaciones",
+                    fallback=(
+                        "🎉 *¡Felicitaciones {nombre_corto}, ya sos oficialmente Agente Petra!*\n\n"
+                        "Vas a representar a Petra en *{conjunto}*, "
+                        "{barrio}, {ciudad}."
+                    ),
+                    nombre_corto=nombre_corto,
+                    conjunto=meta.get("conjunto") or "",
+                    barrio=meta.get("barrio") or "",
+                    ciudad=meta.get("ciudad") or "",
                 )
                 # Botón para avanzar al journey — user controla el ritmo
                 from app import petra_wa
