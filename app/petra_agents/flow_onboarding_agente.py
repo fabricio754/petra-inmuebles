@@ -313,7 +313,7 @@ def _enviar_recordatorio_capacitacion(conn, telefono):
         ),
     ))
     _tm.sleep(1)
-    _pwa.send_text(telefono, f"🎓 *{vid[0]}*\n\n{vid[1]}")
+    _pwa.send_media_o_texto(telefono, vid[0], vid[1])
     _tm.sleep(2)
     return True
 
@@ -330,7 +330,7 @@ def _enviar_material_autorizacion(conn, telefono):
         "ORDER BY orden LIMIT 1"
     ).fetchone()
     if vid:
-        _pwa.send_text(telefono, f"🎬 *{vid[0]}*\n\n{vid[1]}")
+        _pwa.send_media_o_texto(telefono, vid[0], vid[1])
         _tm.sleep(2)
     demo = conn.execute(
         "SELECT titulo, url FROM petra_contenidos "
@@ -338,7 +338,7 @@ def _enviar_material_autorizacion(conn, telefono):
         "ORDER BY orden LIMIT 1"
     ).fetchone()
     if demo:
-        _pwa.send_text(telefono, f"📱 *{demo[0]}*\n\n{demo[1]}")
+        _pwa.send_media_o_texto(telefono, demo[0], demo[1])
         _tm.sleep(2)
     piezas = conn.execute(
         "SELECT titulo, url FROM petra_contenidos "
@@ -346,7 +346,7 @@ def _enviar_material_autorizacion(conn, telefono):
         "ORDER BY orden LIMIT 2"
     ).fetchall()
     for p in piezas:
-        _pwa.send_text(telefono, f"🖼 *{p[0]}*\n\n{p[1]}")
+        _pwa.send_media_o_texto(telefono, p[0], p[1])
         _tm.sleep(2)
 
 
@@ -660,7 +660,7 @@ def _enviar_video_citas_una_vez(conn, cid, meta, telefono):
         ),
     ))
     _tm.sleep(1)
-    _pwa.send_text(telefono, f"📅 *{vid[0]}*\n\n{vid[1]}")
+    _pwa.send_media_o_texto(telefono, vid[0], vid[1])
     meta["video_citas_enviado"] = True
     _save_meta(conn, cid, meta)
 
@@ -1235,9 +1235,9 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                     dia_actual_env=dia_actual_env, dias_total=dias_total,
                 ))
                 _tm.sleep(1)
-                _pwa.send_text(telefono, f"🎬 *{videos[0][0]}*\n\n{videos[0][1]}")
+                _pwa.send_media_o_texto(telefono, videos[0][0], videos[0][1])
                 _tm.sleep(2)
-                _pwa.send_text(telefono, f"🎬 *{videos[1][0]}*\n\n{videos[1][1]}")
+                _pwa.send_media_o_texto(telefono, videos[1][0], videos[1][1])
                 _tm.sleep(2)
                 _pwa.send_buttons(telefono,
                     "Cuando los termines, pulsá el botón 👇",

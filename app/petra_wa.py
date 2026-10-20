@@ -191,6 +191,76 @@ def send_text(to, body):
     })
 
 
+def _normalizar_url_publica(url):
+    """Convierte rutas relativas ('/petra/media/xxx.png') a URL absoluta.
+    Meta WhatsApp requiere URL completa accesible pública."""
+    if not url:
+        return url
+    url = url.strip()
+    if url.startswith(("http://", "https://")):
+        return url
+    base = (os.environ.get("PETRA_PUBLIC_BASE_URL") or
+            "https://petra-inmuebles.onrender.com").rstrip("/")
+    if not url.startswith("/"):
+        url = "/" + url
+    return base + url
+
+
+_IMG_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+_VID_EXT = (".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v")
+
+
+def tipo_media_url(url):
+    """Devuelve 'image', 'video' o None según la extensión del URL."""
+    if not url:
+        return None
+    u = url.lower().split("?", 1)[0]
+    if u.endswith(_IMG_EXT):
+        return "image"
+    if u.endswith(_VID_EXT):
+        return "video"
+    return None
+
+
+def send_image(to, url, caption=None):
+    """Envía una imagen por URL. Caption opcional (max 1024)."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "image",
+        "image": {"link": _normalizar_url_publica(url)},
+    }
+    if caption:
+        payload["image"]["caption"] = caption[:1024]
+    return _post(payload)
+
+
+def send_video(to, url, caption=None):
+    """Envía un video por URL. Caption opcional (max 1024)."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "video",
+        "video": {"link": _normalizar_url_publica(url)},
+    }
+    if caption:
+        payload["video"]["caption"] = caption[:1024]
+    return _post(payload)
+
+
+def send_media_o_texto(to, titulo, url):
+    """Si la URL es imagen/video, envía como media nativa (con caption=titulo).
+    Si no, cae a texto con el link embebido (preview nativo de WhatsApp)."""
+    tipo = tipo_media_url(url)
+    if tipo == "image":
+        return send_image(to, url, caption=f"🖼 *{titulo}*" if titulo else None)
+    if tipo == "video":
+        return send_video(to, url, caption=f"🎬 *{titulo}*" if titulo else None)
+    # Fallback: texto con URL
+    cuerpo = f"🖼 *{titulo}*\n\n{url}" if titulo else url
+    return send_text(to, cuerpo)
+
+
 def send_typing_indicator(wa_msg_id):
     """Marca el mensaje como leído y muestra los 3 puntitos de typing.
     WhatsApp los muestra hasta que llegue el próximo mensaje nuestro, o
