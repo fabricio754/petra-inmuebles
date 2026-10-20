@@ -323,7 +323,7 @@ def _enviar_material_autorizacion(conn, telefono):
     Silencio por tipo si no hay cargado. Se usa al terminar la capacitación
     y como respuesta a palabras clave en fase autorizacion_pendiente."""
     from app import petra_wa as _pwa
-    import time as _t
+    import time as _tm
     vid = conn.execute(
         "SELECT titulo, url FROM petra_contenidos "
         "WHERE tipo='video_autorizacion' AND activo=TRUE "
@@ -331,7 +331,7 @@ def _enviar_material_autorizacion(conn, telefono):
     ).fetchone()
     if vid:
         _pwa.send_text(telefono, f"🎬 *{vid[0]}*\n\n{vid[1]}")
-        _t.sleep(2)
+        _tm.sleep(2)
     demo = conn.execute(
         "SELECT titulo, url FROM petra_contenidos "
         "WHERE tipo='demo_autorizacion' AND activo=TRUE "
@@ -339,7 +339,7 @@ def _enviar_material_autorizacion(conn, telefono):
     ).fetchone()
     if demo:
         _pwa.send_text(telefono, f"📱 *{demo[0]}*\n\n{demo[1]}")
-        _t.sleep(2)
+        _tm.sleep(2)
     piezas = conn.execute(
         "SELECT titulo, url FROM petra_contenidos "
         "WHERE tipo='pieza_grafica_autorizacion' AND activo=TRUE "
@@ -347,7 +347,7 @@ def _enviar_material_autorizacion(conn, telefono):
     ).fetchall()
     for p in piezas:
         _pwa.send_text(telefono, f"🖼 *{p[0]}*\n\n{p[1]}")
-        _t.sleep(2)
+        _tm.sleep(2)
 
 
 def _enviar_con_pausa(telefono, texto, pausa_seg=1.5):
@@ -1241,17 +1241,17 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                 videos = cur_v.fetchall()
             if len(videos) >= 2:
                 from app import petra_wa as _pwa
-                import time as _t
+                import time as _tm
                 _pwa.send_text(telefono, _t(
                     "capacitacion.msg_reenvio_videos",
                     fallback="¡Claro! Acá los tenés de nuevo 💜 — videos del día *{dia_actual_env}/{dias_total}*:",
                     dia_actual_env=dia_actual_env, dias_total=dias_total,
                 ))
-                _t.sleep(1)
+                _tm.sleep(1)
                 _pwa.send_text(telefono, f"🎬 *{videos[0][0]}*\n\n{videos[0][1]}")
-                _t.sleep(2)
+                _tm.sleep(2)
                 _pwa.send_text(telefono, f"🎬 *{videos[1][0]}*\n\n{videos[1][1]}")
-                _t.sleep(2)
+                _tm.sleep(2)
                 _pwa.send_buttons(telefono,
                     "Cuando los termines, pulsá el botón 👇",
                     [{"id": "ONBAG_LISTO", "title": "✅ Listo"}],
