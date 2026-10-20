@@ -254,6 +254,46 @@ def panel_home():
             })
     except Exception:
         pass
+    # Botones editables por estación. Default = los que el flow envía hoy
+    # hardcodeados; override permite ocultarlos. Custom = agregados aquí.
+    DEFAULTS_BOTONES_POR_ESTADO = {
+        "registro_pendiente_confirmacion": [
+            {"id": "ONBAG_CONFIRM", "titulo": "✅ Registrarme"},
+            {"id": "ONBAG_CORREGIR", "titulo": "✏️ Corregir"},
+            {"id": "ONBAG_CANCELAR", "titulo": "❌ Cancelar"},
+        ],
+        "inscrito": [
+            {"id": "ONBAG_VER_JOURNEY", "titulo": "Ver próximos pasos"},
+        ],
+        "bienvenida_enviada": [
+            {"id": "ONBAG_EMPEZAR_AHORA", "titulo": "Empezar ahora"},
+        ],
+        "en_capacitacion": [
+            {"id": "ONBAG_LISTO", "titulo": "✅ Listo"},
+        ],
+        "autorizacion_pendiente": [
+            {"id": "ONBAG_INICIAR_AUTORIZACION", "titulo": "🚀 Iniciar"},
+            {"id": "ONBAG_VER_MATERIAL", "titulo": "📎 Ver material"},
+            {"id": "ONBAG_TENGO_DUDA", "titulo": "❓ Tengo una duda"},
+            {"id": "ONBAG_YA_TENGO_AUTORIZACION", "titulo": "✅ Ya tengo autorización"},
+        ],
+    }
+    botones_por_estado = {}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = conn.execute(
+                "SELECT id, estado_key, tipo, boton_id, titulo, "
+                "texto_respuesta, orden, activo "
+                "FROM petra_botones_estacion ORDER BY estado_key, tipo, orden, id"
+            ).fetchall()
+        for r in rows:
+            botones_por_estado.setdefault(r[1], []).append({
+                "id": r[0], "tipo": r[2], "boton_id": r[3],
+                "titulo": r[4], "texto_respuesta": r[5],
+                "orden": r[6], "activo": r[7],
+            })
+    except Exception:
+        pass
     presets_extended = []
     for k, v in _sim_mod.PRESETS.items():
         textos_resueltos = []
@@ -266,12 +306,24 @@ def panel_home():
                 "cargado": bool(t),
             })
         estado_real = _sim_mod.estado_real_del_preset(k)
+        defaults_est = DEFAULTS_BOTONES_POR_ESTADO.get(estado_real, []) if estado_real else []
+        reglas_est = botones_por_estado.get(estado_real, []) if estado_real else []
+        ocultos_set = {
+            r["boton_id"] for r in reglas_est
+            if r["tipo"] == "override" and not r["activo"]
+        }
+        defaults_decorados = [
+            {**b, "oculto": b["id"] in ocultos_set} for b in defaults_est
+        ]
+        customs = [r for r in reglas_est if r["tipo"] == "custom"]
         presets_extended.append({
             "key": k, "label": v["label"], "contexto": v.get("contexto", ""),
             "textos": textos_resueltos,
             "transiciones": v.get("transiciones", []),
             "estado_real": estado_real,
             "media": media_por_estado.get(estado_real, []) if estado_real else [],
+            "botones_default": defaults_decorados,
+            "botones_custom": customs,
         })
     contexto["sim_presets"] = presets_extended
     contexto["sim_preset_actual"] = request.args.get("preset") or "nuevo"
@@ -1634,4 +1686,62 @@ def media_estacion_eliminar(mid):
     return redirect(url_for(
         "petra_panel.panel_home", tab="simulador", token=token,
         preset=estado_key, flash="media_eliminada",
+    ))
+
+
+# =============================================================================
+# Botones editables por estación (crear nuevos / ocultar defaults)
+# =============================================================================
+
+@petra_panel_bp.post("/botones_estacion/custom/crear")
+def botones_custom_crear():
+    """Agrega un botón custom a una estación (cuando el agente lo pulsa,
+    el bot responde con `texto_respuesta` y se queda en el mismo estado)."""
+    _check_token()
+    token = request.form.get("token", "")
+    estado_key = (request.form.get("estado_key") or "").strip()
+    titulo = (request.form.get("titulo") or "").strip()
+    texto_respuesta = (request.form.get("texto_respuesta") or "").strip()
+    from app.petra_agents import botones_estacion as _b_est
+    try:
+        _b_est.crear_custom(estado_key, titulo, texto_respuesta)
+    except ValueError as e:
+        abort(400, str(e))
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token,
+        preset=estado_key, flash="boton_agregado",
+    ))
+
+
+@petra_panel_bp.post("/botones_estacion/<int:bid>/eliminar")
+def botones_eliminar(bid):
+    """Borra una regla (custom o override)."""
+    _check_token()
+    token = request.form.get("token", "")
+    estado_key = (request.form.get("estado_key") or "").strip()
+    from app.petra_agents import botones_estacion as _b_est
+    _b_est.eliminar(bid)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token,
+        preset=estado_key, flash="boton_eliminado",
+    ))
+
+
+@petra_panel_bp.post("/botones_estacion/override")
+def botones_override_toggle():
+    """Oculta o desoculta un botón default."""
+    _check_token()
+    token = request.form.get("token", "")
+    estado_key = (request.form.get("estado_key") or "").strip()
+    boton_id = (request.form.get("boton_id") or "").strip()
+    ocultar = request.form.get("ocultar", "0") in ("1", "true", "on")
+    from app.petra_agents import botones_estacion as _b_est
+    try:
+        _b_est.toggle_override(estado_key, boton_id, ocultar)
+    except ValueError as e:
+        abort(400, str(e))
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token,
+        preset=estado_key,
+        flash=("boton_ocultado" if ocultar else "boton_restaurado"),
     ))
