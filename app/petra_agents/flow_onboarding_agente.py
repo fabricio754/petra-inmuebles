@@ -1191,13 +1191,16 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                     "confianza y conocimiento para arrancar como Agente Petra en tu edificio 🏢💜\n\n"
                     "Te quedan solo *{quedan} videos ({dias_restantes} días)* para completar "
                     "toda tu capacitación. Vas re bien, dale con todo 💪\n\n"
-                    "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas el ritmo 👋"
+                    "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas "
+                    "el ritmo. O si tenés ganas de seguir avanzando ahora mismo, apretá el botón 👇"
                 ),
                 dia_actual=dia_actual, dias_total=dias_total,
                 vistos=vistos, total=total,
                 quedan=quedan, dias_restantes=dias_restantes,
             )
-        _enviar(telefono, resp)
+        _send_buttons(telefono, resp, [
+            {"id": "ONBAG_SIGUIENTE_DIA", "title": _b("ONBAG_SIGUIENTE_DIA", "⏭ Ver día siguiente")},
+        ], estado_key="en_capacitacion")
         _log(telefono, texto, resp, nota=f"día marcado {vistos}/{total}")
         return True
     # Botón "Ver día siguiente": dispara el próximo día inmediatamente,
