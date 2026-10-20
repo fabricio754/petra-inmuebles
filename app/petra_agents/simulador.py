@@ -33,6 +33,7 @@ PRESETS = {
         "rol": False,          # borra el rol
         "contexto": "El contacto NO tiene rol todavía. Al escribir cualquier cosa el router lo clasifica y arranca el flow de inscripción.",
         "textos_claves": [],  # el bot todavía no habla
+        "botones": [],
         "transiciones": [
             "escribe 'quiero ser agente' → recolectando_vacio",
         ],
