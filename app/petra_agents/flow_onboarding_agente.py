@@ -21,17 +21,32 @@ Entrada: router llama handle(telefono, texto) cuando detecta que:
 import logging
 import re
 
+from app.petra_agents.textos import t as _t
+
 log = logging.getLogger("petra")
 
 CAMPOS = ["nombre", "cedula", "ciudad", "barrio", "conjunto"]
 
-PREGUNTAS = {
+# Hardcode fallback — se usa si petra_textos no tiene la clave en DB.
+# Los textos editables desde panel sobreescriben estos valores (ver textos.py).
+_PREGUNTAS_FALLBACK = {
     "nombre": "👋 ¡Qué alegría que quieras ser Agente Petra!\n\nTe voy a pedir 5 datos para registrarte. Empecemos por el primero:\n\n*¿Cuál es tu nombre completo?*",
     "cedula": "✅ Gracias, {nombre}.\n\n*¿Cuál es tu cédula?* (solo los números)",
     "ciudad": "Perfecto. *¿En qué ciudad vivís?*",
     "barrio": "*¿En qué barrio?*",
     "conjunto": "Último dato — *¿Cómo se llama el conjunto o edificio donde vivís?*",
 }
+
+
+def _pregunta(campo, **variables):
+    """Lee el texto editable `inscripcion.pregunta_<campo>` desde DB.
+    Cae al hardcode si la clave no existe."""
+    from app.petra_agents.textos import t
+    return t(
+        f"inscripcion.pregunta_{campo}",
+        fallback=_PREGUNTAS_FALLBACK[campo],
+        **variables,
+    )
 
 NOMBRE_CAMPO = {
     "nombre": "nombre completo",
@@ -252,9 +267,13 @@ def _responder_con_llm(telefono, texto, sesion_id=None):
         )
     except Exception:
         log.exception("[flow] delegación a LLM fallo tel=%s", telefono)
-        _enviar(telefono,
-            "Perdón, no te pude responder bien ahora. Un asesor te "
-            "contacta pronto 💜")
+        _enviar(telefono, _t(
+            "fallback.llm_error",
+            fallback=(
+                "Perdón, no te pude responder bien ahora. Un asesor te "
+                "contacta pronto 💜"
+            ),
+        ))
         return True
 
 
@@ -460,22 +479,25 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             import time as _t_cap
             # Mensaje de felicitación + 2 botones: ver material / ya tengo autorización.
             # El material se envía SOLO cuando pulsa el botón.
-            _pwa_cap.send_text(telefono,
-                f"🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
-                "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
-                "📍 *Siguiente paso: Autorización del conjunto* 🏢\n\n"
-                "Ahora toca hablar con el administrador de tu edificio para "
-                "que te autorice a representar a Petra ahí 👇"
-            )
+            _pwa_cap.send_text(telefono, _t(
+                "capacitacion.msg_completada_header",
+                fallback=(
+                    "🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
+                    "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
+                    "📍 *Siguiente paso: Autorización del conjunto* 🏢\n\n"
+                    "Ahora toca hablar con el administrador de tu edificio para "
+                    "que te autorice a representar a Petra ahí 👇"
+                ),
+            ))
             _t_cap.sleep(1)
-            _pwa_cap.send_buttons(telefono,
-                "Preparé material de apoyo para que lo lleves a la reunión 💜",
-                [
-                    {"id": "ONBAG_VER_MATERIAL", "title": "📎 Ver material"},
-                    {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
-                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
-                ],
-            )
+            _pwa_cap.send_buttons(telefono, _t(
+                "autorizacion.cta_botones",
+                fallback="Preparé material de apoyo para que lo lleves a la reunión 💜",
+            ), [
+                {"id": "ONBAG_VER_MATERIAL", "title": "📎 Ver material"},
+                {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
+                {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
+            ])
             _log(telefono, texto, "[capacitación completa → esperando botón material/autorización]",
                  nota="capacitacion_completa → autorizacion_pendiente")
             return True
@@ -713,15 +735,19 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                 "tengo autorización", "ya tengo"):
                 meta["estado_agente"] = "kit_pendiente"
                 _save_meta(conn, cid, meta)
-                _enviar(telefono,
-                    "🎉 *¡Buenísimo!*\n\n"
-                    "📍 *Siguiente paso: Activar el QR* 📬\n\n"
-                    "Te vamos a enviar un kit con el QR y un regalito a la "
-                    "dirección de tu edificio. Te confirmamos acá cuando "
-                    "esté en camino.\n\n"
-                    "Mientras tanto, podés ir preparando: identificar "
-                    "propietarios interesados en tu conjunto, pensar qué "
-                    "inmuebles podrían salir, etc. 💜")
+                _enviar(telefono, _t(
+                    "autorizacion.msg_confirmada",
+                    fallback=(
+                        "🎉 *¡Buenísimo!*\n\n"
+                        "📍 *Siguiente paso: Activar el QR* 📬\n\n"
+                        "Te vamos a enviar un kit con el QR y un regalito a la "
+                        "dirección de tu edificio. Te confirmamos acá cuando "
+                        "esté en camino.\n\n"
+                        "Mientras tanto, podés ir preparando: identificar "
+                        "propietarios interesados en tu conjunto, pensar qué "
+                        "inmuebles podrían salir, etc. 💜"
+                    ),
+                ))
                 _log(telefono, texto, "[autorizacion confirmada → kit_pendiente]")
                 return True
             # Botón "📎 Ver material" (nuevo) o palabra clave de reenvío.
@@ -735,25 +761,31 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
             if texto == "ONBAG_VER_MATERIAL" or any(p in t_norm for p in PALABRAS_REENVIO_MAT):
                 from app import petra_wa as _pwa_mat
                 import time as _t_mat
-                _pwa_mat.send_text(telefono,
-                    "Perfecto 💜 Acá te paso el material de apoyo para que "
-                    "lo lleves a la reunión con el administrador:")
+                _pwa_mat.send_text(telefono, _t(
+                    "autorizacion.msg_envio_material",
+                    fallback=(
+                        "Perfecto 💜 Acá te paso el material de apoyo para que "
+                        "lo lleves a la reunión con el administrador:"
+                    ),
+                ))
                 _t_mat.sleep(1)
                 _enviar_material_autorizacion(conn, telefono)
-                _pwa_mat.send_buttons(telefono,
-                    "Cuando tengas la autorización del administrador, pulsá el botón 👇",
-                    [
-                        {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
-                        {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
-                    ],
-                )
+                _pwa_mat.send_buttons(telefono, _t(
+                    "autorizacion.msg_post_material",
+                    fallback="Cuando tengas la autorización del administrador, pulsá el botón 👇",
+                ), [
+                    {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
+                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
+                ])
                 _log(telefono, texto, "[envío material autorización]",
                      nota="botón o palabra clave pidió material")
                 return True
             # Botón "❓ Tengo una duda" → prompt para que escriba la pregunta
             if texto == "ONBAG_TENGO_DUDA":
-                _enviar(telefono,
-                    "¡Claro! 💜 Escribime tu pregunta y te respondo acá mismo.")
+                _enviar(telefono, _t(
+                    "autorizacion.msg_prompt_duda",
+                    fallback="¡Claro! 💜 Escribime tu pregunta y te respondo acá mismo.",
+                ))
                 _log(telefono, texto, "[prompt escribir duda]",
                      nota="botón tengo una duda")
                 return True
@@ -804,7 +836,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                 _save_meta(conn, cid, meta)
                 resp = (
                     f"Dale, corrijamos *{NOMBRE_CAMPO[campo_fix]}*.\n\n"
-                    + PREGUNTAS[campo_fix].format(**{k: meta.get(k, "") for k in CAMPOS})
+                    + _pregunta(campo_fix, **{k: meta.get(k, "") for k in CAMPOS})
                 )
                 _enviar(telefono, resp)
                 _log(telefono, texto, resp, nota=f"correccion seleccionada:{campo_fix}")
@@ -848,7 +880,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                 "Antes de confirmar me faltan estos datos: "
                 + ", ".join(NOMBRE_CAMPO[c] for c in faltantes)
                 + ". Empecemos por el primero.\n\n"
-                + PREGUNTAS[faltantes[0]].format(**meta)
+                + _pregunta(faltantes[0], **meta)
             )
             _enviar(telefono, resp)
             _log(telefono, texto, resp, nota="faltantes al confirmar")
@@ -860,7 +892,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
             campo_a_corregir = _parse_correccion(texto) or CAMPOS[0]
             meta[campo_a_corregir] = None
             _save_meta(conn, cid, meta)
-            resp = f"Dale, corrijamos. {PREGUNTAS[campo_a_corregir].format(**meta)}"
+            resp = f"Dale, corrijamos. {_pregunta(campo_a_corregir, **meta)}"
             _enviar(telefono, resp)
             _log(telefono, texto, resp, nota=f"correccion:{campo_a_corregir}")
             return True
@@ -873,7 +905,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
             # Si ya tenía algún dato, no re-saludamos: pedimos el próximo
             if faltantes:
                 campo = faltantes[0]
-                resp = PREGUNTAS[campo].format(**{k: meta.get(k, "") for k in CAMPOS})
+                resp = _pregunta(campo, **{k: meta.get(k, "") for k in CAMPOS})
                 _enviar(telefono, resp)
                 _log(telefono, texto, resp, nota=f"handoff:pedir {campo}")
                 return True
@@ -907,7 +939,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
         nuevos_faltantes = [c for c in CAMPOS if not meta.get(c)]
         if nuevos_faltantes:
             prox = nuevos_faltantes[0]
-            resp = PREGUNTAS[prox].format(**{k: meta.get(k, "") for k in CAMPOS})
+            resp = _pregunta(prox, **{k: meta.get(k, "") for k in CAMPOS})
             _enviar(telefono, resp)
             _log(telefono, texto, resp, nota=f"capturó {campo}, pide {prox}")
         else:
