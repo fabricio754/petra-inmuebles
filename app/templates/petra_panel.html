@@ -1804,14 +1804,30 @@
     {% endif %}
 
     <!-- Input manual -->
-    <form method="POST" action="{{ url_for('petra_panel.simulador_send') }}" class="sim-input">
+    <form method="POST" action="{{ url_for('petra_panel.simulador_send') }}" class="sim-input" id="sim-form">
       <input type="hidden" name="token" value="{{ token }}">
       <input type="hidden" name="preset" value="{{ sim_preset_actual }}">
-      <textarea name="texto" placeholder="Escribí como si fueras la agente... (ej. 'Juana Pérez', 'listo', '¿cómo son las comisiones?')" autofocus></textarea>
-      <button type="submit">Enviar</button>
+      <textarea name="texto" id="sim-input-texto" placeholder="Escribí como si fueras la agente y pulsá Enter (Shift+Enter para nueva línea)" autofocus></textarea>
+      <button type="submit">Enviar ↵</button>
     </form>
   </div>
 </div>
+<script>
+(function(){
+  const ta = document.getElementById('sim-input-texto');
+  const form = document.getElementById('sim-form');
+  if (!ta || !form) return;
+  ta.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (ta.value.trim()) form.submit();
+    }
+  });
+  // Auto-scroll chat al fondo cuando carga
+  const chat = document.querySelector('.sim-chat');
+  if (chat) chat.scrollTop = chat.scrollHeight;
+})();
+</script>
 {% endif %}
 
 </main>
