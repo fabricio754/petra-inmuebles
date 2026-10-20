@@ -2079,8 +2079,20 @@
       {% else %}
         {% for m in sim_estado.mensajes %}
           <div class="sim-msg {{ m.direccion }}">
-            {{ m.resumen }}
             {% set p = m.payload %}
+            {% if m.tipo == 'image' and p and p.payload and p.payload.image and p.payload.image.link %}
+              <img src="{{ p.payload.image.link }}" alt="imagen" style="max-width:100%; border-radius:8px; display:block;">
+              {% if p.payload.image.caption %}
+                <div style="margin-top:4px;">{{ p.payload.image.caption }}</div>
+              {% endif %}
+            {% elif m.tipo == 'video' and p and p.payload and p.payload.video and p.payload.video.link %}
+              <video src="{{ p.payload.video.link }}" controls style="max-width:100%; border-radius:8px; display:block;"></video>
+              {% if p.payload.video.caption %}
+                <div style="margin-top:4px;">{{ p.payload.video.caption }}</div>
+              {% endif %}
+            {% else %}
+              {{ m.resumen }}
+            {% endif %}
             {% if p and p.payload and p.payload.interactive and p.payload.interactive.action and p.payload.interactive.action.buttons %}
               <div class="sim-btns">
                 {% for b in p.payload.interactive.action.buttons %}
