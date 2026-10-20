@@ -149,6 +149,8 @@
      href="?tab=pagos&token={{ token }}">💸 Pagos ({{ pagos_arriendo|length }})</a>
   <a class="tab {% if tab == 'textos' %}active{% endif %}"
      href="?tab=textos&token={{ token }}">✏️ Textos ({{ textos|length }})</a>
+  <a class="tab {% if tab == 'faq' %}active{% endif %}"
+     href="?tab=faq&token={{ token }}">❓ FAQ ({{ faqs|length }})</a>
 </nav>
 <main>
 
@@ -1072,6 +1074,155 @@
         </details>
       </div>
     {% endfor %}
+  </div>
+{% endfor %}
+{% endif %}
+
+{% if tab == 'faq' %}
+<style>
+  .faq-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .faq-head h2 { margin: 0 0 4px; }
+  .faq-head p { margin: 0; color: var(--muted); font-size: 14px; max-width: 760px; }
+  .faq-nueva {
+    background: #fcfcff; border: 1px dashed var(--accent, #6b2fa5);
+    border-radius: 10px; padding: 16px; margin-bottom: 24px;
+  }
+  .faq-nueva summary { cursor: pointer; font-weight: 700; }
+  .faq-form { display: grid; gap: 10px; margin-top: 14px; }
+  .faq-form label { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .faq-form input[type=text] {
+    padding: 8px 10px; border: 1px solid var(--line, #ccc); border-radius: 6px;
+    font-size: 14px; width: 100%; box-sizing: border-box;
+  }
+  .faq-form textarea {
+    width: 100%; min-height: 180px; font-family: inherit; font-size: 14px;
+    padding: 10px; border: 1px solid var(--line, #ccc); border-radius: 6px;
+    resize: vertical; box-sizing: border-box;
+  }
+  .faq-form .btn-row { display: flex; gap: 8px; margin-top: 4px; }
+  .faq-form button { padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .btn-save { background: var(--accent, #6b2fa5); color: white; border: 0; }
+  .btn-delete { background: transparent; color: #c0392b; border: 1px solid #c0392b; }
+  .btn-toggle { background: transparent; color: var(--muted); border: 1px solid var(--line, #ccc); }
+  .faq-card {
+    background: var(--surface, white); border: 1px solid var(--line, #e6e6e6);
+    border-radius: 10px; padding: 16px 18px; margin-bottom: 12px;
+  }
+  .faq-card.inactiva { opacity: .55; }
+  .faq-card details { margin: 0; }
+  .faq-card summary {
+    cursor: pointer; display: flex; justify-content: space-between;
+    gap: 12px; align-items: center; list-style: none;
+  }
+  .faq-card summary::-webkit-details-marker { display: none; }
+  .faq-card summary::after { content: "▸"; color: var(--muted); font-size: 12px; }
+  .faq-card details[open] summary::after { content: "▾"; }
+  .faq-title { font-weight: 700; font-size: 15px; }
+  .faq-meta {
+    font-size: 11px; color: var(--muted); display: flex; gap: 10px;
+    margin-top: 4px;
+  }
+  .faq-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    background: var(--accent-soft, #f1e8fa); color: var(--accent, #6b2fa5);
+    text-transform: uppercase; letter-spacing: .05em; font-weight: 700;
+  }
+  .faq-badge.legacy { background: #fff8e1; color: #b7791f; }
+  .faq-badge.inactiva { background: #fdecec; color: #c0392b; }
+  .faq-preview {
+    white-space: pre-wrap; background: #f8f8f8; padding: 12px; border-radius: 6px;
+    font-size: 13px; margin: 12px 0; max-height: 300px; overflow-y: auto;
+    line-height: 1.5;
+  }
+</style>
+
+<div class="faq-head">
+  <div>
+    <h2>❓ FAQ — Knowledge base del bot</h2>
+    <p>Agregá acá preguntas y respuestas que el bot debe saber. Cuando una agente pregunte algo relacionado, Claude usa estas respuestas como fuente de verdad. Lo que escribas acá se carga en el prompt del LLM en ≤60 segundos.</p>
+  </div>
+</div>
+
+<details class="faq-nueva" {% if not faqs %}open{% endif %}>
+  <summary>➕ Agregar una nueva FAQ</summary>
+  <form method="POST" action="{{ url_for('petra_panel.faq_crear') }}" class="faq-form">
+    <input type="hidden" name="token" value="{{ token }}">
+    <div>
+      <label>Tema / título corto</label>
+      <input type="text" name="titulo" required placeholder="ej. Comisiones por arriendo">
+    </div>
+    <div>
+      <label>Descripción (opcional, para humanos)</label>
+      <input type="text" name="descripcion" placeholder="ej. Explica cómo se calcula la comisión">
+    </div>
+    <div>
+      <label>Respuesta / contenido</label>
+      <textarea name="texto" required placeholder="Escribí la respuesta completa. Podés usar varias líneas, bullets, etc. El LLM lo lee tal cual."></textarea>
+    </div>
+    <div class="btn-row">
+      <button type="submit" class="btn-save">Guardar FAQ</button>
+    </div>
+  </form>
+</details>
+
+{% if not faqs %}
+  <div style="padding: 24px; background: #fff8e1; border-radius: 10px; border-left: 4px solid #f39c12;">
+    <strong>No hay FAQs cargadas todavía.</strong>
+    <p style="margin: 6px 0 0;">Agregá la primera arriba. Mientras tanto, el LLM responde con empatía pero deriva a humano para preguntas específicas.</p>
+  </div>
+{% endif %}
+
+{% for f in faqs %}
+  <div class="faq-card {% if not f.activo %}inactiva{% endif %}">
+    <details>
+      <summary>
+        <div>
+          <div class="faq-title">{{ f.titulo }}</div>
+          <div class="faq-meta">
+            {% if f.tipo == 'faq' %}
+              <span class="faq-badge">FAQ</span>
+            {% else %}
+              <span class="faq-badge legacy">Legacy (tipo "otro")</span>
+            {% endif %}
+            {% if not f.activo %}<span class="faq-badge inactiva">Inactiva</span>{% endif %}
+            {% if f.updated_at %}
+              <span>editado {{ f.updated_at.strftime('%d %b %H:%M') }}</span>
+            {% endif %}
+          </div>
+          {% if f.descripcion %}
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">{{ f.descripcion }}</div>
+          {% endif %}
+        </div>
+      </summary>
+      <div class="faq-preview">{{ f.texto }}</div>
+      <form method="POST" action="{{ url_for('petra_panel.faq_editar', fid=f.id) }}" class="faq-form">
+        <input type="hidden" name="token" value="{{ token }}">
+        <div>
+          <label>Tema / título</label>
+          <input type="text" name="titulo" value="{{ f.titulo }}" required>
+        </div>
+        <div>
+          <label>Descripción</label>
+          <input type="text" name="descripcion" value="{{ f.descripcion or '' }}">
+        </div>
+        <div>
+          <label>Respuesta / contenido</label>
+          <textarea name="texto" required>{{ f.texto }}</textarea>
+        </div>
+        <div class="btn-row">
+          <button type="submit" class="btn-save">💾 Guardar</button>
+          <button type="submit" class="btn-toggle"
+                  formaction="{{ url_for('petra_panel.faq_toggle', fid=f.id) }}">
+            {% if f.activo %}⏸ Desactivar{% else %}▶️ Activar{% endif %}
+          </button>
+          <button type="submit" class="btn-delete"
+                  formaction="{{ url_for('petra_panel.faq_eliminar', fid=f.id) }}"
+                  onclick="return confirm('¿Borrar esta FAQ definitivamente?');">
+            🗑 Borrar
+          </button>
+        </div>
+      </form>
+    </details>
   </div>
 {% endfor %}
 {% endif %}

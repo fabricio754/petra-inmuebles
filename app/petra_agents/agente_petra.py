@@ -139,18 +139,18 @@ lo recibas — si no, lo olvidás en el próximo mensaje.
 
 
 def _cargar_faq_knowledge_base():
-    """Carga el texto de los contenidos tipo='otro' con texto cargado.
-    Se usan como knowledge base para que el LLM responda preguntas
-    frecuentes de las agentes (precios, comisiones, autorización, etc.).
+    """Carga los contenidos tipo='faq' (nuevo, dedicado) o 'otro'
+    (legacy, backward compat) con texto cargado. Se usan como knowledge
+    base para que el LLM responda preguntas frecuentes.
     Devuelve '' si no hay contenidos cargados."""
     try:
         from app import db as _db
         with _db._conexion_directa(timeout=5) as conn:
             rows = conn.execute(
                 "SELECT titulo, texto FROM petra_contenidos "
-                "WHERE tipo='otro' AND activo=TRUE AND texto IS NOT NULL "
-                "AND LENGTH(TRIM(texto)) > 0 "
-                "ORDER BY orden, id"
+                "WHERE tipo IN ('faq', 'otro') AND activo=TRUE "
+                "AND texto IS NOT NULL AND LENGTH(TRIM(texto)) > 0 "
+                "ORDER BY tipo DESC, orden, id"  # 'faq' antes que 'otro'
             ).fetchall()
         if not rows:
             return ""
