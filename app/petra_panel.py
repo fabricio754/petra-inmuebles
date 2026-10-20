@@ -234,12 +234,28 @@ def panel_home():
     textos_lista = _textos_mod.listar_textos()
     contexto["textos"] = textos_lista
     contexto["textos_por_categoria"] = _agrupar_textos(textos_lista)
-    # Simulador
+    # Simulador — presets + textos relacionados de cada estación
     from app.petra_agents import simulador as _sim_mod
-    contexto["sim_presets"] = [
-        {"key": k, "label": v["label"], "contexto": v.get("contexto", "")}
-        for k, v in _sim_mod.PRESETS.items()
-    ]
+    from app.petra_agents import textos as _textos_mod
+    todos_textos = _textos_mod.listar_textos()
+    textos_por_clave = {t["clave"]: t for t in todos_textos}
+    presets_extended = []
+    for k, v in _sim_mod.PRESETS.items():
+        textos_resueltos = []
+        for clave in v.get("textos_claves", []):
+            t = textos_por_clave.get(clave)
+            textos_resueltos.append({
+                "clave": clave,
+                "contenido": (t["contenido"] if t else None),
+                "descripcion": (t["descripcion"] if t else None),
+                "cargado": bool(t),
+            })
+        presets_extended.append({
+            "key": k, "label": v["label"], "contexto": v.get("contexto", ""),
+            "textos": textos_resueltos,
+            "transiciones": v.get("transiciones", []),
+        })
+    contexto["sim_presets"] = presets_extended
     contexto["sim_preset_actual"] = request.args.get("preset") or "nuevo"
     contexto["sim_estado"] = _sim_mod.estado_actual()
     # Nudges — reglas de remarketing (FASE F)

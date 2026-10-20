@@ -32,12 +32,27 @@ PRESETS = {
         "label": "🆕 Nuevo (recién llegó, pide ser agente)",
         "rol": False,          # borra el rol
         "contexto": "El contacto NO tiene rol todavía. Al escribir cualquier cosa el router lo clasifica y arranca el flow de inscripción.",
+        "textos_claves": [],  # el bot todavía no habla
+        "transiciones": [
+            "escribe 'quiero ser agente' → recolectando_vacio",
+        ],
     },
     "recolectando_vacio": {
         "label": "📝 Inscripción empezada (0 datos)",
         "rol": True,
         "metadata": {"estado_agente": "recolectando"},
         "contexto": "Rol creado, estado=recolectando. Falta pedir los 5 datos (nombre, cédula, ciudad, barrio, conjunto).",
+        "textos_claves": [
+            "inscripcion.pregunta_nombre",
+            "inscripcion.pregunta_cedula",
+            "inscripcion.pregunta_ciudad",
+            "inscripcion.pregunta_barrio",
+            "inscripcion.pregunta_conjunto",
+        ],
+        "transiciones": [
+            "la agente responde cada pregunta → avanza al próximo campo",
+            "cuando tiene los 5 datos + 'Registrarme' → inscrito",
+        ],
     },
     "recolectando_mitad": {
         "label": "📝 Inscripción a mitad (nombre + cédula + ciudad)",
@@ -49,6 +64,14 @@ PRESETS = {
             "ciudad": "Bogotá",
         },
         "contexto": "Rol creado, tiene nombre, cédula y ciudad. Faltan barrio y conjunto.",
+        "textos_claves": [
+            "inscripcion.pregunta_barrio",
+            "inscripcion.pregunta_conjunto",
+        ],
+        "transiciones": [
+            "responde barrio → pide conjunto",
+            "responde conjunto → muestra resumen → inscrito",
+        ],
     },
     "inscrito": {
         "label": "✅ Inscrita (datos completos, botón Ver próximos pasos)",
@@ -63,6 +86,10 @@ PRESETS = {
             "inscrito_at": "SIM_NOW",
         },
         "contexto": "Datos completos, inscripción confirmada. Esperando que pulse 'Ver próximos pasos'.",
+        "textos_claves": ["inscripcion.msg_felicitaciones"],
+        "transiciones": [
+            "botón 'Ver próximos pasos' → envía videos bienvenida → bienvenida_enviada",
+        ],
     },
     "bienvenida_enviada": {
         "label": "🎬 Vio bienvenida, esperando botón Empezar ahora",
@@ -76,6 +103,13 @@ PRESETS = {
             "bienvenida_vista_at": "SIM_NOW",
         },
         "contexto": "Recibió los videos de bienvenida. Esperando botón 'Empezar ahora' para arrancar día 1 de capacitación.",
+        "textos_claves": [
+            "capacitacion.msg_recordatorio_empezar",
+            "capacitacion.msg_arranca_manana",
+        ],
+        "transiciones": [
+            "botón 'Empezar ahora' → envía día 1 → en_capacitacion",
+        ],
     },
     "en_capacitacion_dia3": {
         "label": "📚 En capacitación, día 3 (4 videos vistos)",
@@ -90,6 +124,18 @@ PRESETS = {
             "videos_vistos": 4,
         },
         "contexto": "A mitad de capacitación. Ya cerró el día 2 (4 videos). Al pulsar 'Listo' avanza al día 3.",
+        "textos_claves": [
+            "capacitacion.msg_cron_diario",
+            "capacitacion.msg_dia_completo",
+            "capacitacion.msg_reenvio_videos",
+            "capacitacion.msg_por_hoy_ya",
+            "capacitacion.msg_siguiente_dia_fallo",
+        ],
+        "transiciones": [
+            "botón ✅ Listo → avanza 2 videos (día siguiente)",
+            "botón ⏭ Ver día siguiente → dispara cron inmediato",
+            "7× Listo → autorizacion_pendiente",
+        ],
     },
     "capacitacion_casi_lista": {
         "label": "🏁 Capacitación casi lista (día 6, 12/14 videos)",
@@ -104,6 +150,13 @@ PRESETS = {
             "videos_vistos": 12,
         },
         "contexto": "Último día pendiente. Al pulsar 'Listo' una vez más → capacitación completa + pasa a autorización.",
+        "textos_claves": [
+            "capacitacion.msg_cron_diario",
+            "capacitacion.msg_completada_header",
+        ],
+        "transiciones": [
+            "último Listo → autorizacion_pendiente",
+        ],
     },
     "autorizacion_pendiente": {
         "label": "📍 Autorización pendiente (acaba de terminar capacitación)",
@@ -117,6 +170,22 @@ PRESETS = {
             "videos_vistos": 14,
         },
         "contexto": "Terminó capacitación. Esperando botón 'Iniciar' → luego Ver material / Tengo duda / Ya tengo autorización.",
+        "textos_claves": [
+            "capacitacion.msg_completada_header",
+            "autorizacion.cta_iniciar",
+            "autorizacion.cta_botones",
+            "autorizacion.msg_envio_material",
+            "autorizacion.msg_recordatorio_video",
+            "autorizacion.msg_post_material",
+            "autorizacion.msg_prompt_duda",
+            "autorizacion.msg_confirmada",
+        ],
+        "transiciones": [
+            "botón 🚀 Iniciar → muestra 3 botones",
+            "botón 📎 Ver material → envía video + demo + piezas",
+            "botón ❓ Tengo una duda → prompt + LLM responde",
+            "botón ✅ Ya tengo autorización → kit_pendiente (pide dirección)",
+        ],
     },
     "kit_pendiente_direccion": {
         "label": "📦 Confirmó autorización (pidiendo dirección — torre)",
@@ -131,6 +200,18 @@ PRESETS = {
             "videos_vistos": 14,
         },
         "contexto": "Confirmó autorización. Bot está en medio de captura de dirección (torre, apto, barrio, ciudad).",
+        "textos_claves": [
+            "activacion.msg_pedir_direccion_inicio",
+            "activacion.pregunta_torre",
+            "activacion.pregunta_apto",
+            "activacion.pregunta_barrio",
+            "activacion.pregunta_ciudad",
+            "activacion.msg_direccion_completa",
+        ],
+        "transiciones": [
+            "responde torre → pide apto → barrio → ciudad",
+            "ciudad respondida → kit_pendiente_direccion_lista",
+        ],
     },
     "kit_pendiente_direccion_lista": {
         "label": "📬 Dirección completa, esperando que humano marque kit enviado",
@@ -149,6 +230,10 @@ PRESETS = {
             "direccion_capturada_at": "SIM_NOW",
         },
         "contexto": "Dirección capturada. Aparece en tab 'Kits a enviar' del panel esperando que un humano marque 'Enviado'.",
+        "textos_claves": ["activacion.msg_direccion_completa"],
+        "transiciones": [
+            "humano marca 'Enviado' en panel → kit_enviado",
+        ],
     },
     "kit_enviado": {
         "label": "🚚 Kit enviado (esperando botón Ya instalé el QR)",
@@ -163,6 +248,14 @@ PRESETS = {
             "kit_enviado_at": "SIM_NOW",
         },
         "contexto": "Humano marcó kit como enviado. Agente debería haber recibido QR + video. Esperando 'Ya instalé el QR'.",
+        "textos_claves": [
+            "activacion.msg_kit_enviado",
+            "activacion.msg_qr_boton",
+            "activacion.msg_qr_instalado",
+        ],
+        "transiciones": [
+            "botón '✅ Ya instalé el QR' → activa",
+        ],
     },
     "activa": {
         "label": "🚀 Activa (fase operativa, puede manejar citas e inmuebles)",
@@ -178,6 +271,21 @@ PRESETS = {
             "video_citas_enviado": True,
         },
         "contexto": "QR instalado. Fase operativa: puede recibir citas desde el panel, cargar inmuebles con 'registrar inmueble', hacer preguntas al LLM.",
+        "textos_claves": [
+            "activacion.msg_qr_instalado",
+            "citas.msg_intro_video",
+            "citas.msg_nueva_cita",
+            "citas.msg_confirmada",
+            "citas.msg_cancelada",
+            "citas.msg_pedir_contrapropuesta",
+            "inventario.msg_arranque",
+            "inventario.msg_completado",
+        ],
+        "transiciones": [
+            "humano crea cita → recibe 3 botones (Puedo/Proponer/No)",
+            "escribe 'registrar inmueble' → arranca captura step-by-step",
+            "pregunta libre → LLM responde",
+        ],
     },
 }
 
