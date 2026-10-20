@@ -151,6 +151,14 @@ def _resumen_payload(payload):
     t = payload.get("type") or ""
     if t == "text":
         return (payload.get("text") or {}).get("body", "")[:500]
+    if t == "image":
+        url = (payload.get("image") or {}).get("link", "")
+        cap = (payload.get("image") or {}).get("caption", "")
+        return f"🖼 {cap}\n{url}" if cap else f"🖼 {url}"
+    if t == "video":
+        url = (payload.get("video") or {}).get("link", "")
+        cap = (payload.get("video") or {}).get("caption", "")
+        return f"🎬 {cap}\n{url}" if cap else f"🎬 {url}"
     if t == "interactive":
         inter = payload.get("interactive") or {}
         body_text = (inter.get("body") or {}).get("text", "")[:300]

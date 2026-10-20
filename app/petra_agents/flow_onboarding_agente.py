@@ -108,13 +108,26 @@ _PREGUNTAS_FALLBACK = {
 
 def _pregunta(campo, **variables):
     """Lee el texto editable `inscripcion.pregunta_<campo>` desde DB.
-    Cae al hardcode si la clave no existe."""
+    Cae al hardcode si la clave no existe.
+
+    OJO: devuelve solo el texto crudo (sin disparar media/botones/extras
+    adjuntos). Para enviar la pregunta Y respetar los adjuntos del panel,
+    usá `_enviar_pregunta()`."""
     from app.petra_agents.textos import t
     return t(
         f"inscripcion.pregunta_{campo}",
         fallback=_PREGUNTAS_FALLBACK[campo],
         **variables,
     )
+
+
+def _enviar_pregunta(telefono, campo, **variables):
+    """Envía la pregunta del campo usando `_sm`: respeta activo, adjunta
+    media/botones y manda extras asociados a `inscripcion.pregunta_<campo>`."""
+    _sm(telefono,
+        f"inscripcion.pregunta_{campo}",
+        fallback=_PREGUNTAS_FALLBACK[campo],
+        **variables)
 
 NOMBRE_CAMPO = {
     "nombre": "nombre completo",
@@ -350,7 +363,7 @@ def _enviar_media_estacion(conn, cid, meta, telefono, estado_key):
     try:
         rows = conn.execute(
             "SELECT titulo, url FROM petra_media_estacion "
-            "WHERE estado_key=%s AND activo=TRUE "
+            "WHERE estado_key=%s AND clave_texto IS NULL AND activo=TRUE "
             "ORDER BY orden, id",
             (estado_key,),
         ).fetchall()
@@ -1727,9 +1740,11 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             # Si ya tenía algún dato, no re-saludamos: pedimos el próximo
             if faltantes:
                 campo = faltantes[0]
-                resp = _pregunta(campo, **{k: meta.get(k, "") for k in CAMPOS})
-                _enviar(telefono, resp)
-                _log(telefono, texto, resp, nota=f"handoff:pedir {campo}")
+                _enviar_pregunta(telefono, campo,
+                                 **{k: meta.get(k, "") for k in CAMPOS})
+                _log(telefono, texto,
+                     _pregunta(campo, **{k: meta.get(k, "") for k in CAMPOS}),
+                     nota=f"handoff:pedir {campo}")
                 return True
             # Todos los campos ya están → directo al resumen (con botones)
             _enviar_resumen(telefono, meta)
@@ -1761,9 +1776,11 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         nuevos_faltantes = [c for c in CAMPOS if not meta.get(c)]
         if nuevos_faltantes:
             prox = nuevos_faltantes[0]
-            resp = _pregunta(prox, **{k: meta.get(k, "") for k in CAMPOS})
-            _enviar(telefono, resp)
-            _log(telefono, texto, resp, nota=f"capturó {campo}, pide {prox}")
+            _enviar_pregunta(telefono, prox,
+                             **{k: meta.get(k, "") for k in CAMPOS})
+            _log(telefono, texto,
+                 _pregunta(prox, **{k: meta.get(k, "") for k in CAMPOS}),
+                 nota=f"capturó {campo}, pide {prox}")
         else:
             # Tenemos los 5 → mostrar resumen con botones
             _enviar_resumen(telefono, meta)
