@@ -650,20 +650,303 @@ def _fase_activa(conn, telefono, cid, meta, texto, sesion_id=None):
     """Fase operativa: la agente ya tiene QR instalado. Maneja:
     - Botones de respuesta a citas (ONBAG_CITA_*)
     - Captura de contrapropuesta de día/hora si está esperando
-    - Preguntas libres → LLM
-    - (FUTURO) tool registrar_inmueble, confirmar visita, etc."""
+    - Captura de inventario (step-by-step)
+    - Preguntas libres → LLM"""
     import datetime as _dt
+    t_lc = (texto or "").lower().strip()
+
     # 1. Respuestas a botones de cita
     if texto and texto.startswith("ONBAG_CITA_"):
         return _manejar_boton_cita(conn, telefono, cid, meta, texto)
+
     # 2. ¿Está esperando contrapropuesta de fecha?
     cita_esperando = meta.get("cita_esperando_propuesta_id")
     if cita_esperando and texto:
         return _capturar_contrapropuesta_cita(
             conn, telefono, cid, meta, texto, cita_esperando)
-    # 3. Pregunta libre → LLM
+
+    # 3. ¿Está en medio de la captura de un inmueble?
+    inv_paso = meta.get("inventario_paso")
+    if inv_paso and texto:
+        return _capturar_paso_inventario(conn, telefono, cid, meta, texto, inv_paso)
+
+    # 4. ¿Palabra clave para arrancar inventario? ("registrar inmueble", "cargar inmueble", "nuevo inmueble")
+    PALABRAS_INVENTARIO = (
+        "registrar inmueble", "cargar inmueble", "nuevo inmueble",
+        "agregar inmueble", "registrar apto", "cargar apto",
+        "subir inmueble", "subir apto", "ingresar inmueble",
+    )
+    if texto and any(p in t_lc for p in PALABRAS_INVENTARIO):
+        return _iniciar_inventario(conn, telefono, cid, meta)
+
+    # 5. Pregunta libre → LLM
     _log(telefono, texto, "[activa → LLM]")
     return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
+
+
+# ─── FASE E — Inventario (captura step-by-step) ───
+
+INVENTARIO_PASOS = [
+    "modalidad", "torre", "apto", "area_m2", "habitaciones", "banos",
+    "parqueadero", "precio", "propietario_nombre", "propietario_tel",
+]
+INVENTARIO_PREGUNTAS = {
+    "modalidad": (
+        "inventario.pregunta_modalidad",
+        "¿Es para *arriendo* o *venta*? Respondé con una de las dos palabras.",
+    ),
+    "torre": (
+        "inventario.pregunta_torre",
+        "¿En qué *torre* está el inmueble? (si no aplica, respondé *N/A*)",
+    ),
+    "apto": (
+        "inventario.pregunta_apto",
+        "¿Cuál es el *número de apartamento*?",
+    ),
+    "area_m2": (
+        "inventario.pregunta_area",
+        "¿Cuántos *metros cuadrados* tiene? (solo el número)",
+    ),
+    "habitaciones": (
+        "inventario.pregunta_habitaciones",
+        "¿Cuántas *habitaciones* tiene? (solo el número)",
+    ),
+    "banos": (
+        "inventario.pregunta_banos",
+        "¿Cuántos *baños* tiene? (solo el número)",
+    ),
+    "parqueadero": (
+        "inventario.pregunta_parqueadero",
+        "¿Tiene *parqueadero*? Respondé *sí* o *no*.",
+    ),
+    "precio": (
+        "inventario.pregunta_precio",
+        "¿Cuál es el *precio*? Respondé en millones de pesos. "
+        "Ej: *1.200* (si son 1.200 millones para venta), o *2.5* "
+        "(si son 2.5 millones de arriendo mensual).",
+    ),
+    "propietario_nombre": (
+        "inventario.pregunta_propietario_nombre",
+        "¿Cuál es el *nombre del propietario*?",
+    ),
+    "propietario_tel": (
+        "inventario.pregunta_propietario_tel",
+        "¿Cuál es el *teléfono del propietario*? (con indicativo, ej. 573001234567)",
+    ),
+}
+
+
+def _iniciar_inventario(conn, telefono, cid, meta):
+    """Arranca captura de un nuevo inmueble. Envía video explicativo
+    (si está cargado) y hace la primera pregunta."""
+    meta["inventario_paso"] = INVENTARIO_PASOS[0]
+    meta["inventario_datos"] = {}
+    _save_meta(conn, cid, meta)
+    # Video explicativo (si cargado)
+    vid = conn.execute(
+        "SELECT titulo, url FROM petra_contenidos "
+        "WHERE tipo='video_inventario' AND activo=TRUE "
+        "ORDER BY orden LIMIT 1"
+    ).fetchone()
+    _enviar(telefono, _t(
+        "inventario.msg_arranque",
+        fallback=(
+            "¡Buenísimo! 🏠 Vamos a cargar el inmueble en el sistema.\n\n"
+            "Te voy a hacer unas preguntas para registrarlo. Si querés "
+            "cancelar en cualquier momento, decime *cancelar inmueble*."
+        ),
+    ))
+    if vid:
+        import time as _tm
+        _tm.sleep(1)
+        _enviar(telefono, f"🏠 *{vid[0]}*\n\n{vid[1]}")
+        _tm.sleep(2)
+    # Primera pregunta
+    clave, fallback = INVENTARIO_PREGUNTAS[INVENTARIO_PASOS[0]]
+    _enviar(telefono, _t(clave, fallback=fallback))
+    _log(telefono, "", "[inventario: arranque]")
+    return True
+
+
+def _capturar_paso_inventario(conn, telefono, cid, meta, texto, paso):
+    """Procesa la respuesta a la pregunta del paso actual.
+    Valida, guarda y avanza al próximo. Al terminar, inserta en DB."""
+    t_lc = texto.lower().strip()
+    # Cancelación
+    if t_lc in ("cancelar inmueble", "cancelar", "cancelo", "stop"):
+        meta.pop("inventario_paso", None)
+        meta.pop("inventario_datos", None)
+        _save_meta(conn, cid, meta)
+        _enviar(telefono, "Ok, cancelo la carga del inmueble. "
+                "Cuando quieras arrancar de nuevo decime *registrar inmueble*.")
+        _log(telefono, texto, "[inventario cancelado por user]")
+        return True
+
+    datos = meta.get("inventario_datos") or {}
+    valido, valor, err = _validar_paso_inventario(paso, texto)
+    if not valido:
+        _enviar(telefono, err or "Ese dato no me parece bien. ¿Me lo mandás de nuevo?")
+        return True
+    datos[paso] = valor
+    meta["inventario_datos"] = datos
+
+    # Próximo paso
+    idx = INVENTARIO_PASOS.index(paso)
+    if idx + 1 < len(INVENTARIO_PASOS):
+        prox = INVENTARIO_PASOS[idx + 1]
+        meta["inventario_paso"] = prox
+        _save_meta(conn, cid, meta)
+        clave, fallback = INVENTARIO_PREGUNTAS[prox]
+        _enviar(telefono, _t(clave, fallback=fallback))
+        _log(telefono, texto, f"[inventario: capturó {paso}, pide {prox}]")
+        return True
+
+    # Terminó la captura → insertar en DB
+    return _finalizar_inventario(conn, telefono, cid, meta, datos)
+
+
+def _validar_paso_inventario(paso, texto):
+    """Devuelve (valido, valor_normalizado, mensaje_error)."""
+    t = (texto or "").strip()
+    t_lc = t.lower()
+    if paso == "modalidad":
+        if t_lc in ("arriendo", "arrendar", "alquiler"):
+            return True, "arriendo", None
+        if t_lc in ("venta", "vender", "venta/arriendo"):
+            return True, "venta", None
+        return False, None, "Decime *arriendo* o *venta*, por favor."
+    if paso in ("torre", "apto", "propietario_nombre"):
+        if 1 <= len(t) <= 60:
+            return True, t, None
+        return False, None, "Ese valor parece raro. ¿Me lo volvés a mandar?"
+    if paso in ("area_m2", "habitaciones", "banos"):
+        import re
+        m = re.search(r"\d+", t.replace(",", "."))
+        if not m:
+            return False, None, "Necesito un número. ¿Me lo volvés a mandar?"
+        try:
+            n = float(m.group()) if paso == "area_m2" else int(m.group())
+            if n <= 0 or n > 10000:
+                return False, None, "Ese número parece raro. ¿Me lo revisás?"
+            return True, n, None
+        except Exception:
+            return False, None, "No entendí el número. ¿Me lo mandás así: *85* o *3*?"
+    if paso == "parqueadero":
+        if t_lc in ("si", "sí", "yes", "y", "tiene"):
+            return True, True, None
+        if t_lc in ("no", "n", "no tiene"):
+            return True, False, None
+        return False, None, "Decime *sí* o *no*."
+    if paso == "precio":
+        import re
+        m = re.search(r"[\d.,]+", t)
+        if not m:
+            return False, None, "Necesito el precio en número. Ej: *1200* o *2.5*."
+        try:
+            # Normalización: "1.200" → 1200.0 ; "2.5" → 2.5
+            raw = m.group()
+            if "," in raw and "." not in raw:
+                raw = raw.replace(",", ".")
+            if raw.count(".") > 1:
+                # 1.200.000 → 1200000
+                raw = raw.replace(".", "")
+            n = float(raw)
+            if n <= 0 or n > 100000:
+                return False, None, "Ese precio parece raro. ¿Me lo revisás?"
+            return True, n, None
+        except Exception:
+            return False, None, "No entendí el precio. ¿Me lo mandás como número?"
+    if paso == "propietario_tel":
+        import re
+        digitos = re.sub(r"\D", "", t)
+        if 7 <= len(digitos) <= 15:
+            return True, digitos, None
+        return False, None, "Ese teléfono parece raro. Mandámelo con indicativo, ej. *573001234567*."
+    return True, t, None
+
+
+def _finalizar_inventario(conn, telefono, cid, meta, datos):
+    """Inserta petra_inmuebles con los datos capturados. Resuelve
+    edificio_id a partir del conjunto de la agente (crea si falta)."""
+    try:
+        conjunto = (meta.get("conjunto") or "Sin conjunto").strip()
+        ciudad = (meta.get("ciudad") or "").strip()
+        # Resolver edificio
+        row = conn.execute(
+            "SELECT id FROM petra_edificios WHERE nombre=%s AND ciudad=%s",
+            (conjunto, ciudad),
+        ).fetchone()
+        if row:
+            edificio_id = row[0]
+        else:
+            edificio_id = conn.execute(
+                "INSERT INTO petra_edificios (nombre, ciudad, activo) "
+                "VALUES (%s, %s, TRUE) RETURNING id",
+                (conjunto, ciudad),
+            ).fetchone()[0]
+        # Insert inmueble
+        modalidad = datos["modalidad"]
+        precio_venta = datos["precio"] if modalidad == "venta" else None
+        precio_arriendo = datos["precio"] if modalidad == "arriendo" else None
+        conn.execute(
+            "INSERT INTO petra_inmuebles "
+            "(edificio_id, contacto_id, tipo, modalidad, torre, piso, "
+            " area_m2, parqueadero, precio_millones, "
+            " precio_arriendo_mensual_millones, nombre_anunciante, "
+            " telefono_contacto, habitaciones, banos, "
+            " capturado_por_agente_id, estado) "
+            "VALUES (%s, %s, 'apartamento', %s, %s, %s, %s, %s, %s, %s, "
+            "        %s, %s, %s, %s, %s, 'borrador')",
+            (
+                edificio_id, cid, modalidad,
+                datos.get("torre"), datos.get("apto"),
+                datos.get("area_m2"), datos.get("parqueadero"),
+                precio_venta, precio_arriendo,
+                datos.get("propietario_nombre"),
+                datos.get("propietario_tel"),
+                datos.get("habitaciones"), datos.get("banos"),
+                cid,
+            ),
+        )
+    except Exception:
+        log.exception("[inventario] insert fallo tel=%s datos=%s", telefono, datos)
+        _enviar(telefono,
+            "Perdón, hubo un error guardando el inmueble 😔. "
+            "Un asesor te contacta pronto para resolverlo.")
+        meta.pop("inventario_paso", None)
+        meta.pop("inventario_datos", None)
+        _save_meta(conn, cid, meta)
+        return True
+    # Limpiar estado y confirmar
+    meta.pop("inventario_paso", None)
+    meta.pop("inventario_datos", None)
+    _save_meta(conn, cid, meta)
+    resumen = _formatear_resumen_inmueble(datos)
+    _enviar(telefono, _t(
+        "inventario.msg_completado",
+        fallback=(
+            "✅ *¡Inmueble registrado!*\n\n"
+            f"{resumen}\n\n"
+            "Lo revisamos y lo publicamos pronto 💜. Si querés cargar otro, "
+            "decime *registrar inmueble*."
+        ),
+    ))
+    _log(telefono, "", "[inventario: completado]")
+    return True
+
+
+def _formatear_resumen_inmueble(datos):
+    partes = [
+        f"📍 *Modalidad:* {datos.get('modalidad','?').title()}",
+        f"🏢 *Torre/Apto:* {datos.get('torre','?')} / {datos.get('apto','?')}",
+        f"📐 *Área:* {datos.get('area_m2','?')} m²",
+        f"🛏 *Hab:* {datos.get('habitaciones','?')} · 🚿 *Baños:* {datos.get('banos','?')}",
+        f"🚗 *Parqueadero:* {'sí' if datos.get('parqueadero') else 'no'}",
+        f"💰 *Precio:* ${datos.get('precio','?')} M",
+        f"👤 *Propietario:* {datos.get('propietario_nombre','?')}",
+        f"📞 *Tel:* {datos.get('propietario_tel','?')}",
+    ]
+    return "\n".join(partes)
 
 
 def _manejar_boton_cita(conn, telefono, cid, meta, texto):

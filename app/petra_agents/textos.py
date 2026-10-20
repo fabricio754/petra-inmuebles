@@ -302,6 +302,50 @@ SEED_TEXTOS = [
      "Mensaje al recibir la contrapropuesta en texto. Variable: propuesta.",
      ["propuesta"], "citas"),
 
+    # ─── Inventario ───
+    ("inventario.msg_arranque",
+     "¡Buenísimo! 🏠 Vamos a cargar el inmueble en el sistema.\n\n"
+     "Te voy a hacer unas preguntas para registrarlo. Si querés "
+     "cancelar en cualquier momento, decime *cancelar inmueble*.",
+     "Mensaje al arrancar la captura (palabra clave 'registrar inmueble').",
+     [], "inventario"),
+    ("inventario.pregunta_modalidad",
+     "¿Es para *arriendo* o *venta*? Respondé con una de las dos palabras.",
+     "Primer dato: modalidad.", [], "inventario"),
+    ("inventario.pregunta_torre",
+     "¿En qué *torre* está el inmueble? (si no aplica, respondé *N/A*)",
+     "Torre.", [], "inventario"),
+    ("inventario.pregunta_apto",
+     "¿Cuál es el *número de apartamento*?", "Apto.", [], "inventario"),
+    ("inventario.pregunta_area",
+     "¿Cuántos *metros cuadrados* tiene? (solo el número)",
+     "Área en m2.", [], "inventario"),
+    ("inventario.pregunta_habitaciones",
+     "¿Cuántas *habitaciones* tiene? (solo el número)",
+     "Habitaciones.", [], "inventario"),
+    ("inventario.pregunta_banos",
+     "¿Cuántos *baños* tiene? (solo el número)",
+     "Baños.", [], "inventario"),
+    ("inventario.pregunta_parqueadero",
+     "¿Tiene *parqueadero*? Respondé *sí* o *no*.",
+     "Parqueadero sí/no.", [], "inventario"),
+    ("inventario.pregunta_precio",
+     "¿Cuál es el *precio*? Respondé en millones de pesos. "
+     "Ej: *1.200* (si son 1.200 millones para venta), o *2.5* "
+     "(si son 2.5 millones de arriendo mensual).",
+     "Precio en millones.", [], "inventario"),
+    ("inventario.pregunta_propietario_nombre",
+     "¿Cuál es el *nombre del propietario*?",
+     "Nombre del propietario.", [], "inventario"),
+    ("inventario.pregunta_propietario_tel",
+     "¿Cuál es el *teléfono del propietario*? (con indicativo, ej. 573001234567)",
+     "Teléfono del propietario.", [], "inventario"),
+    ("inventario.msg_completado",
+     "✅ *¡Inmueble registrado!*\n\n"
+     "Lo revisamos y lo publicamos pronto 💜. Si querés cargar otro, "
+     "decime *registrar inmueble*.",
+     "Mensaje al terminar la captura exitosamente.", [], "inventario"),
+
     # ─── Fallbacks genéricos ───
     ("fallback.llm_error",
      "Perdón, no te pude responder bien ahora. Un asesor te "

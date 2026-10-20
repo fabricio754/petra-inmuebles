@@ -234,6 +234,20 @@ def panel_home():
     textos_lista = _textos_mod.listar_textos()
     contexto["textos"] = textos_lista
     contexto["textos_por_categoria"] = _agrupar_textos(textos_lista)
+    # Inmuebles capturados por agentes (FASE E)
+    with _db._conexion_directa(timeout=10) as conn:
+        contexto["inmuebles"] = _rows(conn,
+            """SELECT i.id, i.modalidad, i.tipo, i.torre, i.piso,
+                      i.area_m2, i.habitaciones, i.banos, i.parqueadero,
+                      i.precio_millones, i.precio_arriendo_mensual_millones,
+                      i.nombre_anunciante, i.telefono_contacto,
+                      i.estado, i.fotos, i.notas, i.created_at,
+                      e.nombre AS edificio_nombre, e.ciudad,
+                      c.nombre AS agente_nombre, c.telefono AS agente_tel
+               FROM petra_inmuebles i
+               LEFT JOIN petra_edificios e ON e.id = i.edificio_id
+               LEFT JOIN petra_contactos c ON c.id = i.capturado_por_agente_id
+               ORDER BY i.created_at DESC LIMIT 100""")
     # Agentes activas (FASE D) — para el dropdown de alta de citas
     with _db._conexion_directa(timeout=10) as conn:
         contexto["agentes_activas"] = _rows(conn,
@@ -307,6 +321,7 @@ _TIPOS_CONTENIDO = {
     "video_recordatorio_autorizacion": "🎓 Video a recordar antes de la autorización (ej. el día de capacitación que explica cómo abordar al admin)",
     "video_como_usar_qr": "📲 Video 'Cómo usar el QR' (al activar — después de recibir el kit)",
     "video_citas": "📅 Video 'Cómo manejar las citas' (al pasar a estado=activa, una vez)",
+    "video_inventario": "🏠 Video 'Cómo registrar un inmueble' (se envía al arrancar la captura)",
     "demo_autorizacion": "📱 Demo del producto (al terminar capacitación)",
     "pieza_grafica_autorizacion": "🖼 Pieza gráfica para mostrarle al admin (hasta 2, en orden)",
     "documento_pdf": "📄 Documento PDF",
@@ -1299,3 +1314,104 @@ def _fmt_fecha_es(dt):
              "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
     return (f"{dias[dt.weekday()]} {dt.day} de {meses[dt.month-1]} "
             f"a las {dt.hour:02d}:{dt.minute:02d}")
+
+
+# =============================================================================
+# FASE E — Inmuebles (validación / edición desde panel)
+# =============================================================================
+
+@petra_panel_bp.post("/inmueble/<int:iid>/estado")
+def inmueble_cambiar_estado(iid):
+    """Cambia el estado de un inmueble (borrador → activo → cerrado)."""
+    _check_token()
+    token = request.form.get("token", "")
+    nuevo_estado = (request.form.get("estado") or "").strip()
+    if nuevo_estado not in ("borrador", "activo", "pausado", "cerrado"):
+        abort(400, "estado inválido")
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE petra_inmuebles SET estado=%s, updated_at=NOW(), "
+            "publicado_at = CASE WHEN %s='activo' AND publicado_at IS NULL "
+            "                    THEN NOW() ELSE publicado_at END "
+            "WHERE id=%s",
+            (nuevo_estado, nuevo_estado, iid),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="inmuebles", token=token,
+        flash=f"inmueble_estado_{nuevo_estado}",
+    ))
+
+
+@petra_panel_bp.post("/inmueble/<int:iid>/foto_url")
+def inmueble_agregar_foto_url(iid):
+    """Agrega una foto al inmueble vía URL externa (link). Para subir
+    archivo local, usar POST /inmueble/<id>/foto_upload (abajo)."""
+    import json as _json
+    _check_token()
+    token = request.form.get("token", "")
+    url_foto = (request.form.get("url_foto") or "").strip()
+    if not url_foto or not url_foto.startswith(("http://", "https://")):
+        abort(400, "URL inválida")
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT fotos FROM petra_inmuebles WHERE id=%s", (iid,),
+        ).fetchone()
+        if not row:
+            abort(404)
+        fotos = list(row[0] or [])
+        fotos.append({"url": url_foto, "fuente": "panel_url"})
+        conn.execute(
+            "UPDATE petra_inmuebles SET fotos=%s::jsonb, updated_at=NOW() "
+            "WHERE id=%s", (_json.dumps(fotos), iid),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="inmuebles", token=token,
+        flash="inmueble_foto_agregada",
+    ))
+
+
+@petra_panel_bp.post("/inmueble/<int:iid>/foto_upload")
+def inmueble_subir_foto(iid):
+    """Sube un archivo de imagen local al inmueble (reutiliza media dir)."""
+    import json as _json
+    _check_token()
+    token = request.form.get("token", "")
+    file = request.files.get("archivo")
+    if not file or not file.filename:
+        abort(400, "sin archivo")
+    url_servida = _guardar_archivo_media(file)
+    if not url_servida:
+        abort(400, "archivo inválido")
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT fotos FROM petra_inmuebles WHERE id=%s", (iid,),
+        ).fetchone()
+        if not row:
+            abort(404)
+        fotos = list(row[0] or [])
+        fotos.append({"url": url_servida, "fuente": "panel_upload"})
+        conn.execute(
+            "UPDATE petra_inmuebles SET fotos=%s::jsonb, updated_at=NOW() "
+            "WHERE id=%s", (_json.dumps(fotos), iid),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="inmuebles", token=token,
+        flash="inmueble_foto_subida",
+    ))
+
+
+@petra_panel_bp.post("/inmueble/<int:iid>/nota")
+def inmueble_nota(iid):
+    """Edita el campo de notas del inmueble."""
+    _check_token()
+    token = request.form.get("token", "")
+    notas = (request.form.get("notas") or "").strip() or None
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE petra_inmuebles SET notas=%s, updated_at=NOW() WHERE id=%s",
+            (notas, iid),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="inmuebles", token=token,
+        flash="inmueble_nota",
+    ))
