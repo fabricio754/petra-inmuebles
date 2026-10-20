@@ -234,6 +234,31 @@ def panel_home():
     textos_lista = _textos_mod.listar_textos()
     contexto["textos"] = textos_lista
     contexto["textos_por_categoria"] = _agrupar_textos(textos_lista)
+    # Kits a enviar (FASE C) — agentes con estado kit_pendiente que ya
+    # capturaron dirección completa y esperan despacho humano.
+    with _db._conexion_directa(timeout=10) as conn:
+        contexto["kits_a_enviar"] = _rows(conn,
+            """SELECT c.id AS cid, c.telefono, c.nombre,
+                      r.metadata->>'conjunto' AS conjunto,
+                      r.metadata->'direccion' AS direccion,
+                      r.metadata->>'direccion_capturada_at' AS capturada_at,
+                      r.updated_at
+               FROM petra_contacto_roles r
+               JOIN petra_contactos c ON c.id = r.contacto_id
+               WHERE r.rol = 'agente_petra'
+                 AND r.metadata->>'estado_agente' = 'kit_pendiente'
+                 AND (r.metadata->'direccion'->>'ciudad') IS NOT NULL
+               ORDER BY r.updated_at ASC""")
+        contexto["kits_enviados"] = _rows(conn,
+            """SELECT c.id AS cid, c.telefono, c.nombre,
+                      r.metadata->>'conjunto' AS conjunto,
+                      r.metadata->>'kit_enviado_at' AS enviado_at,
+                      r.updated_at
+               FROM petra_contacto_roles r
+               JOIN petra_contactos c ON c.id = r.contacto_id
+               WHERE r.rol = 'agente_petra'
+                 AND r.metadata->>'estado_agente' = 'kit_enviado'
+               ORDER BY r.updated_at DESC LIMIT 30""")
     # FAQ (knowledge base del LLM) — tipo 'faq' o 'otro' legacy
     with _db._conexion_directa(timeout=10) as conn:
         contexto["faqs"] = _rows(conn,
@@ -250,8 +275,8 @@ def panel_home():
 def _agrupar_textos(textos):
     """Agrupa la lista plana de textos por categoría (dict ordenado)."""
     orden_categorias = [
-        "inscripcion", "capacitacion", "autorizacion",
-        "activacion", "citas", "inventario", "nudges", "fallback", "otro",
+        "inscripcion", "capacitacion", "autorizacion", "activacion",
+        "citas", "inventario", "nudges", "fallback", "otro",
     ]
     agrupado = {cat: [] for cat in orden_categorias}
     for t in textos:
@@ -270,6 +295,7 @@ _TIPOS_CONTENIDO = {
     "video_capacitacion": "📚 Video de capacitación (días 2-7 cap v2, 2 por día)",
     "video_autorizacion": "🎬 Video 'Cómo pedir autorización al administrador' (al terminar capacitación)",
     "video_recordatorio_autorizacion": "🎓 Video a recordar antes de la autorización (ej. el día de capacitación que explica cómo abordar al admin)",
+    "video_como_usar_qr": "📲 Video 'Cómo usar el QR' (al activar — después de recibir el kit)",
     "demo_autorizacion": "📱 Demo del producto (al terminar capacitación)",
     "pieza_grafica_autorizacion": "🖼 Pieza gráfica para mostrarle al admin (hasta 2, en orden)",
     "documento_pdf": "📄 Documento PDF",
@@ -1066,4 +1092,93 @@ def faq_eliminar(fid):
         )
     return redirect(url_for(
         "petra_panel.panel_home", tab="faq", token=token, flash="faq_eliminada",
+    ))
+
+
+# =============================================================================
+# FASE C — Activación: envío manual del kit
+# =============================================================================
+
+@petra_panel_bp.post("/kit/<int:cid>/marcar_enviado")
+def kit_marcar_enviado(cid):
+    """Humano confirma que el kit físico fue despachado. Dispara envío
+    del QR + video 'cómo usar' + botón 'Ya instalé el QR' por WhatsApp."""
+    import datetime as _dt
+    import json as _json
+    _check_token()
+    token = request.form.get("token", "")
+    with _db._conexion_directa(timeout=15) as conn:
+        row = conn.execute(
+            "SELECT c.telefono, r.metadata "
+            "FROM petra_contactos c "
+            "JOIN petra_contacto_roles r "
+            "  ON r.contacto_id=c.id AND r.rol='agente_petra' "
+            "WHERE c.id=%s", (cid,),
+        ).fetchone()
+        if not row:
+            abort(404)
+        telefono, meta = row[0], (row[1] or {})
+        if meta.get("estado_agente") != "kit_pendiente":
+            return redirect(url_for(
+                "petra_panel.panel_home", tab="kits", token=token,
+                flash="kit_estado_invalido",
+            ))
+        meta["estado_agente"] = "kit_enviado"
+        meta["kit_enviado_at"] = _dt.datetime.utcnow().isoformat()
+        conn.execute(
+            "UPDATE petra_contacto_roles SET metadata=%s::jsonb, "
+            "updated_at=NOW() WHERE contacto_id=%s AND rol='agente_petra'",
+            (_json.dumps(meta), cid),
+        )
+        # QR del edificio (si está asignado). URL público (QR → WhatsApp agente)
+        qr_url = None
+        try:
+            qr_row = conn.execute(
+                "SELECT e.qr_slug FROM petra_edificios e "
+                "JOIN petra_contacto_roles r "
+                "  ON r.edificio_id = e.id AND r.contacto_id = %s "
+                "  AND r.rol = 'agente_petra' "
+                "WHERE e.qr_slug IS NOT NULL LIMIT 1",
+                (cid,),
+            ).fetchone()
+            if qr_row and qr_row[0]:
+                qr_url = f"https://petra-inmuebles.onrender.com/qr/{qr_row[0]}"
+        except Exception:
+            pass
+        # Video "cómo usar QR" si está cargado
+        vid_row = conn.execute(
+            "SELECT titulo, url FROM petra_contenidos "
+            "WHERE tipo='video_como_usar_qr' AND activo=TRUE "
+            "ORDER BY orden LIMIT 1"
+        ).fetchone()
+
+    # Envío fuera de la transacción
+    from app import petra_wa as _pwa
+    from app.petra_agents.textos import t as _t
+    import time as _tm
+    _pwa.send_text(telefono, _t(
+        "activacion.msg_kit_enviado",
+        fallback=(
+            "📦 *¡Tu kit ya está en camino!*\n\n"
+            "Dentro vas a encontrar tu QR + un regalito 💜. "
+            "Cuando lo recibas, instalá el QR en la cartelera del conjunto "
+            "o donde lo autorizó el administrador.\n\n"
+            "Te paso un video rápido con el paso a paso 👇"
+        ),
+    ))
+    _tm.sleep(1)
+    if vid_row:
+        _pwa.send_text(telefono, f"📲 *{vid_row[0]}*\n\n{vid_row[1]}")
+        _tm.sleep(2)
+    if qr_url:
+        _pwa.send_text(telefono, f"🔗 Tu QR único: {qr_url}")
+        _tm.sleep(1)
+    _pwa.send_buttons(telefono, _t(
+        "activacion.msg_qr_boton",
+        fallback="Cuando lo tengas instalado, pulsá el botón 👇",
+    ), [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}])
+
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="kits", token=token,
+        flash="kit_marcado_enviado",
     ))

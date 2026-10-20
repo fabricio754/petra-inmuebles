@@ -221,6 +221,52 @@ SEED_TEXTOS = [
      "Mensaje al confirmar que ya tiene autorización. Pasa a kit_pendiente.",
      [], "autorizacion"),
 
+    # ─── Activación (kit + QR) ───
+    ("activacion.msg_pedir_direccion_inicio",
+     "🎉 *¡Buenísimo! Ya tenés la autorización del administrador.*\n\n"
+     "📦 *Siguiente paso: te enviamos tu kit* (QR + un regalito 💜)\n\n"
+     "Necesito tu dirección exacta para enviártelo. Empecemos por lo primero:\n\n"
+     "*¿En qué torre vivís?* (ej. Torre 3, Bloque A, etc. Si no aplica, respondé *N/A*)",
+     "Mensaje al confirmar autorización. Arranca captura de dirección.",
+     [], "activacion"),
+    ("activacion.pregunta_torre",
+     "*¿En qué torre vivís?* (ej. Torre 3, Bloque A, etc. Si no aplica, respondé *N/A*)",
+     "Pregunta por torre del edificio.", [], "activacion"),
+    ("activacion.pregunta_apto",
+     "Perfecto. *¿Cuál es tu apartamento?* (ej. 702, Apto 15B)",
+     "Pregunta por número de apartamento.", [], "activacion"),
+    ("activacion.pregunta_barrio",
+     "¿En qué *barrio* está tu edificio?",
+     "Pregunta por barrio.", [], "activacion"),
+    ("activacion.pregunta_ciudad",
+     "Último dato — *¿En qué ciudad?*",
+     "Pregunta por ciudad.", [], "activacion"),
+    ("activacion.msg_direccion_completa",
+     "¡Listo! Tengo tu dirección 📍\n\n"
+     "Estamos preparando tu kit (QR + regalito 💜). "
+     "Te avisamos acá cuando esté en camino 📦",
+     "Mensaje al terminar captura de dirección. Espera envío manual del kit.",
+     [], "activacion"),
+    ("activacion.msg_kit_enviado",
+     "📦 *¡Tu kit ya está en camino!*\n\n"
+     "Dentro vas a encontrar tu QR + un regalito 💜. "
+     "Cuando lo recibas, instalá el QR en la cartelera del conjunto o donde "
+     "lo autorizó el administrador.\n\n"
+     "Te paso un video rápido con el paso a paso 👇",
+     "Mensaje al marcar kit como enviado desde panel. Antes del video 'cómo usar QR'.",
+     [], "activacion"),
+    ("activacion.msg_qr_boton",
+     "Cuando lo tengas instalado, pulsá el botón 👇",
+     "Mensaje que acompaña el botón 'Ya instalé el QR'.", [], "activacion"),
+    ("activacion.msg_qr_instalado",
+     "🎉 *¡Felicitaciones! Ya sos una Agente Petra activa.* 💜\n\n"
+     "Tu QR está en tu edificio y los residentes ya pueden escanearlo "
+     "para contactarte. A partir de ahora te vamos a avisar cada vez "
+     "que llegue un interesado 📲\n\n"
+     "¡Mucho éxito! 🚀",
+     "Mensaje final al confirmar QR instalado. Pasa a estado 'activa'.",
+     [], "activacion"),
+
     # ─── Fallbacks genéricos ───
     ("fallback.llm_error",
      "Perdón, no te pude responder bien ahora. Un asesor te "

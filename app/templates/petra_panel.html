@@ -151,6 +151,8 @@
      href="?tab=textos&token={{ token }}">✏️ Textos ({{ textos|length }})</a>
   <a class="tab {% if tab == 'faq' %}active{% endif %}"
      href="?tab=faq&token={{ token }}">❓ FAQ ({{ faqs|length }})</a>
+  <a class="tab {% if tab == 'kits' %}active{% endif %}"
+     href="?tab=kits&token={{ token }}">📦 Kits ({{ kits_a_enviar|length }})</a>
 </nav>
 <main>
 
@@ -1225,6 +1227,100 @@
     </details>
   </div>
 {% endfor %}
+{% endif %}
+
+{% if tab == 'kits' %}
+<style>
+  .kits-head h2 { margin: 0 0 4px; }
+  .kits-head p { margin: 0 0 20px; color: var(--muted); font-size: 14px; max-width: 760px; }
+  .kit-card {
+    background: var(--surface, white); border: 1px solid var(--line, #e6e6e6);
+    border-left: 4px solid var(--accent, #6b2fa5); border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 12px;
+    display: flex; justify-content: space-between; gap: 20px; align-items: start; flex-wrap: wrap;
+  }
+  .kit-card.enviado { border-left-color: #27ae60; opacity: .85; }
+  .kit-main { flex: 1; min-width: 280px; }
+  .kit-nombre { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+  .kit-tel { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .kit-direccion {
+    margin-top: 10px; padding: 10px 12px; background: #f8f8f8;
+    border-radius: 6px; font-size: 13px; line-height: 1.6;
+  }
+  .kit-direccion b { color: var(--accent, #6b2fa5); }
+  .kit-meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .kit-actions form { margin: 0; }
+  .kit-actions button {
+    padding: 10px 18px; background: var(--accent, #6b2fa5); color: white;
+    border: 0; border-radius: 6px; cursor: pointer; font-weight: 600;
+    font-size: 14px;
+  }
+  .kit-enviado-badge {
+    display: inline-block; padding: 4px 10px; border-radius: 10px;
+    background: #d5f0dc; color: #27ae60; font-size: 11px;
+    text-transform: uppercase; font-weight: 700; letter-spacing: .05em;
+  }
+  .kits-section { margin-bottom: 32px; }
+  .kits-section h3 {
+    font-size: 14px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .08em; margin: 0 0 12px;
+  }
+</style>
+
+<div class="kits-head">
+  <h2>📦 Kits a enviar</h2>
+  <p>Agentes que ya confirmaron autorización del admin y nos dieron su dirección. Marcá "Marcar enviado" cuando salga físicamente el kit — eso dispara el mensaje a la agente con el QR y el video de cómo usarlo.</p>
+</div>
+
+<div class="kits-section">
+  <h3>Pendientes de envío ({{ kits_a_enviar|length }})</h3>
+  {% if not kits_a_enviar %}
+    <div style="padding: 20px; background: #fff8e1; border-radius: 10px; border-left: 4px solid #f39c12;">
+      <strong>No hay kits pendientes.</strong>
+      <p style="margin: 6px 0 0; font-size: 14px;">Aparecen acá cuando una agente pulsa "✅ Ya tengo autorización" y completa su dirección.</p>
+    </div>
+  {% endif %}
+  {% for k in kits_a_enviar %}
+    <div class="kit-card">
+      <div class="kit-main">
+        <div class="kit-nombre">{{ k.nombre or 'Sin nombre' }}</div>
+        <div class="kit-tel">+{{ k.telefono }} · {{ k.conjunto or '-' }}</div>
+        <div class="kit-direccion">
+          {% set d = k.direccion or {} %}
+          {% if d.torre and d.torre|upper != 'N/A' %}<b>Torre:</b> {{ d.torre }}<br>{% endif %}
+          {% if d.apto %}<b>Apto:</b> {{ d.apto }}<br>{% endif %}
+          {% if d.barrio %}<b>Barrio:</b> {{ d.barrio }}<br>{% endif %}
+          {% if d.ciudad %}<b>Ciudad:</b> {{ d.ciudad }}{% endif %}
+        </div>
+        <div class="kit-meta">Dirección capturada: {{ k.capturada_at or '—' }}</div>
+      </div>
+      <div class="kit-actions">
+        <form method="POST"
+              action="{{ url_for('petra_panel.kit_marcar_enviado', cid=k.cid) }}"
+              onsubmit="return confirm('¿Confirmás que el kit salió? El bot le va a avisar a la agente ahora.');">
+          <input type="hidden" name="token" value="{{ token }}">
+          <button type="submit">✅ Marcar enviado</button>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{% if kits_enviados %}
+<div class="kits-section">
+  <h3>Enviados — esperando confirmación de instalación ({{ kits_enviados|length }})</h3>
+  {% for k in kits_enviados %}
+    <div class="kit-card enviado">
+      <div class="kit-main">
+        <div class="kit-nombre">{{ k.nombre or 'Sin nombre' }}</div>
+        <div class="kit-tel">+{{ k.telefono }} · {{ k.conjunto or '-' }}</div>
+        <div class="kit-meta">Kit enviado: {{ k.enviado_at or '—' }}</div>
+      </div>
+      <div><span class="kit-enviado-badge">📬 En camino</span></div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
 {% endif %}
 
 </main>
