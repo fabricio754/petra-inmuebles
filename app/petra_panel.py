@@ -269,6 +269,7 @@ _TIPOS_CONTENIDO = {
     "proximos_pasos": "🗺 Video de próximos pasos (día 1 cap v2 — va con el de bienvenida)",
     "video_capacitacion": "📚 Video de capacitación (días 2-7 cap v2, 2 por día)",
     "video_autorizacion": "🎬 Video 'Cómo pedir autorización al administrador' (al terminar capacitación)",
+    "video_recordatorio_autorizacion": "🎓 Video a recordar antes de la autorización (ej. el día de capacitación que explica cómo abordar al admin)",
     "demo_autorizacion": "📱 Demo del producto (al terminar capacitación)",
     "pieza_grafica_autorizacion": "🖼 Pieza gráfica para mostrarle al admin (hasta 2, en orden)",
     "documento_pdf": "📄 Documento PDF",

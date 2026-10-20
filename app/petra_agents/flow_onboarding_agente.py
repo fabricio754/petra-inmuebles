@@ -277,6 +277,33 @@ def _responder_con_llm(telefono, texto, sesion_id=None):
         return True
 
 
+def _enviar_recordatorio_capacitacion(conn, telefono):
+    """Envía el video de capacitación marcado como 'recordatorio' justo
+    antes del material de autorización. Repasa el día clave donde se
+    explicó cómo abordar al administrador. Silencio si no hay cargado.
+    Devuelve True si envió algo, False si no había contenido."""
+    from app import petra_wa as _pwa
+    import time as _tm
+    vid = conn.execute(
+        "SELECT titulo, url FROM petra_contenidos "
+        "WHERE tipo='video_recordatorio_autorizacion' AND activo=TRUE "
+        "ORDER BY orden LIMIT 1"
+    ).fetchone()
+    if not vid:
+        return False
+    _pwa.send_text(telefono, _t(
+        "autorizacion.msg_recordatorio_video",
+        fallback=(
+            "Antes de ir con el administrador, repasá este video de "
+            "capacitación donde te expliqué cómo abordarlo 💜:"
+        ),
+    ))
+    _tm.sleep(1)
+    _pwa.send_text(telefono, f"🎓 *{vid[0]}*\n\n{vid[1]}")
+    _tm.sleep(2)
+    return True
+
+
 def _enviar_material_autorizacion(conn, telefono):
     """Envía los 3 contenidos post-capacitación: video, demo, piezas.
     Silencio por tipo si no hay cargado. Se usa al terminar la capacitación
@@ -769,6 +796,9 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                     ),
                 ))
                 _t_mat.sleep(1)
+                # Primero: recordatorio del video de capacitación (si cargado)
+                _enviar_recordatorio_capacitacion(conn, telefono)
+                # Después: material propiamente dicho (video, demo, piezas)
                 _enviar_material_autorizacion(conn, telefono)
                 _pwa_mat.send_buttons(telefono, _t(
                     "autorizacion.msg_post_material",
