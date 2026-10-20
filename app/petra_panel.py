@@ -239,6 +239,21 @@ def panel_home():
     from app.petra_agents import textos as _textos_mod
     todos_textos = _textos_mod.listar_textos()
     textos_por_clave = {t["clave"]: t for t in todos_textos}
+    # Carga toda la media_estacion de una vez agrupada por estado real
+    media_por_estado = {}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = conn.execute(
+                "SELECT id, estado_key, titulo, url, activo, created_at "
+                "FROM petra_media_estacion ORDER BY estado_key, orden, id"
+            ).fetchall()
+        for r in rows:
+            media_por_estado.setdefault(r[1], []).append({
+                "id": r[0], "titulo": r[2], "url": r[3],
+                "activo": r[4], "created_at": r[5],
+            })
+    except Exception:
+        pass
     presets_extended = []
     for k, v in _sim_mod.PRESETS.items():
         textos_resueltos = []
@@ -250,10 +265,13 @@ def panel_home():
                 "descripcion": (t["descripcion"] if t else None),
                 "cargado": bool(t),
             })
+        estado_real = _sim_mod.estado_real_del_preset(k)
         presets_extended.append({
             "key": k, "label": v["label"], "contexto": v.get("contexto", ""),
             "textos": textos_resueltos,
             "transiciones": v.get("transiciones", []),
+            "estado_real": estado_real,
+            "media": media_por_estado.get(estado_real, []) if estado_real else [],
         })
     contexto["sim_presets"] = presets_extended
     contexto["sim_preset_actual"] = request.args.get("preset") or "nuevo"
@@ -1557,4 +1575,63 @@ def simulador_send():
     _sim.tick(texto=texto, button_id=button_id)
     return redirect(url_for(
         "petra_panel.panel_home", tab="simulador", token=token, preset=preset,
+    ))
+
+
+# =============================================================================
+# Media adjunto por estación (Nivel 2 — editable visualmente)
+# =============================================================================
+
+@petra_panel_bp.post("/media_estacion/crear")
+def media_estacion_crear():
+    """Crea una entrada de media para un estado del flow. Puede ser upload
+    o URL externa."""
+    _check_token()
+    token = request.form.get("token", "")
+    estado_key = (request.form.get("estado_key") or "").strip()
+    titulo = (request.form.get("titulo") or "").strip() or None
+    url_externa = (request.form.get("url_externa") or "").strip() or None
+    archivo = request.files.get("archivo")
+    if not estado_key:
+        abort(400, "estado_key requerido")
+    # Fuente: upload o URL
+    url_final = None
+    if archivo and archivo.filename:
+        url_final = _guardar_archivo_media(archivo)
+        if not url_final:
+            abort(400, "archivo inválido")
+    elif url_externa and url_externa.startswith(("http://", "https://")):
+        url_final = url_externa
+    else:
+        abort(400, "sube un archivo o pega una URL")
+    with _db._conexion_directa(timeout=10) as conn:
+        # orden incremental dentro del estado
+        row = conn.execute(
+            "SELECT COALESCE(MAX(orden), 0) + 1 FROM petra_media_estacion "
+            "WHERE estado_key=%s", (estado_key,),
+        ).fetchone()
+        orden = row[0] if row else 1
+        conn.execute(
+            "INSERT INTO petra_media_estacion "
+            "(estado_key, orden, titulo, url, activo) "
+            "VALUES (%s, %s, %s, %s, TRUE)",
+            (estado_key, orden, titulo, url_final),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token,
+        preset=estado_key, flash="media_agregada",
+    ))
+
+
+@petra_panel_bp.post("/media_estacion/<int:mid>/eliminar")
+def media_estacion_eliminar(mid):
+    """Borra una media adjunta."""
+    _check_token()
+    token = request.form.get("token", "")
+    estado_key = (request.form.get("estado_key") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute("DELETE FROM petra_media_estacion WHERE id=%s", (mid,))
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token,
+        preset=estado_key, flash="media_eliminada",
     ))

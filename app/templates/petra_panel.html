@@ -1814,6 +1814,47 @@
           {% endfor %}
         </div>
       {% endif %}
+      {% if p.estado_real %}
+        <div class="estacion-sect">
+          <h4>📎 Imágenes/videos adjuntos a esta estación</h4>
+          {% if p.media %}
+            <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;">
+              {% for m in p.media %}
+                <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; background:#f8f8f8; border-radius:6px; border-left:2px solid var(--accent, #6b2fa5);">
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-size:13px; font-weight:600;">{{ m.titulo or '(sin título)' }}</div>
+                    <div style="font-size:11px; color:var(--muted); font-family:ui-monospace,monospace; word-break:break-all;">{{ m.url }}</div>
+                  </div>
+                  <form method="POST" action="{{ url_for('petra_panel.media_estacion_eliminar', mid=m.id) }}" style="margin:0;"
+                        onsubmit="return confirm('¿Borrar esta media?');">
+                    <input type="hidden" name="token" value="{{ token }}">
+                    <input type="hidden" name="estado_key" value="{{ p.key }}">
+                    <button type="submit" style="padding:4px 10px; border-radius:5px; border:1px solid #c0392b; background:transparent; color:#c0392b; cursor:pointer; font-size:11px;">🗑</button>
+                  </form>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <details style="margin-top:4px;">
+            <summary style="cursor:pointer; font-size:12px; color:var(--accent, #6b2fa5); font-weight:600;">
+              ➕ Agregar imagen o video
+            </summary>
+            <form method="POST" action="{{ url_for('petra_panel.media_estacion_crear') }}"
+                  enctype="multipart/form-data" style="margin-top:10px; display:grid; gap:8px;">
+              <input type="hidden" name="token" value="{{ token }}">
+              <input type="hidden" name="estado_key" value="{{ p.estado_real }}">
+              <input type="text" name="titulo" placeholder="Título (opcional)" style="padding:6px 10px; border:1px solid var(--line, #ccc); border-radius:5px; font-size:13px;">
+              <div style="display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted);">
+                <span>Subí archivo:</span>
+                <input type="file" name="archivo" accept="image/*,video/*">
+              </div>
+              <div style="font-size:11px; color:var(--muted); text-align:center;">— o —</div>
+              <input type="text" name="url_externa" placeholder="Pegá URL externa (https://...)" style="padding:6px 10px; border:1px solid var(--line, #ccc); border-radius:5px; font-size:13px;">
+              <button type="submit" style="background: var(--accent, #6b2fa5); color:white; border:0; padding:7px 14px; border-radius:5px; cursor:pointer; font-weight:600; font-size:13px; justify-self:start;">💾 Guardar</button>
+            </form>
+          </details>
+        </div>
+      {% endif %}
       {% if p.transiciones %}
         <div class="estacion-sect">
           <h4>↷ Qué pasa después</h4>

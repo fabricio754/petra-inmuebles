@@ -269,6 +269,40 @@ def _set_estado(meta, nuevo_estado):
     return meta
 
 
+def _enviar_media_estacion(conn, cid, meta, telefono, estado_key):
+    """Envía media adjunta a un estado del flow (imágenes/videos cargadas
+    desde el panel). Se envía UNA sola vez por contacto por estado, usando
+    un flag en metadata.media_<estado_key>_enviada.
+
+    Llamalo DESPUÉS de que el bot envió el mensaje principal de ese estado,
+    o al entrar al estado. Silencio si no hay media cargada."""
+    flag = f"media_{estado_key}_enviada"
+    if meta.get(flag):
+        return
+    try:
+        rows = conn.execute(
+            "SELECT titulo, url FROM petra_media_estacion "
+            "WHERE estado_key=%s AND activo=TRUE "
+            "ORDER BY orden, id",
+            (estado_key,),
+        ).fetchall()
+    except Exception:
+        log.exception("[flow:media] query fallo estado=%s", estado_key)
+        return
+    if not rows:
+        return
+    import time as _tm_media
+    from app import petra_wa as _pwa_media
+    for titulo, url in rows:
+        try:
+            _pwa_media.send_media_o_texto(telefono, titulo or "", url)
+            _tm_media.sleep(2)
+        except Exception:
+            log.exception("[flow:media] envío fallo url=%s", url)
+    meta[flag] = True
+    _save_meta(conn, cid, meta)
+
+
 def _responder_con_llm(telefono, texto, sesion_id=None):
     """Delega el mensaje al sub-agente LLM agente_petra, que tiene el
     contexto del rol/estado y puede responder cualquier pregunta libre.
@@ -1331,6 +1365,37 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
 
 
 def handle(telefono, texto, es_handoff=False, sesion_id=None):
+    """Entry-point del flow — wrapper que llama al core y después dispara
+    el envío de media adjunta al estado actual (una vez por contacto)."""
+    try:
+        result = _handle_core(telefono, texto, es_handoff, sesion_id)
+    finally:
+        try:
+            _hook_media_post_dispatch(telefono)
+        except Exception:
+            log.exception("[flow:media-hook] fallo tel=%s", telefono)
+    return result
+
+
+def _hook_media_post_dispatch(telefono):
+    """Después de cada tick del flow, revisa el estado actual del contacto
+    y envía la media adjunta a ese estado si no fue enviada aún."""
+    from app import db as _db
+    with _db._conexion_directa(timeout=5) as conn:
+        row = conn.execute(
+            "SELECT c.id, r.metadata FROM petra_contactos c "
+            "JOIN petra_contacto_roles r ON r.contacto_id=c.id "
+            "AND r.rol='agente_petra' WHERE c.telefono=%s", (telefono,),
+        ).fetchone()
+        if not row:
+            return
+        cid, meta = row[0], dict(row[1] or {})
+        estado = meta.get("estado_agente")
+        if estado:
+            _enviar_media_estacion(conn, cid, meta, telefono, estado)
+
+
+def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
     """Procesa un mensaje del user en el flujo de onboarding.
     Determinístico: sin LLM, siempre predecible."""
     from app import db as _db

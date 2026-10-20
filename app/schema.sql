@@ -1172,3 +1172,21 @@ CREATE TABLE IF NOT EXISTS petra_nudges (
 );
 CREATE INDEX IF NOT EXISTS petra_nudges_estado_idx
   ON petra_nudges (estado_origen) WHERE activo = TRUE;
+
+-- =============================================================================
+-- Media adjunto por estación — permite al humano agregar imágenes/videos
+-- extra que el bot envía UNA sola vez cuando el agente entra a ese estado.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS petra_media_estacion (
+  id            SERIAL PRIMARY KEY,
+  estado_key    TEXT NOT NULL,
+    -- clave del preset en simulador.PRESETS (ej. "autorizacion_pendiente")
+  orden         INTEGER NOT NULL DEFAULT 0,
+  titulo        TEXT,
+  url           TEXT NOT NULL,
+    -- URL absoluta o ruta relativa /petra/media/xxx.png
+  activo        BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_media_estacion_idx
+  ON petra_media_estacion (estado_key, orden) WHERE activo = TRUE;
