@@ -210,8 +210,7 @@ SEED_TEXTOS = [
      "confianza y conocimiento para arrancar como Agente Petra en tu edificio 🏢💜\n\n"
      "Te quedan solo *{quedan} videos ({dias_restantes} días)* para completar "
      "toda tu capacitación. Vas re bien, dale con todo 💪\n\n"
-     "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas "
-     "el ritmo. O si tenés ganas de seguir avanzando ahora mismo, apretá el botón 👇",
+     "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas el ritmo 👋",
      "Mensaje al marcar LISTO en un día de capacitación (si quedan días). "
      "Variables: dia_actual, dias_total, vistos, total, quedan, dias_restantes.",
      ["dia_actual", "dias_total", "vistos", "total", "quedan", "dias_restantes"],
