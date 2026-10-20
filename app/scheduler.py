@@ -687,8 +687,6 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
     ), [
         {"id": "ONBAG_LISTO",
          "title": _t_textos_boton("ONBAG_LISTO", "✅ Listo")},
-        {"id": "ONBAG_SIGUIENTE_DIA",
-         "title": _t_textos_boton("ONBAG_SIGUIENTE_DIA", "⏭ Siguiente video")},
     ])
 
     # Actualizar metadata

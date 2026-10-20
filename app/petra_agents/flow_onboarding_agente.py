@@ -1266,9 +1266,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                 vistos=vistos, total=total,
                 quedan=quedan, dias_restantes=dias_restantes,
             )
-        _send_buttons(telefono, resp, [
-            {"id": "ONBAG_SIGUIENTE_DIA", "title": _b("ONBAG_SIGUIENTE_DIA", "⏭ Ver día siguiente")},
-        ], estado_key="en_capacitacion")
+        _enviar(telefono, resp)
         _log(telefono, texto, resp, nota=f"día marcado {vistos}/{total}")
         return True
     # Botón "Ver día siguiente": dispara el próximo día inmediatamente,
@@ -1362,10 +1360,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                 _tm.sleep(2)
                 _send_buttons(telefono,
                     "Cuando los termines, pulsá el botón 👇",
-                    [
-                        {"id": "ONBAG_LISTO", "title": _b("ONBAG_LISTO", "✅ Listo")},
-                        {"id": "ONBAG_SIGUIENTE_DIA", "title": _b("ONBAG_SIGUIENTE_DIA", "⏭ Siguiente video")},
-                    ],
+                    [{"id": "ONBAG_LISTO", "title": _b("ONBAG_LISTO", "✅ Listo")}],
                     estado_key="en_capacitacion",
                 )
                 _log(telefono, texto, f"[reenvío día {dia_actual_env}]",
