@@ -138,6 +138,32 @@ lo recibas — si no, lo olvidás en el próximo mensaje.
 """
 
 
+def _cargar_faq_knowledge_base():
+    """Carga el texto de los contenidos tipo='otro' con texto cargado.
+    Se usan como knowledge base para que el LLM responda preguntas
+    frecuentes de las agentes (precios, comisiones, autorización, etc.).
+    Devuelve '' si no hay contenidos cargados."""
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=5) as conn:
+            rows = conn.execute(
+                "SELECT titulo, texto FROM petra_contenidos "
+                "WHERE tipo='otro' AND activo=TRUE AND texto IS NOT NULL "
+                "AND LENGTH(TRIM(texto)) > 0 "
+                "ORDER BY orden, id"
+            ).fetchall()
+        if not rows:
+            return ""
+        partes = []
+        for titulo, texto in rows:
+            partes.append(f"### {titulo}\n{texto}")
+        return "\n\n".join(partes)
+    except Exception:
+        import logging
+        logging.getLogger("petra").exception("[agente_petra] cargar FAQ fallo")
+        return ""
+
+
 def handle(telefono, texto, contacto_nombre=None, es_handoff=False,
            sesion_id=None):
     """Entry-point del sub-agente. `es_handoff=True` cuando el router
@@ -159,6 +185,24 @@ def handle(telefono, texto, contacto_nombre=None, es_handoff=False,
              "FASE 1 (onboarding)."
          )},
     ]
+    # Knowledge base (FAQ) desde panel/contenidos — permite responder
+    # preguntas específicas sobre precios, comisiones, autorización, etc.
+    faq = _cargar_faq_knowledge_base()
+    if faq:
+        system_bloques.append({
+            "type": "text",
+            "text": (
+                "=== BASE DE CONOCIMIENTO (FAQ cargada en panel) ===\n"
+                f"{faq}\n"
+                "=== fin FAQ ===\n"
+                "REGLA: cuando la agente te pregunte algo relacionado con el "
+                "contenido de esta FAQ, respondé USANDO ESTA INFORMACIÓN como "
+                "fuente de verdad. Si la pregunta NO está cubierta acá, "
+                "respondé con empatía diciendo que un asesor humano la "
+                "contactará pronto para ese tema específico, y llamá "
+                "`marcar_requiere_humano` con el motivo."
+            ),
+        })
     tools = _base.tool_schemas_subset(TOOLS_SUBSET)
     prefijo = None
     if es_handoff:
