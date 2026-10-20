@@ -77,15 +77,16 @@ def _sm(telefono, clave, fallback=None, **variables):
     texto = _t(clave, fallback=fallback, **variables)
     if not texto or texto.strip() == "":
         return  # mensaje ocultado desde el panel
+    # Media PRIMERO (va antes del texto, es la convención visual de WA)
+    try:
+        _enviar_media_por_clave(telefono, clave)
+    except Exception:
+        log.exception("[flow:_sm] media hook fallo clave=%s", clave)
     botones_adjuntos = _botones.botones_de_clave(clave)
     if botones_adjuntos:
         petra_wa.send_buttons(telefono, texto, botones_adjuntos)
     else:
         petra_wa.send_text(telefono, texto)
-    try:
-        _enviar_media_por_clave(telefono, clave)
-    except Exception:
-        log.exception("[flow:_sm] media hook fallo clave=%s", clave)
     try:
         _extras.enviar_extras(telefono, clave, variables)
     except Exception:
