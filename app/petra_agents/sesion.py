@@ -105,7 +105,7 @@ def cargar_mensajes_sesion(telefono, sesion_id, limite=50):
             rows = conn.execute(
                 "SELECT texto_usuario, texto_asistente FROM petra_llm_logs "
                 "WHERE telefono=%s AND created_at >= %s "
-                "AND rama LIKE 'agent:%%' OR rama IN ('claude', 'orchestrator') "
+                "AND (rama LIKE 'agent:%%' OR rama IN ('claude', 'orchestrator')) "
                 "ORDER BY created_at ASC LIMIT %s",
                 (telefono, abierta[0], limite),
             ).fetchall()
