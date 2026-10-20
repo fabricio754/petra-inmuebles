@@ -243,9 +243,22 @@ def reset(preset_key):
 def tick(texto=None, button_id=None):
     """Procesa UN input del simulador: envía al router/flow y captura
     los mensajes que el bot HABRÍA enviado (sin tocar Meta).
+    Persiste IN y OUT en la tabla `mensajes` para que el panel los vea.
     Devuelve lista de mensajes OUT capturados."""
+    from app import db as _db
     from app import petra_wa
     from app.petra_agents import router as _router
+    # 1. Loguea el IN (lo que la agente simulada escribió)
+    try:
+        resumen_in = texto or (button_id or "[sin texto]")
+        tipo_in = "interactive" if button_id else "text"
+        _db.log_mensaje(
+            SIM_TELEFONO, "in", tipo_in, resumen_in[:500],
+            {"button_id": button_id, "simulado": True},
+        )
+    except Exception:
+        log.exception("[sim] log IN fallo")
+    # 2. Ejecuta el flow con captura activada
     petra_wa.iniciar_captura()
     try:
         _router.handle_message(
@@ -258,7 +271,19 @@ def tick(texto=None, button_id=None):
         )
     except Exception:
         log.exception("[sim] tick fallo")
-    return petra_wa.detener_captura()
+    capturados = petra_wa.detener_captura()
+    # 3. Persiste los OUT capturados (payload en forma compatible con panel)
+    for msg in capturados:
+        try:
+            _db.log_mensaje(
+                SIM_TELEFONO, "out", msg.get("type") or "text",
+                (msg.get("resumen") or "")[:500],
+                {"status": 200, "payload": msg.get("payload") or {},
+                 "simulado": True},
+            )
+        except Exception:
+            log.exception("[sim] log OUT fallo")
+    return capturados
 
 
 def estado_actual():
