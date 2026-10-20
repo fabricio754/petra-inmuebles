@@ -1135,3 +1135,17 @@ CREATE TABLE IF NOT EXISTS petra_textos (
 );
 CREATE INDEX IF NOT EXISTS petra_textos_categoria_idx
   ON petra_textos (categoria, clave);
+
+-- =============================================================================
+-- FASE E — Inventario: columnas extra en petra_inmuebles
+-- =============================================================================
+-- Agregamos campos faltantes para la captura por WhatsApp.
+ALTER TABLE petra_inmuebles
+  ADD COLUMN IF NOT EXISTS habitaciones INTEGER,
+  ADD COLUMN IF NOT EXISTS banos INTEGER,
+  ADD COLUMN IF NOT EXISTS fotos JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS notas TEXT,
+  ADD COLUMN IF NOT EXISTS capturado_por_agente_id INTEGER
+    REFERENCES petra_contactos(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS petra_inmuebles_capturado_por_idx
+  ON petra_inmuebles (capturado_por_agente_id, created_at DESC);

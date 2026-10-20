@@ -153,6 +153,8 @@
      href="?tab=faq&token={{ token }}">❓ FAQ ({{ faqs|length }})</a>
   <a class="tab {% if tab == 'kits' %}active{% endif %}"
      href="?tab=kits&token={{ token }}">📦 Kits ({{ kits_a_enviar|length }})</a>
+  <a class="tab {% if tab == 'inmuebles' %}active{% endif %}"
+     href="?tab=inmuebles&token={{ token }}">🏠 Inmuebles ({{ inmuebles|length }})</a>
 </nav>
 <main>
 
@@ -1383,6 +1385,167 @@
   {% endfor %}
 </div>
 {% endif %}
+{% endif %}
+
+{% if tab == 'inmuebles' %}
+<style>
+  .inm-head h2 { margin: 0 0 4px; }
+  .inm-head p { margin: 0 0 20px; color: var(--muted); font-size: 14px; max-width: 760px; }
+  .inm-card {
+    background: var(--surface, white); border: 1px solid var(--line, #e6e6e6);
+    border-radius: 10px; padding: 16px 18px; margin-bottom: 14px;
+    border-left: 4px solid var(--line, #ccc);
+  }
+  .inm-card.borrador { border-left-color: #f39c12; }
+  .inm-card.activo { border-left-color: #27ae60; }
+  .inm-card.pausado { border-left-color: #7f8c8d; }
+  .inm-card.cerrado { border-left-color: #95a5a6; opacity: .65; }
+  .inm-head-row {
+    display: flex; justify-content: space-between; gap: 12px; align-items: start;
+    flex-wrap: wrap;
+  }
+  .inm-title { font-weight: 700; font-size: 16px; margin-bottom: 2px; }
+  .inm-sub { font-size: 12px; color: var(--muted); }
+  .inm-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .inm-badge {
+    font-size: 10px; padding: 3px 9px; border-radius: 10px;
+    background: #eee; color: #333; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .inm-badge.borrador { background: #fff3cd; color: #856404; }
+  .inm-badge.activo { background: #d5f0dc; color: #27ae60; }
+  .inm-badge.pausado { background: #e0e0e0; color: #555; }
+  .inm-badge.cerrado { background: #e8e8e8; color: #777; }
+  .inm-badge.modalidad { background: var(--accent-soft, #f1e8fa); color: var(--accent, #6b2fa5); }
+  .inm-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 8px; margin: 12px 0; font-size: 13px;
+  }
+  .inm-grid div { background: #f8f8f8; padding: 6px 10px; border-radius: 6px; }
+  .inm-grid b { color: var(--accent, #6b2fa5); }
+  .inm-fotos { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .inm-fotos img { width: 90px; height: 90px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+  .inm-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .inm-actions form { margin: 0; display: inline-flex; gap: 4px; align-items: center; }
+  .inm-actions button { padding: 5px 12px; font-size: 12px; border-radius: 5px; cursor: pointer; }
+  .inm-actions .btn-primary { background: var(--accent, #6b2fa5); color: white; border: 0; }
+  .inm-actions .btn-ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  .inm-extras { margin-top: 10px; }
+  .inm-extras summary { cursor: pointer; font-size: 12px; color: var(--accent, #6b2fa5); font-weight: 600; }
+  .inm-extras-body { margin-top: 10px; display: grid; gap: 8px; }
+  .inm-extras-body input, .inm-extras-body textarea {
+    padding: 6px 10px; border: 1px solid var(--line); border-radius: 5px;
+    font-size: 13px; font-family: inherit; width: 100%; box-sizing: border-box;
+  }
+</style>
+
+<div class="inm-head">
+  <h2>🏠 Inmuebles capturados</h2>
+  <p>Inmuebles que las agentes cargaron por WhatsApp (palabra clave *registrar inmueble*). Revisá, agregá fotos y marcá "Activar" cuando estén listos para publicar.</p>
+</div>
+
+{% if not inmuebles %}
+  <div style="padding: 24px; background: #fff8e1; border-radius: 10px; border-left: 4px solid #f39c12;">
+    <strong>Todavía no hay inmuebles cargados.</strong>
+    <p style="margin: 6px 0 0;">Las agentes los cargan desde WhatsApp escribiendo "registrar inmueble".</p>
+  </div>
+{% endif %}
+
+{% for i in inmuebles %}
+  <div class="inm-card {{ i.estado }}">
+    <div class="inm-head-row">
+      <div>
+        <div class="inm-title">
+          {{ (i.edificio_nombre or 'Sin edificio') }} ·
+          Torre {{ i.torre or '—' }} / Apto {{ i.piso or '—' }}
+        </div>
+        <div class="inm-sub">
+          {{ i.ciudad or '—' }} · capturado por {{ i.agente_nombre or '—' }}
+          ({{ i.agente_tel or '' }}) · {{ i.created_at.strftime('%d %b %H:%M') if i.created_at else '' }}
+        </div>
+      </div>
+      <div class="inm-badges">
+        <span class="inm-badge {{ i.estado }}">{{ i.estado }}</span>
+        <span class="inm-badge modalidad">{{ i.modalidad }}</span>
+      </div>
+    </div>
+
+    <div class="inm-grid">
+      <div><b>Área:</b> {{ i.area_m2 or '—' }} m²</div>
+      <div><b>Hab:</b> {{ i.habitaciones or '—' }}</div>
+      <div><b>Baños:</b> {{ i.banos or '—' }}</div>
+      <div><b>Parq:</b> {{ 'sí' if i.parqueadero else 'no' if i.parqueadero == false else '—' }}</div>
+      <div><b>Precio:</b> ${{ i.precio_millones or i.precio_arriendo_mensual_millones or '—' }} M</div>
+      <div><b>Propietario:</b> {{ i.nombre_anunciante or '—' }}</div>
+      <div><b>Tel prop:</b> {{ i.telefono_contacto or '—' }}</div>
+    </div>
+
+    {% if i.fotos and i.fotos|length %}
+      <div class="inm-fotos">
+        {% for f in i.fotos %}
+          <a href="{{ f.url }}" target="_blank"><img src="{{ f.url }}" alt="foto"></a>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if i.notas %}
+      <div style="font-size:13px;background:#f8f8f8;padding:8px 10px;border-radius:6px;margin:8px 0;">
+        <b>📝 Notas:</b> {{ i.notas }}
+      </div>
+    {% endif %}
+
+    <div class="inm-actions">
+      {% if i.estado != 'activo' %}
+      <form method="POST" action="{{ url_for('petra_panel.inmueble_cambiar_estado', iid=i.id) }}">
+        <input type="hidden" name="token" value="{{ token }}">
+        <input type="hidden" name="estado" value="activo">
+        <button type="submit" class="btn-primary">✅ Activar</button>
+      </form>
+      {% endif %}
+      {% if i.estado == 'activo' %}
+      <form method="POST" action="{{ url_for('petra_panel.inmueble_cambiar_estado', iid=i.id) }}">
+        <input type="hidden" name="token" value="{{ token }}">
+        <input type="hidden" name="estado" value="pausado">
+        <button type="submit" class="btn-ghost">⏸ Pausar</button>
+      </form>
+      {% endif %}
+      {% if i.estado != 'cerrado' %}
+      <form method="POST" action="{{ url_for('petra_panel.inmueble_cambiar_estado', iid=i.id) }}"
+            onsubmit="return confirm('¿Marcar como cerrado?');">
+        <input type="hidden" name="token" value="{{ token }}">
+        <input type="hidden" name="estado" value="cerrado">
+        <button type="submit" class="btn-ghost">🔒 Cerrar</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <details class="inm-extras">
+      <summary>📷 Agregar foto · 📝 Editar notas</summary>
+      <div class="inm-extras-body">
+        <form method="POST" enctype="multipart/form-data"
+              action="{{ url_for('petra_panel.inmueble_subir_foto', iid=i.id) }}">
+          <input type="hidden" name="token" value="{{ token }}">
+          <label style="font-size:12px;color:var(--muted);">Subir foto (archivo local):</label>
+          <input type="file" name="archivo" accept="image/*" required>
+          <button type="submit" class="btn-primary" style="padding:5px 12px;font-size:12px;">⬆️ Subir</button>
+        </form>
+        <form method="POST"
+              action="{{ url_for('petra_panel.inmueble_agregar_foto_url', iid=i.id) }}">
+          <input type="hidden" name="token" value="{{ token }}">
+          <label style="font-size:12px;color:var(--muted);">O pegar URL de foto:</label>
+          <input type="text" name="url_foto" placeholder="https://..." required>
+          <button type="submit" class="btn-ghost" style="padding:5px 12px;font-size:12px;">+ URL</button>
+        </form>
+        <form method="POST" action="{{ url_for('petra_panel.inmueble_nota', iid=i.id) }}">
+          <input type="hidden" name="token" value="{{ token }}">
+          <label style="font-size:12px;color:var(--muted);">Notas (visibles solo en panel):</label>
+          <textarea name="notas" rows="2">{{ i.notas or '' }}</textarea>
+          <button type="submit" class="btn-ghost" style="padding:5px 12px;font-size:12px;">💾 Guardar notas</button>
+        </form>
+      </div>
+    </details>
+  </div>
+{% endfor %}
 {% endif %}
 
 </main>
