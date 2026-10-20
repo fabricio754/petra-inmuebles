@@ -1256,6 +1256,21 @@ UPDATE petra_media_estacion
    SET url = '/panel' || url
  WHERE url LIKE '/petra/media/%';
 
+-- Mejora idempotente del mensaje activacion.msg_direccion_completa:
+-- reemplaza la versión corta vieja por la nueva más cálida con bullets.
+-- Solo corre si el contenido actual coincide EXACTAMENTE con el viejo.
+UPDATE petra_textos
+   SET contenido = E'🎉 *¡Dirección confirmada!* 📍\n\n'
+                || E'Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís:\n\n'
+                || E'📦 Tu QR personalizado para pegar en el edificio\n'
+                || E'💜 Un regalito Petra para arrancar\n\n'
+                || E'Te aviso acá apenas salga en camino 🚚\n\n'
+                || E'Mientras tanto, podés ir contándoles a los vecinos que vos vas '
+                || E'a ser la Agente Petra del conjunto 🏢✨',
+       updated_at = NOW()
+ WHERE clave = 'activacion.msg_direccion_completa'
+   AND contenido LIKE E'¡Listo! Tengo tu dirección 📍%';
+
 -- Fix idempotente del párrafo duplicado "Mañana a las 8am..." en
 -- capacitacion.msg_dia_completo. Deja solo la segunda versión (la que
 -- menciona el botón). Solo corre si el contenido actual trae las dos.
