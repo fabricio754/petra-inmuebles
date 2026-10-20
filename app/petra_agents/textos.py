@@ -340,9 +340,13 @@ SEED_TEXTOS = [
      "Último dato — *¿En qué ciudad?*",
      "Pregunta por ciudad.", [], "activacion"),
     ("activacion.msg_direccion_completa",
-     "¡Listo! Tengo tu dirección 📍\n\n"
-     "Estamos preparando tu kit (QR + regalito 💜). "
-     "Te avisamos acá cuando esté en camino 📦",
+     "🎉 *¡Dirección confirmada!* 📍\n\n"
+     "Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís:\n\n"
+     "📦 Tu QR personalizado para pegar en el edificio\n"
+     "💜 Un regalito Petra para arrancar\n\n"
+     "Te aviso acá apenas salga en camino 🚚\n\n"
+     "Mientras tanto, podés ir contándoles a los vecinos que vos vas "
+     "a ser la Agente Petra del conjunto 🏢✨",
      "Mensaje al terminar captura de dirección. Espera envío manual del kit.",
      [], "activacion"),
     ("activacion.msg_kit_enviado",

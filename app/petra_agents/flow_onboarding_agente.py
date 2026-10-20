@@ -652,11 +652,16 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
 
     # Si ya capturamos todo, le recordamos que estamos esperando el kit
     if not paso and all(direccion.get(c) for c in DIRECCION_CAMPOS):
-        _sm(telefono, 
+        _sm(telefono,
             "activacion.msg_direccion_completa",
             fallback=(
-                "Tengo tu dirección completa 📍. Estamos preparando tu "
-                "kit — te avisamos acá cuando esté en camino 📦💜"
+                "🎉 *¡Dirección confirmada!* 📍\n\n"
+                "Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís:\n\n"
+                "📦 Tu QR personalizado para pegar en el edificio\n"
+                "💜 Un regalito Petra para arrancar\n\n"
+                "Te aviso acá apenas salga en camino 🚚\n\n"
+                "Mientras tanto, podés ir contándoles a los vecinos que vos vas "
+                "a ser la Agente Petra del conjunto 🏢✨"
             ),
         )
         _log(telefono, texto, "[kit_pendiente: direccion ya completa]")
@@ -687,13 +692,17 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
         meta["direccion_capturada_at"] = _dt.datetime.utcnow().isoformat()
         _save_meta(conn, cid, meta)
         resumen = _formatear_direccion(direccion)
-        _sm(telefono, 
+        _sm(telefono,
             "activacion.msg_direccion_completa",
             fallback=(
-                "¡Listo! Tengo tu dirección 📍\n\n"
+                "🎉 *¡Dirección confirmada!* 📍\n\n"
                 f"{resumen}\n\n"
-                "Estamos preparando tu kit (QR + regalito 💜). "
-                "Te avisamos acá cuando esté en camino 📦"
+                "Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís:\n\n"
+                "📦 Tu QR personalizado para pegar en el edificio\n"
+                "💜 Un regalito Petra para arrancar\n\n"
+                "Te aviso acá apenas salga en camino 🚚\n\n"
+                "Mientras tanto, podés ir contándoles a los vecinos que vos vas "
+                "a ser la Agente Petra del conjunto 🏢✨"
             ),
         )
         _log(telefono, texto, "[kit_pendiente: direccion completa capturada]")
