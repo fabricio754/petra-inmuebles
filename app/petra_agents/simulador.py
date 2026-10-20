@@ -291,6 +291,15 @@ PRESETS = {
 }
 
 
+def estado_real_del_preset(preset_key):
+    """Devuelve el estado_agente real que vive en metadata para este preset.
+    Útil para mapear la UI del simulador con tablas que indexan por estado
+    real del flow (ej. petra_media_estacion)."""
+    preset = PRESETS.get(preset_key) or {}
+    meta = preset.get("metadata") or {}
+    return meta.get("estado_agente")
+
+
 def _reemplazar_fechas(meta):
     """Reemplaza 'SIM_NOW' con el timestamp actual."""
     now_iso = _dt.datetime.utcnow().isoformat()
