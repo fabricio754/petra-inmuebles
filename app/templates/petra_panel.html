@@ -157,6 +157,8 @@
      href="?tab=inmuebles&token={{ token }}">🏠 Inmuebles ({{ inmuebles|length }})</a>
   <a class="tab {% if tab == 'nudges' %}active{% endif %}"
      href="?tab=nudges&token={{ token }}">🔔 Nudges ({{ nudges|length }})</a>
+  <a class="tab {% if tab == 'simulador' %}active{% endif %}"
+     href="?tab=simulador&token={{ token }}">🧪 Simulador</a>
 </nav>
 <main>
 
@@ -1692,6 +1694,124 @@
     </div>
   </div>
 {% endfor %}
+{% endif %}
+
+{% if tab == 'simulador' %}
+<style>
+  .sim-wrap { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+  @media (max-width: 820px) { .sim-wrap { grid-template-columns: 1fr; } }
+  .sim-side { background: var(--surface, white); border: 1px solid var(--line, #e6e6e6); border-radius: 10px; padding: 16px; }
+  .sim-side h3 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .sim-side select, .sim-side textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-family: inherit; font-size: 13px; box-sizing: border-box; }
+  .sim-side button { background: var(--accent, #6b2fa5); color: white; border: 0; padding: 9px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%; margin-top: 8px; }
+  .sim-side button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  .sim-preset-ctx { font-size: 12px; color: var(--muted); margin: 10px 0; padding: 8px 10px; background: #f8f8f8; border-radius: 6px; line-height: 1.4; }
+  .sim-meta { font-family: ui-monospace, monospace; font-size: 11px; background: #f3f0f9; color: var(--accent, #6b2fa5); padding: 10px; border-radius: 6px; max-height: 240px; overflow-y: auto; white-space: pre-wrap; margin-top: 10px; }
+
+  .sim-chat { background: #ece5dd; border-radius: 10px; min-height: 500px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .sim-msg { max-width: 85%; padding: 10px 14px; border-radius: 10px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; line-height: 1.4; }
+  .sim-msg.out { background: #ffffff; align-self: flex-start; border-top-left-radius: 2px; }
+  .sim-msg.in { background: #dcf8c6; align-self: flex-end; border-top-right-radius: 2px; }
+  .sim-msg .meta { font-size: 10px; color: #888; margin-top: 4px; }
+  .sim-btns { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .sim-btn-fake { background: #f8f8f8; border: 1px solid #e0e0e0; padding: 6px 10px; border-radius: 6px; font-size: 13px; text-align: center; color: var(--accent, #6b2fa5); }
+  .sim-input { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 12px; }
+  .sim-input textarea { padding: 10px; border: 1px solid var(--line); border-radius: 6px; font-family: inherit; font-size: 14px; resize: vertical; min-height: 48px; }
+  .sim-input button { background: var(--accent, #6b2fa5); color: white; border: 0; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .sim-quickbtns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .sim-quickbtns form { margin: 0; }
+  .sim-quickbtns button { background: var(--accent-soft, #f1e8fa); color: var(--accent, #6b2fa5); border: 1px solid var(--accent, #6b2fa5); padding: 8px 14px; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .sim-empty { text-align: center; color: var(--muted); margin: auto 0; font-size: 14px; }
+</style>
+
+<div style="margin-bottom:16px;">
+  <h2 style="margin:0 0 4px;">🧪 Simulador del flujo</h2>
+  <p style="margin:0; color: var(--muted); font-size: 14px; max-width: 760px;">
+    Probá cualquier estado del flujo sin tocar WhatsApp real. Cambiás un texto en el panel, lo verificás acá, y recién después mandás a producción.
+  </p>
+</div>
+
+<div class="sim-wrap">
+  <!-- COLUMNA IZQUIERDA: control -->
+  <div class="sim-side">
+    <h3>🎯 Estado inicial</h3>
+    <form method="POST" action="{{ url_for('petra_panel.simulador_reset') }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <select name="preset">
+        {% for p in sim_presets %}
+          <option value="{{ p.key }}" {% if p.key == sim_preset_actual %}selected{% endif %}>{{ p.label }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">♻️ Resetear a este estado</button>
+    </form>
+
+    {% for p in sim_presets %}
+      {% if p.key == sim_preset_actual %}
+        <div class="sim-preset-ctx">{{ p.contexto }}</div>
+      {% endif %}
+    {% endfor %}
+
+    <h3 style="margin-top:16px;">🧠 Metadata actual</h3>
+    {% if sim_estado.metadata %}
+      <div class="sim-meta">{{ sim_estado.metadata | tojson(indent=2) }}</div>
+    {% else %}
+      <div class="sim-meta" style="color: var(--muted); text-align: center;">(sin rol — contacto nuevo)</div>
+    {% endif %}
+  </div>
+
+  <!-- COLUMNA DERECHA: chat simulado -->
+  <div>
+    <div class="sim-chat">
+      {% if not sim_estado.mensajes %}
+        <div class="sim-empty">
+          Chat vacío. Escribí abajo o reseteá a un estado para arrancar.
+        </div>
+      {% else %}
+        {% for m in sim_estado.mensajes %}
+          <div class="sim-msg {{ m.direccion }}">
+            {{ m.resumen }}
+            {% set p = m.payload %}
+            {% if p and p.payload and p.payload.interactive and p.payload.interactive.action and p.payload.interactive.action.buttons %}
+              <div class="sim-btns">
+                {% for b in p.payload.interactive.action.buttons %}
+                  <div class="sim-btn-fake">{{ b.reply.title }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            <div class="meta">{{ m.fecha.strftime('%H:%M:%S') if m.fecha else '' }}</div>
+          </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    <!-- Botones rápidos: si el último mensaje OUT tiene botones, los mostramos como quick-replies clickeables -->
+    {% set ultimo_out = None %}
+    {% for m in sim_estado.mensajes %}
+      {% if m.direccion == 'out' %}{% set ultimo_out = m %}{% endif %}
+    {% endfor %}
+    {% if ultimo_out and ultimo_out.payload and ultimo_out.payload.payload and ultimo_out.payload.payload.interactive and ultimo_out.payload.payload.interactive.action and ultimo_out.payload.payload.interactive.action.buttons %}
+      <div class="sim-quickbtns">
+        {% for b in ultimo_out.payload.payload.interactive.action.buttons %}
+          <form method="POST" action="{{ url_for('petra_panel.simulador_send') }}">
+            <input type="hidden" name="token" value="{{ token }}">
+            <input type="hidden" name="preset" value="{{ sim_preset_actual }}">
+            <input type="hidden" name="button_id" value="{{ b.reply.id }}">
+            <input type="hidden" name="texto" value="{{ b.reply.title }}">
+            <button type="submit">{{ b.reply.title }}</button>
+          </form>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <!-- Input manual -->
+    <form method="POST" action="{{ url_for('petra_panel.simulador_send') }}" class="sim-input">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="preset" value="{{ sim_preset_actual }}">
+      <textarea name="texto" placeholder="Escribí como si fueras la agente... (ej. 'Juana Pérez', 'listo', '¿cómo son las comisiones?')" autofocus></textarea>
+      <button type="submit">Enviar</button>
+    </form>
+  </div>
+</div>
 {% endif %}
 
 </main>

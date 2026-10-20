@@ -234,6 +234,14 @@ def panel_home():
     textos_lista = _textos_mod.listar_textos()
     contexto["textos"] = textos_lista
     contexto["textos_por_categoria"] = _agrupar_textos(textos_lista)
+    # Simulador
+    from app.petra_agents import simulador as _sim_mod
+    contexto["sim_presets"] = [
+        {"key": k, "label": v["label"], "contexto": v.get("contexto", "")}
+        for k, v in _sim_mod.PRESETS.items()
+    ]
+    contexto["sim_preset_actual"] = request.args.get("preset") or "nuevo"
+    contexto["sim_estado"] = _sim_mod.estado_actual()
     # Nudges — reglas de remarketing (FASE F)
     from app.petra_agents import nudges as _nudges_mod
     contexto["nudges"] = _nudges_mod.listar_reglas(solo_activas=False)
@@ -1500,4 +1508,37 @@ def nudges_evaluar_ahora():
         flash = "nudges_evaluacion_error"
     return redirect(url_for(
         "petra_panel.panel_home", tab="nudges", token=token, flash=flash,
+    ))
+
+
+# =============================================================================
+# Simulador — probar flujo sin WhatsApp real
+# =============================================================================
+
+@petra_panel_bp.post("/simulador/reset")
+def simulador_reset():
+    """Resetea el contacto SIM al preset elegido."""
+    _check_token()
+    token = request.form.get("token", "")
+    preset = (request.form.get("preset") or "nuevo").strip()
+    from app.petra_agents import simulador as _sim
+    _sim.reset(preset)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token,
+        preset=preset, flash="sim_reset",
+    ))
+
+
+@petra_panel_bp.post("/simulador/send")
+def simulador_send():
+    """Envía input al simulador (texto o botón). Reutiliza el router real."""
+    _check_token()
+    token = request.form.get("token", "")
+    texto = request.form.get("texto") or ""
+    button_id = request.form.get("button_id") or None
+    preset = request.form.get("preset") or ""
+    from app.petra_agents import simulador as _sim
+    _sim.tick(texto=texto, button_id=button_id)
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="simulador", token=token, preset=preset,
     ))

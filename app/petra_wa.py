@@ -22,12 +22,41 @@ el pipeline completo sin número activo (dev/local/sandbox).
 import logging
 import os
 import re
+import threading
 import requests
 
 log = logging.getLogger("petra")
 
 _GRAPH_VERSION = os.environ.get("META_GRAPH_VERSION", "v22.0")
 _BSUID_RE = re.compile(r"^[A-Z]{2}\.\d+$")
+
+# =============================================================================
+# Simulación — modo dry-run para el "Simulador" del panel.
+# =============================================================================
+# Si el thread actual está "capturando", _post NO envía a Meta: encola el
+# payload en SIM_STATE.messages y devuelve {ok, simulated}. El panel puede
+# invocar el router entero (misma lógica que WhatsApp real) y recuperar los
+# mensajes OUT para renderizarlos como chat.
+_SIM_STATE = threading.local()
+
+
+def _is_simulating():
+    return bool(getattr(_SIM_STATE, "capturing", False))
+
+
+def iniciar_captura():
+    """Activa modo captura en este thread. Devuelve el buffer (lista)."""
+    _SIM_STATE.capturing = True
+    _SIM_STATE.messages = []
+    return _SIM_STATE.messages
+
+
+def detener_captura():
+    """Desactiva modo captura y devuelve los mensajes capturados."""
+    msgs = list(getattr(_SIM_STATE, "messages", []))
+    _SIM_STATE.capturing = False
+    _SIM_STATE.messages = []
+    return msgs
 
 
 def _is_bsuid(to):
@@ -63,6 +92,16 @@ def _en_whitelist(dest):
 
 
 def _post(payload):
+    # Modo simulación: capturar en vez de enviar. El panel reutiliza TODO
+    # el pipeline (router + flow + LLM) para probar sin WhatsApp real.
+    if _is_simulating():
+        _SIM_STATE.messages.append({
+            "to": payload.get("to") or payload.get("recipient"),
+            "type": payload.get("type"),
+            "resumen": _resumen_payload(payload),
+            "payload": payload,
+        })
+        return {"ok": True, "simulated": True}
     phone_id, token = _creds()
     if not phone_id or not token:
         log.info("[petra_wa] STUB send to=%s type=%s (no credenciales)",
