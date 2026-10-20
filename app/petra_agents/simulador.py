@@ -226,6 +226,23 @@ def reset(preset_key):
         )
         # Limpia historial de mensajes del simulador
         conn.execute("DELETE FROM mensajes WHERE telefono=%s", (SIM_TELEFONO,))
+        # Limpia logs del LLM del simulador (sin esto, el LLM lee
+        # conversaciones previas y aluciona datos viejos)
+        try:
+            conn.execute(
+                "DELETE FROM petra_llm_logs WHERE telefono=%s",
+                (SIM_TELEFONO,),
+            )
+        except Exception:
+            pass
+        # Limpia también cualquier intent store activo
+        try:
+            conn.execute(
+                "DELETE FROM petra_intent_activo WHERE telefono=%s",
+                (SIM_TELEFONO,),
+            )
+        except Exception:
+            pass
         # Si el preset tiene rol, lo inserta con la metadata correspondiente
         if preset.get("rol"):
             meta = _reemplazar_fechas(preset.get("metadata") or {})
