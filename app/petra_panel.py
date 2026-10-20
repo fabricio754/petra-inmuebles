@@ -234,6 +234,16 @@ def panel_home():
     textos_lista = _textos_mod.listar_textos()
     contexto["textos"] = textos_lista
     contexto["textos_por_categoria"] = _agrupar_textos(textos_lista)
+    # FAQ (knowledge base del LLM) — tipo 'faq' o 'otro' legacy
+    with _db._conexion_directa(timeout=10) as conn:
+        contexto["faqs"] = _rows(conn,
+            """SELECT id, tipo, titulo, texto, descripcion, activo,
+                      created_at, updated_at
+               FROM petra_contenidos
+               WHERE tipo IN ('faq', 'otro')
+                 AND texto IS NOT NULL
+                 AND LENGTH(TRIM(texto)) > 0
+               ORDER BY tipo DESC, created_at DESC""")
     return render_template("petra_panel.html", **contexto)
 
 
@@ -265,6 +275,7 @@ _TIPOS_CONTENIDO = {
     "kit_autorizacion": "📋 Kit autorización administrador",
     "script_mensaje": "✍️ Script / plantilla de mensaje",
     "plantilla_whatsapp": "📱 Plantilla WhatsApp aprobada",
+    "faq": "❓ FAQ (knowledge base del LLM — responde dudas de agentes)",
     "otro": "📦 Otro",
 }
 
@@ -976,4 +987,82 @@ def textos_seed():
     return redirect(url_for(
         "petra_panel.panel_home", tab="textos", token=token,
         flash=f"seed_{ins}_{upd}_{omi}",
+    ))
+
+
+# =============================================================================
+# FASE A — FAQ dedicada (knowledge base del LLM)
+# =============================================================================
+
+@petra_panel_bp.post("/faq/crear")
+def faq_crear():
+    """Crea una nueva entrada FAQ. Internamente es petra_contenidos tipo='faq'."""
+    _check_token()
+    token = request.form.get("token", "")
+    titulo = (request.form.get("titulo") or "").strip()
+    texto = (request.form.get("texto") or "").strip()
+    descripcion = (request.form.get("descripcion") or "").strip() or None
+    if not titulo or not texto:
+        abort(400, "titulo y texto son obligatorios")
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "INSERT INTO petra_contenidos "
+            "(tipo, titulo, texto, descripcion, activo) "
+            "VALUES ('faq', %s, %s, %s, TRUE)",
+            (titulo, texto, descripcion),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="faq", token=token, flash="faq_creada",
+    ))
+
+
+@petra_panel_bp.post("/faq/<int:fid>/editar")
+def faq_editar(fid):
+    """Edita una FAQ existente."""
+    _check_token()
+    token = request.form.get("token", "")
+    titulo = (request.form.get("titulo") or "").strip()
+    texto = (request.form.get("texto") or "").strip()
+    descripcion = (request.form.get("descripcion") or "").strip() or None
+    if not titulo or not texto:
+        abort(400)
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE petra_contenidos "
+            "SET titulo=%s, texto=%s, descripcion=%s, updated_at=NOW() "
+            "WHERE id=%s AND tipo IN ('faq','otro')",
+            (titulo, texto, descripcion, fid),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="faq", token=token, flash="faq_actualizada",
+    ))
+
+
+@petra_panel_bp.post("/faq/<int:fid>/toggle")
+def faq_toggle(fid):
+    """Activa/desactiva una FAQ sin borrarla."""
+    _check_token()
+    token = request.form.get("token", "")
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "UPDATE petra_contenidos SET activo = NOT activo, updated_at=NOW() "
+            "WHERE id=%s AND tipo IN ('faq','otro')", (fid,),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="faq", token=token, flash="faq_toggled",
+    ))
+
+
+@petra_panel_bp.post("/faq/<int:fid>/eliminar")
+def faq_eliminar(fid):
+    """Borra una FAQ definitivamente."""
+    _check_token()
+    token = request.form.get("token", "")
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "DELETE FROM petra_contenidos "
+            "WHERE id=%s AND tipo IN ('faq','otro')", (fid,),
+        )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="faq", token=token, flash="faq_eliminada",
     ))
