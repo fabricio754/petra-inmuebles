@@ -608,6 +608,7 @@ def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
                 "¡Mucho éxito! 🚀"
             ),
         ))
+        _enviar_video_citas_una_vez(conn, cid, meta, telefono)
         _log(telefono, texto, "[kit_enviado → activa]")
         return True
     # Pregunta libre → LLM
@@ -615,6 +616,174 @@ def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
         _log(telefono, texto, "[kit_enviado → LLM]")
         return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
     return True
+
+
+def _enviar_video_citas_una_vez(conn, cid, meta, telefono):
+    """Envía el video 'cómo manejar las citas' solo la primera vez
+    (flag en metadata). Silencio si no hay video cargado."""
+    import time as _tm
+    if meta.get("video_citas_enviado"):
+        return
+    vid = conn.execute(
+        "SELECT titulo, url FROM petra_contenidos "
+        "WHERE tipo='video_citas' AND activo=TRUE "
+        "ORDER BY orden LIMIT 1"
+    ).fetchone()
+    if not vid:
+        return
+    _tm.sleep(2)
+    from app import petra_wa as _pwa
+    _pwa.send_text(telefono, _t(
+        "citas.msg_intro_video",
+        fallback=(
+            "Antes de que empiecen a llegar interesados, mirá este video "
+            "corto donde te explico cómo manejar las citas 💜 👇"
+        ),
+    ))
+    _tm.sleep(1)
+    _pwa.send_text(telefono, f"📅 *{vid[0]}*\n\n{vid[1]}")
+    meta["video_citas_enviado"] = True
+    _save_meta(conn, cid, meta)
+
+
+def _fase_activa(conn, telefono, cid, meta, texto, sesion_id=None):
+    """Fase operativa: la agente ya tiene QR instalado. Maneja:
+    - Botones de respuesta a citas (ONBAG_CITA_*)
+    - Captura de contrapropuesta de día/hora si está esperando
+    - Preguntas libres → LLM
+    - (FUTURO) tool registrar_inmueble, confirmar visita, etc."""
+    import datetime as _dt
+    # 1. Respuestas a botones de cita
+    if texto and texto.startswith("ONBAG_CITA_"):
+        return _manejar_boton_cita(conn, telefono, cid, meta, texto)
+    # 2. ¿Está esperando contrapropuesta de fecha?
+    cita_esperando = meta.get("cita_esperando_propuesta_id")
+    if cita_esperando and texto:
+        return _capturar_contrapropuesta_cita(
+            conn, telefono, cid, meta, texto, cita_esperando)
+    # 3. Pregunta libre → LLM
+    _log(telefono, texto, "[activa → LLM]")
+    return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
+
+
+def _manejar_boton_cita(conn, telefono, cid, meta, texto):
+    """Procesa botones ONBAG_CITA_{PUEDO|PROPONER|NO_PUEDO}_<visita_id>."""
+    import datetime as _dt
+    partes = texto.replace("ONBAG_CITA_", "").rsplit("_", 1)
+    if len(partes) != 2 or not partes[1].isdigit():
+        _enviar(telefono, "No reconocí ese botón. ¿Me podés decir qué quisiste decir?")
+        return True
+    accion, vid = partes[0], int(partes[1])
+    # Verificar que la cita exista y le corresponda a esta agente
+    row = conn.execute(
+        "SELECT v.estado, v.programada_at, c.nombre "
+        "FROM petra_visitas v "
+        "LEFT JOIN petra_contactos c ON c.id = v.interesado_id "
+        "WHERE v.id=%s AND v.agente_id=%s",
+        (vid, cid),
+    ).fetchone()
+    if not row:
+        _enviar(telefono, "No encontré esa cita 🤔. Si tenés dudas, escribime.")
+        return True
+    estado_cita, programada_at, interesado = row
+    if estado_cita in ("realizada", "cancelada"):
+        _enviar(telefono,
+            f"Esa cita ya está marcada como *{estado_cita}* — no la puedo modificar.")
+        return True
+
+    if accion == "PUEDO":
+        conn.execute(
+            "UPDATE petra_visitas SET estado='confirmada', updated_at=NOW() "
+            "WHERE id=%s", (vid,),
+        )
+        _enviar(telefono, _t(
+            "citas.msg_confirmada",
+            fallback=(
+                "¡Dale! 💜 Confirmada la cita con *{interesado}* para el "
+                "*{cuando}*. Te recuerdo 30 min antes 📲"
+            ),
+            interesado=interesado or "el interesado",
+            cuando=_fmt_fecha(programada_at),
+        ))
+        meta.pop("cita_esperando_propuesta_id", None)
+        _save_meta(conn, cid, meta)
+        _log(telefono, texto, f"[cita {vid} confirmada]")
+        return True
+
+    if accion == "NO_PUEDO":
+        conn.execute(
+            "UPDATE petra_visitas SET estado='cancelada', updated_at=NOW() "
+            "WHERE id=%s", (vid,),
+        )
+        _enviar(telefono, _t(
+            "citas.msg_cancelada",
+            fallback=(
+                "Ok, cancelo la cita 💜. Si querés proponer otro día más "
+                "adelante, decime."
+            ),
+        ))
+        meta.pop("cita_esperando_propuesta_id", None)
+        _save_meta(conn, cid, meta)
+        _log(telefono, texto, f"[cita {vid} cancelada]")
+        return True
+
+    if accion == "PROPONER":
+        meta["cita_esperando_propuesta_id"] = vid
+        _save_meta(conn, cid, meta)
+        _enviar(telefono, _t(
+            "citas.msg_pedir_contrapropuesta",
+            fallback=(
+                "Dale, decime qué día y hora te quedarían bien y yo le "
+                "paso tu propuesta al interesado 💜\n\n"
+                "(Ej: *jueves a las 3pm*, *mañana 10am*, etc.)"
+            ),
+        ))
+        _log(telefono, texto, f"[cita {vid} → pide contrapropuesta]")
+        return True
+
+    _enviar(telefono, "No reconocí esa acción. ¿Podés contarme qué querías hacer?")
+    return True
+
+
+def _capturar_contrapropuesta_cita(conn, telefono, cid, meta, texto, vid):
+    """La agente escribió su contrapropuesta tras pulsar 'Proponer otro día'.
+    La guardamos en observaciones y marcamos la visita como 'cancelada' con
+    nota (el humano del panel decide si re-abrir con nueva fecha)."""
+    conn.execute(
+        "UPDATE petra_visitas SET estado='cancelada', "
+        "observaciones=COALESCE(observaciones,'') || "
+        "'\n[Agente propone: ' || %s || ']', updated_at=NOW() "
+        "WHERE id=%s", (texto[:500], vid),
+    )
+    _enviar(telefono, _t(
+        "citas.msg_contrapropuesta_recibida",
+        fallback=(
+            "¡Perfecto! Le paso al interesado tu propuesta: *{propuesta}* 💜\n\n"
+            "Te aviso cuando confirme."
+        ),
+        propuesta=texto[:200],
+    ))
+    meta.pop("cita_esperando_propuesta_id", None)
+    _save_meta(conn, cid, meta)
+    _log(telefono, texto, f"[cita {vid} contrapropuesta: {texto[:100]}]")
+    return True
+
+
+def _fmt_fecha(dt):
+    """Formatea un datetime para WhatsApp en español Colombia."""
+    if not dt:
+        return "fecha por confirmar"
+    try:
+        import datetime as _d
+        if isinstance(dt, str):
+            dt = _d.datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+        meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+                 "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+        return (f"{dias[dt.weekday()]} {dt.day} de {meses[dt.month-1]} "
+                f"a las {dt.hour:02d}:{dt.minute:02d}")
+    except Exception:
+        return str(dt)
 
 
 def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None):
@@ -970,10 +1139,8 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                                      sesion_id=sesion_id)
 
         if estado == "activa":
-            # Fase operativa — por ahora delega al LLM.
-            # Fases D (Citas) y E (Inventario) harán hooks aquí.
-            _log(telefono, texto, "[delegado a LLM activa]")
-            return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
+            return _fase_activa(conn, telefono, cid, meta, texto,
+                                sesion_id=sesion_id)
 
         if estado == "certificado":
             _log(telefono, texto, "[delegado a LLM certificado]")

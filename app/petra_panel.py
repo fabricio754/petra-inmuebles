@@ -234,6 +234,16 @@ def panel_home():
     textos_lista = _textos_mod.listar_textos()
     contexto["textos"] = textos_lista
     contexto["textos_por_categoria"] = _agrupar_textos(textos_lista)
+    # Agentes activas (FASE D) — para el dropdown de alta de citas
+    with _db._conexion_directa(timeout=10) as conn:
+        contexto["agentes_activas"] = _rows(conn,
+            """SELECT c.id AS cid, c.telefono, c.nombre,
+                      r.metadata->>'conjunto' AS conjunto
+               FROM petra_contacto_roles r
+               JOIN petra_contactos c ON c.id = r.contacto_id
+               WHERE r.rol = 'agente_petra'
+                 AND r.metadata->>'estado_agente' = 'activa'
+               ORDER BY c.nombre ASC NULLS LAST""")
     # Kits a enviar (FASE C) — agentes con estado kit_pendiente que ya
     # capturaron dirección completa y esperan despacho humano.
     with _db._conexion_directa(timeout=10) as conn:
@@ -296,6 +306,7 @@ _TIPOS_CONTENIDO = {
     "video_autorizacion": "🎬 Video 'Cómo pedir autorización al administrador' (al terminar capacitación)",
     "video_recordatorio_autorizacion": "🎓 Video a recordar antes de la autorización (ej. el día de capacitación que explica cómo abordar al admin)",
     "video_como_usar_qr": "📲 Video 'Cómo usar el QR' (al activar — después de recibir el kit)",
+    "video_citas": "📅 Video 'Cómo manejar las citas' (al pasar a estado=activa, una vez)",
     "demo_autorizacion": "📱 Demo del producto (al terminar capacitación)",
     "pieza_grafica_autorizacion": "🖼 Pieza gráfica para mostrarle al admin (hasta 2, en orden)",
     "documento_pdf": "📄 Documento PDF",
@@ -1182,3 +1193,109 @@ def kit_marcar_enviado(cid):
         "petra_panel.panel_home", tab="kits", token=token,
         flash="kit_marcado_enviado",
     ))
+
+
+# =============================================================================
+# FASE D — Citas (reutiliza petra_visitas)
+# =============================================================================
+
+@petra_panel_bp.post("/cita/crear")
+def cita_crear():
+    """Crea una cita (petra_visitas tipo='comercial') y notifica a la
+    agente por WhatsApp con botones. Hoy se usa manualmente desde el
+    panel; mañana el flujo del interesado puede llamar al mismo endpoint
+    internamente para enganchar sin re-trabajo."""
+    import datetime as _dt
+    _check_token()
+    token = request.form.get("token", "")
+    agente_cid = int(request.form.get("agente_cid") or 0)
+    interesado_nombre = (request.form.get("interesado_nombre") or "").strip()
+    interesado_tel = (request.form.get("interesado_tel") or "").strip() or None
+    inmueble_desc = (request.form.get("inmueble_desc") or "").strip()
+    fecha_hora = (request.form.get("fecha_hora") or "").strip()
+    nota = (request.form.get("nota") or "").strip() or None
+    if not agente_cid or not interesado_nombre or not fecha_hora:
+        abort(400, "agente, interesado y fecha son obligatorios")
+    try:
+        programada_at = _dt.datetime.fromisoformat(fecha_hora)
+    except Exception:
+        abort(400, "fecha inválida (formato esperado: YYYY-MM-DDTHH:MM)")
+    with _db._conexion_directa(timeout=15) as conn:
+        # Agente debe estar en estado activa
+        row = conn.execute(
+            "SELECT c.telefono, c.nombre, r.metadata->>'estado_agente' "
+            "FROM petra_contactos c "
+            "JOIN petra_contacto_roles r "
+            "  ON r.contacto_id=c.id AND r.rol='agente_petra' "
+            "WHERE c.id=%s", (agente_cid,),
+        ).fetchone()
+        if not row:
+            abort(404, "agente no encontrada")
+        agente_tel, agente_nombre, estado = row
+        if estado not in ("activa",):
+            return redirect(url_for(
+                "petra_panel.panel_home", tab="visitas", token=token,
+                flash="cita_agente_no_activa",
+            ))
+        # Interesado: crea contacto si trae tel, si no deja NULL
+        interesado_id = None
+        if interesado_tel:
+            r2 = conn.execute(
+                "INSERT INTO petra_contactos (telefono, nombre) "
+                "VALUES (%s, %s) "
+                "ON CONFLICT (telefono) DO UPDATE SET "
+                "  nombre = COALESCE(petra_contactos.nombre, EXCLUDED.nombre) "
+                "RETURNING id",
+                (interesado_tel, interesado_nombre),
+            ).fetchone()
+            interesado_id = r2[0] if r2 else None
+        # Insert visita
+        vid_row = conn.execute(
+            "INSERT INTO petra_visitas "
+            "(agente_id, interesado_id, tipo, programada_at, estado, observaciones) "
+            "VALUES (%s, %s, 'comercial', %s, 'programada', %s) "
+            "RETURNING id",
+            (agente_cid, interesado_id, programada_at,
+             (f"Inmueble: {inmueble_desc}\n" if inmueble_desc else "") + (nota or "")),
+        ).fetchone()
+        visita_id = vid_row[0]
+
+    # Notificar a la agente con botones (fuera de la transacción)
+    from app import petra_wa as _pwa
+    from app.petra_agents.textos import t as _t
+    _pwa.send_buttons(
+        agente_tel,
+        _t(
+            "citas.msg_nueva_cita",
+            fallback=(
+                "📅 *¡Nueva cita!*\n\n"
+                "👤 *Interesado:* {interesado}\n"
+                "🏠 *Inmueble:* {inmueble}\n"
+                "🕒 *Propuesta:* {cuando}\n"
+                "\n¿Podés atenderla?"
+            ),
+            interesado=interesado_nombre,
+            inmueble=inmueble_desc or "a confirmar",
+            cuando=_fmt_fecha_es(programada_at),
+        ),
+        [
+            {"id": f"ONBAG_CITA_PUEDO_{visita_id}", "title": "✅ Puedo"},
+            {"id": f"ONBAG_CITA_PROPONER_{visita_id}", "title": "📅 Proponer otro día"},
+            {"id": f"ONBAG_CITA_NO_PUEDO_{visita_id}", "title": "❌ No puedo"},
+        ],
+    )
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="visitas", token=token,
+        flash=f"cita_creada_{visita_id}",
+    ))
+
+
+def _fmt_fecha_es(dt):
+    """Formato humano colombiano para fechas."""
+    if not dt:
+        return "fecha por confirmar"
+    dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+    meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+             "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    return (f"{dias[dt.weekday()]} {dt.day} de {meses[dt.month-1]} "
+            f"a las {dt.hour:02d}:{dt.minute:02d}")
