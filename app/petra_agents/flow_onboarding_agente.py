@@ -1110,24 +1110,17 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             _save_meta(conn, cid, meta)
             from app import petra_wa as _pwa_cap
             import time as _t_cap
-            # Mensaje de felicitación + 2 botones: ver material / ya tengo autorización.
-            # El material se envía SOLO cuando pulsa el botón.
-            _pwa_cap.send_text(telefono, _t(
+            # Mensaje de felicitación + botón "Iniciar" en el mismo mensaje.
+            # Al pulsar Iniciar, se muestran los 3 botones de autorización.
+            _pwa_cap.send_buttons(telefono, _t(
                 "capacitacion.msg_completada_header",
                 fallback=(
                     "🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
                     "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
                     "📍 *Siguiente paso: Autorización del conjunto* 🏢\n\n"
                     "Ahora toca hablar con el administrador de tu edificio para "
-                    "que te autorice a representar a Petra ahí 👇"
-                ),
-            ))
-            _t_cap.sleep(1)
-            _pwa_cap.send_buttons(telefono, _t(
-                "autorizacion.cta_iniciar",
-                fallback=(
-                    "📍 *Siguiente paso:* pulsá el botón para arrancar "
-                    "con la gestión de la autorización 💜"
+                    "que te autorice a representar a Petra ahí.\n\n"
+                    "Pulsá el botón para arrancar 👇"
                 ),
             ), [
                 {"id": "ONBAG_INICIAR_AUTORIZACION", "title": "🚀 Iniciar"},
