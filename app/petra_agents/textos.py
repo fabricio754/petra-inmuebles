@@ -189,9 +189,10 @@ SEED_TEXTOS = [
      "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
      "📍 *Siguiente paso: Autorización del conjunto* 🏢\n\n"
      "Ahora toca hablar con el administrador de tu edificio para "
-     "que te autorice a representar a Petra ahí 👇",
-     "Mensaje de cierre de capacitación. Se envía antes de los botones de "
-     "material/autorización.", [], "capacitacion"),
+     "que te autorice a representar a Petra ahí.\n\n"
+     "Pulsá el botón para arrancar 👇",
+     "Mensaje de cierre de capacitación. Acompaña al botón [🚀 Iniciar] "
+     "en el mismo mensaje.", [], "capacitacion"),
     ("capacitacion.msg_cron_diario",
      "🎬✨ *¡Nuevo día de capacitación!*\n\n"
      "Acá te dejo los 2 videos del día *{dia_a_enviar} de {max_dia}* 💜\n\n"
