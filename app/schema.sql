@@ -1149,3 +1149,26 @@ ALTER TABLE petra_inmuebles
     REFERENCES petra_contactos(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS petra_inmuebles_capturado_por_idx
   ON petra_inmuebles (capturado_por_agente_id, created_at DESC);
+
+-- =============================================================================
+-- FASE F — Nudges: reglas de remarketing automático
+-- =============================================================================
+-- Cada regla dispara un mensaje cuando una agente lleva N horas
+-- "atascada" en un estado sin avanzar. El cron horario las evalúa.
+-- El tracking de qué nudge ya se envió a cada contacto vive en
+-- petra_contacto_roles.metadata.nudges_enviados.
+CREATE TABLE IF NOT EXISTS petra_nudges (
+  clave               TEXT PRIMARY KEY,
+    -- Identificador estable (ej. "capacitacion_pausada_12h")
+  descripcion         TEXT,
+  estado_origen       TEXT NOT NULL,
+    -- Estado del agente que dispara el nudge
+  horas_sin_avanzar   INTEGER NOT NULL DEFAULT 12,
+  texto_clave         TEXT NOT NULL,
+    -- Clave de petra_textos con el mensaje a enviar
+  activo              BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_nudges_estado_idx
+  ON petra_nudges (estado_origen) WHERE activo = TRUE;

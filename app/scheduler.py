@@ -89,6 +89,13 @@ def iniciar():
                        hour=8, minute=0,
                        id="petra_capacitacion_diaria",
                        max_instances=1, coalesce=True)
+    # FASE F — Nudges de remarketing: evalúa reglas y manda recordatorios
+    # a agentes atascadas en una fase. Hora en punto (hora Bogotá no importa:
+    # las ventanas son en horas, no horarios específicos).
+    _scheduler.add_job(_petra_evaluar_nudges, "cron",
+                       minute=15,
+                       id="petra_nudges_horario",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -492,6 +499,19 @@ def _petra_nudge_autorizaciones():
             log.info("[Scheduler] petra_nudge_autorizaciones: %d enviados", len(rows))
     except Exception:
         log.exception("[Scheduler] petra_nudge_autorizaciones fallo")
+
+
+def _petra_evaluar_nudges():
+    """FASE F — Pasada horaria del motor de nudges. Encuentra agentes
+    atascadas por X horas en una fase y les manda el nudge configurado."""
+    try:
+        from app.petra_agents import nudges
+        reglas, enviados = nudges.evaluar_y_enviar()
+        if enviados:
+            log.info("[Scheduler] nudges: %d reglas → %d mensajes enviados",
+                     reglas, enviados)
+    except Exception:
+        log.exception("[Scheduler] evaluar_nudges fallo")
 
 
 def _petra_cerrar_sesiones_inactivas():

@@ -255,6 +255,20 @@ def _enviar(telefono, texto):
     petra_wa.send_text(telefono, texto)
 
 
+def _set_estado(meta, nuevo_estado):
+    """Setea estado_agente + estampa estado_desde (ISO 8601 UTC).
+    Usado por el motor de nudges para saber hace cuánto está la agente
+    en el estado actual."""
+    import datetime as _d
+    anterior = meta.get("estado_agente")
+    if anterior != nuevo_estado:
+        meta["estado_agente"] = nuevo_estado
+        meta["estado_desde"] = _d.datetime.utcnow().isoformat()
+        # Al cambiar de estado, los nudges del estado anterior ya no aplican.
+        # Dejamos el dict pero ya no se van a disparar porque el estado cambió.
+    return meta
+
+
 def _responder_con_llm(telefono, texto, sesion_id=None):
     """Delega el mensaje al sub-agente LLM agente_petra, que tiene el
     contexto del rol/estado y puede responder cualquier pregunta libre.
@@ -402,7 +416,7 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
             hoy_bogota = _dt.datetime.now(ZoneInfo("America/Bogota")).date().isoformat()
         except Exception:
             hoy_bogota = _dt.datetime.utcnow().date().isoformat()
-        meta["estado_agente"] = "esperando_capacitacion_dia1"
+        _set_estado(meta, "esperando_capacitacion_dia1")
         meta["bienvenida_vista_at"] = _dt.datetime.utcnow().isoformat()
         _save_meta(conn, cid, meta)
         try:
@@ -456,7 +470,7 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
             [{"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}],
         )
         import datetime as _dt
-        meta["estado_agente"] = "bienvenida_enviada"
+        _set_estado(meta, "bienvenida_enviada")
         meta["bienvenida_enviada_at"] = _dt.datetime.utcnow().isoformat()
         _save_meta(conn, cid, meta)
         _log(telefono, texto, "[videos enviados + btn Ya los vi]",
@@ -472,7 +486,7 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
          nota="fase inscrito: re-prompt")
     return True
     import datetime as _dt
-    meta["estado_agente"] = "bienvenida_enviada"
+    _set_estado(meta, "bienvenida_enviada")
     meta["bienvenida_enviada_at"] = _dt.datetime.utcnow().isoformat()
     _save_meta(conn, cid, meta)
     cargados = (("bienvenida " if bienvenida_row else "") +
@@ -595,7 +609,7 @@ def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
     if texto == "ONBAG_QR_INSTALADO" or (texto or "").lower().strip() in (
             "instalado", "instalado qr", "ya instale", "ya instalé",
             "ya instalé el qr", "qr instalado", "listo", "ya"):
-        meta["estado_agente"] = "activa"
+        _set_estado(meta, "activa")
         meta["activada_at"] = _dt.datetime.utcnow().isoformat()
         _save_meta(conn, cid, meta)
         _enviar(telefono, _t(
@@ -1087,7 +1101,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
         meta["videos_vistos"] = vistos
         meta[f"dia_{vistos // 2}_visto_at"] = _dt.datetime.utcnow().isoformat()
         if vistos >= total:
-            meta["estado_agente"] = "autorizacion_pendiente"
+            _set_estado(meta, "autorizacion_pendiente")
             _save_meta(conn, cid, meta)
             from app import petra_wa as _pwa_cap
             import time as _t_cap
@@ -1265,7 +1279,7 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
         except Exception:
             hoy_bogota = _dt.datetime.utcnow().date().isoformat()
         meta["bienvenida_vista_at"] = _dt.datetime.utcnow().isoformat()
-        meta["estado_agente"] = "esperando_capacitacion_dia1"
+        _set_estado(meta, "esperando_capacitacion_dia1")
         _save_meta(conn, cid, meta)
         # Disparar día 1 inmediatamente reusando la función del cron.
         try:
@@ -1320,7 +1334,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
 
         # Si no hay rol todavía o estado no setado, iniciar
         if "estado_agente" not in meta:
-            meta["estado_agente"] = "recolectando"
+            _set_estado(meta, "recolectando")
             _save_meta(conn, cid, meta)
 
         estado = meta.get("estado_agente", "recolectando")
@@ -1348,7 +1362,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                 "autorizado", "autorizacion", "autorización", "tengo autorizacion",
                 "tengo autorización", "ya tengo"):
                 # Pasa a kit_pendiente y arranca captura de dirección
-                meta["estado_agente"] = "kit_pendiente"
+                _set_estado(meta, "kit_pendiente")
                 meta["direccion_paso"] = "torre"
                 _save_meta(conn, cid, meta)
                 _enviar(telefono, _t(
@@ -1479,7 +1493,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                 # Marcar como inscrito oficial + flow v2 (14 videos / 7 días,
                 # día 1 = bienvenida+próximos pasos). Agentes antiguas sin
                 # cap_version siguen en v1 (12 videos / 6 días).
-                meta["estado_agente"] = "inscrito"
+                _set_estado(meta, "inscrito")
                 meta["cap_version"] = 2
                 import datetime as _dt
                 meta["inscrito_at"] = _dt.datetime.utcnow().isoformat()

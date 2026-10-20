@@ -155,6 +155,8 @@
      href="?tab=kits&token={{ token }}">📦 Kits ({{ kits_a_enviar|length }})</a>
   <a class="tab {% if tab == 'inmuebles' %}active{% endif %}"
      href="?tab=inmuebles&token={{ token }}">🏠 Inmuebles ({{ inmuebles|length }})</a>
+  <a class="tab {% if tab == 'nudges' %}active{% endif %}"
+     href="?tab=nudges&token={{ token }}">🔔 Nudges ({{ nudges|length }})</a>
 </nav>
 <main>
 
@@ -1544,6 +1546,150 @@
         </form>
       </div>
     </details>
+  </div>
+{% endfor %}
+{% endif %}
+
+{% if tab == 'nudges' %}
+<style>
+  .nudges-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .nudges-head h2 { margin: 0 0 4px; }
+  .nudges-head p { margin: 0; color: var(--muted); font-size: 14px; max-width: 760px; }
+  .nudges-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .nudges-actions button {
+    padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: 600;
+    border: 1px solid var(--line); background: transparent;
+  }
+  .nudges-actions .btn-primary {
+    background: var(--accent, #6b2fa5); color: white; border: 0;
+  }
+  .nudge-card {
+    background: var(--surface, white); border: 1px solid var(--line, #e6e6e6);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+    border-left: 4px solid var(--accent, #6b2fa5);
+    display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start;
+  }
+  .nudge-card.inactivo { opacity: .5; border-left-color: #ccc; }
+  .nudge-clave { font-family: ui-monospace, monospace; font-weight: 700; font-size: 14px; }
+  .nudge-meta { display: flex; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 4px; flex-wrap: wrap; }
+  .nudge-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+    background: var(--accent-soft, #f1e8fa); color: var(--accent, #6b2fa5);
+    font-weight: 700;
+  }
+  .nudge-desc { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .nudge-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .nudge-actions form { margin: 0; }
+  .nudge-actions button {
+    padding: 5px 10px; font-size: 12px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--muted);
+  }
+  .nudge-actions .btn-delete { color: #c0392b; border-color: #c0392b; }
+  .nudge-new {
+    background: #fcfcff; border: 1px dashed var(--accent, #6b2fa5);
+    border-radius: 10px; padding: 16px; margin-bottom: 24px;
+  }
+  .nudge-new summary { cursor: pointer; font-weight: 700; }
+  .nudge-new-form { display: grid; gap: 10px; margin-top: 14px; }
+  .nudge-new-form .row { display: grid; grid-template-columns: 180px 1fr; gap: 10px; align-items: center; }
+  .nudge-new-form input, .nudge-new-form select {
+    padding: 7px 10px; border: 1px solid var(--line); border-radius: 5px;
+    font-size: 13px; font-family: inherit;
+  }
+  .nudge-new-form button {
+    background: var(--accent, #6b2fa5); color: white; border: 0;
+    padding: 9px 18px; border-radius: 6px; cursor: pointer; justify-self: start;
+    font-weight: 600;
+  }
+</style>
+
+<div class="nudges-head">
+  <div>
+    <h2>🔔 Nudges — Remarketing automático</h2>
+    <p>Reglas que mandan recordatorios a agentes atascadas en una fase. El cron evalúa cada hora. Cada regla se dispara una vez por agente mientras siga en el mismo estado.</p>
+  </div>
+  <div class="nudges-actions">
+    <form method="POST" action="{{ url_for('petra_panel.nudges_seed') }}" style="display:inline;">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit">🌱 Cargar reglas base</button>
+    </form>
+    <form method="POST" action="{{ url_for('petra_panel.nudges_evaluar_ahora') }}" style="display:inline;"
+          onsubmit="return confirm('¿Correr la evaluación ahora? Puede mandar mensajes a agentes.');">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn-primary">⚡ Evaluar ahora</button>
+    </form>
+  </div>
+</div>
+
+<details class="nudge-new">
+  <summary>➕ Agregar regla nueva</summary>
+  <form method="POST" action="{{ url_for('petra_panel.nudges_upsert') }}" class="nudge-new-form">
+    <input type="hidden" name="token" value="{{ token }}">
+    <div class="row">
+      <label>Clave (única):</label>
+      <input type="text" name="clave" required placeholder="ej. inscrito_6h">
+    </div>
+    <div class="row">
+      <label>Estado origen:</label>
+      <select name="estado_origen" required>
+        <option value="recolectando">recolectando</option>
+        <option value="inscrito">inscrito</option>
+        <option value="bienvenida_enviada">bienvenida_enviada</option>
+        <option value="esperando_capacitacion_dia1">esperando_capacitacion_dia1</option>
+        <option value="en_capacitacion">en_capacitacion</option>
+        <option value="capacitacion_completa">capacitacion_completa</option>
+        <option value="autorizacion_pendiente">autorizacion_pendiente</option>
+        <option value="kit_pendiente">kit_pendiente</option>
+        <option value="kit_enviado">kit_enviado</option>
+        <option value="activa">activa</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Horas sin avanzar:</label>
+      <input type="number" name="horas" value="12" min="1" required>
+    </div>
+    <div class="row">
+      <label>Clave del texto:</label>
+      <input type="text" name="texto_clave" required placeholder="ej. nudges.mi_mensaje">
+    </div>
+    <div class="row">
+      <label>Descripción:</label>
+      <input type="text" name="descripcion" placeholder="Para humanos: qué hace esta regla">
+    </div>
+    <button type="submit">Guardar regla</button>
+  </form>
+</details>
+
+{% if not nudges %}
+  <div style="padding:24px;background:#fff8e1;border-radius:10px;border-left:4px solid #f39c12;">
+    <strong>Todavía no hay reglas cargadas.</strong>
+    <p style="margin:6px 0 0;">Hacé clic en <b>🌱 Cargar reglas base</b> arriba para empezar con 7 reglas razonables.</p>
+  </div>
+{% endif %}
+
+{% for n in nudges %}
+  <div class="nudge-card {% if not n.activo %}inactivo{% endif %}">
+    <div>
+      <div class="nudge-clave">{{ n.clave }}</div>
+      <div class="nudge-meta">
+        <span class="nudge-badge">{{ n.estado_origen }}</span>
+        <span>⏱ {{ n.horas_sin_avanzar }}h sin avanzar</span>
+        <span>📝 texto: <code>{{ n.texto_clave }}</code></span>
+        {% if not n.activo %}<span style="color:#c0392b;">● Inactivo</span>{% endif %}
+      </div>
+      {% if n.descripcion %}<div class="nudge-desc">{{ n.descripcion }}</div>{% endif %}
+    </div>
+    <div class="nudge-actions">
+      <form method="POST" action="{{ url_for('petra_panel.nudges_toggle', clave=n.clave) }}">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button type="submit">{% if n.activo %}⏸ Pausar{% else %}▶️ Activar{% endif %}</button>
+      </form>
+      <form method="POST" action="{{ url_for('petra_panel.nudges_eliminar', clave=n.clave) }}"
+            onsubmit="return confirm('¿Borrar esta regla?');">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button type="submit" class="btn-delete">🗑</button>
+      </form>
+    </div>
   </div>
 {% endfor %}
 {% endif %}
