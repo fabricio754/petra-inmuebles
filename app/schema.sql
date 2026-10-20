@@ -1248,3 +1248,18 @@ CREATE TABLE IF NOT EXISTS petra_mensajes_extra (
 );
 CREATE INDEX IF NOT EXISTS petra_mensajes_extra_parent_idx
   ON petra_mensajes_extra (parent_clave, orden) WHERE activo = TRUE;
+
+-- Fix de URLs rotas: _guardar_archivo_media guardaba '/petra/media/X' pero
+-- el blueprint sirve en '/panel/petra/media/X'. Idempotente: solo toca filas
+-- que empiezan con el prefix viejo.
+UPDATE petra_media_estacion
+   SET url = '/panel' || url
+ WHERE url LIKE '/petra/media/%';
+
+-- Botones custom con ACCIÓN: por defecto 'enviar_texto' (envía texto_respuesta).
+--   'disparar_boton' + payload=<ONBAG_X>: el flow procesa como si pulsaran
+--   el botón default X (ej. ONBAG_LISTO avanza al próximo día de capacitación).
+ALTER TABLE petra_botones_estacion
+  ADD COLUMN IF NOT EXISTS accion TEXT NOT NULL DEFAULT 'enviar_texto';
+ALTER TABLE petra_botones_estacion
+  ADD COLUMN IF NOT EXISTS payload TEXT;

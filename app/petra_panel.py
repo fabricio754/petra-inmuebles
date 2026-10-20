@@ -501,9 +501,10 @@ def _guardar_archivo_media(file_storage, public_base_url=""):
         file_storage.save(destino)
     except Exception:
         return None
-    # URL pública relativa (el server tiene ruta /petra/media/<name>)
+    # URL pública relativa (el blueprint tiene url_prefix=/panel/petra, y la
+    # ruta `servir_media` responde en /media/<name> → ruta real /panel/petra/media/<name>).
     base = (public_base_url or os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
-    return f"{base}/petra/media/{nuevo}" if base else f"/petra/media/{nuevo}"
+    return f"{base}/panel/petra/media/{nuevo}" if base else f"/panel/petra/media/{nuevo}"
 
 
 @petra_panel_bp.get("/media/<name>")
@@ -1794,10 +1795,13 @@ def botones_custom_crear():
     clave_texto = (request.form.get("clave_texto") or "").strip() or None
     titulo = (request.form.get("titulo") or "").strip()
     texto_respuesta = (request.form.get("texto_respuesta") or "").strip()
+    accion = (request.form.get("accion") or "enviar_texto").strip()
+    payload = (request.form.get("payload") or "").strip() or None
     from app.petra_agents import botones_estacion as _b_est
     try:
         _b_est.crear_custom(estado_key, titulo, texto_respuesta,
-                            clave_texto=clave_texto)
+                            clave_texto=clave_texto,
+                            accion=accion, payload=payload)
     except ValueError as e:
         abort(400, str(e))
     return redirect(url_for(

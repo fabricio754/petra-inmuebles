@@ -1504,10 +1504,21 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         estado = meta.get("estado_agente", "recolectando")
 
         # Intercept de botones CUSTOM_<id> definidos desde el panel.
-        # Responden con `texto_respuesta` y mantienen el estado actual.
         if texto and texto.startswith("CUSTOM_"):
             info = _botones.resolver_custom(texto)
             if info:
+                accion = info.get("accion") or "enviar_texto"
+                if accion == "disparar_boton":
+                    # El botón custom dispara un botón del flow (ONBAG_*).
+                    # Re-entramos a _handle_core con el payload como `texto`,
+                    # así el flow lo procesa como si pulsaran el botón real.
+                    payload = (info.get("payload") or "").strip()
+                    if payload:
+                        _log(telefono, texto, f"[dispara {payload}]",
+                             nota=f"custom→disparar estado={estado}")
+                        return _handle_core(telefono, payload,
+                                            es_handoff=False, sesion_id=sesion_id)
+                # Default: enviar_texto
                 _enviar(telefono, info.get("texto_respuesta") or "")
                 _log(telefono, texto, info.get("texto_respuesta") or "",
                      nota=f"custom-boton estado={estado}")
