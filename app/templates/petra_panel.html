@@ -1111,7 +1111,7 @@
   <div class="texto-categoria">
     <h3>{{ categoria }}</h3>
     {% for t in textos_cat %}
-      <div class="texto-card">
+      <div class="texto-card" id="texto-{{ t.clave }}">
         <details>
           <summary>
             <span class="texto-clave">{{ t.clave }}</span>
@@ -1698,22 +1698,46 @@
 
 {% if tab == 'simulador' %}
 <style>
-  .flow-diagram {
+  .estacion-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+  .estacion {
     background: var(--surface, white); border: 1px solid var(--line, #e6e6e6);
-    border-radius: 10px; padding: 20px; margin-bottom: 20px;
-    overflow-x: auto;
+    border-radius: 10px; padding: 14px 16px;
+    border-left: 4px solid var(--line, #ccc);
+    transition: border-color .2s, background .2s;
   }
-  .flow-diagram h3 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase;
-    letter-spacing: .05em; color: var(--muted); }
-  .flow-diagram .mermaid { text-align: center; cursor: pointer; }
-  .flow-diagram .mermaid .node rect, .flow-diagram .mermaid .node polygon {
-    cursor: pointer;
+  .estacion.activa { border-left-color: var(--accent, #6b2fa5); background: var(--accent-soft, #f1e8fa); }
+  .estacion-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .estacion-nombre { font-weight: 700; font-size: 15px; }
+  .estacion-ctx { font-size: 13px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .estacion-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .estacion-actions button, .estacion-actions a.btn {
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    font-weight: 600; border: 1px solid var(--line, #ccc); background: transparent;
+    text-decoration: none; color: var(--fg); display: inline-flex; align-items: center; gap: 4px;
   }
-  .flow-diagram .mermaid .node.active rect {
-    stroke: var(--accent, #6b2fa5) !important; stroke-width: 3px !important;
-    fill: var(--accent-soft, #f1e8fa) !important;
+  .estacion-actions .btn-primary { background: var(--accent, #6b2fa5); color: white; border: 0; }
+  .estacion-detalle { margin-top: 12px; display: none; }
+  .estacion.open .estacion-detalle { display: block; }
+  .estacion-sect { margin-top: 12px; }
+  .estacion-sect h4 { margin: 0 0 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .texto-row {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+    padding: 8px 10px; background: #f8f8f8; border-radius: 6px; margin-bottom: 6px;
+    border-left: 2px solid #ddd;
   }
-  .flow-hint { font-size: 12px; color: var(--muted); margin-top: 8px; text-align: center; }
+  .texto-row.no-cargado { border-left-color: #f39c12; background: #fff8e1; }
+  .texto-row-body { flex: 1; min-width: 0; }
+  .texto-row-clave { font-family: ui-monospace, monospace; font-size: 11px; color: var(--accent, #6b2fa5); font-weight: 700; }
+  .texto-row-preview { font-size: 12px; color: var(--fg); margin-top: 4px; white-space: pre-wrap; line-height: 1.4; max-height: 100px; overflow: hidden; position: relative; }
+  .texto-row-preview.truncated::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 20px; background: linear-gradient(transparent, #f8f8f8); }
+  .texto-row-nopcargado { font-size: 12px; color: #b7791f; font-style: italic; }
+  .texto-row-edit { align-self: center; padding: 4px 10px; border-radius: 5px; font-size: 11px; background: var(--accent, #6b2fa5); color: white; border: 0; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  .transicion-row { font-size: 12px; color: var(--muted); padding: 4px 0; display: flex; gap: 6px; align-items: baseline; }
+  .transicion-row::before { content: '→'; color: var(--accent, #6b2fa5); font-weight: bold; }
+  .estacion-toggle { cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .estacion-toggle::before { content: '▸'; display: inline-block; transition: transform .2s; }
+  .estacion.open .estacion-toggle::before { transform: rotate(90deg); }
+  .estacion-arrow { text-align: center; color: var(--line); font-size: 20px; margin: -4px 0; }
   .sim-wrap { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
   @media (max-width: 820px) { .sim-wrap { grid-template-columns: 1fr; } }
   .sim-side { background: var(--surface, white); border: 1px solid var(--line, #e6e6e6); border-radius: 10px; padding: 16px; }
@@ -1743,75 +1767,72 @@
 <div style="margin-bottom:16px;">
   <h2 style="margin:0 0 4px;">🗺 Flujo del bot</h2>
   <p style="margin:0; color: var(--muted); font-size: 14px; max-width: 760px;">
-    Vista completa del journey de la agente. Clickeá un estado para saltar ahí
-    y probar sin tocar WhatsApp real.
+    Lista de todas las estaciones del journey. Expandí cualquiera para ver qué dice el bot ahí, editar sus textos, o probarla en el simulador.
   </p>
 </div>
 
-<div class="flow-diagram">
-  <h3>🗺 Mapa del journey</h3>
-  <div class="mermaid" id="flow-mermaid">
-flowchart TD
-  nuevo(["🆕 Nuevo<br/>sin rol"])
-  recolectando_vacio["📝 Recolectando<br/>pide 5 datos"]
-  inscrito["✅ Inscrita<br/>datos completos"]
-  bienvenida_enviada["🎬 Vio bienvenida<br/>esperando Empezar"]
-  en_capacitacion_dia3["📚 En capacitación<br/>día 1-6"]
-  capacitacion_casi_lista["🏁 Casi lista<br/>día 7"]
-  autorizacion_pendiente["📍 Autorización<br/>pendiente"]
-  kit_pendiente_direccion["📦 Pide dirección<br/>torre→apto→..."]
-  kit_pendiente_direccion_lista["📬 Dirección lista<br/>humano envía kit"]
-  kit_enviado["🚚 Kit en camino<br/>esperando QR"]
-  activa(["🚀 Activa<br/>fase operativa"])
+<div class="estacion-list">
+{% for p in sim_presets %}
+  <div class="estacion {% if p.key == sim_preset_actual %}activa open{% endif %}"
+       id="est-{{ p.key }}">
+    <div class="estacion-head">
+      <div style="flex:1; min-width:0;">
+        <div class="estacion-nombre">{{ loop.index }}. {{ p.label }}</div>
+        <div class="estacion-ctx">{{ p.contexto }}</div>
+        <span class="estacion-toggle" onclick="document.getElementById('est-{{ p.key }}').classList.toggle('open')">
+          Ver textos y transiciones ({{ p.textos|length }} mensajes)
+        </span>
+      </div>
+      <div class="estacion-actions">
+        <form method="POST" action="{{ url_for('petra_panel.simulador_reset') }}" style="margin:0;">
+          <input type="hidden" name="token" value="{{ token }}">
+          <input type="hidden" name="preset" value="{{ p.key }}">
+          <button type="submit" class="btn-primary">🧪 Probar</button>
+        </form>
+      </div>
+    </div>
 
-  nuevo -->|escribe cualquier cosa| recolectando_vacio
-  recolectando_vacio -->|5 datos + Registrarme| inscrito
-  inscrito -->|Ver próximos pasos| bienvenida_enviada
-  bienvenida_enviada -->|Empezar ahora| en_capacitacion_dia3
-  en_capacitacion_dia3 -->|7× Listo| capacitacion_casi_lista
-  capacitacion_casi_lista -->|último Listo| autorizacion_pendiente
-  autorizacion_pendiente -->|Iniciar → Ya tengo autorización| kit_pendiente_direccion
-  kit_pendiente_direccion -->|torre+apto+barrio+ciudad| kit_pendiente_direccion_lista
-  kit_pendiente_direccion_lista -->|humano marca enviado| kit_enviado
-  kit_enviado -->|Ya instalé el QR| activa
-
-  click nuevo call selectPreset("nuevo")
-  click recolectando_vacio call selectPreset("recolectando_vacio")
-  click inscrito call selectPreset("inscrito")
-  click bienvenida_enviada call selectPreset("bienvenida_enviada")
-  click en_capacitacion_dia3 call selectPreset("en_capacitacion_dia3")
-  click capacitacion_casi_lista call selectPreset("capacitacion_casi_lista")
-  click autorizacion_pendiente call selectPreset("autorizacion_pendiente")
-  click kit_pendiente_direccion call selectPreset("kit_pendiente_direccion")
-  click kit_pendiente_direccion_lista call selectPreset("kit_pendiente_direccion_lista")
-  click kit_enviado call selectPreset("kit_enviado")
-  click activa call selectPreset("activa")
-
-  classDef current fill:#f1e8fa,stroke:#6b2fa5,stroke-width:3px,color:#1a1420;
-  class {{ sim_preset_actual }} current;
+    <div class="estacion-detalle">
+      {% if p.textos %}
+        <div class="estacion-sect">
+          <h4>💬 Mensajes que envía el bot aquí</h4>
+          {% for t in p.textos %}
+            <div class="texto-row {% if not t.cargado %}no-cargado{% endif %}">
+              <div class="texto-row-body">
+                <div class="texto-row-clave">{{ t.clave }}</div>
+                {% if t.cargado %}
+                  <div class="texto-row-preview">{{ t.contenido }}</div>
+                {% else %}
+                  <div class="texto-row-nopcargado">⚠️ No cargado en DB — se usa el fallback hardcoded. Cargalo desde el tab Textos para poder editarlo.</div>
+                {% endif %}
+              </div>
+              <a class="texto-row-edit"
+                 href="?tab=textos&token={{ token }}#texto-{{ t.clave }}">
+                ✏️ Editar
+              </a>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% if p.transiciones %}
+        <div class="estacion-sect">
+          <h4>↷ Qué pasa después</h4>
+          {% for tr in p.transiciones %}
+            <div class="transicion-row">{{ tr }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
   </div>
-  <div class="flow-hint">💡 Clickeá cualquier nodo para probar el flujo desde ese estado.</div>
+  {% if not loop.last %}<div class="estacion-arrow">↓</div>{% endif %}
+{% endfor %}
 </div>
 
-<form id="preset-form" method="POST" action="{{ url_for('petra_panel.simulador_reset') }}" style="display:none;">
-  <input type="hidden" name="token" value="{{ token }}">
-  <input type="hidden" name="preset" id="preset-form-input">
-</form>
-
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
-<script>
-  if (typeof mermaid !== 'undefined') {
-    mermaid.initialize({ startOnLoad: true, theme: 'default',
-      flowchart: { curve: 'basis', padding: 15 } });
-  }
-  function selectPreset(key) {
-    document.getElementById('preset-form-input').value = key;
-    document.getElementById('preset-form').submit();
-  }
-</script>
-
-<div style="margin:24px 0 16px;">
-  <h3 style="margin:0 0 4px; font-size:16px;">🧪 Probá desde este estado</h3>
+<div style="margin:24px 0 16px; padding-top: 20px; border-top: 1px solid var(--line);">
+  <h3 style="margin:0 0 4px; font-size:16px;">🧪 Probá: estado actual del simulador</h3>
+  <p style="margin:0; color: var(--muted); font-size: 13px;">
+    Simulando como si fueras la agente en el estado seleccionado arriba.
+  </p>
 </div>
 
 <div class="sim-wrap">
