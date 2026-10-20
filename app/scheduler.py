@@ -671,7 +671,7 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
     _time.sleep(2)
     petra_wa.send_media_o_texto(telefono, videos[1][0], videos[1][1])
     _time.sleep(2)
-    from app.petra_agents.textos import t as _t_textos
+    from app.petra_agents.textos import t as _t_textos, boton as _t_textos_boton
     petra_wa.send_buttons(telefono, _t_textos(
         "capacitacion.msg_cron_diario",
         fallback=(
@@ -684,7 +684,8 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
             "Cuando los termines, apretá el botón 👇"
         ),
         dia_a_enviar=dia_a_enviar, max_dia=max_dia,
-    ), [{"id": "ONBAG_LISTO", "title": "✅ Listo"}])
+    ), [{"id": "ONBAG_LISTO",
+         "title": _t_textos_boton("ONBAG_LISTO", "✅ Listo")}])
 
     # Actualizar metadata
     meta["cap_dia_enviado"] = dia_a_enviar

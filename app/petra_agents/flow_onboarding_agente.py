@@ -21,7 +21,7 @@ Entrada: router llama handle(telefono, texto) cuando detecta que:
 import logging
 import re
 
-from app.petra_agents.textos import t as _t
+from app.petra_agents.textos import t as _t, boton as _b
 
 log = logging.getLogger("petra")
 
@@ -204,9 +204,9 @@ def _enviar_resumen(telefono, meta):
     petra_wa.send_buttons(
         telefono, _resumen_texto(meta),
         [
-            {"id": "ONBAG_CONFIRM",   "title": "✅ Registrarme"},
-            {"id": "ONBAG_CORREGIR",  "title": "✏️ Corregir"},
-            {"id": "ONBAG_CANCELAR",  "title": "❌ Cancelar"},
+            {"id": "ONBAG_CONFIRM", "title": _b("ONBAG_CONFIRM", "✅ Registrarme")},
+            {"id": "ONBAG_CORREGIR", "title": _b("ONBAG_CORREGIR", "✏️ Corregir")},
+            {"id": "ONBAG_CANCELAR", "title": _b("ONBAG_CANCELAR", "❌ Cancelar")},
         ],
     )
 
@@ -399,9 +399,9 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
             "6️⃣ *Registrar inventario* 🔑 — recibís llaves y revisás inmuebles.\n\n"
             "¿Arrancamos con los videos de hoy?"
         )
-        boton = ({"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}
+        boton = ({"id": "ONBAG_EMPEZAR_AHORA", "title": _b("ONBAG_EMPEZAR_AHORA", "Empezar ahora")}
                  if cap_v >= 2
-                 else {"id": "ONBAG_VER_VIDEOS_HOY", "title": "Ver videos de hoy"})
+                 else {"id": "ONBAG_VER_VIDEOS_HOY", "title": _b("ONBAG_VER_VIDEOS_HOY", "Ver videos de hoy")})
         petra_wa.send_buttons(telefono, journey, [boton])
         _log(telefono, texto, f"[journey + btn {boton['title']}]",
              nota=f"paso 1: journey enviado (cap_v{cap_v})")
@@ -472,7 +472,7 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
         petra_wa.send_buttons(telefono,
             f"Cuando {verbo} termines, pulsá el botón para arrancar con "
             "tu capacitación diaria. 💪",
-            [{"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}],
+            [{"id": "ONBAG_EMPEZAR_AHORA", "title": _b("ONBAG_EMPEZAR_AHORA", "Empezar ahora")}],
         )
         import datetime as _dt
         _set_estado(meta, "bienvenida_enviada")
@@ -485,7 +485,7 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
     # Cualquier otra cosa: re-mostrar el botón del paso actual
     petra_wa.send_buttons(telefono,
         f"Para continuar tu onboarding, pulsá el botón 👇",
-        [{"id": "ONBAG_VER_JOURNEY", "title": "Ver próximos pasos"}],
+        [{"id": "ONBAG_VER_JOURNEY", "title": _b("ONBAG_VER_JOURNEY", "Ver próximos pasos")}],
     )
     _log(telefono, texto, "[re-muestra btn Ver próximos pasos]",
          nota="fase inscrito: re-prompt")
@@ -1123,7 +1123,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                     "Pulsá el botón para arrancar 👇"
                 ),
             ), [
-                {"id": "ONBAG_INICIAR_AUTORIZACION", "title": "🚀 Iniciar"},
+                {"id": "ONBAG_INICIAR_AUTORIZACION", "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
             ])
             _log(telefono, texto, "[capacitación completa → esperando botón material/autorización]",
                  nota="capacitacion_completa → autorizacion_pendiente")
@@ -1241,7 +1241,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                 _tm.sleep(2)
                 _pwa.send_buttons(telefono,
                     "Cuando los termines, pulsá el botón 👇",
-                    [{"id": "ONBAG_LISTO", "title": "✅ Listo"}],
+                    [{"id": "ONBAG_LISTO", "title": _b("ONBAG_LISTO", "✅ Listo")}],
                 )
                 _log(telefono, texto, f"[reenvío día {dia_actual_env}]",
                      nota="reenvío manual por intención")
@@ -1324,7 +1324,7 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
     petra_wa.send_buttons(telefono, _t(
         "capacitacion.msg_recordatorio_empezar",
         fallback="Cuando termines de ver los videos, pulsá el botón para avanzar 🎬",
-    ), [{"id": "ONBAG_EMPEZAR_AHORA", "title": "Empezar ahora"}])
+    ), [{"id": "ONBAG_EMPEZAR_AHORA", "title": _b("ONBAG_EMPEZAR_AHORA", "Empezar ahora")}])
     _log(telefono, texto, "[recordatorio: btn Empezar ahora]",
          nota="bienvenida_enviada esperando confirmación")
     return True
@@ -1377,9 +1377,9 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                     "autorizacion.cta_botones",
                     fallback="Preparé material de apoyo para que lo lleves a la reunión 💜",
                 ), [
-                    {"id": "ONBAG_VER_MATERIAL", "title": "📎 Ver material"},
-                    {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
-                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
+                    {"id": "ONBAG_VER_MATERIAL", "title": _b("ONBAG_VER_MATERIAL", "📎 Ver material")},
+                    {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
+                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Ya tengo autorización")},
                 ])
                 _log(telefono, texto, "[iniciar autorización → 3 botones]",
                      nota="botón Iniciar")
@@ -1434,8 +1434,8 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                     "autorizacion.msg_post_material",
                     fallback="Cuando tengas la autorización del administrador, pulsá el botón 👇",
                 ), [
-                    {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
-                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
+                    {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
+                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Ya tengo autorización")},
                 ])
                 _log(telefono, texto, "[envío material autorización]",
                      nota="botón o palabra clave pidió material")
@@ -1546,7 +1546,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                 # Botón para avanzar al journey — user controla el ritmo
                 from app import petra_wa
                 petra_wa.send_buttons(telefono, felicitaciones, [
-                    {"id": "ONBAG_VER_JOURNEY", "title": "Ver próximos pasos"},
+                    {"id": "ONBAG_VER_JOURNEY", "title": _b("ONBAG_VER_JOURNEY", "Ver próximos pasos")},
                 ])
                 _log(telefono, texto, felicitaciones + " [+btn Ver próximos pasos]",
                      nota="REGISTRARME confirmado")

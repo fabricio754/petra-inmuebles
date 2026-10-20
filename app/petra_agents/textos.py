@@ -76,6 +76,17 @@ def t(clave, fallback=None, **variables):
         return contenido
 
 
+def boton(id_boton, titulo_default):
+    """Devuelve el título editable de un botón, con fallback al hardcode.
+    Convención: cada botón tiene una clave `boton.<id_lowercase>` en
+    petra_textos. El id del botón (ej. ONBAG_LISTO) sigue hardcoded en
+    el código porque los handlers del flow dependen de él, pero el
+    título visible lo editás desde el panel.
+    WhatsApp limita a 20 caracteres el título."""
+    clave = f"boton.{id_boton.lower()}"
+    return t(clave, fallback=titulo_default)[:20]
+
+
 def invalidar_cache(clave=None):
     """Fuerza re-lectura de DB. clave=None → limpia todo."""
     with _CACHE_LOCK:
@@ -453,6 +464,41 @@ SEED_TEXTOS = [
      "Agente que recibió kit pero no confirmó instalación en 72h+. "
      "Variable: nombre.",
      ["nombre"], "nudges"),
+
+    # ─── Botones (título visible — el ID queda fijo en código) ───
+    ("boton.onbag_confirm", "✅ Registrarme",
+     "Botón para confirmar los 5 datos de inscripción.", [], "botones"),
+    ("boton.onbag_corregir", "✏️ Corregir",
+     "Botón para corregir un dato del resumen.", [], "botones"),
+    ("boton.onbag_cancelar", "❌ Cancelar",
+     "Botón para cancelar la inscripción.", [], "botones"),
+    ("boton.onbag_ver_journey", "Ver próximos pasos",
+     "Botón para avanzar al journey después de inscribirse.", [], "botones"),
+    ("boton.onbag_empezar_ahora", "Empezar ahora",
+     "Botón para arrancar la capacitación sin esperar al cron 8am.",
+     [], "botones"),
+    ("boton.onbag_ver_videos_hoy", "Ver videos de hoy",
+     "Botón para ver los videos del día actual.", [], "botones"),
+    ("boton.onbag_listo", "✅ Listo",
+     "Botón para marcar que vio los 2 videos del día.", [], "botones"),
+    ("boton.onbag_iniciar_autorizacion", "🚀 Iniciar",
+     "Botón al terminar capacitación — arranca la gestión de autorización.",
+     [], "botones"),
+    ("boton.onbag_ver_material", "📎 Ver material",
+     "Botón para pedir el material de apoyo del admin.", [], "botones"),
+    ("boton.onbag_tengo_duda", "❓ Tengo una duda",
+     "Botón para pedir ayuda al LLM.", [], "botones"),
+    ("boton.onbag_ya_tengo_autorizacion", "✅ Ya tengo autoriz",
+     "Botón para confirmar que consiguió autorización del admin. "
+     "WhatsApp trunca a 20 chars.", [], "botones"),
+    ("boton.onbag_qr_instalado", "✅ Ya instalé el QR",
+     "Botón para confirmar que instaló el QR en el edificio.", [], "botones"),
+    ("boton.onbag_cita_puedo", "✅ Puedo",
+     "Botón para confirmar asistencia a una cita.", [], "botones"),
+    ("boton.onbag_cita_proponer", "📅 Proponer otro día",
+     "Botón para proponer otra fecha a una cita.", [], "botones"),
+    ("boton.onbag_cita_no_puedo", "❌ No puedo",
+     "Botón para rechazar una cita.", [], "botones"),
 
     # ─── Fallbacks genéricos ───
     ("fallback.llm_error",
