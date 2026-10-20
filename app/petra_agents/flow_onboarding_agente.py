@@ -469,10 +469,10 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             )
             _t_cap.sleep(1)
             _pwa_cap.send_buttons(telefono,
-                "Preparé material de apoyo para que lo lleves a la reunión 💜\n\n"
-                "¿Tenés alguna duda? Escribime y te respondo.",
+                "Preparé material de apoyo para que lo lleves a la reunión 💜",
                 [
                     {"id": "ONBAG_VER_MATERIAL", "title": "📎 Ver material"},
+                    {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
                     {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
                 ],
             )
@@ -741,12 +741,21 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                 _t_mat.sleep(1)
                 _enviar_material_autorizacion(conn, telefono)
                 _pwa_mat.send_buttons(telefono,
-                    "¿Tenés alguna duda? Escribime y te respondo 💜\n\n"
-                    "Y cuando tengas la autorización del administrador, pulsá el botón 👇",
-                    [{"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"}],
+                    "Cuando tengas la autorización del administrador, pulsá el botón 👇",
+                    [
+                        {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
+                        {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
+                    ],
                 )
                 _log(telefono, texto, "[envío material autorización]",
                      nota="botón o palabra clave pidió material")
+                return True
+            # Botón "❓ Tengo una duda" → prompt para que escriba la pregunta
+            if texto == "ONBAG_TENGO_DUDA":
+                _enviar(telefono,
+                    "¡Claro! 💜 Escribime tu pregunta y te respondo acá mismo.")
+                _log(telefono, texto, "[prompt escribir duda]",
+                     nota="botón tengo una duda")
                 return True
             # Pregunta libre → delegamos al LLM
             _log(telefono, texto, "[delegado a LLM autorizacion_pendiente]")
