@@ -1362,7 +1362,10 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                 _tm.sleep(2)
                 _send_buttons(telefono,
                     "Cuando los termines, pulsá el botón 👇",
-                    [{"id": "ONBAG_LISTO", "title": _b("ONBAG_LISTO", "✅ Listo")}],
+                    [
+                        {"id": "ONBAG_LISTO", "title": _b("ONBAG_LISTO", "✅ Listo")},
+                        {"id": "ONBAG_SIGUIENTE_DIA", "title": _b("ONBAG_SIGUIENTE_DIA", "⏭ Siguiente video")},
+                    ],
                     estado_key="en_capacitacion",
                 )
                 _log(telefono, texto, f"[reenvío día {dia_actual_env}]",
