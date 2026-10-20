@@ -482,6 +482,141 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
     return True
 
 
+DIRECCION_CAMPOS = ["torre", "apto", "barrio", "ciudad"]
+DIRECCION_PREGUNTAS = {
+    "torre": "activacion.pregunta_torre",
+    "apto": "activacion.pregunta_apto",
+    "barrio": "activacion.pregunta_barrio",
+    "ciudad": "activacion.pregunta_ciudad",
+}
+DIRECCION_FALLBACKS = {
+    "torre": "*¿En qué torre vivís?* (ej. Torre 3, Bloque A, etc. Si no aplica, respondé *N/A*)",
+    "apto": "Perfecto. *¿Cuál es tu apartamento?* (ej. 702, Apto 15B)",
+    "barrio": "¿En qué *barrio* está tu edificio?",
+    "ciudad": "Último dato — *¿En qué ciudad?*",
+}
+
+
+def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
+    """Captura dirección paso-a-paso para enviar el kit físico.
+    Al tener los 4 campos, pasa a estado 'direccion_capturada' (interno:
+    se queda como kit_pendiente hasta que humano marque 'enviado' en panel).
+    """
+    import datetime as _dt
+    paso = meta.get("direccion_paso")
+    direccion = meta.get("direccion") or {}
+    t_lc = (texto or "").lower().strip()
+
+    # ¿Pregunta libre no relacionada? → delega al LLM si es claramente duda
+    if texto and any(w in t_lc for w in (
+            "duda", "pregunta", "ayuda", "no entiendo", "por qué", "porque")):
+        _log(telefono, texto, "[kit_pendiente → LLM por pregunta libre]")
+        return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
+
+    # Si ya capturamos todo, le recordamos que estamos esperando el kit
+    if not paso and all(direccion.get(c) for c in DIRECCION_CAMPOS):
+        _enviar(telefono, _t(
+            "activacion.msg_direccion_completa",
+            fallback=(
+                "Tengo tu dirección completa 📍. Estamos preparando tu "
+                "kit — te avisamos acá cuando esté en camino 📦💜"
+            ),
+        ))
+        _log(telefono, texto, "[kit_pendiente: direccion ya completa]")
+        return True
+
+    # Capturamos el valor del paso actual
+    if paso in DIRECCION_CAMPOS and texto:
+        valor = texto.strip()
+        if len(valor) < 1 or len(valor) > 120:
+            _enviar(telefono, "Ese dato me parece raro. ¿Me lo mandás de nuevo?")
+            return True
+        direccion[paso] = valor
+        meta["direccion"] = direccion
+        # Próximo paso
+        faltantes = [c for c in DIRECCION_CAMPOS if not direccion.get(c)]
+        if faltantes:
+            prox = faltantes[0]
+            meta["direccion_paso"] = prox
+            _save_meta(conn, cid, meta)
+            _enviar(telefono, _t(
+                DIRECCION_PREGUNTAS[prox],
+                fallback=DIRECCION_FALLBACKS[prox],
+            ))
+            _log(telefono, texto, f"[kit_pendiente: capturó {paso}, pide {prox}]")
+            return True
+        # Terminó la captura
+        meta.pop("direccion_paso", None)
+        meta["direccion_capturada_at"] = _dt.datetime.utcnow().isoformat()
+        _save_meta(conn, cid, meta)
+        resumen = _formatear_direccion(direccion)
+        _enviar(telefono, _t(
+            "activacion.msg_direccion_completa",
+            fallback=(
+                "¡Listo! Tengo tu dirección 📍\n\n"
+                f"{resumen}\n\n"
+                "Estamos preparando tu kit (QR + regalito 💜). "
+                "Te avisamos acá cuando esté en camino 📦"
+            ),
+        ))
+        _log(telefono, texto, "[kit_pendiente: direccion completa capturada]")
+        return True
+
+    # Fallback: no sabemos qué paso toca → re-arrancamos preguntando el primero faltante
+    faltantes = [c for c in DIRECCION_CAMPOS if not direccion.get(c)]
+    if faltantes:
+        prox = faltantes[0]
+        meta["direccion_paso"] = prox
+        _save_meta(conn, cid, meta)
+        _enviar(telefono, _t(
+            DIRECCION_PREGUNTAS[prox],
+            fallback=DIRECCION_FALLBACKS[prox],
+        ))
+        _log(telefono, texto, f"[kit_pendiente: fallback pide {prox}]")
+        return True
+    return True
+
+
+def _formatear_direccion(direccion):
+    """Formatea el dict de dirección para mostrarle a la agente."""
+    partes = []
+    for k, label in [("torre", "Torre"), ("apto", "Apto"),
+                     ("barrio", "Barrio"), ("ciudad", "Ciudad")]:
+        v = (direccion.get(k) or "").strip()
+        if v and v.upper() != "N/A":
+            partes.append(f"*{label}:* {v}")
+    return "\n".join(partes)
+
+
+def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
+    """Humano ya marcó el kit como enviado desde panel. Esperamos que la
+    agente confirme que instaló el QR."""
+    import datetime as _dt
+    if texto == "ONBAG_QR_INSTALADO" or (texto or "").lower().strip() in (
+            "instalado", "instalado qr", "ya instale", "ya instalé",
+            "ya instalé el qr", "qr instalado", "listo", "ya"):
+        meta["estado_agente"] = "activa"
+        meta["activada_at"] = _dt.datetime.utcnow().isoformat()
+        _save_meta(conn, cid, meta)
+        _enviar(telefono, _t(
+            "activacion.msg_qr_instalado",
+            fallback=(
+                "🎉 *¡Felicitaciones! Ya sos una Agente Petra activa.* 💜\n\n"
+                "Tu QR está en tu edificio y los residentes ya pueden "
+                "escanearlo para contactarte. A partir de ahora te vamos "
+                "a avisar cada vez que llegue un interesado 📲\n\n"
+                "¡Mucho éxito! 🚀"
+            ),
+        ))
+        _log(telefono, texto, "[kit_enviado → activa]")
+        return True
+    # Pregunta libre → LLM
+    if texto:
+        _log(telefono, texto, "[kit_enviado → LLM]")
+        return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
+    return True
+
+
 def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None):
     """Fase: la agente está en capacitación activa. Los 12 videos se envían
     por cron a las 8am (2 por día x 6 días). Acá solo gestionamos
@@ -760,22 +895,25 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
             if texto == "ONBAG_YA_TENGO_AUTORIZACION" or (texto or "").lower().strip() in (
                 "autorizado", "autorizacion", "autorización", "tengo autorizacion",
                 "tengo autorización", "ya tengo"):
+                # Pasa a kit_pendiente y arranca captura de dirección
                 meta["estado_agente"] = "kit_pendiente"
+                meta["direccion_paso"] = "torre"
                 _save_meta(conn, cid, meta)
                 _enviar(telefono, _t(
-                    "autorizacion.msg_confirmada",
+                    "activacion.msg_pedir_direccion_inicio",
                     fallback=(
-                        "🎉 *¡Buenísimo!*\n\n"
-                        "📍 *Siguiente paso: Activar el QR* 📬\n\n"
-                        "Te vamos a enviar un kit con el QR y un regalito a la "
-                        "dirección de tu edificio. Te confirmamos acá cuando "
-                        "esté en camino.\n\n"
-                        "Mientras tanto, podés ir preparando: identificar "
-                        "propietarios interesados en tu conjunto, pensar qué "
-                        "inmuebles podrían salir, etc. 💜"
+                        "🎉 *¡Buenísimo! Ya tenés la autorización del "
+                        "administrador.*\n\n"
+                        "📦 *Siguiente paso: te enviamos tu kit* (QR + un "
+                        "regalito 💜)\n\n"
+                        "Necesito tu dirección exacta para enviártelo. "
+                        "Empecemos por lo primero:\n\n"
+                        "*¿En qué torre vivís?* (ej. Torre 3, Bloque A, etc. "
+                        "Si no aplica, respondé *N/A*)"
                     ),
                 ))
-                _log(telefono, texto, "[autorizacion confirmada → kit_pendiente]")
+                _log(telefono, texto,
+                     "[autorizacion confirmada → kit_pendiente/pide torre]")
                 return True
             # Botón "📎 Ver material" (nuevo) o palabra clave de reenvío.
             t_norm = (texto or "").lower().strip()
@@ -824,7 +962,17 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
             return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
         if estado == "kit_pendiente":
-            _log(telefono, texto, "[delegado a LLM kit_pendiente]")
+            return _fase_kit_pendiente(conn, telefono, cid, meta, texto,
+                                       sesion_id=sesion_id)
+
+        if estado == "kit_enviado":
+            return _fase_kit_enviado(conn, telefono, cid, meta, texto,
+                                     sesion_id=sesion_id)
+
+        if estado == "activa":
+            # Fase operativa — por ahora delega al LLM.
+            # Fases D (Citas) y E (Inventario) harán hooks aquí.
+            _log(telefono, texto, "[delegado a LLM activa]")
             return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
         if estado == "certificado":
