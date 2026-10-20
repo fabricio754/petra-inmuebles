@@ -1124,12 +1124,13 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             ))
             _t_cap.sleep(1)
             _pwa_cap.send_buttons(telefono, _t(
-                "autorizacion.cta_botones",
-                fallback="Preparé material de apoyo para que lo lleves a la reunión 💜",
+                "autorizacion.cta_iniciar",
+                fallback=(
+                    "📍 *Siguiente paso:* pulsá el botón para arrancar "
+                    "con la gestión de la autorización 💜"
+                ),
             ), [
-                {"id": "ONBAG_VER_MATERIAL", "title": "📎 Ver material"},
-                {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
-                {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
+                {"id": "ONBAG_INICIAR_AUTORIZACION", "title": "🚀 Iniciar"},
             ])
             _log(telefono, texto, "[capacitación completa → esperando botón material/autorización]",
                  nota="capacitacion_completa → autorizacion_pendiente")
@@ -1383,6 +1384,20 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
 
         # ─── Fase 4: autorización pendiente — esperando botón "✅ Ya tengo autorización" ───
         if estado == "autorizacion_pendiente":
+            # Botón "🚀 Iniciar" → muestra los 3 botones de autorización.
+            if texto == "ONBAG_INICIAR_AUTORIZACION":
+                from app import petra_wa as _pwa_ini
+                _pwa_ini.send_buttons(telefono, _t(
+                    "autorizacion.cta_botones",
+                    fallback="Preparé material de apoyo para que lo lleves a la reunión 💜",
+                ), [
+                    {"id": "ONBAG_VER_MATERIAL", "title": "📎 Ver material"},
+                    {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo una duda"},
+                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
+                ])
+                _log(telefono, texto, "[iniciar autorización → 3 botones]",
+                     nota="botón Iniciar")
+                return True
             if texto == "ONBAG_YA_TENGO_AUTORIZACION" or (texto or "").lower().strip() in (
                 "autorizado", "autorizacion", "autorización", "tengo autorizacion",
                 "tengo autorización", "ya tengo"):
