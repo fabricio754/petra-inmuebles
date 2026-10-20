@@ -458,22 +458,24 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             _save_meta(conn, cid, meta)
             from app import petra_wa as _pwa_cap
             import time as _t_cap
-            # Mensaje de felicitación + arranque del paso 3 del journey.
+            # Mensaje de felicitación + 2 botones: ver material / ya tengo autorización.
+            # El material se envía SOLO cuando pulsa el botón.
             _pwa_cap.send_text(telefono,
                 f"🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
                 "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
                 "📍 *Siguiente paso: Autorización del conjunto* 🏢\n\n"
                 "Ahora toca hablar con el administrador de tu edificio para "
-                "que te autorice a representar a Petra ahí. Te paso material "
-                "de apoyo 👇"
+                "que te autorice a representar a Petra ahí 👇"
             )
             _t_cap.sleep(1)
-            _enviar_material_autorizacion(conn, telefono)
             _pwa_cap.send_buttons(telefono,
-                "Cuando tengas la autorización del administrador, pulsá el botón 👇",
-                [{"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"}],
+                "Preparé material de apoyo para que lo lleves a la reunión 💜",
+                [
+                    {"id": "ONBAG_VER_MATERIAL", "title": "📎 Ver material"},
+                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"},
+                ],
             )
-            _log(telefono, texto, "[capacitación completa → autorización + recursos]",
+            _log(telefono, texto, "[capacitación completa → esperando botón material/autorización]",
                  nota="capacitacion_completa → autorizacion_pendiente")
             return True
         else:
@@ -721,7 +723,7 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                     "inmuebles podrían salir, etc. 💜")
                 _log(telefono, texto, "[autorizacion confirmada → kit_pendiente]")
                 return True
-            # ¿Pide reenvío del material de apoyo?
+            # Botón "📎 Ver material" (nuevo) o palabra clave de reenvío.
             t_norm = (texto or "").lower().strip()
             PALABRAS_REENVIO_MAT = (
                 "material", "materiales", "reenvi", "reenví", "mándame", "mandame",
@@ -729,10 +731,20 @@ def handle(telefono, texto, es_handoff=False, sesion_id=None):
                 "no llegó", "video", "videos", "demo", "pieza", "piezas", "gráfica",
                 "grafica", "ejemplo", "ejemplos", "apoyo",
             )
-            if any(p in t_norm for p in PALABRAS_REENVIO_MAT):
+            if texto == "ONBAG_VER_MATERIAL" or any(p in t_norm for p in PALABRAS_REENVIO_MAT):
+                from app import petra_wa as _pwa_mat
+                import time as _t_mat
+                _pwa_mat.send_text(telefono,
+                    "Perfecto 💜 Acá te paso el material de apoyo para que "
+                    "lo lleves a la reunión con el administrador:")
+                _t_mat.sleep(1)
                 _enviar_material_autorizacion(conn, telefono)
-                _log(telefono, texto, "[reenvío material autorización]",
-                     nota="palabra clave pidió reenviar material")
+                _pwa_mat.send_buttons(telefono,
+                    "Cuando tengas la autorización del administrador, pulsá el botón 👇",
+                    [{"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": "✅ Ya tengo autorización"}],
+                )
+                _log(telefono, texto, "[envío material autorización]",
+                     nota="botón o palabra clave pidió material")
                 return True
             # Pregunta libre → delegamos al LLM
             _log(telefono, texto, "[delegado a LLM autorizacion_pendiente]")
