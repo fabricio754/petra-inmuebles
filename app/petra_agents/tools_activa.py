@@ -307,6 +307,14 @@ HANDLERS = {
 }
 
 
+def _get_faqs_prompt():
+    try:
+        from app.petra_agents import faq_kb
+        return faq_kb.seccion_para_prompt()
+    except Exception:
+        return ""
+
+
 def build_system_prompt(meta, conn, cid):
     from app.petra_agents.flow_onboarding_agente import _fmt_fecha
     nombre = (meta.get("nombre") or "").split()[0] if meta.get("nombre") else ""
@@ -360,7 +368,7 @@ REGLAS DURAS:
 - 🚫 NUNCA confirmés/cancelés una cita sin que ella lo diga claro.
 - 🚫 NUNCA inventés visita_id, interesados, fechas, precios ni datos de inmueble que no estén en este prompt.
 - 🚫 NUNCA llamés capturar_datos_inmueble con preguntas o protestas ("ya te dije", "?").
-- 🚫 NUNCA menciones otros edificios ni otras agentes."""
+- 🚫 NUNCA menciones otros edificios ni otras agentes.""" + _get_faqs_prompt()
 
 
 def procesar(telefono, texto, cid, meta, conn, historial_prev=None):

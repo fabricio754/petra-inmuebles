@@ -139,6 +139,14 @@ HANDLERS = {
 
 # ===== System prompt =====
 
+def _get_faqs_prompt():
+    try:
+        from app.petra_agents import faq_kb
+        return faq_kb.seccion_para_prompt()
+    except Exception:
+        return ""
+
+
 def build_system_prompt(meta):
     nombre = (meta.get("nombre") or "").split()[0] if meta.get("nombre") else ""
     conjunto = meta.get("conjunto") or "tu edificio"
@@ -164,7 +172,7 @@ REGLAS DURAS:
 - 🚫 NUNCA afirmés que el admin la autorizó hasta llamar `marcar_tengo_autorizacion`.
 - 🚫 NUNCA menciones QR / dirección / kit — esas fases vienen después.
 - 🚫 NUNCA menciones conjuntos que no sean *{conjunto}* (el suyo).
-- ✅ Si no estás 100% seguro → "déjame averiguar y te confirmo", nunca inventes."""
+- ✅ Si no estás 100% seguro → "déjame averiguar y te confirmo", nunca inventes.""" + _get_faqs_prompt()
 
 
 # ===== Entry point =====
