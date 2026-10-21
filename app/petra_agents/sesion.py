@@ -150,15 +150,12 @@ def cerrar_inactivas_y_avisar():
                     log.exception("[sesion] cerrar id=%s fallo", sid)
     except Exception:
         log.exception("[sesion] cerrar_inactivas query fallo")
-    # Enviar aviso de despedida fuera de la transacción
+    # Cerramos la sesión en DB silenciosamente — NO mandamos aviso de
+    # despedida. En WhatsApp no existe el concepto de "sesión cerrada"
+    # para el usuario: es un chat continuo. Mandarle "voy a cerrar" cada
+    # vez que pasa 5 min sin escribir es ruido molesto que confunde.
+    # La sesión interna se abre sola con el próximo mensaje.
     for sid, tel in cerradas:
-        try:
-            petra_wa.send_text(tel,
-                "Voy a cerrar esta conversación por ahora 👋 "
-                "Vuelvenos a escribir cuando nos necesites — "
-                "siempre acá para ayudarte. ❤️")
-            log.info("[sesion] cerrada por inactividad sid=%s tel=%s",
-                     sid, tel)
-        except Exception:
-            log.exception("[sesion] aviso cierre fallo tel=%s", tel)
+        log.info("[sesion] cerrada por inactividad sid=%s tel=%s (silencioso)",
+                 sid, tel)
     return len(cerradas)
