@@ -683,125 +683,101 @@ DIRECCION_FALLBACKS = {
 
 
 def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
-    """Captura dirección paso-a-paso para enviar el kit físico.
-    Al tener los 4 campos, pasa a estado 'direccion_capturada' (interno:
-    se queda como kit_pendiente hasta que humano marque 'enviado' en panel).
+    """Captura la dirección COMPLETA en UN solo mensaje libre.
+    Al validar, avanza directo a kit_enviado y envía el bloque de
+    activación (confirmación + botón 'Ya instalé el QR').
     """
     import datetime as _dt
-    paso = meta.get("direccion_paso")
+    import re as _re
     direccion = meta.get("direccion") or {}
+    direccion_txt = meta.get("direccion_texto") or direccion.get("completa") or ""
     t_lc = (texto or "").lower().strip()
 
-    # Shortcut: la agente pregunta por su kit → le recordamos que estamos
-    # preparándolo (está en kit_pendiente, aún no salió). No avanza nada.
-    if not paso and t_lc in PALABRAS_KIT:
+    # Shortcut: la agente pregunta por su kit → recordatorio.
+    if direccion_txt and t_lc in PALABRAS_KIT:
         _sm(telefono,
             "activacion.msg_direccion_completa",
             fallback=(
                 "🎉 *¡Dirección confirmada!* 📍\n\n"
-                "Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís:\n\n"
-                "📦 Tu QR personalizado para pegar en el edificio\n"
-                "💜 Un regalito Petra para arrancar\n\n"
-                "Te aviso acá apenas salga en camino 🚚"
+                "Ya pedimos tu kit. En *2-3 días hábiles* te llega 🚚"
             ),
         )
         _log(telefono, texto, "[kit_pendiente: re-aviso por palabra clave]")
         return True
 
-    # ¿Pregunta libre no relacionada? → delega al LLM si es claramente duda
+    # Pregunta libre → delega al LLM.
     if texto and any(w in t_lc for w in (
             "duda", "pregunta", "ayuda", "no entiendo", "por qué", "porque")):
         _log(telefono, texto, "[kit_pendiente → LLM por pregunta libre]")
         return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
-    # Si ya capturamos todo, le recordamos que estamos esperando el kit
-    if not paso and all(direccion.get(c) for c in DIRECCION_CAMPOS):
+    if not texto:
+        return False
+
+    # Validación simple: dirección = texto libre con mín 6 chars y >=8
+    # chars útiles (letras/dígitos). Rechaza "?", "ok", emoji suelto.
+    v = texto.strip()
+    utiles = _re.sub(r"[^a-záéíóúñA-ZÁÉÍÓÚÑ0-9]", "", v)
+    sospechoso = any(s in t_lc for s in (
+        "?", "ya te", "ya les", "cuanto", "cuándo", "cómo", "dónde",
+        "disculp", "olvid", "no sé", "no se", "mandame"))
+    if len(v) < 6 or len(utiles) < 8 or sospechoso:
         _sm(telefono,
-            "activacion.msg_direccion_completa",
+            "activacion.msg_direccion_invalida",
             fallback=(
-                "🎉 *¡Dirección confirmada!* 📍\n\n"
-                "Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís:\n\n"
-                "📦 Tu QR personalizado para pegar en el edificio\n"
-                "💜 Un regalito Petra para arrancar\n\n"
-                "Te aviso acá apenas salga en camino 🚚\n\n"
-                "Mientras tanto, podés ir contándoles a los vecinos que vos vas "
-                "a ser la Agente Petra del conjunto 🏢✨"
+                "📍 Esa dirección no me quedó clara. Mandámela "
+                "*completa en un solo mensaje*, con todo lo que "
+                "tengas: torre o casa, apto, barrio y ciudad.\n\n"
+                "_Ejemplos:_\n"
+                "• _Torre 3 apto 702, Chapinero, Bogotá_\n"
+                "• _Casa 49, Portal del Norte, Zipaquirá_"
             ),
         )
-        _log(telefono, texto, "[kit_pendiente: direccion ya completa]")
+        _log(telefono, texto, "[kit_pendiente: dirección inválida — repide]")
         return True
 
-    # Capturamos el valor del paso actual
-    if paso in DIRECCION_CAMPOS and texto:
-        valor = texto.strip()
-        if len(valor) < 1 or len(valor) > 120:
-            _enviar(telefono, "Ese dato me parece raro. ¿Me lo mandás de nuevo?")
-            return True
-        direccion[paso] = valor
-        meta["direccion"] = direccion
-        # Próximo paso
-        faltantes = [c for c in DIRECCION_CAMPOS if not direccion.get(c)]
-        if faltantes:
-            prox = faltantes[0]
-            meta["direccion_paso"] = prox
-            _save_meta(conn, cid, meta)
-            _sm(telefono, 
-                DIRECCION_PREGUNTAS[prox],
-                fallback=DIRECCION_FALLBACKS[prox],
-            )
-            _log(telefono, texto, f"[kit_pendiente: capturó {paso}, pide {prox}]")
-            return True
-        # Terminó la captura — autonomía: avanzamos directo a kit_enviado y
-        # mandamos el bloque completo (videos + link QR + botón ✅ Ya instalé)
-        # sin esperar al cron de las 24h. El kit físico sigue viajando por
-        # courier, pero digitalmente la agente puede activarse ya.
-        meta.pop("direccion_paso", None)
-        meta["direccion_capturada_at"] = _dt.datetime.utcnow().isoformat()
-        _set_estado(meta, "kit_enviado")
-        meta["kit_enviado_at"] = _dt.datetime.utcnow().isoformat()
-        meta["kit_enviado_tras_direccion"] = True
-        _save_meta(conn, cid, meta)
-        resumen = _formatear_direccion(direccion)
-        _sm(telefono,
-            "activacion.msg_direccion_completa",
-            fallback=(
-                "🎉 *¡Dirección confirmada!* 📍\n\n"
-                f"{resumen}\n\n"
-                "Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís:\n\n"
-                "📦 Tu QR personalizado para pegar en el edificio\n"
-                "💜 Un regalito Petra para arrancar\n\n"
-                "Mientras tanto, mirá cómo se usa el QR y ya podés activarte 👇"
-            ),
-        )
-        # Los contenidos (Vid 2.0 + Tu QR único + Como usar el QR) ya se
-        # enviaron por _sm vía petra_media_estacion adjunto a esa clave.
-        # Agregamos solo el botón final ✅ Ya instalé el QR.
-        import time as _tm_d
-        _tm_d.sleep(1)
-        _send_buttons(telefono, _t(
-            "activacion.msg_qr_boton",
-            fallback="Cuando lo tengas instalado, pulsá el botón 👇",
-        ), [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}])
-        _log(telefono, texto, "[kit_pendiente: direccion → kit_enviado auto + bloque completo]")
-        return True
-
-    # Fallback: no sabemos qué paso toca → re-arrancamos preguntando el primero faltante
-    faltantes = [c for c in DIRECCION_CAMPOS if not direccion.get(c)]
-    if faltantes:
-        prox = faltantes[0]
-        meta["direccion_paso"] = prox
-        _save_meta(conn, cid, meta)
-        _sm(telefono, 
-            DIRECCION_PREGUNTAS[prox],
-            fallback=DIRECCION_FALLBACKS[prox],
-        )
-        _log(telefono, texto, f"[kit_pendiente: fallback pide {prox}]")
-        return True
+    # Dirección válida — guardamos y avanzamos.
+    limpio = v[:280]
+    meta["direccion"] = {"completa": limpio}
+    meta["direccion_texto"] = limpio
+    meta["direccion_capturada_at"] = _dt.datetime.utcnow().isoformat()
+    meta.pop("direccion_paso", None)
+    _set_estado(meta, "kit_enviado")
+    meta["kit_enviado_at"] = _dt.datetime.utcnow().isoformat()
+    meta["kit_enviado_tras_direccion"] = True
+    _save_meta(conn, cid, meta)
+    _sm(telefono,
+        "activacion.msg_direccion_completa",
+        fallback=(
+            "🎉 *¡Dirección confirmada!* 📍\n\n"
+            "Ya pedimos tu kit de activación 📦\n"
+            "En *2 a 3 días hábiles* te llega a esa dirección.\n\n"
+            "💜 Mientras tanto, podés seguir con tu capacitación."
+        ),
+    )
+    import time as _tm_d
+    _tm_d.sleep(1)
+    _send_buttons(telefono, _t(
+        "activacion.msg_qr_boton",
+        fallback=(
+            "Cuando el kit llegue y pegues el QR en el edificio, "
+            "pulsá el botón 👇"
+        ),
+    ), [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}])
+    _log(telefono, texto, "[kit_pendiente: direccion completa → kit_enviado]")
+    return True
     return True
 
 
 def _formatear_direccion(direccion):
-    """Formatea el dict de dirección para mostrarle a la agente."""
+    """Formatea la dirección para mostrarle a la agente.
+    Soporta formato nuevo ({'completa': '...'}) y legacy
+    ({torre, apto, barrio, ciudad})."""
+    if not direccion:
+        return ""
+    completa = (direccion.get("completa") or "").strip()
+    if completa:
+        return f"📍 *{completa}*"
     partes = []
     for k, label in [("torre", "Torre"), ("apto", "Apto"),
                      ("barrio", "Barrio"), ("ciudad", "Ciudad")]:
@@ -1741,7 +1717,9 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 return True
             if estado == "kit_pendiente":
                 direccion = meta.get("direccion") or {}
-                if all(direccion.get(c) for c in DIRECCION_CAMPOS):
+                direccion_txt = meta.get("direccion_texto") or direccion.get("completa")
+                tiene_direccion_vieja = all(direccion.get(c) for c in DIRECCION_CAMPOS)
+                if direccion_txt or tiene_direccion_vieja:
                     # Recovery: agente con dirección completa pero estado
                     # kit_pendiente (ej. flow viejo). Avanzamos a kit_enviado
                     # y mandamos el bloque completo (texto + media + botón).
@@ -1865,21 +1843,24 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             if texto == "ONBAG_YA_TENGO_AUTORIZACION" or (texto or "").lower().strip() in (
                 "autorizado", "autorizacion", "autorización", "tengo autorizacion",
                 "tengo autorización", "ya tengo"):
-                # Pasa a kit_pendiente y arranca captura de dirección
+                # Pasa a kit_pendiente — pedimos la dirección COMPLETA
+                # en un solo mensaje libre (sin flow per-campo).
                 _set_estado(meta, "kit_pendiente")
-                meta["direccion_paso"] = "torre"
+                meta.pop("direccion_paso", None)
                 _save_meta(conn, cid, meta)
-                _sm(telefono, 
+                _sm(telefono,
                     "activacion.msg_pedir_direccion_inicio",
                     fallback=(
-                        "🎉 *¡Buenísimo! Ya tenés la autorización del "
-                        "administrador.*\n\n"
-                        "📦 *Siguiente paso: te enviamos tu kit* (QR + un "
-                        "regalito 💜)\n\n"
-                        "Necesito tu dirección exacta para enviártelo. "
-                        "Empecemos por lo primero:\n\n"
-                        "*¿En qué torre vivís?* (ej. Torre 3, Bloque A, etc. "
-                        "Si no aplica, respondé *N/A*)"
+                        "🎉 *¡Buenísimo! Ya tenés la autorización del administrador* ✨\n\n"
+                        "📦 Ahora te enviamos tu *kit de activación* a tu casa:\n"
+                        "• Tu *QR físico* para pegar en el edificio 📱\n"
+                        "• Un *regalito* de bienvenida 💜\n\n"
+                        "📍 *Mandame la dirección de donde vivís* — en *un solo mensaje*, "
+                        "con todo lo que tengas: torre o casa, apto, barrio y ciudad.\n\n"
+                        "_Ejemplos:_\n"
+                        "• _Torre 3 apto 702, Chapinero, Bogotá_\n"
+                        "• _Casa 49, Portal del Norte, Zipaquirá_\n"
+                        "• _Apto 15B, Chicó, Bogotá_"
                     ),
                 )
                 _log(telefono, texto,

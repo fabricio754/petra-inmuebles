@@ -97,7 +97,7 @@ def handle_marcar_tengo_autorizacion(args, ctx):
     from app.petra_agents.flow_onboarding_agente import _set_estado, _sm
     meta = ctx["meta"]
     _set_estado(meta, "kit_pendiente")
-    meta["direccion_paso"] = "torre"
+    meta.pop("direccion_paso", None)
     meta["autorizacion_confirmada_at"] = _dt.datetime.utcnow().isoformat()
     ctx["conn"].execute(
         "UPDATE petra_contacto_roles SET metadata=%s::jsonb, updated_at=NOW() "
@@ -107,11 +107,13 @@ def handle_marcar_tengo_autorizacion(args, ctx):
     _sm(ctx["telefono"],
         "activacion.msg_pedir_direccion_inicio",
         fallback=(
-            "🎉 *¡Buenísimo! Ya tenés la autorización del administrador.*\n\n"
-            "📦 *Siguiente paso: te enviamos tu kit* (QR + un regalito 💜)\n\n"
-            "📍 *Mandame tu dirección completa en un solo mensaje*, "
+            "🎉 *¡Buenísimo! Ya tenés la autorización del administrador* ✨\n\n"
+            "📦 Ahora te enviamos tu *kit de activación* a tu casa:\n"
+            "• Tu *QR físico* para pegar en el edificio 📱\n"
+            "• Un *regalito* de bienvenida 💜\n\n"
+            "📍 *Mandame la dirección de donde vivís* — en *un solo mensaje*, "
             "con todo lo que tengas: torre o casa, apto, barrio y ciudad.\n\n"
-            "Ejemplos:\n"
+            "_Ejemplos:_\n"
             "• _Torre 3 apto 702, Chapinero, Bogotá_\n"
             "• _Casa 49, Portal del Norte, Zipaquirá_\n"
             "• _Apto 15B, Chicó, Bogotá_"

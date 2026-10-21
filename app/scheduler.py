@@ -578,9 +578,11 @@ def _petra_auto_marcar_kits_enviados():
     enviados = 0
     for cid, telefono, meta in rows:
         meta = dict(meta or {})
-        # Doble-check para no pasar sin dirección completa
+        # Doble-check para no pasar sin dirección capturada
         direccion = meta.get("direccion") or {}
-        if not all(direccion.get(c) for c in ("torre", "apto", "barrio", "ciudad")):
+        direccion_txt = meta.get("direccion_texto") or direccion.get("completa")
+        tiene_direccion_vieja = all(direccion.get(c) for c in ("torre", "apto", "barrio", "ciudad"))
+        if not direccion_txt and not tiene_direccion_vieja:
             continue
         try:
             # 1) estado → kit_enviado
