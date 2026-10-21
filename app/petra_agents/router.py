@@ -209,6 +209,17 @@ def _handle_locked(telefono, texto, button_id, list_id, contacto_nombre):
         )
         if handled:
             return {"ok": True, "flow": "onboarding_agente", "estado": estado}
+        # Si el flow determinístico NO manejó el mensaje (típico: botón
+        # ONBAG_* huérfano de otra fase, o algo imprevisto), NO caemos al
+        # orchestrator viejo — eso genera respuestas inconsistentes
+        # (mensajes "Un segundo, estoy revisando…" + texto que ignora el
+        # state real). Loggeamos y cerramos — un turno sin respuesta es
+        # mejor que una respuesta confusa.
+        log.warning("[router] flow no manejó mensaje tel=%s estado=%s texto=%r "
+                    "— sin fallback al orchestrator (evitamos UX inconsistente)",
+                    telefono, estado, (texto_efectivo or "")[:80])
+        return {"ok": True, "flow": "onboarding_agente", "estado": estado,
+                "no_manejado": True}
 
     # 5. Intent activo → delegar al sub-agente del intent sin re-clasificar.
     activo = intent_store.leer(telefono)

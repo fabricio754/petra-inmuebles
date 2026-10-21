@@ -120,6 +120,14 @@ def ejecutar_turno(telefono, texto, contexto, tools, handlers,
     if client is None:
         return {"ok": False, "fallo": "sin ANTHROPIC_API_KEY o SDK",
                 "texto_respuesta": None, "tools_llamadas": []}
+    # Guard: texto vacío (ej. reacciones de emoji o edits de Meta) hace que
+    # Anthropic devuelva 400 "user messages must have non-empty content".
+    # No tiene sentido ni llamar al LLM ni encolarlo — es un mensaje que
+    # no requiere respuesta.
+    if not (texto or "").strip():
+        log.info("[toolcalling] texto vacío tel=%s — skip (no se llama LLM)", telefono)
+        return {"ok": True, "texto_respuesta": None, "tools_llamadas": [],
+                "fallo": None, "ignorado_vacio": True}
     mensajes = list(historial_prev or [])
     mensajes.append({"role": "user", "content": texto})
     tools_llamadas = []
