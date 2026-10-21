@@ -703,9 +703,15 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
             )
             _log(telefono, texto, f"[kit_pendiente: capturó {paso}, pide {prox}]")
             return True
-        # Terminó la captura
+        # Terminó la captura — autonomía: avanzamos directo a kit_enviado y
+        # mandamos el bloque completo (videos + link QR + botón ✅ Ya instalé)
+        # sin esperar al cron de las 24h. El kit físico sigue viajando por
+        # courier, pero digitalmente la agente puede activarse ya.
         meta.pop("direccion_paso", None)
         meta["direccion_capturada_at"] = _dt.datetime.utcnow().isoformat()
+        _set_estado(meta, "kit_enviado")
+        meta["kit_enviado_at"] = _dt.datetime.utcnow().isoformat()
+        meta["kit_enviado_tras_direccion"] = True
         _save_meta(conn, cid, meta)
         resumen = _formatear_direccion(direccion)
         _sm(telefono,
@@ -716,12 +722,40 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
                 "Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís:\n\n"
                 "📦 Tu QR personalizado para pegar en el edificio\n"
                 "💜 Un regalito Petra para arrancar\n\n"
-                "Te aviso acá apenas salga en camino 🚚\n\n"
-                "Mientras tanto, podés ir contándoles a los vecinos que vos vas "
-                "a ser la Agente Petra del conjunto 🏢✨"
+                "Mientras tanto, mirá cómo se usa el QR y ya podés activarte 👇"
             ),
         )
-        _log(telefono, texto, "[kit_pendiente: direccion completa capturada]")
+        # Inline del bloque de activación (video + link QR + botón) sin
+        # repetir el preámbulo "tu kit ya está en camino" porque el msg de
+        # arriba ya cumple ese rol.
+        import time as _tm_d
+        from app import petra_wa as _pwa_d
+        _tm_d.sleep(1)
+        vid_row = conn.execute(
+            "SELECT titulo, url FROM petra_contenidos "
+            "WHERE tipo='video_como_usar_qr' AND activo=TRUE "
+            "ORDER BY orden LIMIT 1"
+        ).fetchone()
+        qr_row = conn.execute(
+            "SELECT e.qr_slug FROM petra_edificios e "
+            "JOIN petra_contacto_roles r ON r.edificio_id=e.id AND r.contacto_id=%s "
+            "AND r.rol='agente_petra' WHERE e.qr_slug IS NOT NULL LIMIT 1",
+            (cid,),
+        ).fetchone()
+        if vid_row:
+            _pwa_d.send_media_o_texto(telefono, vid_row[0], vid_row[1])
+            _tm_d.sleep(1)
+        if qr_row and qr_row[0]:
+            _pwa_d.send_text(
+                telefono,
+                f"🔗 Tu QR único: https://petra-inmuebles.onrender.com/qr/{qr_row[0]}",
+            )
+            _tm_d.sleep(1)
+        _send_buttons(telefono, _t(
+            "activacion.msg_qr_boton",
+            fallback="Cuando lo tengas instalado, pulsá el botón 👇",
+        ), [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}])
+        _log(telefono, texto, "[kit_pendiente: direccion → kit_enviado auto + bloque completo]")
         return True
 
     # Fallback: no sabemos qué paso toca → re-arrancamos preguntando el primero faltante
