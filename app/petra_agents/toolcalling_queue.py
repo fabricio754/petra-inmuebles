@@ -83,6 +83,14 @@ def _reintentar_fase(telefono, texto, cid, fase):
             from app.petra_agents import tools_kit as _tkit
             resultado = _tkit.procesar(telefono, texto, cid, meta, conn)
             return bool(resultado.get("ok"))
+        if fase == "capacitacion":
+            from app.petra_agents import tools_capacitacion as _tcap
+            resultado = _tcap.procesar(telefono, texto, cid, meta, conn)
+            return bool(resultado.get("ok"))
+        if fase == "activa":
+            from app.petra_agents import tools_activa as _tact
+            resultado = _tact.procesar(telefono, texto, cid, meta, conn)
+            return bool(resultado.get("ok"))
         # Otras fases: a medida que se migren, agregarlas acá
         log.warning("[tc-queue] fase desconocida=%s tel=%s", fase, telefono)
         return False
