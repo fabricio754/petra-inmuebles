@@ -1683,6 +1683,21 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         estado = meta.get("estado_agente", "recolectando")
 
+        # ─── Panel de control (atajo global) ──────────────────────────
+        # Si la agente escribe "panel", "menu", etc. — abrimos el menú
+        # con 4 opciones: mis inmuebles / mis citas / mi capacitación /
+        # pedir ayuda. Funciona en cualquier estado post-inscripción.
+        if _es_keyword_panel(texto) and estado not in ("recolectando",):
+            _mostrar_panel_control(telefono, meta)
+            _log(telefono, texto, "[panel-control abierto]")
+            return True
+        # También si pulsa un botón del list del panel.
+        if texto in ("ONBAG_PC_INMUEBLES", "ONBAG_PC_CITAS",
+                     "ONBAG_PC_CAPACITACION", "ONBAG_PC_AYUDA"):
+            if _handle_panel_control_boton(telefono, cid, meta, conn, texto):
+                _log(telefono, texto, f"[panel-control {texto}]")
+                return True
+
         # ─── Tool-calling (opt-in via env) ────────────────────────────
         # Si PETRA_TOOLCALLING_INSCRIPCION=1 y el agente está en fase de
         # inscripción (recolectando datos), delegamos al LLM con tools.
@@ -2136,3 +2151,211 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             _log(telefono, texto, _resumen_texto(meta) + " [+botones]",
                  nota="capturó último, muestra resumen")
         return True
+
+
+# =============================================================================
+# Panel de control para la agente — menú interactivo WhatsApp
+# =============================================================================
+
+def _es_keyword_panel(texto):
+    """True si el texto es un pedido de abrir el panel de control."""
+    t = (texto or "").strip().lower()
+    if not t:
+        return False
+    return t in (
+        "menu", "menú", "panel", "panel de control", "mi info",
+        "mi menu", "mi menú", "opciones", "ver menu", "ver menú",
+    )
+
+
+def _mostrar_panel_control(telefono, meta):
+    """Envía el menú list con las 4 opciones del panel personal."""
+    from app import petra_wa
+    nombre = (meta.get("nombre") or "").split()[0] if meta.get("nombre") else ""
+    saludo = f"¡Hola {nombre}!" if nombre else "¡Hola!"
+    body = (
+        f"{saludo} 💜\n\n"
+        f"Este es tu *panel de control*. Elegí qué querés ver:"
+    )
+    sections = [{
+        "title": "Mi cuenta",
+        "rows": [
+            {"id": "ONBAG_PC_INMUEBLES",
+             "title": "🏠 Mis inmuebles",
+             "description": "Ver los inmuebles cargados en tu edificio"},
+            {"id": "ONBAG_PC_CITAS",
+             "title": "📅 Mis citas",
+             "description": "Visitas próximas y pasadas"},
+            {"id": "ONBAG_PC_CAPACITACION",
+             "title": "🎓 Mi capacitación",
+             "description": "Progreso y volver a ver videos"},
+            {"id": "ONBAG_PC_AYUDA",
+             "title": "💬 Pedir ayuda",
+             "description": "Hacer una pregunta o reportar algo"},
+        ],
+    }]
+    try:
+        petra_wa.send_list(telefono, body, "Ver opciones", sections)
+    except Exception:
+        log.exception("[panel-control] send fallo tel=%s", telefono)
+        # Fallback a texto si falla el list
+        petra_wa.send_text(telefono, body + (
+            "\n\n• 🏠 Escribí *mis inmuebles*\n"
+            "• 📅 Escribí *mis citas*\n"
+            "• 🎓 Escribí *mi capacitación*\n"
+            "• 💬 Escribí *pedir ayuda*"
+        ))
+
+
+def _mostrar_mis_inmuebles(telefono, cid, conn):
+    from app import petra_wa
+    try:
+        rows = conn.execute(
+            "SELECT id, modalidad, torre, piso, area_m2, "
+            "       COALESCE(precio_millones, precio_arriendo_mensual_millones) AS precio, "
+            "       estado "
+            "FROM petra_inmuebles WHERE contacto_id=%s "
+            "ORDER BY id DESC LIMIT 10", (cid,),
+        ).fetchall()
+    except Exception:
+        log.exception("[panel-control] inmuebles query fallo cid=%s", cid)
+        rows = []
+    if not rows:
+        texto = (
+            "📭 *No tenés inmuebles cargados todavía.*\n\n"
+            "Cuando quieras cargar uno, escribime *cargar inmueble* y te "
+            "guío por los datos (son 10 campos, 2 min)."
+        )
+    else:
+        lineas = [f"🏠 *Tus inmuebles ({len(rows)})*", ""]
+        for r in rows:
+            inm_id, modalidad, torre, piso, area, precio, estado = r
+            parts = []
+            if torre:
+                parts.append(f"Torre {torre}")
+            if piso:
+                parts.append(f"piso {piso}")
+            if area:
+                parts.append(f"{area}m²")
+            precio_txt = (f" · {precio}M" if precio else "")
+            modalidad_emoji = "💰" if modalidad == "venta" else "🔑"
+            lineas.append(
+                f"{modalidad_emoji} #{inm_id} — {modalidad or '-'}"
+                f"{(': ' + ', '.join(parts)) if parts else ''}"
+                f"{precio_txt}"
+                f" _[{estado}]_"
+            )
+        lineas.append("")
+        lineas.append("_Escribime *cargar inmueble* para sumar otro._")
+        texto = "\n".join(lineas)
+    petra_wa.send_text(telefono, texto)
+
+
+def _mostrar_mis_citas(telefono, cid, conn):
+    from app import petra_wa
+    try:
+        rows = conn.execute(
+            "SELECT v.id, v.programada_at, v.estado, "
+            "       COALESCE(ci.nombre, '(sin interesado)') AS interesado, "
+            "       v.inmueble_id "
+            "FROM petra_visitas v "
+            "LEFT JOIN petra_contactos ci ON ci.id = v.interesado_id "
+            "WHERE v.agente_id=%s "
+            "ORDER BY v.programada_at DESC NULLS LAST LIMIT 10", (cid,),
+        ).fetchall()
+    except Exception:
+        log.exception("[panel-control] citas query fallo cid=%s", cid)
+        rows = []
+    if not rows:
+        texto = (
+            "📭 *No tenés citas todavía.*\n\n"
+            "Cuando llegue un interesado y pida visita, te aviso por "
+            "acá para que la confirmes 📅"
+        )
+    else:
+        lineas = [f"📅 *Tus citas ({len(rows)})*", ""]
+        for vid, cuando, estado, interesado, inm_id in rows:
+            fecha = _fmt_fecha(cuando) if cuando else "(sin fecha)"
+            estado_emoji = {
+                "programada": "⏳",
+                "confirmada": "✅",
+                "realizada": "✓",
+                "cancelada": "❌",
+                "no_show": "👻",
+            }.get(estado, "•")
+            lineas.append(
+                f"{estado_emoji} #{vid} — {interesado}\n"
+                f"   📆 {fecha} · _{estado}_"
+                + (f" · inm#{inm_id}" if inm_id else "")
+            )
+        lineas.append("")
+        lineas.append("_Para responder una cita puntual, escribime el número ej. 'cita 7'._")
+        texto = "\n".join(lineas)
+    petra_wa.send_text(telefono, texto)
+
+
+def _mostrar_mi_capacitacion(telefono, meta):
+    from app import petra_wa
+    vistos = int(meta.get("videos_vistos", 0) or 0)
+    cap_v = int(meta.get("cap_version", 1) or 1)
+    total = 14 if cap_v >= 2 else 12
+    dia_enviado = int(meta.get("cap_dia_enviado", 0) or 0)
+    pct = int((vistos / total) * 100) if total else 0
+    estado = meta.get("estado_agente", "")
+    if estado == "en_capacitacion":
+        extra = (
+            f"\n📅 Último día enviado: *día {dia_enviado}*\n"
+            f"Mañana a las 8am te mando los próximos. "
+            f"Si querés adelantar escribime *ver día siguiente*."
+        )
+    elif vistos >= total:
+        extra = "\n🎉 *¡Capacitación completa!*"
+    elif estado in ("autorizacion_pendiente", "kit_pendiente", "kit_enviado", "activa"):
+        extra = (
+            "\n✅ *Ya terminaste la capacitación.*\n"
+            "Si querés volver a ver un video escribime *ver video día X* "
+            "(ej. 'ver video día 3')."
+        )
+    else:
+        extra = ""
+    barra_llenos = int(pct / 10)
+    barra = "🟪" * barra_llenos + "⬜" * (10 - barra_llenos)
+    texto = (
+        f"🎓 *Mi capacitación*\n\n"
+        f"Videos vistos: *{vistos}/{total}* ({pct}%)\n"
+        f"{barra}"
+        f"{extra}"
+    )
+    petra_wa.send_text(telefono, texto)
+
+
+def _mostrar_pedir_ayuda(telefono):
+    from app import petra_wa
+    texto = (
+        "💬 *¿En qué te puedo ayudar?*\n\n"
+        "Escribime tu duda en una línea y te respondo. Ejemplos:\n\n"
+        "• _¿cuánto gano por una venta?_\n"
+        "• _¿cómo le hablo al admin?_\n"
+        "• _no me llegó el kit_\n"
+        "• _necesito corregir un dato_\n\n"
+        "Si querés hablar con alguien del equipo, escribime "
+        "*hablar con alguien* y te derivo."
+    )
+    petra_wa.send_text(telefono, texto)
+
+
+def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
+    """Despacha los IDs del panel de control. Devuelve True si manejó algo."""
+    if boton_id == "ONBAG_PC_INMUEBLES":
+        _mostrar_mis_inmuebles(telefono, cid, conn)
+        return True
+    if boton_id == "ONBAG_PC_CITAS":
+        _mostrar_mis_citas(telefono, cid, conn)
+        return True
+    if boton_id == "ONBAG_PC_CAPACITACION":
+        _mostrar_mi_capacitacion(telefono, meta)
+        return True
+    if boton_id == "ONBAG_PC_AYUDA":
+        _mostrar_pedir_ayuda(telefono)
+        return True
+    return False
