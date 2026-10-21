@@ -1720,6 +1720,12 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         # con botones [✅ Autorización / ❓ Tengo una duda]. Está acá
         # al principio para que no lo intercepte ningún otro bloque.
         if (texto or "").lower().strip() == "suerte" and (telefono or "").endswith("3227057375"):
+            # Forzamos estado a autorizacion_pendiente para que los
+            # botones ✅ Autorización / ❓ Tengo una duda que vienen a
+            # continuación tengan handler y no caigan al LLM.
+            _set_estado(meta, "autorizacion_pendiente")
+            _save_meta(conn, cid, meta)
+            estado = "autorizacion_pendiente"
             _send_buttons(
                 telefono,
                 _t(
