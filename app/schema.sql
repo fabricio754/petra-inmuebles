@@ -1373,3 +1373,30 @@ ALTER TABLE petra_botones_estacion
   ADD COLUMN IF NOT EXISTS accion TEXT NOT NULL DEFAULT 'enviar_texto';
 ALTER TABLE petra_botones_estacion
   ADD COLUMN IF NOT EXISTS payload TEXT;
+
+-- Observabilidad del tool-calling.
+-- Cada turno del LLM que resulta en una llamada a tool deja una fila acá.
+-- Permite ver qué está haciendo el bot sin leer logs línea por línea:
+--   - qué tools fallan, qué prompts confunden al modelo
+--   - cuánto tarda cada turno end-to-end
+--   - una agente puntual se trabó → qué pasó en sus últimos turnos
+CREATE TABLE IF NOT EXISTS petra_tool_calls (
+  id             BIGSERIAL PRIMARY KEY,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  telefono       TEXT NOT NULL,
+  cid            INTEGER,
+  fase           TEXT NOT NULL,          -- inscripcion | autorizacion | kit | capacitacion | activa
+  mensaje_user   TEXT,                   -- lo que mandó la agente (truncado)
+  tool_nombre    TEXT NOT NULL,          -- marcar_tengo_autorizacion, etc.
+  tool_args      JSONB,                  -- lo que el LLM pasó a la tool
+  tool_resultado JSONB,                  -- lo que el handler devolvió
+  ok             BOOLEAN NOT NULL,       -- false si el handler devolvió error
+  latencia_ms    INTEGER,                -- cuánto tardó el turno LLM+tool
+  modelo         TEXT                    -- claude-haiku-4-5 u otro
+);
+CREATE INDEX IF NOT EXISTS petra_tool_calls_tel_idx
+  ON petra_tool_calls (telefono, created_at DESC);
+CREATE INDEX IF NOT EXISTS petra_tool_calls_fase_idx
+  ON petra_tool_calls (fase, created_at DESC);
+CREATE INDEX IF NOT EXISTS petra_tool_calls_tool_idx
+  ON petra_tool_calls (tool_nombre, created_at DESC);

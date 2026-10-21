@@ -423,6 +423,7 @@ def procesar(telefono, texto, cid, meta, conn, historial_prev=None):
         telefono=telefono, texto=texto, contexto=ctx,
         tools=TOOLS, handlers=HANDLERS,
         system_prompt=system_prompt, historial_prev=historial_prev,
+        fase="inscripcion",
     )
     if resultado.get("texto_respuesta"):
         try:
