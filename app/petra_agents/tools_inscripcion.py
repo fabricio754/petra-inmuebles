@@ -194,6 +194,8 @@ def handle_capturar_datos(args, ctx):
         "guardados": guardados,
         "rechazados": rechazados,
         "faltantes": faltantes,
+        "ya_guardados": [c for c in CAMPOS if meta.get(c)],
+        "proximo_a_pedir": NOMBRE_CAMPO[faltantes[0]] if faltantes else None,
         "todos_completos": not faltantes,
     }
 
@@ -317,8 +319,11 @@ REGLAS DURAS (nunca romper):
 - 🚫 NO AFIRMÉS QUE ALGO DEL FLOW PASÓ hasta llamar la tool correspondiente. No digas "ya te registré" si no llamaste `confirmar_registro`. No digas "generé tu QR" (eso es otra fase, acá no toca).
 - 🚫 NO MENCIONES autorización, QR, kit, dirección — nada de eso aplica en esta fase.
 - 🚫 NO HABLÉS de otras agentes ni menciones nombres de otros conjuntos (ej. "Condominio Monaco") a menos que la agente misma te lo haya dicho AHORA.
+- 🚫 NUNCA LISTES varios campos pendientes en el mismo mensaje. UNO solo por turno.
+- 🚫 NUNCA RE-PIDAS un dato que ya tenés capturado (mirá "DATOS ACTUALES" arriba y el campo `ya_guardados` del resultado de la tool).
 - ✅ Tono: cálido, breve, voseo rioplatense (vos, tenés, mandame). Emoji con mesura.
-- ✅ Si capturaste un dato pero faltan más, pedí el próximo pendiente de forma natural (no robótica).
+- ✅ Después de llamar `capturar_datos_personales`, mirá el campo `proximo_a_pedir` del resultado y pedí EXACTAMENTE ese UNO, en una frase corta y natural (no listes todos los pendientes, no inventes otros).
+- ✅ Si `todos_completos: true`, llamá `mostrar_resumen_datos`.
 - ✅ Si lo que te dio es sospechoso (pregunta, protesta, emoji suelto), pedí de nuevo con un ejemplo: "No me quedó claro — mandame tu nombre y apellido como ejemplo: Juana Pérez"."""
 
 
