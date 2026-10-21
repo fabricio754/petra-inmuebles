@@ -25,6 +25,39 @@ NOMBRE_CAMPO = {
     "conjunto": "conjunto / edificio",
 }
 
+# Pregunta templateada por campo (editable en petra_textos vía clave).
+# Mantiene el bot predecible y evita que el LLM alucine qué pedir.
+PREGUNTA_CAMPO = {
+    "nombre": ("inscripcion.pedir_nombre",
+               "¿Cuál es tu *nombre completo*? (nombre y apellido) 👤"),
+    "cedula": ("inscripcion.pedir_cedula",
+               "¿Cuál es tu *cédula*? (solo los números) 🪪"),
+    "ciudad": ("inscripcion.pedir_ciudad",
+               "¿En qué *ciudad* vivís? 🏙️"),
+    "barrio": ("inscripcion.pedir_barrio",
+               "¿En qué *barrio* vivís? 📍"),
+    "conjunto": ("inscripcion.pedir_conjunto",
+                 "¿Cómo se llama tu *conjunto o edificio*? 🏢"),
+}
+
+# Mensaje de confirmación cuando capturamos un dato. {valor} = lo guardado.
+CONFIRMACION_CAMPO = {
+    "nombre": ("inscripcion.ok_nombre", "✅ Perfecto, {valor}."),
+    "cedula": ("inscripcion.ok_cedula", "✅ Perfecto, guardé tu cédula."),
+    "ciudad": ("inscripcion.ok_ciudad", "✅ Perfecto, tu ciudad es {valor}."),
+    "barrio": ("inscripcion.ok_barrio", "✅ Anotado el barrio {valor}."),
+    "conjunto": ("inscripcion.ok_conjunto", "✅ Anotado {valor}."),
+}
+
+# Mensaje de rechazo cuando el dato no es válido.
+RECHAZO_CAMPO = {
+    "nombre": "No me quedó claro tu nombre. Mandámelo como *Juana Pérez* (nombre + apellido) 🙏",
+    "cedula": "La cédula tiene que ser solo números, entre 6 y 12 dígitos. Mandámela de nuevo 🙏",
+    "ciudad": "No me quedó claro cuál es tu ciudad. Decímelo con una palabra (ej. *Bogotá*) 🙏",
+    "barrio": "No me quedó claro cuál es tu barrio. Mandámelo como el nombre nomás (ej. *Chapinero*) 🙏",
+    "conjunto": "No me quedó claro el nombre del conjunto. Mandámelo como aparece en la entrada (ej. *Torres del Parque*) 🙏",
+}
+
 
 # ===== Definición de tools (schema Anthropic) =====
 
@@ -174,7 +207,12 @@ def _save_meta(conn, cid, meta):
 
 
 def handle_capturar_datos(args, ctx):
-    """Guarda los campos pasados en args. Rechaza los sospechosos."""
+    """Guarda los campos pasados en args, rechaza los sospechosos, y
+    responde al user con un mensaje templateado (confirmación + próxima
+    pregunta). El LLM NO escribe texto en este turno — así evitamos
+    alucinaciones (ej. re-pedir cédula ya guardada, listar campos de más)."""
+    from app import petra_wa
+    from app.petra_agents.textos import t as _t
     meta = ctx["meta"]
     guardados = {}
     rechazados = {}
@@ -190,14 +228,55 @@ def handle_capturar_datos(args, ctx):
     if guardados:
         _save_meta(ctx["conn"], ctx["cid"], meta)
     faltantes = [c for c in CAMPOS if not meta.get(c)]
-    return {
-        "guardados": guardados,
-        "rechazados": rechazados,
-        "faltantes": faltantes,
-        "ya_guardados": [c for c in CAMPOS if meta.get(c)],
-        "proximo_a_pedir": NOMBRE_CAMPO[faltantes[0]] if faltantes else None,
-        "todos_completos": not faltantes,
-    }
+
+    # Si no capturamos ni rechazamos nada (args vacío o campos desconocidos),
+    # dejamos que el LLM responda — el user no mandó un dato real.
+    if not guardados and not rechazados:
+        return {"guardados": {}, "rechazados": {}, "faltantes": faltantes,
+                "ya_guardados": [c for c in CAMPOS if meta.get(c)],
+                "proximo_a_pedir": NOMBRE_CAMPO[faltantes[0]] if faltantes else None,
+                "todos_completos": not faltantes,
+                "nota": "no se guardo nada — explicá al user qué necesitás"}
+
+    # Armamos el mensaje: 1 línea por guardado + 1 línea por rechazado +
+    # pregunta por el próximo campo pendiente.
+    partes = []
+    for campo, valor in guardados.items():
+        clave, fallback = CONFIRMACION_CAMPO[campo]
+        partes.append(_t(clave, fallback=fallback, valor=valor))
+    for campo, _err in rechazados.items():
+        partes.append(RECHAZO_CAMPO[campo])
+
+    if faltantes:
+        prox = faltantes[0]
+        clave, fallback = PREGUNTA_CAMPO[prox]
+        # Si no hay guardados pero sí rechazados, no agregamos la pregunta
+        # (ya está pedida en el mensaje de rechazo). Si hay guardados,
+        # pedimos el próximo campo pendiente.
+        if guardados:
+            partes.append(_t(clave, fallback=fallback))
+        mensaje = "\n\n".join(partes)
+        try:
+            petra_wa.send_text(ctx["telefono"], mensaje)
+        except Exception:
+            log.exception("[tools_inscripcion] send fallo tel=%s", ctx["telefono"])
+        return {"ok": True, "guardados": guardados, "rechazados": rechazados,
+                "faltantes": faltantes,
+                "proximo_pedido": NOMBRE_CAMPO[prox],
+                "_silenciar_llm": True}
+
+    # Todos los campos capturados → disparamos el resumen con botones.
+    try:
+        petra_wa.send_text(ctx["telefono"], "\n\n".join(partes))
+    except Exception:
+        log.exception("[tools_inscripcion] send fallo tel=%s", ctx["telefono"])
+    try:
+        from app.petra_agents.flow_onboarding_agente import _enviar_resumen
+        _enviar_resumen(ctx["telefono"], meta)
+    except Exception:
+        log.exception("[tools_inscripcion] resumen fallo tel=%s", ctx["telefono"])
+    return {"ok": True, "guardados": guardados, "rechazados": rechazados,
+            "todos_completos": True, "_silenciar_llm": True}
 
 
 def handle_confirmar_registro(args, ctx):
@@ -305,26 +384,29 @@ nombre completo, cédula, ciudad, barrio, y nombre del conjunto/edificio donde v
 
 ESTADO: {estado_str}
 
-TU TRABAJO:
-1. Si la agente te da uno o más datos → llamá tool `capturar_datos_personales` (podés guardar varios campos a la vez si vinieron juntos).
-2. Si todos los campos ya están completos → llamá tool `mostrar_resumen_datos` para que vea el resumen con los botones.
-3. Si pulsó el botón "Registrarme" (texto exacto "ONBAG_CONFIRM" o escribió "registrarme"/"confirmo") Y todos los datos están → llamá `confirmar_registro`.
-4. Si pulsó "Corregir" o pide cambiar un dato → llamá `corregir_dato` con el campo.
-5. Si pulsó "Cancelar" o explícitamente dice no querer → llamá `cancelar_inscripcion`.
-6. Si tiene una duda sobre Petra (qué son las comisiones, cuánto tiempo lleva, etc.) → respondé con texto natural, SIN llamar tool.
-7. Si no sabés qué hacer → llamá `escalar_a_humano`.
+TU ÚNICO TRABAJO ES LLAMAR LA TOOL CORRECTA. El bot responde solo (templates), vos NO escribís texto cuando llamás una tool.
 
-REGLAS DURAS (nunca romper):
-- 🚫 NO INVENTES DATOS. Si te da algo que no parece válido (ej. "ya te lo dije", "¿cuánto se demora?", "si"), NO guardes nada: pedile aclaración por texto.
-- 🚫 NO AFIRMÉS QUE ALGO DEL FLOW PASÓ hasta llamar la tool correspondiente. No digas "ya te registré" si no llamaste `confirmar_registro`. No digas "generé tu QR" (eso es otra fase, acá no toca).
-- 🚫 NO MENCIONES autorización, QR, kit, dirección — nada de eso aplica en esta fase.
-- 🚫 NO HABLÉS de otras agentes ni menciones nombres de otros conjuntos (ej. "Condominio Monaco") a menos que la agente misma te lo haya dicho AHORA.
-- 🚫 NUNCA LISTES varios campos pendientes en el mismo mensaje. UNO solo por turno.
-- 🚫 NUNCA RE-PIDAS un dato que ya tenés capturado (mirá "DATOS ACTUALES" arriba y el campo `ya_guardados` del resultado de la tool).
-- ✅ Tono: cálido, breve, voseo rioplatense (vos, tenés, mandame). Emoji con mesura.
-- ✅ Después de llamar `capturar_datos_personales`, mirá el campo `proximo_a_pedir` del resultado y pedí EXACTAMENTE ese UNO, en una frase corta y natural (no listes todos los pendientes, no inventes otros).
-- ✅ Si `todos_completos: true`, llamá `mostrar_resumen_datos`.
-- ✅ Si lo que te dio es sospechoso (pregunta, protesta, emoji suelto), pedí de nuevo con un ejemplo: "No me quedó claro — mandame tu nombre y apellido como ejemplo: Juana Pérez"."""
+CUÁNDO LLAMAR CADA TOOL:
+1. La agente te manda uno o más datos (nombre, cédula, ciudad, barrio, conjunto) → `capturar_datos_personales` con los campos que vinieron. Podés mandar varios si vinieron juntos. El bot ya se encarga de confirmar y pedir el próximo.
+2. Pulsa botón "Registrarme" (texto "ONBAG_CONFIRM") o escribe "registrarme"/"confirmo" Y están los 5 campos → `confirmar_registro`.
+3. Pulsa "Corregir" o pide cambiar un dato puntual → `corregir_dato` con el campo.
+4. Pulsa "Cancelar" o dice explícitamente que no quiere → `cancelar_inscripcion`.
+5. Pide hablar con alguien del equipo / tiene un problema que no podés resolver → `escalar_a_humano`.
+
+CUÁNDO RESPONDER CON TEXTO LIBRE (sin tool):
+Solo cuando la agente tiene una duda ABIERTA sobre Petra:
+- "¿cuánto se demora todo esto?"
+- "¿cuánto puedo ganar?"
+- "¿cómo funcionan las comisiones?"
+- "¿qué pasa si vendo?"
+En esos casos, respondé breve y natural con lo que sepas de Petra, SIN llamar tool.
+
+REGLAS DURAS:
+- 🚫 NO INVENTES DATOS. Si te da algo sospechoso ("ya te lo dije", "?", emoji suelto, una pregunta), NO llamés `capturar_datos_personales` con eso — el bot va a rechazar sin tool. Mejor respondé breve pidiendo aclaración.
+- 🚫 NO AFIRMÉS QUE ALGO PASÓ hasta llamar la tool. No digas "te registré" si no llamaste `confirmar_registro`.
+- 🚫 NO MENCIONES autorización, QR, kit, dirección — esas fases vienen después.
+- 🚫 NO HABLÉS de otras agentes ni menciones conjuntos (ej. "Condominio Monaco") que ella no te haya dicho AHORA.
+- ✅ Tono: cálido, breve, voseo rioplatense."""
 
 
 # ===== Entry point =====
