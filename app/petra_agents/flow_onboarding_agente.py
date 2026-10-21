@@ -1920,20 +1920,24 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 return True
             # Botón "❓ Tengo una duda" → prompt para que escriba la pregunta
             if texto == "ONBAG_VOY_AGENDAR_CITA":
-                _sm(telefono,
-                    "autorizacion.msg_voy_agendar",
-                    fallback=(
-                        "¡Perfecto! 🙌✨\n\n"
-                        "Te deseamos *mucha suerte* con la reunión 🤝 "
-                        "Acordate de llevar el material que te pasé — vas "
-                        "a estar genial.\n\n"
-                        "Estamos acá si necesitás ayuda 💜 Apenas termines, "
-                        "volvé por acá:\n\n"
-                        "✅ Si el admin te dio el OK → escribime "
-                        "*\"ya me autorizó\"* y seguimos con el envío de tu kit 📦\n"
-                        "❓ Si surge alguna duda o quiere pensarlo → "
-                        "contame y lo resolvemos juntas"
+                _send_buttons(
+                    telefono,
+                    _t(
+                        "autorizacion.msg_voy_agendar",
+                        fallback=(
+                            "¡Perfecto! 🙌✨\n\n"
+                            "Te deseamos *mucha suerte* con la reunión 🤝 "
+                            "Acordate de llevar el material que te pasé — vas "
+                            "a estar genial.\n\n"
+                            "Estamos acá si necesitás ayuda 💜 Apenas termines, "
+                            "elegí abajo según cómo te fue:"
+                        ),
                     ),
+                    [
+                        {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Ya tengo autorizac")},
+                        {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
+                    ],
+                    estado_key="autorizacion_pendiente",
                 )
                 _log(telefono, texto, "[voy a agendar cita]",
                      nota="botón voy a agendar")
