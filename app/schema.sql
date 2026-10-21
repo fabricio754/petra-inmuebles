@@ -1610,3 +1610,58 @@ UPDATE petra_textos
 UPDATE petra_textos
    SET contenido = E'Perfecto, ya tenés todo lo que necesitás 🙌\n\nAhora el próximo paso es *hablar con el admin*. Tomate tu tiempo — no hay apuro.\n\n✅ Cuando el admin te dé el OK, escribime acá *"ya me autorizó"* (o algo parecido) y seguimos con el envío de tu kit 📦\n\n❓ Si te surge alguna duda, pulsá el botón de abajo y la vemos juntas 💜'
  WHERE clave = 'autorizacion.msg_post_material';
+
+-- =============================================================================
+-- Rediseño flujo kit_pendiente (oct 2026): dirección en 1 mensaje libre +
+-- botón "✨ Perfecto" + mensaje "Último paso" con botón "✅ Ya instalé el QR".
+-- Idempotentes: solo corren si el contenido actual es el viejo exacto.
+-- =============================================================================
+
+-- 1) Reemplaza el texto viejo de msg_direccion_completa por el nuevo bonito
+--    (sin "Te aviso acá apenas salga" ni "contándoles a los vecinos").
+UPDATE petra_textos
+   SET contenido = E'🎉 *¡Dirección confirmada!* 📍\n\n'
+                || E'Ya pedimos tu kit de activación 📦\n'
+                || E'En *2 a 3 días hábiles* te llega a esa dirección.\n\n'
+                || E'💜 Mientras tanto, podés seguir con tu capacitación.',
+       updated_at = NOW()
+ WHERE clave = 'activacion.msg_direccion_completa'
+   AND contenido LIKE E'%Te aviso acá apenas salga en camino%';
+
+-- 2) Nuevo texto para el botón ✨ Perfecto (entre confirmación y Último paso).
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'activacion.msg_kit_perfecto',
+  E'¿Todo claro con lo del kit? 💜\n\nTocá el botón para seguir 👇',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+-- 3) Reemplaza msg_qr_boton viejo ("Cuando lo tengas instalado, pulsá el
+--    botón 👇") por el "Último paso para activarte" bonito.
+UPDATE petra_textos
+   SET contenido = E'✨ *Último paso para activarte*\n\n'
+                || E'Cuando te llegue el kit, pegá el QR en un lugar bien '
+                || E'visible del edificio 🏢 (portería, lobby o ascensor).\n\n'
+                || E'Apenas lo tengas instalado, tocá el botón de abajo y '
+                || E'te activo al toque 🚀💜',
+       updated_at = NOW()
+ WHERE clave = 'activacion.msg_qr_boton'
+   AND contenido LIKE E'Cuando lo tengas instalado%';
+
+-- 4) Mensaje inicial pedir dirección: nueva versión bonita (1 mensaje libre).
+UPDATE petra_textos
+   SET contenido = E'🎉 *¡Buenísimo! Ya tenés la autorización del administrador* ✨\n\n'
+                || E'📦 Ahora te enviamos tu *kit de activación* a tu casa:\n'
+                || E'• Tu *QR físico* para pegar en el edificio 📱\n'
+                || E'• Un *regalito* de bienvenida 💜\n\n'
+                || E'📍 *Mandame la dirección de donde vivís* — en *un solo mensaje*, '
+                || E'con todo lo que tengas: torre o casa, apto, barrio y ciudad.\n\n'
+                || E'_Ejemplos:_\n'
+                || E'• _Torre 3 apto 702, Chapinero, Bogotá_\n'
+                || E'• _Casa 49, Portal del Norte, Zipaquirá_\n'
+                || E'• _Apto 15B, Chicó, Bogotá_',
+       updated_at = NOW()
+ WHERE clave = 'activacion.msg_pedir_direccion_inicio'
+   AND (contenido LIKE E'%¿En qué torre vivís?%'
+        OR contenido LIKE E'%Empecemos por lo primero%');
