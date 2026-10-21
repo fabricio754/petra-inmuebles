@@ -129,19 +129,6 @@ def evaluar_y_enviar():
                             "WHERE contacto_id=%s AND rol='agente_petra'",
                             (_json.dumps(meta), cid),
                         )
-                        # Escalación automática: nudges con sufijo _escalar
-                        # marcan requiere_humano para que el equipo intervenga.
-                        if r["clave"].endswith("_7d") or r["clave"].endswith("_escalar"):
-                            try:
-                                from app import db as _db2
-                                _db2.marcar_requiere_humano(
-                                    telefono,
-                                    f"[nudge {r['clave']}] agente lleva >{horas}h en {r['estado_origen']} sin avanzar",
-                                )
-                                log.info("[nudges] escalado a humano tel=%s por %s",
-                                         telefono, r["clave"])
-                            except Exception:
-                                log.exception("[nudges] escalación humano fallo tel=%s", telefono)
                         enviados += 1
                         log.info("[nudges] enviado %s a tel=%s", r["clave"], telefono)
                     except Exception:
@@ -178,7 +165,10 @@ SEED_REGLAS = [
      "Recordatorio con CTA 48h en autorización.", True),
     ("autorizacion_pendiente_7d", "autorizacion_pendiente", 168,
      "nudges.autorizacion_pendiente_7d",
-     "Escala a humano después de 7 días sin autorización.", True),
+     "Nudge 7d con argumentos para destrabar.", True),
+    ("autorizacion_pendiente_14d", "autorizacion_pendiente", 336,
+     "nudges.autorizacion_pendiente_14d",
+     "Nudge 14d: pausa amable, retomar cuando quiera.", True),
     ("kit_pendiente_24h", "kit_pendiente", 24,
      "nudges.kit_pendiente_24h",
      "Agente que no completó dirección después de 1 día.", True),
