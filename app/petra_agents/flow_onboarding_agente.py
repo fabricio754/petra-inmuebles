@@ -842,10 +842,46 @@ def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
         _log(telefono, texto, "[kit_enviado: perfecto → pide foto libro]")
         return True
     if texto == "ONBAG_FOTO_LIBRO":
-        _enviar(telefono,
-            "¡Genial! 📸 Cuando puedas, mandame la foto del libro "
-            "por acá y seguimos 💜")
-        _log(telefono, texto, "[kit_enviado: espera foto libro]")
+        _send_buttons(telefono, _t(
+            "activacion.msg_aviso_kit",
+            fallback=(
+                "📦 *Avisanos cuando te llegue el kit* y mandanos "
+                "una foto 📸\n\n"
+                "Así confirmamos que te llegó bien y seguimos con "
+                "la activación 💜"
+            ),
+        ), [{"id": "ONBAG_KIT_AVISO", "title": "✨ Perfecto"}])
+        _log(telefono, texto, "[kit_enviado: paso aviso kit]")
+        return True
+    if texto == "ONBAG_KIT_AVISO":
+        _send_buttons(telefono, _t(
+            "activacion.msg_red_conectado",
+            fallback=(
+                "🎉 *¡Perfecto! Tu conjunto ya está conectado a la "
+                "red Petra* 💜\n\n"
+                "Desde ahora formás parte oficialmente de la red "
+                "de agentes Petra 🚀"
+            ),
+        ), [{"id": "ONBAG_RED_PETRA", "title": "✨ Perfecto"}])
+        _log(telefono, texto, "[kit_enviado: paso red petra]")
+        return True
+    if texto == "ONBAG_RED_PETRA":
+        _send_buttons(telefono, _t(
+            "activacion.msg_panel_intro",
+            fallback=(
+                "📊 *Ahora aparecerá tu nuevo panel de control*\n\n"
+                "Desde ahí vas a poder ver:\n"
+                "• Los *inmuebles* de tu conjunto 🏢\n"
+                "• Tus *citas* 📅\n"
+                "• Tus *nuevas capacitaciones* 🎓\n\n"
+                "¡Vamos! 💜"
+            ),
+        ), [{"id": "ONBAG_IR_PANEL", "title": "✨ Perfecto"}])
+        _log(telefono, texto, "[kit_enviado: paso intro panel]")
+        return True
+    if texto == "ONBAG_IR_PANEL":
+        _mostrar_panel_control(telefono, meta)
+        _log(telefono, texto, "[kit_enviado: muestra panel control]")
         return True
     if texto == "ONBAG_QR_INSTALADO" or t_lc in (
             "instalado", "instalado qr", "ya instale", "ya instalé",
