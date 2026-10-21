@@ -150,6 +150,7 @@ def procesar(telefono, texto, cid, meta, conn, historial_prev=None):
         telefono=telefono, texto=texto, contexto=ctx,
         tools=TOOLS, handlers=HANDLERS,
         system_prompt=build_system_prompt(meta), historial_prev=historial_prev,
+        fase="capacitacion",
     )
     if resultado.get("texto_respuesta"):
         try:

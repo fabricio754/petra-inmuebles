@@ -39,6 +39,39 @@ MENSAJE_FALLO_HUMANO = (
 )
 
 
+def _log_tool_call(telefono, cid, fase, mensaje_user, tool_nombre,
+                   tool_args, tool_resultado, ok, latencia_ms, modelo):
+    """Inserta una fila en petra_tool_calls. Nunca lanza — si falla el
+    log no debe tumbar la conversación. Fire-and-forget práctico."""
+    try:
+        from app import db as _db
+        from psycopg.types.json import Jsonb
+        # Resultado puede ser string, dict o cosa rara. Normalizamos a dict/
+        # str para JSONB.
+        if isinstance(tool_resultado, dict):
+            res_json = tool_resultado
+        elif isinstance(tool_resultado, str):
+            res_json = {"_str": tool_resultado[:2000]}
+        else:
+            res_json = {"_repr": str(tool_resultado)[:2000]}
+        with _db._conexion_directa(timeout=3) as conn:
+            conn.execute(
+                "INSERT INTO petra_tool_calls "
+                "(telefono, cid, fase, mensaje_user, tool_nombre, "
+                " tool_args, tool_resultado, ok, latencia_ms, modelo) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (telefono, cid, fase or "desconocida",
+                 (mensaje_user or "")[:2000],
+                 tool_nombre,
+                 Jsonb(tool_args or {}),
+                 Jsonb(res_json),
+                 bool(ok), latencia_ms, modelo),
+            )
+    except Exception:
+        log.exception("[toolcalling] _log_tool_call fallo tel=%s tool=%s",
+                      telefono, tool_nombre)
+
+
 def _llm_client():
     """Construye cliente Anthropic. Devuelve None si no hay API key.
     Si ANTHROPIC_WORKSPACE_ID está seteado, lo manda como header en cada
@@ -58,7 +91,8 @@ def _llm_client():
 
 
 def ejecutar_turno(telefono, texto, contexto, tools, handlers,
-                   system_prompt, historial_prev=None, modo_debug=False):
+                   system_prompt, historial_prev=None, modo_debug=False,
+                   fase=None):
     """Procesa UN mensaje de la agente usando tool-calling.
 
     Args:
@@ -139,8 +173,11 @@ def ejecutar_turno(telefono, texto, contexto, tools, handlers,
             nombre = tb.name
             args = tb.input or {}
             handler = handlers.get(nombre)
+            tc_t0 = time.monotonic()
+            handler_ok = True
             if not handler:
                 resultado = {"error": f"tool desconocida: {nombre}"}
+                handler_ok = False
                 log.warning("[toolcalling] tool desconocida=%s tel=%s", nombre, telefono)
             else:
                 try:
@@ -148,6 +185,26 @@ def ejecutar_turno(telefono, texto, contexto, tools, handlers,
                 except Exception as e:
                     log.exception("[toolcalling] handler %s fallo tel=%s", nombre, telefono)
                     resultado = {"error": f"excepcion: {type(e).__name__}: {e}"}
+                    handler_ok = False
+            latencia_ms = int((time.monotonic() - tc_t0) * 1000)
+            # ok real: si el handler devolvió {"ok": False, ...} también cuenta
+            # como no-ok para fines de telemetría.
+            ok_real = handler_ok and not (
+                isinstance(resultado, dict)
+                and resultado.get("ok") is False
+            )
+            _log_tool_call(
+                telefono=telefono,
+                cid=(contexto or {}).get("cid"),
+                fase=fase,
+                mensaje_user=texto,
+                tool_nombre=nombre,
+                tool_args=args,
+                tool_resultado=resultado,
+                ok=ok_real,
+                latencia_ms=latencia_ms,
+                modelo=MODEL,
+            )
             # Si un handler ya mandó el mensaje al usuario, marca para que
             # no haya otro turno del LLM que agregue texto duplicado.
             if isinstance(resultado, dict) and resultado.get("_silenciar_llm"):

@@ -372,6 +372,7 @@ def procesar(telefono, texto, cid, meta, conn, historial_prev=None):
         tools=TOOLS, handlers=HANDLERS,
         system_prompt=build_system_prompt(meta, conn, cid),
         historial_prev=historial_prev,
+        fase="activa",
     )
     if resultado.get("texto_respuesta"):
         try:
