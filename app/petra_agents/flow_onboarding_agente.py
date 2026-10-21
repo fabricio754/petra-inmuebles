@@ -766,7 +766,6 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
     ), [{"id": "ONBAG_KIT_PERFECTO", "title": "✨ Perfecto"}])
     _log(telefono, texto, "[kit_pendiente: direccion completa → kit_enviado]")
     return True
-    return True
 
 
 def _formatear_direccion(direccion):
