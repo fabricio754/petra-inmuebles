@@ -38,6 +38,44 @@ def _send_buttons(telefono, texto, defaults, estado_key=None):
     petra_wa.send_buttons(telefono, texto, final)
 
 
+_TC_MODULOS = {
+    "capacitacion": "app.petra_agents.tools_capacitacion",
+    "activa": "app.petra_agents.tools_activa",
+}
+
+
+def _tc_delegar(fase, env_flag, telefono, texto, cid, meta, conn):
+    """Delegación genérica a tool-calling para una fase. Devuelve True si
+    el mensaje quedó manejado (LLM respondió, o falló y se encoló con el
+    mensaje humano); False si el flag está off / el texto es un botón /
+    hubo excepción no-retriable → el caller sigue por el flow determinístico."""
+    import importlib
+    import os as _os
+    if _os.environ.get(env_flag, "0") != "1":
+        return False
+    if (texto or "").startswith(("ONBAG_", "CUSTOM_")):
+        return False
+    try:
+        mod = importlib.import_module(_TC_MODULOS[fase])
+        res = mod.procesar(telefono, texto, cid, meta, conn)
+        if res.get("ok"):
+            _log(telefono, texto, (res.get("texto_respuesta") or "")[:300],
+                 nota=f"tc-{fase} tools={len(res.get('tools_llamadas', []))}")
+            return True
+        if res.get("retriable"):
+            from app.petra_agents import toolcalling_queue as _tcq
+            _tcq.encolar(telefono, texto, cid, fase, res.get("fallo"))
+            _tcq.enviar_disculpame(telefono)
+            _log(telefono, texto, "[LLM failing — queued]",
+                 nota=f"tc-{fase} fallo={res.get('fallo')}")
+            return True
+        log.warning("[flow:tc] %s fallo non-retriable (%s) → determinístico",
+                    fase, res.get("fallo"))
+    except Exception:
+        log.exception("[flow:tc] excepcion %s → determinístico", fase)
+    return False
+
+
 def _enviar_media_por_clave(telefono, clave_texto):
     """Envía la media/videos adjuntos a UN MENSAJE puntual (clave_texto),
     no a toda la estación. Silencio si no hay nada cargado."""
@@ -1760,6 +1798,9 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         # ─── Fase 3: en capacitación o esperando día 1 ───
         if estado in ("esperando_capacitacion_dia1", "en_capacitacion"):
+            if _tc_delegar("capacitacion", "PETRA_TOOLCALLING_CAPACITACION",
+                           telefono, texto, cid, meta, conn):
+                return True
             return _fase_capacitacion(conn, telefono, cid, meta, texto, estado,
                                       sesion_id=sesion_id)
 
@@ -1925,6 +1966,9 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                                      sesion_id=sesion_id)
 
         if estado == "activa":
+            if _tc_delegar("activa", "PETRA_TOOLCALLING_ACTIVA",
+                           telefono, texto, cid, meta, conn):
+                return True
             return _fase_activa(conn, telefono, cid, meta, texto,
                                 sesion_id=sesion_id)
 
