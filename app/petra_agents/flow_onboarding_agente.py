@@ -1858,8 +1858,6 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                     fallback="Preparé material de apoyo para que lo lleves a la reunión 💜",
                 ), [
                     {"id": "ONBAG_VER_MATERIAL", "title": _b("ONBAG_VER_MATERIAL", "📎 Ver material")},
-                    {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
-                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Ya tengo autorización")},
                 ], estado_key="autorizacion_pendiente")
                 _log(telefono, texto, "[iniciar autorización → 3 botones]",
                      nota="botón Iniciar")
