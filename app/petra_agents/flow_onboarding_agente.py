@@ -746,7 +746,10 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
     meta["kit_enviado_at"] = _dt.datetime.utcnow().isoformat()
     meta["kit_enviado_tras_direccion"] = True
     _save_meta(conn, cid, meta)
-    _sm(telefono,
+    # Mensaje "Dirección confirmada" ya trae el botón ✨ Perfecto embebido.
+    # Los adjuntos (videos) van después en un segundo mensaje porque
+    # WhatsApp no permite media + botones en el mismo mensaje interactivo.
+    _send_buttons(telefono, _t(
         "activacion.msg_direccion_completa",
         fallback=(
             "🎉 *¡Dirección confirmada!* 📍\n\n"
@@ -754,16 +757,11 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
             "En *2 a 3 días hábiles* te llega a esa dirección.\n\n"
             "💜 Mientras tanto, podés seguir con tu capacitación."
         ),
-    )
-    import time as _tm_d
-    _tm_d.sleep(1)
-    _send_buttons(telefono, _t(
-        "activacion.msg_kit_perfecto",
-        fallback=(
-            "¿Todo claro con lo del kit? 💜\n\n"
-            "Tocá el botón para seguir 👇"
-        ),
     ), [{"id": "ONBAG_KIT_PERFECTO", "title": "✨ Perfecto"}])
+    try:
+        _enviar_media_por_clave(telefono, "activacion.msg_direccion_completa")
+    except Exception:
+        log.exception("[flow:kit_pendiente] media hook fallo tel=%s", telefono)
     _log(telefono, texto, "[kit_pendiente: direccion completa → kit_enviado]")
     return True
 
