@@ -2000,6 +2000,25 @@ def evals_run():
 # Admin: reset de un agente por teléfono (uso puntual de testing)
 # =============================================================================
 
+@petra_panel_bp.get("/_admin/nudges-run")
+def admin_nudges_run():
+    """Dispara la evaluación de todos los nudges manualmente, sin esperar
+    al cron. Usa el panel token. Devuelve resumen de reglas evaluadas +
+    nudges enviados.
+    NO borra NI modifica agentes — solo envía mensajes de nudge a las que
+    cumplan la condición de tiempo + estado."""
+    _check_token()
+    from app.petra_agents import nudges as _n
+    try:
+        reglas, enviados = _n.evaluar_y_enviar()
+        return (f"OK ✅ Nudges evaluados: {reglas} reglas activas → "
+                f"{enviados} mensajes enviados a agentes paradas. "
+                f"Revisá /panel/petra/tool-calls o los logs de Render "
+                f"para ver el detalle."), 200
+    except Exception as e:
+        return f"❌ Error evaluando nudges: {type(e).__name__}: {e}", 500
+
+
 @petra_panel_bp.get("/_admin/reset-agente")
 def admin_reset_agente_por_tel():
     """Elimina el rol agente_petra + progreso de un contacto por teléfono.
