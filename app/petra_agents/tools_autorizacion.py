@@ -190,9 +190,25 @@ def procesar(telefono, texto, cid, meta, conn, historial_prev=None):
     )
     if resultado.get("texto_respuesta"):
         try:
-            petra_wa.send_text(telefono, resultado["texto_respuesta"])
+            # Después de responder la duda, ofrecemos los 2 CTA que
+            # cierran la fase autorización: "voy a agendar" (señal de
+            # que va a hablar con el admin) y "tengo otra duda" (nueva
+            # pregunta). Mandamos el texto + botones en UN solo mensaje
+            # interactivo (send_buttons soporta hasta 3 — usamos 2).
+            petra_wa.send_buttons(
+                telefono,
+                resultado["texto_respuesta"],
+                [
+                    {"id": "ONBAG_VOY_AGENDAR_CITA", "title": "📅 Voy a agendar"},
+                    {"id": "ONBAG_TENGO_DUDA", "title": "❓ Tengo otra duda"},
+                ],
+            )
         except Exception:
-            log.exception("[tools_autorizacion] send fallo tel=%s", telefono)
+            log.exception("[tools_autorizacion] send_buttons fallo tel=%s — fallback texto", telefono)
+            try:
+                petra_wa.send_text(telefono, resultado["texto_respuesta"])
+            except Exception:
+                log.exception("[tools_autorizacion] send fallo tel=%s", telefono)
     log.info("[tools_autorizacion] tel=%s ok=%s tools=%s",
              telefono, resultado.get("ok"),
              [t["nombre"] for t in resultado.get("tools_llamadas", [])])
