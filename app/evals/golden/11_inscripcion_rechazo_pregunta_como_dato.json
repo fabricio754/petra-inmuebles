@@ -1,0 +1,11 @@
+{
+  "name": "inscripcion_rechaza_pregunta_como_dato",
+  "fase": "inscripcion",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user_msg": "ya te dije",
+      "expect_tool": null
+    }
+  ]
+}

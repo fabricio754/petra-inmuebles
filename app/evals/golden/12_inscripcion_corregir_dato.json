@@ -1,0 +1,12 @@
+{
+  "name": "inscripcion_pide_corregir_dato",
+  "fase": "inscripcion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "cedula": "1020800837", "ciudad": "Zipaquira", "barrio": "Centro", "conjunto": "Portal del Norte"},
+  "turnos": [
+    {
+      "user_msg": "ups, mi barrio en realidad es Centro Histórico, no Centro",
+      "expect_tool": "corregir_dato",
+      "expect_args_contains": {"campo": "barrio"}
+    }
+  ]
+}

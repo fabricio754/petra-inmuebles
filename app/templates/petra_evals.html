@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Evals | Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f0b1e; --fg: #ece8f8; --muted: #9b94b3;
+    --card: #1a1530; --accent: #a78bfa; --ok: #4ade80;
+    --err: #f87171; --border: #2a2448;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--fg); font-size: 14px; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border);
+           display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; }
+  header .back { color: var(--accent); text-decoration: none; }
+  .wrap { padding: 16px 24px; }
+  .intro { background: var(--card); padding: 16px; border-radius: 8px;
+           border: 1px solid var(--border); margin-bottom: 20px; }
+  .intro p { margin: 0 0 8px; color: var(--muted); }
+  .intro strong { color: var(--fg); }
+  button.run { background: var(--accent); color: var(--bg); border: 0;
+               padding: 12px 24px; border-radius: 8px; cursor: pointer;
+               font-weight: 700; font-size: 15px; }
+  button.run:disabled { opacity: .6; cursor: wait; }
+  .summary { background: var(--card); padding: 20px; border-radius: 8px;
+             border: 1px solid var(--border); margin: 20px 0;
+             display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+  .summary .big { font-size: 36px; font-weight: 700; }
+  .summary .big.err { color: var(--err); }
+  .summary .big.ok { color: var(--ok); }
+  .summary .lab { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card);
+          border-radius: 8px; overflow: hidden; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border);
+           vertical-align: top; }
+  th { background: #221a3a; font-size: 11px; text-transform: uppercase;
+       color: var(--muted); letter-spacing: 0.5px; }
+  tr:last-child td { border-bottom: 0; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px;
+           font-size: 11px; font-weight: 600; }
+  .badge.ok { background: rgba(74,222,128,.15); color: var(--ok); }
+  .badge.err { background: rgba(248,113,113,.15); color: var(--err); }
+  .fase { background: rgba(167,139,250,.15); color: var(--accent); }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+          font-size: 12px; }
+  details summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+  details pre { background: var(--bg); padding: 10px; border-radius: 4px;
+                overflow-x: auto; font-size: 11px; margin-top: 6px;
+                white-space: pre-wrap; }
+  .errors { color: var(--err); font-size: 12px; margin-top: 4px; }
+  .errors li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<header>
+  <a href="{{ url_for('petra_panel.panel_home') }}?token={{ token }}" class="back">← Panel</a>
+  <h1>🧪 Evals</h1>
+</header>
+
+<div class="wrap">
+
+  <div class="intro">
+    <p><strong>¿Qué hace esto?</strong> Simula {{ casos|length }} conversaciones de prueba contra el LLM real de producción (sin tocar WhatsApp ni la DB) y verifica que el bot haga lo esperado en cada una. Útil para chequear que un cambio reciente no rompió un flujo.</p>
+    <p>Costo aproximado: ~{{ casos|length }} llamadas a Haiku ≈ fracción de centavo total. Toma ~{{ (casos|length * 2) }}s.</p>
+    <form method="POST" action="{{ url_for('petra_panel.evals_run') }}" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='⏳ Corriendo…';">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="run">▶️ Correr todos los evals ahora</button>
+    </form>
+  </div>
+
+  {% if resultado %}
+    <div class="summary">
+      <div>
+        <div class="big {% if resultado.pasaron == resultado.total %}ok{% else %}err{% endif %}">
+          {{ resultado.pasaron }}/{{ resultado.total }}
+        </div>
+        <div class="lab">casos pasaron</div>
+      </div>
+      {% if resultado.pasaron < resultado.total %}
+        <div>
+          <div class="big err">{{ resultado.total - resultado.pasaron }}</div>
+          <div class="lab">fallaron</div>
+        </div>
+      {% endif %}
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Caso</th><th>Resultado</th><th>Detalle de errores</th></tr>
+      </thead>
+      <tbody>
+        {% for r in resultado.resultados %}
+        <tr>
+          <td class="mono">{{ r.name or r.file }}</td>
+          <td>
+            {% if r.ok %}<span class="badge ok">PASS</span>
+            {% else %}<span class="badge err">FAIL</span>{% endif %}
+          </td>
+          <td>
+            {% if r.errors %}
+              <ul class="errors">
+                {% for e in r.errors %}<li>{{ e }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <details style="margin-top:20px">
+      <summary>Ver log crudo</summary>
+      <pre>{{ resultado.log }}</pre>
+    </details>
+  {% endif %}
+
+  <h2 style="margin-top:32px;color:var(--muted);font-size:14px;text-transform:uppercase;letter-spacing:.5px">Casos disponibles ({{ casos|length }})</h2>
+  <table>
+    <thead>
+      <tr><th>Archivo</th><th>Nombre</th><th>Fase</th><th>Turnos</th></tr>
+    </thead>
+    <tbody>
+      {% for c in casos %}
+      <tr>
+        <td class="mono">{{ c.file }}</td>
+        <td>{{ c.name or '(sin nombre)' }}</td>
+        <td>{% if c.fase %}<span class="badge fase">{{ c.fase }}</span>{% endif %}</td>
+        <td>{{ c.turnos or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+</div>
+</body>
+</html>

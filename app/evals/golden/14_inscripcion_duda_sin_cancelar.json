@@ -1,0 +1,11 @@
+{
+  "name": "inscripcion_duda_no_es_cancelacion",
+  "fase": "inscripcion",
+  "meta_inicial": {"nombre": "Fabricio Zabala"},
+  "turnos": [
+    {
+      "user_msg": "no sé si me conviene",
+      "expect_tool": null
+    }
+  ]
+}

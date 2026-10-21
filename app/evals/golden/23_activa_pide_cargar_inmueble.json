@@ -1,0 +1,11 @@
+{
+  "name": "activa_pide_cargar_inmueble_sin_carga_curso",
+  "fase": "activa",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Portal del Norte", "estado_agente": "activa"},
+  "turnos": [
+    {
+      "user_msg": "quiero cargar un apto que tengo en arriendo",
+      "expect_tool": "iniciar_inventario"
+    }
+  ]
+}

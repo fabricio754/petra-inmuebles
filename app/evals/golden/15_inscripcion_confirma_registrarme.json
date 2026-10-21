@@ -1,0 +1,11 @@
+{
+  "name": "inscripcion_confirma_registro_con_todos_los_datos",
+  "fase": "inscripcion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "cedula": "1020800837", "ciudad": "Zipaquira", "barrio": "Centro", "conjunto": "Portal del Norte"},
+  "turnos": [
+    {
+      "user_msg": "sí, registrame",
+      "expect_tool": "confirmar_registro"
+    }
+  ]
+}
