@@ -1,0 +1,11 @@
+{
+  "name": "autorizacion_lenguaje_natural_dispara_tool",
+  "fase": "autorizacion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Torres del Parque", "estado_agente": "autorizacion_pendiente"},
+  "turnos": [
+    {
+      "user_msg": "Ya hablé con el admin y me dijo que sí",
+      "expect_tool": "marcar_tengo_autorizacion"
+    }
+  ]
+}

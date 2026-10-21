@@ -1,0 +1,12 @@
+{
+  "name": "inscripcion_captura_cedula",
+  "fase": "inscripcion",
+  "meta_inicial": {"nombre": "Fabricio Zabala"},
+  "turnos": [
+    {
+      "user_msg": "1020800837",
+      "expect_tool": "capturar_datos_personales",
+      "expect_args_contains": {"cedula": "1020800837"}
+    }
+  ]
+}

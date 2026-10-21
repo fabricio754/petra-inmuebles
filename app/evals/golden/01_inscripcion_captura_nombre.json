@@ -1,0 +1,12 @@
+{
+  "name": "inscripcion_captura_nombre",
+  "fase": "inscripcion",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user_msg": "Fabricio Zabala",
+      "expect_tool": "capturar_datos_personales",
+      "expect_args_contains": {"nombre": "Fabricio Zabala"}
+    }
+  ]
+}

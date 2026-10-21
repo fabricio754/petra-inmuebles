@@ -1,0 +1,11 @@
+{
+  "name": "capacitacion_listo_dispara_tool",
+  "fase": "capacitacion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "estado_agente": "en_capacitacion", "videos_vistos": 2, "cap_dia_enviado": 1},
+  "turnos": [
+    {
+      "user_msg": "Listo, ya los vi",
+      "expect_tool": "marcar_videos_del_dia_vistos"
+    }
+  ]
+}

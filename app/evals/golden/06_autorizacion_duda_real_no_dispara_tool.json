@@ -1,0 +1,11 @@
+{
+  "name": "autorizacion_duda_real_no_dispara_tool",
+  "fase": "autorizacion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Torres del Parque", "estado_agente": "autorizacion_pendiente"},
+  "turnos": [
+    {
+      "user_msg": "Creo que si pero me dijo que lo iba a pensar",
+      "expect_tool": null
+    }
+  ]
+}
