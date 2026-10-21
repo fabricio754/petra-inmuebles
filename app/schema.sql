@@ -1690,3 +1690,39 @@ VALUES (
   TRUE
 )
 ON CONFLICT (clave) DO NOTHING;
+
+-- =============================================================================
+-- Secuencia post-foto-libro → panel de control: cadena de 4 mensajes con
+-- botón ✨ Perfecto en cada paso, hasta aterrizar en el menú.
+-- =============================================================================
+
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'activacion.msg_aviso_kit',
+  E'📦 *Avisanos cuando te llegue el kit* y mandanos una foto 📸\n\n'
+  || E'Así confirmamos que te llegó bien y seguimos con la activación 💜',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'activacion.msg_red_conectado',
+  E'🎉 *¡Perfecto! Tu conjunto ya está conectado a la red Petra* 💜\n\n'
+  || E'Desde ahora formás parte oficialmente de la red de agentes Petra 🚀',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'activacion.msg_panel_intro',
+  E'📊 *Ahora aparecerá tu nuevo panel de control*\n\n'
+  || E'Desde ahí vas a poder ver:\n'
+  || E'• Los *inmuebles* de tu conjunto 🏢\n'
+  || E'• Tus *citas* 📅\n'
+  || E'• Tus *nuevas capacitaciones* 🎓\n\n'
+  || E'¡Vamos! 💜',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
