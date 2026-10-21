@@ -1676,6 +1676,46 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         estado = meta.get("estado_agente", "recolectando")
 
+        # Shortcut global: la agente escribe "kit", "mi kit", etc. en
+        # CUALQUIER estado → le mostramos info del kit según su fase.
+        _texto_lc_kit = (texto or "").lower().strip()
+        if _texto_lc_kit in PALABRAS_KIT:
+            if estado == "kit_enviado":
+                _reenviar_kit_enviado(telefono, cid, meta)
+                _log(telefono, texto, "[shortcut kit → re-envío bloque]",
+                     nota=f"estado={estado}")
+                return True
+            if estado == "kit_pendiente":
+                direccion = meta.get("direccion") or {}
+                if all(direccion.get(c) for c in DIRECCION_CAMPOS):
+                    _sm(telefono, "activacion.msg_direccion_completa",
+                        fallback="🎉 ¡Dirección confirmada! Ya pedimos tu kit, "
+                        "en 2-3 días hábiles te llega 📦")
+                else:
+                    _enviar(telefono,
+                        "Estamos en medio de capturar tu dirección. "
+                        "Respondé la pregunta que te hice arriba 👆 y "
+                        "continuamos con el envío del kit 📦")
+                _log(telefono, texto, "[shortcut kit en kit_pendiente]",
+                     nota=f"estado={estado}")
+                return True
+            if estado == "activa":
+                _enviar(telefono,
+                    "Tu kit ya está activado y tu QR está en tu edificio 🎉💜\n"
+                    "Si querés revisar algo puntual, decime qué.")
+                _log(telefono, texto, "[shortcut kit en activa]",
+                     nota=f"estado={estado}")
+                return True
+            # otros estados (recolectando, inscrito, bienvenida_enviada,
+            # en_capacitacion, autorizacion_pendiente): aún no toca el kit
+            _enviar(telefono,
+                "Aún no estamos en la etapa del kit. Primero terminás "
+                "capacitación + autorización y después te lo enviamos. "
+                "Seguimos con el paso actual 👇")
+            _log(telefono, texto, "[shortcut kit prematuro]",
+                 nota=f"estado={estado}")
+            return True
+
         # Intercept de botones CUSTOM_<id> definidos desde el panel.
         if texto and texto.startswith("CUSTOM_"):
             info = _botones.resolver_custom(texto)
