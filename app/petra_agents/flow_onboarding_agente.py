@@ -774,44 +774,21 @@ PALABRAS_KIT = (
 
 
 def _reenviar_kit_enviado(telefono, cid, meta):
-    """Re-envía el bloque completo del mensaje 'tu kit ya está en camino'
-    (texto + media adjunta + extras). Útil cuando la agente pregunta 'donde
-    está mi kit' después de perder el mensaje en el scroll."""
-    from app import db as _db
+    """Re-envía el bloque completo del mensaje de activación (texto +
+    media + botón). Útil cuando la agente pregunta "kit", "mi kit", etc.
+    después de perder el mensaje en el scroll.
+
+    Usa la clave `activacion.msg_direccion_completa` porque es ahí donde
+    están adjuntos los 3 contenidos (Vid 2.0, Tu QR único, Como usar el QR)."""
     _sm(telefono,
-        "activacion.msg_kit_enviado",
+        "activacion.msg_direccion_completa",
         fallback=(
-            "📦 *¡Tu kit ya está en camino!*\n\n"
-            "Dentro vas a encontrar tu QR + un regalito 💜. Cuando lo "
-            "recibas, instalá el QR en la cartelera del conjunto o donde "
-            "lo autorizó el administrador."
+            "🎉 *¡Dirección confirmada!* 📍\n\n"
+            "Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís."
         ),
     )
     import time as _tm_rk
-    from app import petra_wa as _pwa_rk
     _tm_rk.sleep(1)
-    # Video "cómo usar QR" + link QR del edificio (igual que la primera vez)
-    with _db._conexion_directa(timeout=10) as conn_rk:
-        vid_row = conn_rk.execute(
-            "SELECT titulo, url FROM petra_contenidos "
-            "WHERE tipo='video_como_usar_qr' AND activo=TRUE "
-            "ORDER BY orden LIMIT 1"
-        ).fetchone()
-        qr_row = conn_rk.execute(
-            "SELECT e.qr_slug FROM petra_edificios e "
-            "JOIN petra_contacto_roles r ON r.edificio_id=e.id AND r.contacto_id=%s "
-            "AND r.rol='agente_petra' WHERE e.qr_slug IS NOT NULL LIMIT 1",
-            (cid,),
-        ).fetchone()
-    if vid_row:
-        _pwa_rk.send_media_o_texto(telefono, vid_row[0], vid_row[1])
-        _tm_rk.sleep(1)
-    if qr_row and qr_row[0]:
-        _pwa_rk.send_text(
-            telefono,
-            f"🔗 Tu QR único: https://petra-inmuebles.onrender.com/qr/{qr_row[0]}",
-        )
-        _tm_rk.sleep(1)
     _send_buttons(telefono, _t(
         "activacion.msg_qr_boton",
         fallback="Cuando lo tengas instalado, pulsá el botón 👇",
@@ -1669,9 +1646,24 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             if estado == "kit_pendiente":
                 direccion = meta.get("direccion") or {}
                 if all(direccion.get(c) for c in DIRECCION_CAMPOS):
+                    # Recovery: agente con dirección completa pero estado
+                    # kit_pendiente (ej. flow viejo). Avanzamos a kit_enviado
+                    # y mandamos el bloque completo (texto + media + botón).
+                    import datetime as _dtk
+                    _set_estado(meta, "kit_enviado")
+                    meta["kit_enviado_at"] = _dtk.datetime.utcnow().isoformat()
+                    meta["kit_enviado_tras_direccion"] = True
+                    _save_meta(conn, cid, meta)
                     _sm(telefono, "activacion.msg_direccion_completa",
                         fallback="🎉 ¡Dirección confirmada! Ya pedimos tu kit, "
                         "en 2-3 días hábiles te llega 📦")
+                    import time as _tmk
+                    _tmk.sleep(1)
+                    _send_buttons(telefono, _t(
+                        "activacion.msg_qr_boton",
+                        fallback="Cuando lo tengas instalado, pulsá el botón 👇",
+                    ), [{"id": "ONBAG_QR_INSTALADO",
+                         "title": "✅ Ya instalé el QR"}])
                 else:
                     _enviar(telefono,
                         "Estamos en medio de capturar tu dirección. "
