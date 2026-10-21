@@ -1400,3 +1400,26 @@ CREATE INDEX IF NOT EXISTS petra_tool_calls_fase_idx
   ON petra_tool_calls (fase, created_at DESC);
 CREATE INDEX IF NOT EXISTS petra_tool_calls_tool_idx
   ON petra_tool_calls (tool_nombre, created_at DESC);
+
+-- Nudges fase autorización: cadencia 24h → 48h → 7d (último escala a humano
+-- vía el handler de nudges.py). Idempotente (ON CONFLICT no sobrescribe).
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'nudges.autorizacion_pendiente_24h',
+  E'¡Hola {nombre}! 👋\n\n¿Cómo vas con la gestión de la autorización del admin?\n\nSi ya hablaste y te dijo que sí, escribime *"ya me autorizó"* y seguimos.\n\nSi todavía no, dale cuando puedas — cualquier duda sobre qué decirle, acá estoy 💜',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+UPDATE petra_textos
+   SET contenido = E'¡Hola {nombre}! 💜\n\nYa pasaron 2 días desde que arrancaste con la autorización. ¿Cómo va?\n\n✅ Si el admin ya te dijo que sí → escribime *"ya me autorizó"*\n⏳ Si todavía no pudiste hablar → dale esta semana\n❓ Si no sabés cómo abordarlo → escribime *"mandame el material"* y te paso el pack otra vez\n\nAcordate: Petra es *gratis* para el edificio y vos sumás ingresos sin dejar de hacer lo tuyo 🚀',
+       updated_at = NOW()
+ WHERE clave = 'nudges.autorizacion_pendiente_48h';
+
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'nudges.autorizacion_pendiente_7d',
+  E'¡Hola {nombre}! 💜\n\nLlevamos una semana con la gestión del admin de tu edificio. Ya pedí que alguien del equipo te contacte directo para ver cómo te podemos ayudar a destrabarlo.\n\nTe escribimos pronto 🙌',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
