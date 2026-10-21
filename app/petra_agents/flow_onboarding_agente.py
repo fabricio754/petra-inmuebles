@@ -758,15 +758,12 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
     import time as _tm_d
     _tm_d.sleep(1)
     _send_buttons(telefono, _t(
-        "activacion.msg_qr_boton",
+        "activacion.msg_kit_perfecto",
         fallback=(
-            "✨ *Último paso para activarte*\n\n"
-            "Cuando te llegue el kit, pegá el QR en un lugar bien "
-            "visible del edificio 🏢 (portería, lobby o ascensor).\n\n"
-            "Apenas lo tengas instalado, tocá el botón de abajo y "
-            "te activo al toque 🚀💜"
+            "¿Todo claro con lo del kit? 💜\n\n"
+            "Tocá el botón para seguir 👇"
         ),
-    ), [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}])
+    ), [{"id": "ONBAG_KIT_PERFECTO", "title": "✨ Perfecto"}])
     _log(telefono, texto, "[kit_pendiente: direccion completa → kit_enviado]")
     return True
     return True
@@ -830,6 +827,19 @@ def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
     if t_lc in PALABRAS_KIT:
         _reenviar_kit_enviado(telefono, cid, meta)
         _log(telefono, texto, "[kit_enviado: re-envío por palabra clave]")
+        return True
+    if texto == "ONBAG_KIT_PERFECTO":
+        _send_buttons(telefono, _t(
+            "activacion.msg_qr_boton",
+            fallback=(
+                "✨ *Último paso para activarte*\n\n"
+                "Cuando te llegue el kit, pegá el QR en un lugar bien "
+                "visible del edificio 🏢 (portería, lobby o ascensor).\n\n"
+                "Apenas lo tengas instalado, tocá el botón de abajo y "
+                "te activo al toque 🚀💜"
+            ),
+        ), [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}])
+        _log(telefono, texto, "[kit_enviado: perfecto → último paso + botón QR]")
         return True
     if texto == "ONBAG_QR_INSTALADO" or t_lc in (
             "instalado", "instalado qr", "ya instale", "ya instalé",

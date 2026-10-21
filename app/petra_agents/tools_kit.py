@@ -178,16 +178,13 @@ def handle_capturar_direccion(args, ctx):
     _send_buttons(
         ctx["telefono"],
         _t(
-            "activacion.msg_qr_boton",
+            "activacion.msg_kit_perfecto",
             fallback=(
-                "✨ *Último paso para activarte*\n\n"
-                "Cuando te llegue el kit, pegá el QR en un lugar bien "
-                "visible del edificio 🏢 (portería, lobby o ascensor).\n\n"
-                "Apenas lo tengas instalado, tocá el botón de abajo y "
-                "te activo al toque 🚀💜"
+                "¿Todo claro con lo del kit? 💜\n\n"
+                "Tocá el botón para seguir 👇"
             ),
         ),
-        [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}],
+        [{"id": "ONBAG_KIT_PERFECTO", "title": "✨ Perfecto"}],
     )
     return {
         "ok": True,
