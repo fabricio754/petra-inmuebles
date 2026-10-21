@@ -180,8 +180,11 @@ def handle_capturar_direccion(args, ctx):
         _t(
             "activacion.msg_qr_boton",
             fallback=(
-                "Cuando el kit llegue y pegues el QR en el edificio, "
-                "pulsá el botón 👇"
+                "✨ *Último paso para activarte*\n\n"
+                "Cuando te llegue el kit, pegá el QR en un lugar bien "
+                "visible del edificio 🏢 (portería, lobby o ascensor).\n\n"
+                "Apenas lo tengas instalado, tocá el botón de abajo y "
+                "te activo al toque 🚀💜"
             ),
         ),
         [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}],
