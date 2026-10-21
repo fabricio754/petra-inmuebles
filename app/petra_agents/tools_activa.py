@@ -34,6 +34,34 @@ NOMBRE_INM = {
     "propietario_tel": "teléfono del propietario",
 }
 
+PREGUNTA_INM = {
+    "modalidad": ("activa.pedir_modalidad", "¿Es para *arriendo* o *venta*? 🏷️"),
+    "torre": ("activa.pedir_torre_inm", "¿En qué *torre o bloque*? (ej. *Torre 3* o *N/A*) 🏢"),
+    "apto": ("activa.pedir_apto_inm", "¿Cuál es el *número de apartamento*? 🚪"),
+    "area_m2": ("activa.pedir_area", "¿Cuántos *metros cuadrados* tiene? 📐"),
+    "habitaciones": ("activa.pedir_habitaciones", "¿Cuántas *habitaciones*? 🛏️"),
+    "banos": ("activa.pedir_banos", "¿Cuántos *baños*? 🚿"),
+    "parqueadero": ("activa.pedir_parqueadero", "¿Tiene *parqueadero*? (sí/no) 🚗"),
+    "precio": ("activa.pedir_precio", "¿Cuál es el *precio*? (en millones de pesos) 💰"),
+    "propietario_nombre": ("activa.pedir_prop_nombre", "¿Cómo se llama el *propietario*? 👤"),
+    "propietario_tel": ("activa.pedir_prop_tel", "¿Cuál es el *teléfono del propietario*? (con indicativo, ej. 573001234567) 📞"),
+}
+
+CONFIRMACION_INM = {
+    "modalidad": ("activa.ok_modalidad", "✅ Modalidad: *{valor}*."),
+    "torre": ("activa.ok_torre_inm", "✅ Torre: *{valor}*."),
+    "apto": ("activa.ok_apto_inm", "✅ Apto: *{valor}*."),
+    "area_m2": ("activa.ok_area", "✅ Área: *{valor} m²*."),
+    "habitaciones": ("activa.ok_habitaciones", "✅ Habitaciones: *{valor}*."),
+    "banos": ("activa.ok_banos", "✅ Baños: *{valor}*."),
+    "parqueadero": ("activa.ok_parqueadero", "✅ Parqueadero: *{valor}*."),
+    "precio": ("activa.ok_precio", "✅ Precio: *{valor}* millones."),
+    "propietario_nombre": ("activa.ok_prop_nombre", "✅ Propietario: *{valor}*."),
+    "propietario_tel": ("activa.ok_prop_tel", "✅ Teléfono: *{valor}*."),
+}
+
+RECHAZO_INM_FALLBACK = "No me quedó claro ese dato ({campo}): {err}. Mandámelo de nuevo 🙏"
+
 
 TOOLS = [
     {
@@ -194,6 +222,11 @@ def handle_iniciar_inventario(args, ctx):
 
 
 def handle_capturar_datos_inmueble(args, ctx):
+    """Guarda campos del inmueble. Si completa los 10 → _finalizar_inventario
+    (ya manda resumen). Si quedan faltantes → el handler mismo manda las
+    confirmaciones + próxima pregunta (templateado) y silencia al LLM."""
+    from app import petra_wa
+    from app.petra_agents.textos import t as _t
     from app.petra_agents.flow_onboarding_agente import (
         _validar_paso_inventario, _finalizar_inventario,
     )
@@ -210,17 +243,40 @@ def handle_capturar_datos_inmueble(args, ctx):
         else:
             rechazados[campo] = err
     faltantes = [c for c in CAMPOS_INM if c not in datos]
+
+    # Nada capturado ni rechazado → dejamos al LLM responder (pregunta
+    # abierta, confusión, etc).
+    if not guardados and not rechazados:
+        return {"guardados": {}, "rechazados": {}, "faltantes": faltantes,
+                "nota": "no se guardó nada — explicá al user qué necesitás"}
+
     if not faltantes:
         _finalizar_inventario(ctx["conn"], ctx["telefono"], ctx["cid"], meta, datos)
         return {"ok": True, "guardados": guardados, "rechazados": rechazados,
                 "faltantes": [], "completado": True,
                 "_silenciar_llm": True}
+
     meta["inventario_datos"] = datos
     meta["inventario_paso"] = faltantes[0]
     _save_meta(ctx["conn"], ctx["cid"], meta)
+    partes = []
+    for campo, valor in guardados.items():
+        clave, fallback = CONFIRMACION_INM[campo]
+        partes.append(_t(clave, fallback=fallback, valor=valor))
+    for campo, err in rechazados.items():
+        partes.append(RECHAZO_INM_FALLBACK.format(campo=NOMBRE_INM[campo], err=err))
+    if guardados:
+        prox = faltantes[0]
+        clave, fallback = PREGUNTA_INM[prox]
+        partes.append(_t(clave, fallback=fallback))
+    try:
+        petra_wa.send_text(ctx["telefono"], "\n\n".join(partes))
+    except Exception:
+        log.exception("[tools_activa] send fallo tel=%s", ctx["telefono"])
     return {"ok": True, "guardados": guardados, "rechazados": rechazados,
             "faltantes": faltantes, "completado": False,
-            "proximo_a_pedir": NOMBRE_INM[faltantes[0]]}
+            "proximo_pedido": NOMBRE_INM[faltantes[0]],
+            "_silenciar_llm": True}
 
 
 def handle_cancelar_inventario(args, ctx):
@@ -286,20 +342,25 @@ Tus dos trabajos: (A) gestionar las CITAS que Petra le envía con interesados, y
 🏠 INVENTARIO:
 {inv_str}
 
-TU TRABAJO:
-1. CITAS — si responde a una cita con texto ("sí puedo", "no", "mejor el jueves 3pm") → `responder_cita` (puedo / no_puedo) o `proponer_otra_hora` si da alternativa. Si hay varias pendientes y no está claro cuál, preguntá.
-2. INVENTARIO — si pide cargar/registrar un inmueble y no hay carga en curso → `iniciar_inventario`. Si hay carga en curso y te da datos → `capturar_datos_inmueble` (varios campos juntos si vinieron juntos). Si pide cancelar → `cancelar_inventario`.
-3. Preguntas sobre Petra, comisiones, cómo mostrar un inmueble, qué decirle a un interesado → respondé con texto natural, breve. NO llamés tool.
-4. Problemas que no podés resolver → `escalar_a_humano`.
+TU ÚNICO TRABAJO ES LLAMAR LA TOOL CORRECTA. Cuando llamés una tool, el bot responde solo con un mensaje templateado — vos NO escribís texto en esos turnos.
+
+CUÁNDO LLAMAR CADA TOOL:
+1. CITAS — responde con texto a una cita ("sí puedo", "no", "mejor el jueves 3pm") → `responder_cita` (accion=puedo/no_puedo) o `proponer_otra_hora` si da día/hora alternativo. SOLO con visita_id de la lista CITAS PENDIENTES. Si hay varias y no está claro cuál, preguntá antes.
+2. INVENTARIO — pide cargar/registrar un inmueble SIN carga en curso → `iniciar_inventario`. Con carga en curso + te da datos → `capturar_datos_inmueble` (varios campos juntos si vinieron juntos). Pide cancelar → `cancelar_inventario`.
+3. Pide hablar con alguien del equipo / problema real → `escalar_a_humano`.
+
+CUÁNDO RESPONDER CON TEXTO LIBRE (sin tool):
+Preguntas abiertas sobre Petra o el día a día:
+- "¿cómo le muestro el inmueble al interesado?" → explicación breve.
+- "¿qué comisión me queda?" → 1% ventas, X% arriendos.
+- "¿qué le digo si pregunta por precio?" → consejo breve.
+Breve, natural, SIN llamar tool.
 
 REGLAS DURAS:
-- 🚫 NUNCA confirmés/cancelés una cita sin que ella lo diga claro. Ante duda, preguntá.
-- 🚫 NUNCA inventés datos de inmueble, interesados, fechas ni precios. Si no está en el prompt, no existe.
-- 🚫 NO llamés capturar_datos_inmueble con preguntas o protestas ('ya te dije', '?').
-- 🚫 NO menciones otros edificios ni otras agentes.
-- ✅ Después de llamar una tool, NO repitas lo que el bot ya le mandó (el resultado te avisa). Si hace falta, una línea corta.
-- ✅ Si al capturar quedan campos faltantes, pedí el próximo (te lo dice el resultado) de forma natural.
-- ✅ Tono cálido, voseo rioplatense, emoji con mesura."""
+- 🚫 NUNCA confirmés/cancelés una cita sin que ella lo diga claro.
+- 🚫 NUNCA inventés visita_id, interesados, fechas, precios ni datos de inmueble que no estén en este prompt.
+- 🚫 NUNCA llamés capturar_datos_inmueble con preguntas o protestas ("ya te dije", "?").
+- 🚫 NUNCA menciones otros edificios ni otras agentes."""
 
 
 def procesar(telefono, texto, cid, meta, conn, historial_prev=None):
