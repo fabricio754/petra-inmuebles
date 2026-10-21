@@ -594,8 +594,10 @@ def _petra_auto_marcar_kits_enviados():
                     "WHERE tipo='video_como_usar_qr' AND activo=TRUE "
                     "ORDER BY orden LIMIT 1"
                 ).fetchone()
-            # 2) Envío de mensajes
-            _pwa.send_text(telefono, _t(
+            # 2) Envío de mensajes. Usamos _sm para que respete media/botones/
+            #    extras adjuntos al mensaje desde el panel.
+            from app.petra_agents.flow_onboarding_agente import _sm as _sm_flow
+            _sm_flow(telefono,
                 "activacion.msg_kit_enviado",
                 fallback=(
                     "📦 *¡Tu kit ya está en camino!*\n\n"
@@ -604,7 +606,7 @@ def _petra_auto_marcar_kits_enviados():
                     "conjunto o donde lo autorizó el administrador.\n\n"
                     "Te paso un video rápido con el paso a paso 👇"
                 ),
-            ))
+            )
             _tm.sleep(1)
             if vid_row:
                 _pwa.send_media_o_texto(telefono, vid_row[0], vid_row[1])

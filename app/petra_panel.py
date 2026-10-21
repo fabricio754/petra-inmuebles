@@ -1366,7 +1366,8 @@ def kit_marcar_enviado(cid):
     from app import petra_wa as _pwa
     from app.petra_agents.textos import t as _t
     import time as _tm
-    _pwa.send_text(telefono, _t(
+    from app.petra_agents.flow_onboarding_agente import _sm as _sm_flow
+    _sm_flow(telefono,
         "activacion.msg_kit_enviado",
         fallback=(
             "📦 *¡Tu kit ya está en camino!*\n\n"
@@ -1375,7 +1376,7 @@ def kit_marcar_enviado(cid):
             "o donde lo autorizó el administrador.\n\n"
             "Te paso un video rápido con el paso a paso 👇"
         ),
-    ))
+    )
     _tm.sleep(1)
     if vid_row:
         _pwa.send_text(telefono, f"📲 *{vid_row[0]}*\n\n{vid_row[1]}")
