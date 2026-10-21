@@ -38,12 +38,18 @@ TOOLS = [
         "description": (
             "Marca que la agente YA obtuvo la autorización del administrador "
             "y la pasa a la siguiente fase (kit_pendiente, donde se le pide "
-            "la dirección para enviarle el kit físico). SOLO llamar cuando "
-            "ella CLARAMENTE confirma — pulsó el botón '✅ Ya tengo "
-            "autorización' O escribió explícitamente 'ya tengo autorización' "
-            "/ 'ya me autorizó' / 'listo me dieron el ok'. NUNCA llamés "
-            "esta tool si no es inequívoca la confirmación — ante duda, "
-            "preguntá primero."
+            "la dirección para enviarle el kit físico). Llamar cuando ella "
+            "confirma — en lenguaje natural — que el admin le dijo que sí. "
+            "Ejemplos reales que SÍ disparan: pulsar botón '✅ Ya tengo "
+            "autorización'; 'ya me autorizó'; 'listo me dieron el ok'; "
+            "'ya hablé y me dijo que sí'; 'ya hablé con el admin, dijo que sí'; "
+            "'me autorizó'; 'me dio el ok'; 'ya puedo seguir'; 'dijo que sí'. "
+            "También si en tu turno ANTERIOR preguntaste algo como '¿ya te "
+            "autorizó?' o '¿el admin ya te dio el ok?' y ella responde "
+            "afirmativamente ('sí', 'si', 'listo', 'ya', 'claro', 'obvio'), "
+            "entonces SÍ llamá la tool. NO llamés si expresa duda real "
+            "('creo que sí', 'me dijo que lo iba a pensar', 'a ver mañana', "
+            "'todavía no'); en ese caso preguntá para desambiguar."
         ),
         "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
@@ -140,7 +146,7 @@ La agente ya terminó su capacitación (14 videos). Ahora tiene que hablar con e
 
 TU TRABAJO:
 1. Si pide material / "cómo abordo al admin" / pulsa botón "📎 Ver material" → llamá `enviar_material_autorizacion` (que le mandará recordatorio del video de capacitación + demo del producto + piezas gráficas para mostrar).
-2. Si confirma inequívocamente que ya tiene la autorización (pulsa botón "✅ Ya tengo autorización" o escribe "ya me autorizó", "listo me dieron el ok", etc.) → llamá `marcar_tengo_autorizacion`.
+2. Si confirma que ya tiene la autorización — en lenguaje natural, no solo frases exactas — llamá `marcar_tengo_autorizacion`. Casos reales que disparan: pulsa botón "✅ Ya tengo autorización"; dice "ya me autorizó" / "listo me dieron el ok" / "ya hablé y me dijo que sí" / "ya hablé con el admin, dijo que sí" / "me autorizó" / "me dio el ok" / "ya puedo seguir". Y si en tu turno ANTERIOR vos preguntaste algo tipo "¿ya te autorizó?" / "¿el admin ya te dio el ok?" y ella responde afirmativa y corta ("sí", "si", "listo", "ya", "claro", "obvio") → también llamala. Si expresa duda real ("creo que sí", "me dijo que lo iba a pensar", "mañana veo") → preguntá para aclarar antes de llamar.
 3. Si tiene una duda sobre Petra, comisiones, cómo hablar con el admin, etc. → respondé con texto natural usando lo que sepas de Petra. No llamés tool.
 4. Si pide ayuda humana / dice que el admin la rechazó / no sabe qué hacer → llamá `escalar_a_humano`.
 
