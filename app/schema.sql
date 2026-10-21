@@ -1445,3 +1445,142 @@ VALUES (
   TRUE
 )
 ON CONFLICT (clave) DO NOTHING;
+
+-- =============================================================================
+-- SEED FAQs del Agente Petra (knowledge base del bot)
+-- Fuente: docs/petra_agente_faq.md
+-- Idempotente: no duplica por titulo (WHERE NOT EXISTS).
+-- Para editar/desactivar una FAQ, hacelo desde /panel/petra tab FAQ.
+-- =============================================================================
+DO $faq_seed$
+DECLARE
+  faqs TEXT[][] := ARRAY[
+    -- 1. Qué es Petra
+    ['¿Qué es Petra?', E'Petra es una plataforma inmobiliaria que te conecta con interesados reales que buscan comprar o arrendar en *tu edificio*. Vos sos la cara visible: cuando alguien escanea el QR del lobby, llega a tu WhatsApp.'],
+    ['¿Cómo gano dinero como agente?', E'Cobrás *comisión* por cada operación que se cierra con un lead que viniste trabajando: 1% del valor de venta o un % del arriendo (según el plan de tu edificio). El pago llega a la cuenta que nos pases.'],
+    ['¿Cuánto me va a tomar al día?', E'Lo que vos quieras. Mínimo: responder las citas que te lleguen por WhatsApp (3-5 min cada una). Si querés más ingresos, podés cargar inmuebles del edificio proactivamente.'],
+    ['¿Me tengo que mudar o cambiar de trabajo?', E'No. Petra está pensada para que sumes ingresos *sin dejar lo que estás haciendo*. Todo pasa por WhatsApp, en tus tiempos.'],
+    ['¿Puedo ser agente de varios edificios?', E'Por ahora *no*. Un edificio = una agente. Es parte de lo que hace confiable el modelo para los admins.'],
+    ['¿Puedo dejar de ser agente cuando quiera?', E'Sí. Escribime *"ya no quiero ser agente"* y damos de baja tu perfil sin letra chica. Si cambiás de idea, podés volver después.'],
+    ['¿Petra me cobra algo?', E'*No*. Para la agente es *100% gratis*. Vos ganás comisión, no pagás nada.'],
+    ['¿Petra le cobra al edificio?', E'No. Petra es *gratis para el edificio*. El admin solo da el ok para pegar un QR en el lobby. No hay cuotas ni letra chica.'],
+    ['¿Qué hace Petra con mi información?', E'Solo la usamos para operar la plataforma (procesar leads, calcular comisiones, enviarte citas). No la vendemos ni la compartimos. Está protegida bajo la Ley 1581 de Colombia.'],
+    ['¿Necesito descargar una app?', E'No. Todo pasa por WhatsApp, no hay app para descargar. Si tenés WhatsApp, podés ser Agente Petra.'],
+
+    -- 2. Inscripción
+    ['¿Qué datos necesitan para inscribirme?', E'Solo 5: nombre completo, cédula, ciudad, barrio, y nombre del conjunto donde vivís. Nada más — ni comprobante de ingresos ni papeles.'],
+    ['¿Para qué me piden la cédula?', E'Para registrarte como Agente Petra y poder pagarte comisiones en regla. No la compartimos con el admin ni con nadie fuera del equipo.'],
+    ['¿Puedo cambiar los datos después?', E'Sí. Escribime *"quiero corregir mi barrio"* (o el dato que sea) y lo cambiamos al toque.'],
+    ['Me equivoqué de edificio al inscribirme', E'Decime *"quiero cambiar de edificio"* y te dejo arrancar de nuevo con el conjunto correcto.'],
+    ['¿Cuánto tarda la inscripción?', E'Menos de 2 minutos. 5 datos y listo.'],
+    ['¿Dónde ven mis datos?', E'Solo el equipo de Petra y vos. No se publican, no los ven otros agentes ni el admin del edificio.'],
+
+    -- 3. Capacitación
+    ['¿Cuántos videos son?', E'Son *14 videos cortos*, 2 por día durante 7 días.'],
+    ['¿Cuánto duran los videos?', E'Entre 2 y 5 minutos cada uno. En total menos de 1 hora en toda la semana.'],
+    ['¿Puedo ver todos los videos de una?', E'Si querés avanzar más rápido, escribime *"mandame el siguiente día"* después de ver los 2 de hoy y te mando los próximos sin esperar al cron de las 8am.'],
+    ['¿Y si no entiendo algo del video?', E'Preguntame por acá, en texto. Si no puedo resolverlo, te lo paso a alguien del equipo.'],
+    ['No me llegaron los videos de hoy', E'Escribime *"reenviar videos"* y te los mando de nuevo.'],
+    ['¿Puedo volver a ver un video pasado?', E'Sí. Decime *"quiero ver el video del día X"* y te lo re-envío.'],
+    ['¿Qué pasa si me salto un día de capacitación?', E'Nada grave. Cuando quieras seguir, escribime *"listo"* y te mando el próximo día pendiente.'],
+    ['¿Hay examen después de la capacitación?', E'No hay examen. Son para que arranques sabiendo lo mínimo. Después aprendés más haciendo.'],
+    ['¿Cuándo termino la capacitación?', E'En 7 días si ves 2 por día. Después pasás a la fase de pedirle autorización al admin.'],
+
+    -- 4. Autorización del admin
+    ['¿Qué le digo al admin para que me autorice?', E'Decile 3 cosas:\n1. Petra es *gratis para el edificio* (no cobra ni mantenimiento ni cuota).\n2. Solo necesita permiso para *pegar un QR* chico en el lobby/portería.\n3. Que vos vas a atender a los interesados, el edificio no se preocupa de nada.'],
+    ['¿Y si el admin dice que no?', E'Decime *"el admin dijo que no"* y vemos: a veces solo le falta más info, otras veces es tema de que lo tenga que pasar a asamblea. Si no hay manera, podés cambiar de edificio.'],
+    ['El admin pregunta cuánto cuesta', E'*Nada*. Petra es gratis para el edificio. Vos ganás comisión, el edificio no paga un peso.'],
+    ['El admin dice que lo tiene que pasar a asamblea', E'Perfecto, es normal. Escribime *"pausar 15 días"* y te espero sin molestar. Cuando se defina, me avisás.'],
+    ['Al admin le preocupa la seguridad / los datos', E'El QR solo abre un formulario público (nombre + teléfono + qué busca). *No toca datos del edificio*, no accede a la portería ni a información de residentes. Es como pegar un cartel con un número.'],
+    ['¿Puedo activar el QR sin autorización del admin?', E'No. Necesitamos el ok del admin porque el QR va pegado en una zona común del edificio. Sin eso no te podemos enviar el kit.'],
+    ['Soy el admin del edificio', E'¡Mejor! Escribime *"soy el admin del edificio"* y agilizamos el proceso.'],
+    ['No tengo contacto directo con el admin', E'Decime y vemos: podemos mandarte un mensaje tipo para que lo reenvíes al grupo del edificio o al portero.'],
+    ['¿Petra puede hablar con el admin directamente?', E'Prefiero que lo hagas vos porque conocés al admin y es tu edificio. Si el tema se traba, podemos mandar algo escrito que vos le reenvíes.'],
+    ['¿Qué pasa si el admin se cambia?', E'Si el nuevo admin pide revalidar, me avisás y le pasamos el material de nuevo.'],
+    ['¿Me pueden mostrar casos de otros edificios?', E'Sí. Escribime *"quiero caso"* y te paso un ejemplo real.'],
+
+    -- 5. Kit QR
+    ['¿Qué incluye el kit?', E'Un *QR físico* para pegar en el lobby del edificio + *un regalito* 💜 de bienvenida.'],
+    ['¿Cuánto tarda en llegar el kit?', E'*2 a 3 días hábiles* desde que me pasás la dirección.'],
+    ['¿A qué dirección mandan el kit?', E'A la que me pases cuando el admin te autorice. Puede ser tu apto, una casa o el edificio directo.'],
+    ['¿Dónde pego el QR?', E'Donde más lo vea la gente que pasa: *portería, lobby o ascensor*. A la altura de los ojos, bien visible.'],
+    ['¿Me cobran por el kit o el envío?', E'No. Todo *gratis*. Nosotros lo mandamos.'],
+    ['El kit no me llegó aún', E'Si pasaron más de 4 días hábiles, decime *"no llegó el kit"* y lo rastreo.'],
+    ['Rompí el QR, ¿qué hago?', E'Decime *"necesito otro QR"* y te mandamos uno nuevo sin costo. Mientras tanto podés usar el QR digital que ya tenés por el link.'],
+    ['¿Y si me mudo del edificio?', E'Avisame. Si te mudás a otro conjunto, lo migramos. Si dejás el barrio, podemos ponerte en pausa hasta que decidas.'],
+    ['¿Puedo imprimir el QR mientras me llega el físico?', E'Sí. El link del QR digital te lo mandé por acá — podés imprimirlo y pegarlo mientras llega el físico.'],
+    ['¿Cómo sé que el QR funciona?', E'Después de pegarlo, mandame una *foto del QR instalado* y lo verificamos. Apenas confirmo que anda, te activo oficialmente.'],
+
+    -- 6. Comisiones y pagos
+    ['¿Cuánto gano por una venta?', E'*1% del valor de venta*. En un apto de 500 millones son 5 millones de comisión para vos.'],
+    ['¿Cuánto gano por un arriendo?', E'Un *% del canon mensual*. Varía según el edificio y el tipo de inmueble.'],
+    ['¿Cuándo me pagan?', E'Apenas se concreta la operación y el propietario recibe la plata. Normalmente *dentro de los 5 días hábiles*.'],
+    ['¿Cómo me pagan?', E'Por *transferencia bancaria* o Nequi/Daviplata/Bancolombia a la cuenta que vos nos pases. Vos elegís.'],
+    ['¿Puedo ver mi plata acumulada?', E'Sí. Pronto vas a tener un panel propio donde ver todo. Mientras, decime *"cuánto tengo"* y te paso el detalle.'],
+    ['¿Me cobran impuestos?', E'Si tus ingresos como agente superan el tope del régimen simplificado, sí hay retención. Te podemos ayudar a entender cuándo y cuánto.'],
+    ['¿Hay un monto mínimo para retirar?', E'No. Lo que generes se te paga al cierre de la operación, sin mínimos.'],
+    ['Un lead cerró conmigo pero por fuera de Petra', E'Si el lead vino por tu QR y lo podemos probar (están los chats), la comisión es tuya igual. Avisanos y lo gestionamos.'],
+    ['¿Qué pasa si una venta se cae?', E'No se cobra comisión porque no hubo operación. Si vuelve a reactivarse, sí.'],
+
+    -- 7. Inmuebles
+    ['¿Qué inmuebles puedo cargar?', E'Los de *tu edificio* que estén en *venta o arriendo*. Necesitás el ok del propietario.'],
+    ['¿Necesito permiso del propietario para publicarlo?', E'Sí. Es el propietario el que decide qué publicás y a qué precio.'],
+    ['¿Puedo cargar inmuebles de otros edificios?', E'No. Cada agente opera *solo su edificio*. Mantiene el modelo limpio.'],
+    ['¿Qué fotos pongo de un inmueble?', E'Fotos del *inmueble como está* — sin filtros ni montajes. Ideal: 5-8 fotos (sala, cuartos, baño, cocina, vista si hay).'],
+    ['¿Puedo cambiar el precio de un inmueble después?', E'Sí. Decime *"quiero cambiar el precio del inmueble X"* y lo actualizo.'],
+    ['¿Cuántos inmuebles puedo cargar?', E'Los que tengas. No hay límite.'],
+    ['¿Qué datos pide Petra del inmueble?', E'10 campos: modalidad (venta/arriendo), torre, apto, área m², habitaciones, baños, parqueadero, precio, nombre y teléfono del propietario.'],
+    ['El propietario pide que no se vea su número', E'Lo manejamos nosotros. Vos sos la intermediaria — los interesados te escriben a vos primero.'],
+    ['¿Puedo despublicar un inmueble?', E'Sí. Decime *"quitar inmueble X"* y queda fuera del catálogo.'],
+
+    -- 8. Citas / visitas
+    ['¿Cómo me llegan las citas?', E'Te llega un mensaje por acá con los datos del interesado y la hora propuesta. Vos aceptás, rechazás o proponés otra hora.'],
+    ['No puedo esa hora de la cita, ¿qué hago?', E'Pulsá *"Proponer otra hora"* y mandame día/hora alternativo (ej. *jueves 3pm*).'],
+    ['El interesado nunca llegó a la cita', E'Decime *"no vino el interesado de la cita X"* y lo marcamos como no-show.'],
+    ['¿Tengo que acompañar al interesado durante la visita?', E'Sí. La idea es que lo recibas, le muestres el inmueble y respondas preguntas básicas. Si pregunta algo técnico que no sepás, podés decir "te lo confirmo".'],
+    ['¿Y si tengo que cancelar la visita?', E'Avisame apenas puedas y le reagendamos al interesado. Un cancelado no es grave; una serie de cancelados sí.'],
+    ['¿Cuánto me demora una visita?', E'Entre 20 y 40 minutos: recibirlo, mostrarle, responder dudas y despedirse.'],
+    ['¿Petra me paga por hacer la visita?', E'No por la visita en sí. Cobrás solo si la operación se cierra (venta o arriendo).'],
+    ['¿Puedo bloquear horarios en que no quiero citas?', E'Sí. Decime *"no disponible el sábado"* o lo que sea y bloqueo esas horas.'],
+
+    -- 9. Legal / privacidad
+    ['¿Firmo contrato?', E'Vas a firmar un *acuerdo de agente* digital (click en WhatsApp cuenta). Sin ir a notaría. Define que sos Agente Petra autorizada y cómo se calculan tus comisiones.'],
+    ['¿Qué pasa con mis datos personales?', E'Están protegidos por la *Ley 1581 de 2012* (habeas data Colombia). Solo los usa Petra, no se venden ni se comparten. Podés pedir que los borremos cuando dejes de ser agente.'],
+    ['¿Petra se queda con mi inmueble si lo cargo?', E'No. El inmueble sigue siendo del propietario. Nosotros solo lo publicamos y gestionamos los leads.'],
+    ['¿Puedo competir con otras agentes?', E'No competís directamente. Cada edificio tiene UNA agente. Si otro conjunto tiene su agente, ustedes trabajan en zonas distintas.'],
+    ['¿Puedo trabajar con una inmobiliaria tradicional a la vez?', E'Mientras no haya conflicto directo con tu edificio, sí. Avisanos si hay algún tema.'],
+    ['Soy menor de edad, ¿puedo ser agente?', E'Necesitás ser mayor de 18 años para firmar el acuerdo y recibir pagos.'],
+    ['Soy extranjero/a, ¿puedo ser agente?', E'Si tenés cédula de extranjería y cuenta bancaria en Colombia, sí.'],
+    ['¿Qué pasa con el QR si doy de baja mi cuenta?', E'Lo retiramos del circuito. Si alguien escanea el QR después, le decimos que no está activa esa agente.'],
+
+    -- 10. Técnico / soporte
+    ['No me llegan mensajes de Petra', E'Chequeá que no me tengas bloqueado y que mi número esté guardado. Si sigue, escribime desde otro medio y lo revisamos.'],
+    ['Me equivoqué de teléfono al registrarme', E'Decime *"quiero cambiar mi teléfono"* y vemos cómo migrar tu cuenta sin perder progreso.'],
+    ['Quiero hablar con un humano', E'Escribime *"necesito hablar con alguien del equipo"* y alguien te contacta en el día.'],
+    ['¿Puedo pausar la cuenta un tiempo?', E'Sí. Decime *"pausar X días"* y no te molesto hasta esa fecha. Después retomo donde quedamos.'],
+    ['Cambié de celular / perdí el teléfono', E'Si cambiaste de celular pero mantenés el mismo número, no hay drama — tus mensajes siguen llegando. Si perdiste el número, escribime desde el nuevo y recuperamos tu cuenta.'],
+    ['¿Puedo tener Petra en 2 celulares?', E'Como WhatsApp Business permite 1 número = 1 sesión, por ahora es 1 celular por agente.'],
+    ['El QR no funciona cuando lo escaneo yo', E'Normal — algunos celulares no abren tu propio QR si estás logueada. Pedile a alguien de tu casa que lo pruebe.'],
+    ['¿Hay horario de atención?', E'El bot está 24/7. Si pedís humano, respondemos en horario laboral (lunes a viernes 9-18, Colombia).'],
+
+    -- 11. Día a día
+    ['¿Qué pasa después de que el QR esté instalado?', E'Empezás a *recibir leads*. Cuando alguien escanea el QR del lobby, su mensaje te llega directo acá.'],
+    ['¿Cómo convierto un lead en una operación?', E'Lo saludás, le preguntás qué busca, le mostrás un inmueble del edificio, coordinás una visita, y si le gusta, lo cerrás con el propietario.'],
+    ['¿Qué pasa si un lead no responde?', E'Normal. De cada 10 leads, cerrás 1-2. El resto es parte del proceso.'],
+    ['¿Cuántos leads voy a recibir?', E'Depende del edificio. En promedio: *3 a 8 leads por mes* en edificios activos.'],
+    ['No me siento cómoda vendiendo', E'No necesitás ser comercial pro. Sé vos, honesta y clara. Es más efectivo que forzar un libreto de venta.'],
+    ['¿Petra me sugiere qué decir al interesado?', E'Sí, en casos complejos. Para las respuestas comunes, armás tu estilo y el bot te lo recuerda.'],
+    ['El interesado necesita crédito hipotecario', E'Petra tiene aliados de crédito. Decime *"el interesado necesita crédito"* y te paso el contacto.'],
+    ['¿Hay programas para agentes top?', E'Sí. Si cerrás varias operaciones y querés escalar, podemos conversar: hay programas para agentes top (más edificios, más herramientas, pagos más rápidos).']
+  ];
+  pair TEXT[];
+BEGIN
+  FOREACH pair SLICE 1 IN ARRAY faqs LOOP
+    INSERT INTO petra_contenidos (tipo, titulo, texto, activo)
+    SELECT 'faq', pair[1], pair[2], TRUE
+    WHERE NOT EXISTS (
+      SELECT 1 FROM petra_contenidos
+      WHERE tipo='faq' AND titulo = pair[1]
+    );
+  END LOOP;
+END $faq_seed$;
