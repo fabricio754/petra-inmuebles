@@ -1934,7 +1934,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                         ),
                     ),
                     [
-                        {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Ya tengo autorizac")},
+                        {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Autorización")},
                         {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
                     ],
                     estado_key="autorizacion_pendiente",
