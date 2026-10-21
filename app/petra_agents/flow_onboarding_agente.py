@@ -644,6 +644,22 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
     direccion = meta.get("direccion") or {}
     t_lc = (texto or "").lower().strip()
 
+    # Shortcut: la agente pregunta por su kit → le recordamos que estamos
+    # preparándolo (está en kit_pendiente, aún no salió). No avanza nada.
+    if not paso and t_lc in PALABRAS_KIT:
+        _sm(telefono,
+            "activacion.msg_direccion_completa",
+            fallback=(
+                "🎉 *¡Dirección confirmada!* 📍\n\n"
+                "Ya pedimos tu kit de activación. En *2-3 días hábiles* lo recibís:\n\n"
+                "📦 Tu QR personalizado para pegar en el edificio\n"
+                "💜 Un regalito Petra para arrancar\n\n"
+                "Te aviso acá apenas salga en camino 🚚"
+            ),
+        )
+        _log(telefono, texto, "[kit_pendiente: re-aviso por palabra clave]")
+        return True
+
     # ¿Pregunta libre no relacionada? → delega al LLM si es claramente duda
     if texto and any(w in t_lc for w in (
             "duda", "pregunta", "ayuda", "no entiendo", "por qué", "porque")):
@@ -734,12 +750,71 @@ def _formatear_direccion(direccion):
     return "\n".join(partes)
 
 
+PALABRAS_KIT = (
+    "kit", "mi kit", "donde está mi kit", "donde esta mi kit",
+    "info kit", "estado kit", "que paso con mi kit", "qué pasó con mi kit",
+    "link", "link del qr", "mi qr", "donde está el link",
+    "donde esta el link",
+)
+
+
+def _reenviar_kit_enviado(telefono, cid, meta):
+    """Re-envía el bloque completo del mensaje 'tu kit ya está en camino'
+    (texto + media adjunta + extras). Útil cuando la agente pregunta 'donde
+    está mi kit' después de perder el mensaje en el scroll."""
+    from app import db as _db
+    _sm(telefono,
+        "activacion.msg_kit_enviado",
+        fallback=(
+            "📦 *¡Tu kit ya está en camino!*\n\n"
+            "Dentro vas a encontrar tu QR + un regalito 💜. Cuando lo "
+            "recibas, instalá el QR en la cartelera del conjunto o donde "
+            "lo autorizó el administrador."
+        ),
+    )
+    import time as _tm_rk
+    from app import petra_wa as _pwa_rk
+    _tm_rk.sleep(1)
+    # Video "cómo usar QR" + link QR del edificio (igual que la primera vez)
+    with _db._conexion_directa(timeout=10) as conn_rk:
+        vid_row = conn_rk.execute(
+            "SELECT titulo, url FROM petra_contenidos "
+            "WHERE tipo='video_como_usar_qr' AND activo=TRUE "
+            "ORDER BY orden LIMIT 1"
+        ).fetchone()
+        qr_row = conn_rk.execute(
+            "SELECT e.qr_slug FROM petra_edificios e "
+            "JOIN petra_contacto_roles r ON r.edificio_id=e.id AND r.contacto_id=%s "
+            "AND r.rol='agente_petra' WHERE e.qr_slug IS NOT NULL LIMIT 1",
+            (cid,),
+        ).fetchone()
+    if vid_row:
+        _pwa_rk.send_media_o_texto(telefono, vid_row[0], vid_row[1])
+        _tm_rk.sleep(1)
+    if qr_row and qr_row[0]:
+        _pwa_rk.send_text(
+            telefono,
+            f"🔗 Tu QR único: https://petra-inmuebles.onrender.com/qr/{qr_row[0]}",
+        )
+        _tm_rk.sleep(1)
+    _send_buttons(telefono, _t(
+        "activacion.msg_qr_boton",
+        fallback="Cuando lo tengas instalado, pulsá el botón 👇",
+    ), [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}])
+
+
 def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
     """Humano ya marcó el kit como enviado desde panel. Esperamos que la
     agente mande FOTO del QR instalado como soporte. El pase a 'activa'
     ocurre en `capturar_foto_qr()` (llamado desde webhook_worker cuando
     detecta un image IN con la agente en este estado)."""
-    if texto == "ONBAG_QR_INSTALADO" or (texto or "").lower().strip() in (
+    t_lc = (texto or "").lower().strip()
+    # Shortcut: la agente pregunta por su kit → re-enviamos el bloque
+    if t_lc in PALABRAS_KIT:
+        _reenviar_kit_enviado(telefono, cid, meta)
+        _log(telefono, texto, "[kit_enviado: re-envío por palabra clave]")
+        return True
+    if texto == "ONBAG_QR_INSTALADO" or t_lc in (
             "instalado", "instalado qr", "ya instale", "ya instalé",
             "ya instalé el qr", "qr instalado"):
         # NO avanza — pide foto como soporte
