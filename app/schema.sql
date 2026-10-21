@@ -1256,6 +1256,14 @@ UPDATE petra_media_estacion
    SET url = '/panel' || url
  WHERE url LIKE '/petra/media/%';
 
+-- Re-clasificar "Como usar el QR" subido como 'otro' → 'video_como_usar_qr'
+-- (el tipo real que busca el cron de kit enviado y el endpoint del panel).
+-- Idempotente: solo toca filas con el título exacto que vinieron en 'otro'.
+UPDATE petra_contenidos
+   SET tipo = 'video_como_usar_qr'
+ WHERE titulo = 'Como usar el QR'
+   AND tipo = 'otro';
+
 -- Adjuntar Vid 2.0 (TikTok) al mensaje "📦 ¡Tu kit ya está en camino!"
 -- Idempotente: solo inserta si no existe ya un adjunto con esa URL para
 -- esa clave. estado_key='kit_pendiente' (la agente está saliendo de ese
