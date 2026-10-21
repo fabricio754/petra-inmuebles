@@ -1853,6 +1853,33 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                  nota=f"estado={estado}")
             return True
 
+        # Shortcut de prueba: SOLO el teléfono 3227057375 (Fabricio) puede
+        # escribir "suerte" en cualquier estado y disparar el mensaje
+        # "¡Perfecto! Te deseamos mucha suerte con la reunión" + botones.
+        if _texto_lc_kit == "suerte" and (telefono or "").endswith("3227057375"):
+            _send_buttons(
+                telefono,
+                _t(
+                    "autorizacion.msg_voy_agendar",
+                    fallback=(
+                        "¡Perfecto! 🙌✨\n\n"
+                        "Te deseamos *mucha suerte* con la reunión 🤝 "
+                        "Acordate de llevar el material que te pasé — vas "
+                        "a estar genial.\n\n"
+                        "Estamos acá si necesitás ayuda 💜 Apenas termines, "
+                        "elegí abajo según cómo te fue:"
+                    ),
+                ),
+                [
+                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Autorización")},
+                    {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
+                ],
+                estado_key="autorizacion_pendiente",
+            )
+            _log(telefono, texto, "[shortcut global 'suerte' → mensaje agendar]",
+                 nota=f"estado={estado}")
+            return True
+
         # Intercept de botones CUSTOM_<id> definidos desde el panel.
         if texto and texto.startswith("CUSTOM_"):
             info = _botones.resolver_custom(texto)
