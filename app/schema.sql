@@ -1665,3 +1665,28 @@ UPDATE petra_textos
  WHERE clave = 'activacion.msg_pedir_direccion_inicio'
    AND (contenido LIKE E'%¿En qué torre vivís?%'
         OR contenido LIKE E'%Empecemos por lo primero%');
+
+-- =============================================================================
+-- Rediseño flujo kit (oct 2026, iteración 2): tras ✨ Perfecto se pide foto
+-- del libro de arriendos del conjunto (en vez de instrucciones del QR).
+-- Se eliminan los videos adjuntos al msg_direccion_completa.
+-- =============================================================================
+
+-- Desactivar videos (Vid 2.0 / Tu QR único / Como usar el QR) del mensaje
+-- de dirección confirmada: ya no se muestran.
+UPDATE petra_media_estacion
+   SET activo = FALSE
+ WHERE clave_texto = 'activacion.msg_direccion_completa'
+   AND titulo IN ('Vid 2.0', 'Tu QR único', 'Como usar el QR')
+   AND activo = TRUE;
+
+-- Nuevo texto: tras pulsar ✨ Perfecto, se le pide foto del libro.
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'activacion.msg_pedir_foto_libro',
+  E'📸 *Ahora necesitamos una foto del libro de arriendos y ventas* de tu conjunto.\n\n'
+  || E'Pasá por la *portería o el lobby* y pedí ver el libro. Tomale una foto bien clara y mandámela por acá 💜\n\n'
+  || E'✨ Con eso vamos a *cargar tu QR con la info de tu conjunto*, para que cuando lo instales ya funcione completo 🚀',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
