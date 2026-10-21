@@ -40,7 +40,9 @@ MENSAJE_FALLO_HUMANO = (
 
 
 def _llm_client():
-    """Construye cliente Anthropic. Devuelve None si no hay API key."""
+    """Construye cliente Anthropic. Devuelve None si no hay API key.
+    Si ANTHROPIC_WORKSPACE_ID está seteado, lo manda como header en cada
+    request (requerido por workspace-scoped keys)."""
     api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if not api_key:
         return None
@@ -48,7 +50,11 @@ def _llm_client():
         from anthropic import Anthropic
     except ImportError:
         return None
-    return Anthropic(api_key=api_key)
+    kwargs = {"api_key": api_key}
+    workspace_id = (os.environ.get("ANTHROPIC_WORKSPACE_ID") or "").strip()
+    if workspace_id:
+        kwargs["default_headers"] = {"anthropic-workspace-id": workspace_id}
+    return Anthropic(**kwargs)
 
 
 def ejecutar_turno(telefono, texto, contexto, tools, handlers,
