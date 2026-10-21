@@ -1912,14 +1912,32 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                     "autorizacion.msg_post_material",
                     fallback="Cuando tengas la autorización del administrador, pulsá el botón 👇",
                 ), [
+                    {"id": "ONBAG_VOY_AGENDAR_CITA", "title": _b("ONBAG_VOY_AGENDAR_CITA", "📅 Voy a agendar")},
                     {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
                 ], estado_key="autorizacion_pendiente")
                 _log(telefono, texto, "[envío material autorización]",
                      nota="botón o palabra clave pidió material")
                 return True
             # Botón "❓ Tengo una duda" → prompt para que escriba la pregunta
+            if texto == "ONBAG_VOY_AGENDAR_CITA":
+                _sm(telefono,
+                    "autorizacion.msg_voy_agendar",
+                    fallback=(
+                        "¡Dale, vas con todo! 💪✨\n\n"
+                        "Suerte con la reunión 🤝 Acordate de llevar el material "
+                        "que te pasé y vas a estar genial.\n\n"
+                        "Apenas termines la reunión, volvé por acá:\n"
+                        "✅ Si el admin te dio el OK → escribime *\"ya me autorizó\"* "
+                        "y seguimos con tu kit.\n"
+                        "❓ Si surge alguna duda o quiere pensarlo → contame y "
+                        "lo resolvemos juntas 💜"
+                    ),
+                )
+                _log(telefono, texto, "[voy a agendar cita]",
+                     nota="botón voy a agendar")
+                return True
             if texto == "ONBAG_TENGO_DUDA":
-                _sm(telefono, 
+                _sm(telefono,
                     "autorizacion.msg_prompt_duda",
                     fallback="¡Claro! 💜 Escribime tu pregunta y te respondo acá mismo.",
                 )
