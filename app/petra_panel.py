@@ -1994,3 +1994,57 @@ def evals_run():
                                       "pasaron": pasaron,
                                       "total": len(resultados),
                                       "log": log_text})
+
+
+# =============================================================================
+# Admin: reset de un agente por teléfono (uso puntual de testing)
+# =============================================================================
+
+@petra_panel_bp.get("/_admin/reset-agente")
+def admin_reset_agente_por_tel():
+    """Elimina el rol agente_petra + progreso de un contacto por teléfono.
+    Usa el panel token como auth (mismo mecanismo que el resto del panel).
+    Útil para re-probar flujos desde cero sin tener que navegar la UI."""
+    _check_token()
+    tel = (request.args.get("tel") or "").strip().lstrip("+").replace(" ", "")
+    if not tel or not tel.isdigit():
+        return "Falta ?tel=<telefono> (solo dígitos)", 400
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono=%s", (tel,)
+        ).fetchone()
+        if not row:
+            return f"Sin contacto con telefono={tel}", 404
+        cid = row[0]
+        n_rol = conn.execute(
+            "DELETE FROM petra_contacto_roles "
+            "WHERE contacto_id=%s AND rol='agente_petra'",
+            (cid,),
+        ).rowcount
+        n_cap = 0
+        try:
+            n_cap = conn.execute(
+                "DELETE FROM petra_capacitacion_progreso WHERE contacto_id=%s",
+                (cid,),
+            ).rowcount
+        except Exception:
+            pass
+        n_intent = 0
+        try:
+            n_intent = conn.execute(
+                "DELETE FROM petra_intent_store WHERE telefono=%s", (tel,)
+            ).rowcount
+        except Exception:
+            pass
+        n_sess = 0
+        try:
+            n_sess = conn.execute(
+                "UPDATE petra_sesiones SET cerrado_at=NOW() "
+                "WHERE telefono=%s AND cerrado_at IS NULL", (tel,)
+            ).rowcount
+        except Exception:
+            pass
+    return (f"OK ✅ Agente reseteado — tel={tel}, cid={cid}, "
+            f"rol_eliminado={n_rol}, cap_eliminada={n_cap}, "
+            f"intent_eliminado={n_intent}, sesiones_cerradas={n_sess}. "
+            f"Ya podés escribirle desde tu WhatsApp y arranca de cero."), 200
