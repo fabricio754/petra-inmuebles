@@ -1330,7 +1330,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             )
         _send_buttons(telefono, resp, [
             {"id": "ONBAG_SIGUIENTE_DIA",
-             "title": _b("ONBAG_SIGUIENTE_DIA", "⏭ Siguiente video")},
+             "title": _b("ONBAG_SIGUIENTE_DIA", "⏭ Ver día siguiente")},
         ], estado_key="en_capacitacion")
         _log(telefono, texto, resp, nota=f"día marcado {vistos}/{total}")
         return True
