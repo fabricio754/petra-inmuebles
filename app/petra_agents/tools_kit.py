@@ -126,7 +126,7 @@ def handle_capturar_direccion(args, ctx):
     from app import petra_wa
     from app.petra_agents.textos import t as _t
     from app.petra_agents.flow_onboarding_agente import (
-        _set_estado, _sm, _send_buttons,
+        _set_estado, _sm, _send_buttons, _enviar_media_por_clave,
     )
     meta = ctx["meta"]
     direccion_raw = args.get("direccion") or ""
@@ -164,28 +164,26 @@ def handle_capturar_direccion(args, ctx):
     meta["kit_enviado_tras_direccion"] = True
     _save_meta(ctx["conn"], ctx["cid"], meta)
 
-    _sm(ctx["telefono"],
-        "activacion.msg_direccion_completa",
-        fallback=(
-            "🎉 *¡Dirección confirmada!* 📍\n\n"
-            "Ya pedimos tu kit de activación 📦\n"
-            "En *2 a 3 días hábiles* te llega a esa dirección.\n\n"
-            "💜 Mientras tanto, podés seguir con tu capacitación."
-        ),
-    )
-    import time as _tm
-    _tm.sleep(1)
+    # Mensaje "Dirección confirmada" ya trae el botón ✨ Perfecto embebido.
+    # Los adjuntos (videos del kit) se mandan en un segundo mensaje porque
+    # WhatsApp no permite media + botones en un mismo interactive message.
     _send_buttons(
         ctx["telefono"],
         _t(
-            "activacion.msg_kit_perfecto",
+            "activacion.msg_direccion_completa",
             fallback=(
-                "¿Todo claro con lo del kit? 💜\n\n"
-                "Tocá el botón para seguir 👇"
+                "🎉 *¡Dirección confirmada!* 📍\n\n"
+                "Ya pedimos tu kit de activación 📦\n"
+                "En *2 a 3 días hábiles* te llega a esa dirección.\n\n"
+                "💜 Mientras tanto, podés seguir con tu capacitación."
             ),
         ),
         [{"id": "ONBAG_KIT_PERFECTO", "title": "✨ Perfecto"}],
     )
+    try:
+        _enviar_media_por_clave(ctx["telefono"], "activacion.msg_direccion_completa")
+    except Exception:
+        log.exception("[tools_kit] media hook fallo tel=%s", ctx["telefono"])
     return {
         "ok": True,
         "direccion": limpio,
