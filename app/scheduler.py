@@ -96,6 +96,14 @@ def iniciar():
                        minute=15,
                        id="petra_nudges_horario",
                        max_instances=1, coalesce=True)
+    # Autonomía kit: pasadas ~KIT_AUTOENVIO_HORAS (24 default) desde que la
+    # agente completó la dirección, el bot automáticamente la pasa a
+    # kit_enviado y le manda "tu kit salió en camino" + video + botón QR.
+    # Fuente: variable env PETRA_KIT_AUTOENVIO_HORAS (int, default 24).
+    _scheduler.add_job(_petra_auto_marcar_kits_enviados, "interval",
+                       minutes=30,
+                       id="petra_kit_autoenvio",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -512,6 +520,110 @@ def _petra_evaluar_nudges():
                      reglas, enviados)
     except Exception:
         log.exception("[Scheduler] evaluar_nudges fallo")
+
+
+def _petra_auto_marcar_kits_enviados():
+    """Autonomía kit: pasadas N horas (PETRA_KIT_AUTOENVIO_HORAS, default 24)
+    desde que la agente completó su dirección, la pasamos auto a estado
+    kit_enviado y disparamos el mismo mensaje+video+botón QR que haría un
+    humano desde el panel. Esto reemplaza el "humano marca enviado"."""
+    import os as _os
+    import datetime as _dt
+    import json as _json
+    import time as _tm
+    from app import db as _db
+    from app import petra_wa as _pwa
+    from app.petra_agents.textos import t as _t
+    try:
+        horas = int(_os.environ.get("PETRA_KIT_AUTOENVIO_HORAS", "24"))
+    except (ValueError, TypeError):
+        horas = 24
+    corte = _dt.datetime.utcnow() - _dt.timedelta(hours=horas)
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            rows = conn.execute(
+                "SELECT c.id, c.telefono, r.metadata "
+                "FROM petra_contactos c "
+                "JOIN petra_contacto_roles r "
+                "  ON r.contacto_id=c.id AND r.rol='agente_petra' "
+                "WHERE r.metadata->>'estado_agente' = 'kit_pendiente' "
+                "  AND r.metadata->>'direccion_capturada_at' IS NOT NULL "
+                "  AND (r.metadata->>'direccion_capturada_at')::timestamp <= %s",
+                (corte,),
+            ).fetchall()
+    except Exception:
+        log.exception("[Scheduler] auto_marcar_kits query fallo")
+        return
+    if not rows:
+        return
+    enviados = 0
+    for cid, telefono, meta in rows:
+        meta = dict(meta or {})
+        # Doble-check para no pasar sin dirección completa
+        direccion = meta.get("direccion") or {}
+        if not all(direccion.get(c) for c in ("torre", "apto", "barrio", "ciudad")):
+            continue
+        try:
+            # 1) estado → kit_enviado
+            meta["estado_agente"] = "kit_enviado"
+            meta["kit_enviado_at"] = _dt.datetime.utcnow().isoformat()
+            meta["kit_enviado_auto"] = True
+            with _db._conexion_directa(timeout=10) as conn:
+                conn.execute(
+                    "UPDATE petra_contacto_roles SET metadata=%s::jsonb, "
+                    "updated_at=NOW() WHERE contacto_id=%s AND rol='agente_petra'",
+                    (_json.dumps(meta), cid),
+                )
+                # Cargar QR + video (idéntico a kit_marcar_enviado del panel)
+                qr_url = None
+                try:
+                    qr_row = conn.execute(
+                        "SELECT e.qr_slug FROM petra_edificios e "
+                        "JOIN petra_contacto_roles r "
+                        "  ON r.edificio_id = e.id AND r.contacto_id = %s "
+                        "  AND r.rol = 'agente_petra' "
+                        "WHERE e.qr_slug IS NOT NULL LIMIT 1",
+                        (cid,),
+                    ).fetchone()
+                    if qr_row and qr_row[0]:
+                        qr_url = f"https://petra-inmuebles.onrender.com/qr/{qr_row[0]}"
+                except Exception:
+                    pass
+                vid_row = conn.execute(
+                    "SELECT titulo, url FROM petra_contenidos "
+                    "WHERE tipo='video_como_usar_qr' AND activo=TRUE "
+                    "ORDER BY orden LIMIT 1"
+                ).fetchone()
+            # 2) Envío de mensajes
+            _pwa.send_text(telefono, _t(
+                "activacion.msg_kit_enviado",
+                fallback=(
+                    "📦 *¡Tu kit ya está en camino!*\n\n"
+                    "Dentro vas a encontrar tu QR + un regalito 💜. "
+                    "Cuando lo recibas, instalá el QR en la cartelera del "
+                    "conjunto o donde lo autorizó el administrador.\n\n"
+                    "Te paso un video rápido con el paso a paso 👇"
+                ),
+            ))
+            _tm.sleep(1)
+            if vid_row:
+                _pwa.send_media_o_texto(telefono, vid_row[0], vid_row[1])
+                _tm.sleep(2)
+            if qr_url:
+                _pwa.send_text(telefono, f"🔗 Tu QR único: {qr_url}")
+                _tm.sleep(1)
+            _pwa.send_buttons(telefono, _t(
+                "activacion.msg_qr_boton",
+                fallback="Cuando lo tengas instalado, pulsá el botón 👇",
+            ), [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}])
+            enviados += 1
+            log.info("[Scheduler] auto_kit_enviado tel=%s cid=%s horas=%s",
+                     telefono, cid, horas)
+        except Exception:
+            log.exception("[Scheduler] auto_marcar_kits fallo cid=%s", cid)
+    if enviados:
+        log.info("[Scheduler] auto_marcar_kits: %d agentes avanzadas a kit_enviado",
+                 enviados)
 
 
 def _petra_cerrar_sesiones_inactivas():
