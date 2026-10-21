@@ -2026,6 +2026,61 @@ def admin_nudges_run():
         return f"❌ Error: {type(e).__name__}: {e}\n{traceback.format_exc()}", 500
 
 
+@petra_panel_bp.get("/_admin/enviar-nudge")
+def admin_enviar_nudge_manual():
+    """Envía UN nudge específico a UN teléfono, sin importar hace cuánto
+    está en ese estado ni si ya lo recibió antes. Útil para probar que
+    el envío funciona desde una agente puntual.
+
+    Query params:
+      - tel: teléfono (ej. 573227057375)
+      - clave: clave del nudge (ej. kit_enviado_72h). Si no se pasa, usa
+               la clave default del estado actual de la agente.
+    NO toca el flag nudges_enviados — es puramente para test."""
+    _check_token()
+    tel = (request.args.get("tel") or "").strip().lstrip("+").replace(" ", "")
+    clave_pedida = (request.args.get("clave") or "").strip()
+    if not tel or not tel.isdigit():
+        return "Falta ?tel=<telefono> (solo dígitos)", 400
+    from app.petra_agents import nudges as _n
+    from app.petra_agents.textos import t as _t
+    from app import petra_wa, db as _db2
+    try:
+        with _db2._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT c.id, c.nombre, r.metadata->>'estado_agente' "
+                "FROM petra_contactos c "
+                "JOIN petra_contacto_roles r ON r.contacto_id=c.id "
+                "AND r.rol='agente_petra' "
+                "WHERE c.telefono=%s", (tel,)
+            ).fetchone()
+        if not row:
+            return f"Sin agente con telefono={tel}", 404
+        cid, nombre, estado = row
+        # Busco la regla: si no se pidió clave específica, uso la más
+        # chica (menor horas) para el estado actual.
+        reglas = [r for r in _n.listar_reglas(solo_activas=True)
+                  if (clave_pedida and r["clave"] == clave_pedida)
+                  or (not clave_pedida and r["estado_origen"] == estado)]
+        if not reglas:
+            return (f"Sin regla de nudge para estado={estado} / clave={clave_pedida or '(auto)'}. "
+                    f"Reglas disponibles: {[r['clave'] for r in _n.listar_reglas(solo_activas=True)]}"), 404
+        reglas.sort(key=lambda r: int(r.get("horas_sin_avanzar") or 0))
+        regla = reglas[0]
+        texto = _t(
+            regla["texto_clave"],
+            fallback=f"[nudge {regla['clave']} — texto no cargado]",
+            nombre=(nombre or "").split()[0] if nombre else "",
+        )
+        petra_wa.send_text(tel, texto)
+        return (f"OK ✅ Nudge '{regla['clave']}' enviado manualmente a tel={tel} "
+                f"(estado actual: {estado}). NO se marcó dedup — el próximo "
+                f"run del cron también se lo puede volver a mandar."), 200
+    except Exception as e:
+        import traceback
+        return f"❌ Error: {type(e).__name__}: {e}\n{traceback.format_exc()}", 500
+
+
 @petra_panel_bp.get("/_admin/reset-agente")
 def admin_reset_agente_por_tel():
     """Elimina el rol agente_petra + progreso de un contacto por teléfono.
