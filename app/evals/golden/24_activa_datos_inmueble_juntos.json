@@ -1,0 +1,12 @@
+{
+  "name": "activa_datos_inmueble_varios_juntos",
+  "fase": "activa",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Portal del Norte", "estado_agente": "activa", "inventario_paso": "modalidad", "inventario_datos": {}},
+  "turnos": [
+    {
+      "user_msg": "es para arriendo, torre 2 apto 505, 85 metros, 3 habitaciones 2 baños, con parqueadero",
+      "expect_tool": "capturar_datos_inmueble",
+      "expect_args_contains": {"modalidad": "arriendo", "torre": "2", "apto": "505", "area_m2": "85", "habitaciones": "3", "banos": "2"}
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "autorizacion_admin_rechazo_escala_humano",
+  "fase": "autorizacion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Torres del Parque", "estado_agente": "autorizacion_pendiente"},
+  "turnos": [
+    {
+      "user_msg": "El administrador me dijo que no, no quiere participar",
+      "expect_tool": "escalar_a_humano"
+    }
+  ]
+}

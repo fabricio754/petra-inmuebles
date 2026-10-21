@@ -1,0 +1,11 @@
+{
+  "name": "kit_enviado_confirma_qr_instalado",
+  "fase": "kit",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Portal del Norte", "estado_agente": "kit_enviado", "direccion": {"torre": "N/A", "apto": "Casa 49", "barrio": "Portal", "ciudad": "Zipaquirá"}},
+  "turnos": [
+    {
+      "user_msg": "Listo, ya lo pegué en la portería",
+      "expect_tool": "marcar_qr_instalado"
+    }
+  ]
+}

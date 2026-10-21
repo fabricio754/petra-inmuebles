@@ -1,0 +1,11 @@
+{
+  "name": "activa_pregunta_sobre_comisiones_sin_tool",
+  "fase": "activa",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Portal del Norte", "estado_agente": "activa"},
+  "turnos": [
+    {
+      "user_msg": "¿cuánto me queda si vendo un apto de 500 millones?",
+      "expect_tool": null
+    }
+  ]
+}

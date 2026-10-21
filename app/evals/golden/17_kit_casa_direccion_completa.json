@@ -1,0 +1,12 @@
+{
+  "name": "kit_casa_direccion_completa_un_mensaje",
+  "fase": "kit",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Portal del Norte", "estado_agente": "kit_pendiente", "direccion": {}},
+  "turnos": [
+    {
+      "user_msg": "Casa 49, Portal del Norte, Zipaquirá",
+      "expect_tool": "capturar_direccion",
+      "expect_args_contains": {"torre": "N/A", "apto": "Casa 49", "ciudad": "Zipaquirá"}
+    }
+  ]
+}

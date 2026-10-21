@@ -1927,3 +1927,70 @@ def tool_calls_vista():
                  "errores": solo_errores, "limit": limit},
         token=token,
     )
+
+
+# =============================================================================
+# Evals: correr golden set contra el LLM real desde el panel
+# =============================================================================
+
+@petra_panel_bp.get("/evals")
+def evals_vista():
+    """Lista los casos de evals disponibles y permite correrlos."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    from pathlib import Path
+    import json as _json
+    golden_dir = Path(__file__).parent / "evals" / "golden"
+    casos = []
+    for p in sorted(golden_dir.glob("*.json")):
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = _json.load(f)
+            casos.append({"file": p.name, "name": data.get("name"),
+                          "fase": data.get("fase"),
+                          "turnos": len(data.get("turnos") or [])})
+        except Exception as e:
+            casos.append({"file": p.name, "error": str(e)[:120]})
+    return render_template("petra_evals.html", casos=casos, token=token,
+                           resultado=None)
+
+
+@petra_panel_bp.post("/evals/run")
+def evals_run():
+    """Corre todos los evals contra el LLM real y devuelve resultado."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    import io, contextlib
+    from app.evals.runner import GOLDEN_DIR, _correr_caso
+    paths = sorted(GOLDEN_DIR.glob("*.json"))
+    buffer = io.StringIO()
+    resultados = []
+    with contextlib.redirect_stdout(buffer):
+        for p in paths:
+            try:
+                ok, nombre, errs = _correr_caso(p)
+                resultados.append({"file": p.name, "name": nombre,
+                                   "ok": ok, "errors": errs})
+            except Exception as e:
+                resultados.append({"file": p.name, "name": p.stem,
+                                   "ok": False,
+                                   "errors": [f"excepcion: {type(e).__name__}: {str(e)[:200]}"]})
+    log_text = buffer.getvalue()
+    pasaron = sum(1 for r in resultados if r["ok"])
+    from pathlib import Path
+    import json as _json
+    casos = []
+    for p in sorted(GOLDEN_DIR.glob("*.json")):
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = _json.load(f)
+            casos.append({"file": p.name, "name": data.get("name"),
+                          "fase": data.get("fase"),
+                          "turnos": len(data.get("turnos") or [])})
+        except Exception:
+            casos.append({"file": p.name})
+    return render_template("petra_evals.html", casos=casos, token=token,
+                           resultado={"resultados": resultados,
+                                      "pasaron": pasaron,
+                                      "total": len(resultados),
+                                      "log": log_text})

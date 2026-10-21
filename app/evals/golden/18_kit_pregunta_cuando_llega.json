@@ -1,0 +1,11 @@
+{
+  "name": "kit_pregunta_cuando_llega_responde_sin_tool",
+  "fase": "kit",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Portal del Norte", "estado_agente": "kit_pendiente", "direccion": {}},
+  "turnos": [
+    {
+      "user_msg": "¿cuánto se demora en llegar el kit?",
+      "expect_tool": null
+    }
+  ]
+}

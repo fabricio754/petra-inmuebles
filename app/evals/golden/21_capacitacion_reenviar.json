@@ -1,0 +1,11 @@
+{
+  "name": "capacitacion_pide_reenviar_videos",
+  "fase": "capacitacion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "estado_agente": "en_capacitacion", "videos_vistos": 4, "cap_dia_enviado": 3},
+  "turnos": [
+    {
+      "user_msg": "me los perdí, mandámelos de nuevo",
+      "expect_tool": "reenviar_videos_de_hoy"
+    }
+  ]
+}

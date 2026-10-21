@@ -1,0 +1,11 @@
+{
+  "name": "capacitacion_pide_siguiente_dia",
+  "fase": "capacitacion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "estado_agente": "en_capacitacion", "videos_vistos": 4, "cap_dia_enviado": 2},
+  "turnos": [
+    {
+      "user_msg": "ya terminé, mandame los del día siguiente",
+      "expect_tool": "enviar_siguiente_dia"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "inscripcion_cancelar_explicito",
+  "fase": "inscripcion",
+  "meta_inicial": {"nombre": "Fabricio Zabala"},
+  "turnos": [
+    {
+      "user_msg": "cancelar todo, no quiero continuar",
+      "expect_tool": "cancelar_inscripcion"
+    }
+  ]
+}
