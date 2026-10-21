@@ -1603,3 +1603,10 @@ UPDATE petra_textos
 UPDATE petra_textos
    SET contenido = E'Perfecto, ya tenés todo lo que necesitás 🙌\n\nAhora el próximo paso es *hablar con el admin*. Tomate tu tiempo — no hay apuro.\n\nCuando tengas novedades, elegí abajo:\n\n✅ *Ya tengo autorización* → si el admin te dijo que sí, seguimos con el envío de tu kit.\n❓ *Tengo una duda* → si no sabés cómo abordarlo o te surgió algo, contame y lo vemos juntas 💜'
  WHERE clave = 'autorizacion.msg_post_material';
+
+-- Autorización: ajustar texto post-material tras quitar el botón "Ya tengo
+-- autorización". Ahora la agente escribe "ya me autorizó" (lo detecta el
+-- LLM via lenguaje natural con `marcar_tengo_autorizacion`).
+UPDATE petra_textos
+   SET contenido = E'Perfecto, ya tenés todo lo que necesitás 🙌\n\nAhora el próximo paso es *hablar con el admin*. Tomate tu tiempo — no hay apuro.\n\n✅ Cuando el admin te dé el OK, escribime acá *"ya me autorizó"* (o algo parecido) y seguimos con el envío de tu kit 📦\n\n❓ Si te surge alguna duda, pulsá el botón de abajo y la vemos juntas 💜'
+ WHERE clave = 'autorizacion.msg_post_material';

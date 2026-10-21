@@ -1913,7 +1913,6 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                     fallback="Cuando tengas la autorización del administrador, pulsá el botón 👇",
                 ), [
                     {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
-                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Ya tengo autorización")},
                 ], estado_key="autorizacion_pendiente")
                 _log(telefono, texto, "[envío material autorización]",
                      nota="botón o palabra clave pidió material")
