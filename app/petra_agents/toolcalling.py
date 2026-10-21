@@ -31,6 +31,12 @@ log = logging.getLogger("petra")
 MODEL = os.environ.get("PETRA_TOOLCALLING_MODEL", "claude-haiku-4-5")
 MAX_TURNS_LLM = 3  # cantidad máxima de iteraciones LLM<->tools por mensaje
 MAX_TOKENS = 1024
+RETRY_INTENTOS = 2  # retries del LLM primario con backoff antes de encolar
+RETRY_BACKOFF_BASE = 0.8  # segundos (0.8, 1.6)
+MENSAJE_FALLO_HUMANO = (
+    "💜 Perdón, se me enredó el sistema por un momento. "
+    "Te escribo en 5 minutos apenas lo arregle. ¡No te muevas!"
+)
 
 
 def _llm_client():
@@ -79,18 +85,33 @@ def ejecutar_turno(telefono, texto, contexto, tools, handlers,
     tools_llamadas = []
     texto_respuesta = None
     for turn in range(MAX_TURNS_LLM):
-        try:
-            resp = client.messages.create(
-                model=MODEL,
-                max_tokens=MAX_TOKENS,
-                system=system_prompt,
-                tools=tools,
-                messages=mensajes,
-            )
-        except Exception as e:
-            log.exception("[toolcalling] LLM call fallo tel=%s", telefono)
-            return {"ok": False, "fallo": f"LLM error: {type(e).__name__}",
-                    "texto_respuesta": None, "tools_llamadas": tools_llamadas}
+        resp = None
+        ultimo_error = None
+        # Retry 2x con exponential backoff para hipos transitorios del LLM
+        for intento in range(RETRY_INTENTOS + 1):
+            try:
+                resp = client.messages.create(
+                    model=MODEL,
+                    max_tokens=MAX_TOKENS,
+                    system=system_prompt,
+                    tools=tools,
+                    messages=mensajes,
+                )
+                ultimo_error = None
+                break
+            except Exception as e:
+                ultimo_error = f"{type(e).__name__}: {str(e)[:200]}"
+                log.warning("[toolcalling] LLM intento %d/%d fallo tel=%s err=%s",
+                            intento + 1, RETRY_INTENTOS + 1, telefono, ultimo_error)
+                if intento < RETRY_INTENTOS:
+                    time.sleep(RETRY_BACKOFF_BASE * (2 ** intento))
+        if ultimo_error:
+            # Todos los retries fallaron → devolvemos fallo para que el
+            # caller lo encole + mande el mensaje humano a la agente.
+            log.error("[toolcalling] LLM AGOTÓ reintentos tel=%s", telefono)
+            return {"ok": False, "fallo": ultimo_error,
+                    "texto_respuesta": None, "tools_llamadas": tools_llamadas,
+                    "retriable": True}
         # Separar texto + tool_use blocks del response
         bloques_texto = []
         bloques_tool = []

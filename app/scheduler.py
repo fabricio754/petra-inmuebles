@@ -104,6 +104,13 @@ def iniciar():
                        minutes=30,
                        id="petra_kit_autoenvio",
                        max_instances=1, coalesce=True)
+    # Tool-calling queue: cada 2 min reintenta los mensajes que fallaron
+    # (LLM caído o lento). Si LLM responde → avanza la conversación donde
+    # quedó. Si falla 10x seguidas → marca abandonado + alerta humano.
+    _scheduler.add_job(_petra_tc_queue_procesar, "interval",
+                       minutes=2,
+                       id="petra_tc_queue",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — Sureti c/2h, remarketing 9am, export Sheet 6am Bogotá, "
              "healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min.")
@@ -520,6 +527,18 @@ def _petra_evaluar_nudges():
                      reglas, enviados)
     except Exception:
         log.exception("[Scheduler] evaluar_nudges fallo")
+
+
+def _petra_tc_queue_procesar():
+    """Reintenta cada 2 min los mensajes de la queue toolcalling (LLM caído).
+    Cuando el LLM responde, continúa la conversación donde quedó."""
+    try:
+        from app.petra_agents import toolcalling_queue as _tcq
+        n = _tcq.procesar_pendientes()
+        if n:
+            log.info("[Scheduler] tc-queue: %d mensajes resueltos", n)
+    except Exception:
+        log.exception("[Scheduler] tc-queue fallo")
 
 
 def _petra_auto_marcar_kits_enviados():
