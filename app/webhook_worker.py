@@ -906,6 +906,17 @@ def _procesar_media_in(phone, event, message):
     except Exception:
         log.exception("[Media IN] No se pudo registrar mensaje de %s", phone)
 
+    # Hook: si es foto y la remitente es Agente Petra esperando foto del QR,
+    # el flow la consume y avanza — no mandamos alerta ni confirmación genérica.
+    if subtipo == "image":
+        try:
+            from app.petra_agents import flow_onboarding_agente as _flow_ag
+            if _flow_ag.capturar_foto_qr(phone, local_path, media_id, mime, caption):
+                log.info("[Media IN] foto QR consumida por flow agente tel=%s", phone)
+                return
+        except Exception:
+            log.exception("[Media IN] hook foto QR fallo tel=%s", phone)
+
     # Opt-out tiene precedencia absoluta: no respondemos NADA al bloqueado.
     try:
         if db.esta_bloqueado(phone):
