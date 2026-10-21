@@ -134,6 +134,7 @@ def ejecutar_turno(telefono, texto, contexto, tools, handlers,
         # Procesar cada tool call
         mensajes.append({"role": "assistant", "content": resp.content})
         tool_results = []
+        silenciar_llm = False
         for tb in bloques_tool:
             nombre = tb.name
             args = tb.input or {}
@@ -147,6 +148,10 @@ def ejecutar_turno(telefono, texto, contexto, tools, handlers,
                 except Exception as e:
                     log.exception("[toolcalling] handler %s fallo tel=%s", nombre, telefono)
                     resultado = {"error": f"excepcion: {type(e).__name__}: {e}"}
+            # Si un handler ya mandó el mensaje al usuario, marca para que
+            # no haya otro turno del LLM que agregue texto duplicado.
+            if isinstance(resultado, dict) and resultado.get("_silenciar_llm"):
+                silenciar_llm = True
             tools_llamadas.append({"nombre": nombre, "args": args, "resultado": resultado})
             tool_results.append({
                 "type": "tool_result",
@@ -154,6 +159,12 @@ def ejecutar_turno(telefono, texto, contexto, tools, handlers,
                 "content": json.dumps(resultado, ensure_ascii=False, default=str),
             })
         mensajes.append({"role": "user", "content": tool_results})
+        if silenciar_llm:
+            # El handler ya envió su propio mensaje. No queremos otro turno
+            # del LLM comentando encima. Cortamos y descartamos cualquier
+            # texto_respuesta previo (no debería haber en este turno).
+            texto_respuesta = None
+            break
     return {
         "ok": True, "texto_respuesta": texto_respuesta,
         "tools_llamadas": tools_llamadas, "fallo": None,

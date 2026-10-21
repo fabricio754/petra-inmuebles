@@ -167,7 +167,7 @@ def handle_responder_cita(args, ctx):
     _manejar_boton_cita(ctx["conn"], ctx["telefono"], ctx["cid"], ctx["meta"],
                         f"ONBAG_CITA_{mapa[accion]}_{vid}")
     return {"ok": True, "visita_id": vid, "accion": accion,
-            "nota": "el bot ya le confirmó por WhatsApp; no repitas"}
+            "_silenciar_llm": True}
 
 
 def handle_proponer_otra_hora(args, ctx):
@@ -182,7 +182,7 @@ def handle_proponer_otra_hora(args, ctx):
     _capturar_contrapropuesta_cita(ctx["conn"], ctx["telefono"], ctx["cid"],
                                    ctx["meta"], propuesta, vid)
     return {"ok": True, "visita_id": vid, "propuesta": propuesta,
-            "nota": "el bot ya le confirmó por WhatsApp; no repitas"}
+            "_silenciar_llm": True}
 
 
 def handle_iniciar_inventario(args, ctx):
@@ -190,7 +190,7 @@ def handle_iniciar_inventario(args, ctx):
     if ctx["meta"].get("inventario_paso"):
         return {"ok": False, "error": "ya hay una carga en curso; usá capturar_datos_inmueble"}
     _iniciar_inventario(ctx["conn"], ctx["telefono"], ctx["cid"], ctx["meta"])
-    return {"ok": True, "nota": "el bot ya mandó el arranque y la primera pregunta; no repitas"}
+    return {"ok": True, "_silenciar_llm": True}
 
 
 def handle_capturar_datos_inmueble(args, ctx):
@@ -214,7 +214,7 @@ def handle_capturar_datos_inmueble(args, ctx):
         _finalizar_inventario(ctx["conn"], ctx["telefono"], ctx["cid"], meta, datos)
         return {"ok": True, "guardados": guardados, "rechazados": rechazados,
                 "faltantes": [], "completado": True,
-                "nota": "inmueble guardado y resumen enviado; no repitas"}
+                "_silenciar_llm": True}
     meta["inventario_datos"] = datos
     meta["inventario_paso"] = faltantes[0]
     _save_meta(ctx["conn"], ctx["cid"], meta)

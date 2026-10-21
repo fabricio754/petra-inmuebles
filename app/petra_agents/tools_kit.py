@@ -170,7 +170,7 @@ def handle_capturar_direccion(args, ctx):
         ), [{"id": "ONBAG_QR_INSTALADO",
              "title": "✅ Ya instalé el QR"}])
         return {"ok": True, "guardados": guardados, "faltantes": [],
-                "transicion": "kit_pendiente→kit_enviado"}
+                "transicion": "kit_pendiente→kit_enviado", "_silenciar_llm": True}
     # Guardamos el próximo paso para que el prompt sepa qué pedir
     meta["direccion_paso"] = faltantes[0]
     _save_meta(ctx["conn"], ctx["cid"], meta)
@@ -194,7 +194,7 @@ def handle_marcar_qr_instalado(args, ctx):
             "Apenas me llegue la foto, te activo oficialmente 🚀"
         ),
     )
-    return {"ok": True, "pide": "foto_qr"}
+    return {"ok": True, "pide": "foto_qr", "_silenciar_llm": True}
 
 
 def handle_escalar(args, ctx):

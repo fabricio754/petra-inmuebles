@@ -75,17 +75,17 @@ def handle_marcar_vistos(args, ctx):
     despues = int(ctx["meta"].get("videos_vistos", 0) or 0)
     return {"ok": True, "videos_vistos_antes": antes, "videos_vistos_ahora": despues,
             "estado_ahora": ctx["meta"].get("estado_agente"),
-            "nota": "el bot ya le mandó el mensaje de cierre del día; no lo repitas"}
+            "_silenciar_llm": True}
 
 
 def handle_siguiente_dia(args, ctx):
     _reentrar(ctx, "ONBAG_SIGUIENTE_DIA")
-    return {"ok": True, "nota": "videos del día siguiente enviados (o aviso si no había); no repitas"}
+    return {"ok": True, "_silenciar_llm": True}
 
 
 def handle_reenviar_hoy(args, ctx):
     _reentrar(ctx, "reenviar")
-    return {"ok": True, "nota": "videos de hoy re-enviados; no repitas"}
+    return {"ok": True, "_silenciar_llm": True}
 
 
 def handle_escalar(args, ctx):

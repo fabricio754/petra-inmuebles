@@ -84,7 +84,7 @@ def handle_enviar_material(args, ctx):
         _enviar_recordatorio_capacitacion(ctx["conn"], ctx["telefono"])
         _tm.sleep(1)
         _enviar_material_autorizacion(ctx["conn"], ctx["telefono"])
-        return {"ok": True, "enviado": "recordatorio + material"}
+        return {"ok": True, "enviado": "recordatorio + material", "_silenciar_llm": True}
     except Exception as e:
         log.exception("[tc-auth] enviar_material fallo")
         return {"ok": False, "error": str(e)[:200]}
@@ -115,7 +115,7 @@ def handle_marcar_tengo_autorizacion(args, ctx):
             "aplica, respondé *N/A*)"
         ),
     )
-    return {"ok": True, "estado_nuevo": "kit_pendiente"}
+    return {"ok": True, "estado_nuevo": "kit_pendiente", "_silenciar_llm": True}
 
 
 def handle_escalar(args, ctx):
