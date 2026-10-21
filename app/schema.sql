@@ -1589,7 +1589,8 @@ END $faq_seed$;
 -- 3 links adjuntos (Vid 2.0, Tu QR único, Como usar el QR). Idempotente:
 -- si ya están desactivos, no toca nada. Reversible: toggleable desde
 -- /panel/petra tab Flujo.
-UPDATE petra_media_estacion SET activo = FALSE, updated_at = NOW()
+-- Nota: petra_media_estacion NO tiene columna updated_at — solo activo.
+UPDATE petra_media_estacion SET activo = FALSE
  WHERE clave_texto = 'activacion.msg_direccion_completa'
    AND titulo IN ('Vid 2.0', 'Tu QR único', 'Como usar el QR')
    AND activo = TRUE;
