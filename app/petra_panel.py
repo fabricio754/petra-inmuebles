@@ -1845,3 +1845,85 @@ def botones_override_toggle():
         preset=estado_key,
         flash=("boton_ocultado" if ocultar else "boton_restaurado"),
     ))
+
+
+# =============================================================================
+# Observabilidad: tool-calls (vista "qué está haciendo el bot por dentro")
+# =============================================================================
+
+@petra_panel_bp.get("/tool-calls")
+def tool_calls_vista():
+    """Dashboard mínimo de observabilidad del tool-calling.
+    Query params:
+      - fase, tool, telefono: filtros (opcionales, substring/exact)
+      - limit: cantidad de filas (default 100, max 500)
+    """
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    fase = (request.args.get("fase") or "").strip()
+    tool = (request.args.get("tool") or "").strip()
+    telefono = (request.args.get("telefono") or "").strip()
+    solo_errores = request.args.get("errores", "") in ("1", "true", "on")
+    try:
+        limit = max(1, min(500, int(request.args.get("limit") or 100)))
+    except Exception:
+        limit = 100
+
+    where = []
+    params = []
+    if fase:
+        where.append("fase = %s")
+        params.append(fase)
+    if tool:
+        where.append("tool_nombre = %s")
+        params.append(tool)
+    if telefono:
+        where.append("telefono = %s")
+        params.append(telefono)
+    if solo_errores:
+        where.append("ok = FALSE")
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    with _db._conexion_directa(timeout=10) as conn:
+        filas = _rows(conn,
+            "SELECT id, created_at, telefono, cid, fase, mensaje_user, "
+            "       tool_nombre, tool_args, tool_resultado, ok, latencia_ms, modelo "
+            "FROM petra_tool_calls" + where_sql + " "
+            "ORDER BY id DESC LIMIT %s",
+            tuple(params) + (limit,))
+        # Métricas agregadas de las últimas 24h
+        resumen = _rows(conn,
+            "SELECT fase, tool_nombre, "
+            "       COUNT(*) AS total, "
+            "       COUNT(*) FILTER (WHERE NOT ok) AS errores, "
+            "       ROUND(AVG(latencia_ms)::numeric, 0) AS lat_prom_ms "
+            "FROM petra_tool_calls "
+            "WHERE created_at >= NOW() - INTERVAL '24 hours' "
+            "GROUP BY fase, tool_nombre "
+            "ORDER BY total DESC")
+        total_24h = conn.execute(
+            "SELECT COUNT(*), COUNT(*) FILTER (WHERE NOT ok) "
+            "FROM petra_tool_calls WHERE created_at >= NOW() - INTERVAL '24 hours'"
+        ).fetchone()
+    import json as _json
+    for f in filas:
+        try:
+            f["tool_args_str"] = _json.dumps(f.get("tool_args") or {},
+                                             ensure_ascii=False)
+        except Exception:
+            f["tool_args_str"] = str(f.get("tool_args"))
+        try:
+            f["tool_resultado_str"] = _json.dumps(f.get("tool_resultado") or {},
+                                                   ensure_ascii=False)
+        except Exception:
+            f["tool_resultado_str"] = str(f.get("tool_resultado"))
+    return render_template(
+        "petra_tool_calls.html",
+        filas=filas,
+        resumen=resumen,
+        total_24h=(total_24h[0] if total_24h else 0),
+        errores_24h=(total_24h[1] if total_24h else 0),
+        filtros={"fase": fase, "tool": tool, "telefono": telefono,
+                 "errores": solo_errores, "limit": limit},
+        token=token,
+    )

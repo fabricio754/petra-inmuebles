@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Observabilidad — Tool calls | Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f0b1e; --fg: #ece8f8; --muted: #9b94b3;
+    --card: #1a1530; --accent: #a78bfa; --ok: #4ade80;
+    --err: #f87171; --border: #2a2448;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--fg); font-size: 14px; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border);
+           display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; }
+  header .back { color: var(--accent); text-decoration: none; }
+  .wrap { padding: 16px 24px; }
+  .metrics { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+  .metric { background: var(--card); padding: 12px 20px; border-radius: 8px;
+            border: 1px solid var(--border); min-width: 140px; }
+  .metric .n { font-size: 24px; font-weight: 600; }
+  .metric .l { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .metric.err .n { color: var(--err); }
+  .filters { background: var(--card); padding: 12px 16px; border-radius: 8px;
+             border: 1px solid var(--border); margin-bottom: 20px;
+             display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+  .filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px;
+                   color: var(--muted); }
+  .filters input, .filters select {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    padding: 6px 10px; border-radius: 6px; font-size: 13px; min-width: 120px;
+  }
+  .filters button { background: var(--accent); color: var(--bg); border: 0;
+                    padding: 7px 16px; border-radius: 6px; cursor: pointer;
+                    font-weight: 600; }
+  .filters .chk { flex-direction: row; align-items: center; }
+  table { width: 100%; border-collapse: collapse; background: var(--card);
+          border-radius: 8px; overflow: hidden; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border);
+           vertical-align: top; }
+  th { background: #221a3a; font-size: 11px; text-transform: uppercase;
+       color: var(--muted); letter-spacing: 0.5px; }
+  tr:last-child td { border-bottom: 0; }
+  tr:hover td { background: #1f1836; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px;
+           font-size: 11px; font-weight: 600; }
+  .badge.ok { background: rgba(74,222,128,.15); color: var(--ok); }
+  .badge.err { background: rgba(248,113,113,.15); color: var(--err); }
+  .fase { background: rgba(167,139,250,.15); color: var(--accent); }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+          font-size: 12px; }
+  .trunc { max-width: 280px; overflow: hidden; text-overflow: ellipsis;
+           white-space: nowrap; }
+  details { max-width: 420px; }
+  details summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+  details pre { background: var(--bg); padding: 8px; border-radius: 4px;
+                overflow-x: auto; max-width: 420px; font-size: 11px;
+                color: var(--fg); margin-top: 6px; }
+  h2 { font-size: 14px; color: var(--muted); margin: 24px 0 8px;
+       text-transform: uppercase; letter-spacing: 0.5px; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  .time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <a href="{{ url_for('petra_panel.panel_home') }}?token={{ token }}" class="back">← Panel</a>
+  <h1>🔬 Observabilidad del tool-calling</h1>
+</header>
+
+<div class="wrap">
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="n">{{ total_24h }}</div>
+      <div class="l">Tool calls (24h)</div>
+    </div>
+    <div class="metric {% if errores_24h %}err{% endif %}">
+      <div class="n">{{ errores_24h }}</div>
+      <div class="l">Errores (24h)</div>
+    </div>
+    <div class="metric">
+      <div class="n">{{ "%.1f"|format((errores_24h / total_24h * 100) if total_24h else 0) }}%</div>
+      <div class="l">Tasa de error</div>
+    </div>
+  </div>
+
+  <h2>Resumen por fase/tool (últimas 24h)</h2>
+  {% if resumen %}
+  <table>
+    <thead>
+      <tr><th>Fase</th><th>Tool</th><th>Total</th><th>Errores</th><th>Latencia prom (ms)</th></tr>
+    </thead>
+    <tbody>
+      {% for r in resumen %}
+      <tr>
+        <td><span class="badge fase">{{ r.fase }}</span></td>
+        <td class="mono">{{ r.tool_nombre }}</td>
+        <td>{{ r.total }}</td>
+        <td>{% if r.errores %}<span class="badge err">{{ r.errores }}</span>{% else %}0{% endif %}</td>
+        <td>{{ r.lat_prom_ms or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">Sin actividad en las últimas 24h.</div>
+  {% endif %}
+
+  <h2>Últimas llamadas</h2>
+  <form method="get" class="filters">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label>Fase
+      <select name="fase">
+        <option value="">(todas)</option>
+        {% for f in ['inscripcion','autorizacion','kit','capacitacion','activa'] %}
+          <option value="{{ f }}" {% if filtros.fase == f %}selected{% endif %}>{{ f }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Tool
+      <input type="text" name="tool" value="{{ filtros.tool }}" placeholder="ej. capturar_direccion">
+    </label>
+    <label>Teléfono
+      <input type="text" name="telefono" value="{{ filtros.telefono }}" placeholder="573...">
+    </label>
+    <label class="chk">
+      <input type="checkbox" name="errores" value="1" {% if filtros.errores %}checked{% endif %}>
+      &nbsp;Solo errores
+    </label>
+    <label>Límite
+      <input type="number" name="limit" value="{{ filtros.limit }}" min="1" max="500">
+    </label>
+    <button type="submit">Filtrar</button>
+  </form>
+
+  {% if filas %}
+  <table>
+    <thead>
+      <tr>
+        <th>Fecha</th><th>Fase</th><th>Tool</th><th>Teléfono</th>
+        <th>Mensaje user</th><th>Args</th><th>Resultado</th>
+        <th>OK</th><th>ms</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in filas %}
+      <tr>
+        <td class="time">{{ f.created_at.strftime('%d/%m %H:%M:%S') }}</td>
+        <td><span class="badge fase">{{ f.fase }}</span></td>
+        <td class="mono">{{ f.tool_nombre }}</td>
+        <td class="mono">{{ f.telefono }}</td>
+        <td class="trunc" title="{{ f.mensaje_user or '' }}">{{ f.mensaje_user or '-' }}</td>
+        <td>
+          <details>
+            <summary>ver</summary>
+            <pre>{{ f.tool_args_str }}</pre>
+          </details>
+        </td>
+        <td>
+          <details>
+            <summary>ver</summary>
+            <pre>{{ f.tool_resultado_str }}</pre>
+          </details>
+        </td>
+        <td>
+          {% if f.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge err">ERR</span>{% endif %}
+        </td>
+        <td class="mono">{{ f.latencia_ms or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">Sin llamadas que coincidan con los filtros.</div>
+  {% endif %}
+
+</div>
+</body>
+</html>
