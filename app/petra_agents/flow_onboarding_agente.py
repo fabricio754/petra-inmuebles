@@ -1634,6 +1634,28 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         estado = meta.get("estado_agente", "recolectando")
 
+        # ─── Tool-calling (opt-in via env) ────────────────────────────
+        # Si PETRA_TOOLCALLING_INSCRIPCION=1 y el agente está en fase de
+        # inscripción (recolectando datos), delegamos al LLM con tools.
+        # El flow determinístico queda como fallback si el LLM falla.
+        import os as _os_tc
+        if (_os_tc.environ.get("PETRA_TOOLCALLING_INSCRIPCION", "0") == "1"
+                and estado == "recolectando"
+                and not (texto or "").startswith("ONBAG_")
+                and not (texto or "").startswith("CUSTOM_")):
+            try:
+                from app.petra_agents import tools_inscripcion as _tins
+                res = _tins.procesar(telefono, texto, cid, meta, conn)
+                if res.get("ok"):
+                    _log(telefono, texto,
+                         (res.get("texto_respuesta") or "")[:300],
+                         nota=f"toolcalling inscripcion tools={len(res.get('tools_llamadas', []))}")
+                    return True
+                log.warning("[flow:tc] inscripcion fallo (%s) → fallback determinístico",
+                            res.get("fallo"))
+            except Exception:
+                log.exception("[flow:tc] excepcion inscripcion → fallback determinístico")
+
         # Shortcut global: la agente escribe "kit", "mi kit", etc. en
         # CUALQUIER estado → le mostramos info del kit según su fase.
         _texto_lc_kit = (texto or "").lower().strip()
