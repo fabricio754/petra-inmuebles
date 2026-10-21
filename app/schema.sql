@@ -1219,6 +1219,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS petra_botones_estacion_override_uq
   ON petra_botones_estacion (estado_key, boton_id)
   WHERE tipo = 'override';
 
+-- Cola de mensajes pendientes de procesar por tool-calling LLM.
+-- Cuando el LLM falla (API down, timeout, etc), encolamos el mensaje acá
+-- y mandamos a la agente un "disculpame, se me enredó, te escribo en 5 min".
+-- Un cron reprocesa cada 2 min hasta que el LLM responde (o 10 intentos máx).
+CREATE TABLE IF NOT EXISTS petra_mensajes_pendientes_llm (
+  id            SERIAL PRIMARY KEY,
+  telefono      TEXT NOT NULL,
+  texto         TEXT NOT NULL,
+  cid           INTEGER,
+  fase          TEXT,         -- 'inscripcion' | 'autorizacion' | ...
+  estado        TEXT NOT NULL DEFAULT 'pendiente', -- pendiente | resuelto | abandonado
+  intentos      INTEGER NOT NULL DEFAULT 0,
+  ultimo_error  TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resuelto_at   TIMESTAMPTZ,
+  siguiente_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_mensajes_pendientes_llm_idx
+  ON petra_mensajes_pendientes_llm (estado, siguiente_at)
+  WHERE estado = 'pendiente';
+CREATE INDEX IF NOT EXISTS petra_mensajes_pendientes_llm_tel_idx
+  ON petra_mensajes_pendientes_llm (telefono, created_at DESC);
+
 -- Soft-delete y adjuntos por MENSAJE (no por estación)
 -- Cada entrada de petra_textos puede ocultarse (activo=FALSE) — el bot la
 -- saltea. Y la media/botones puede atarse a una clave específica para que

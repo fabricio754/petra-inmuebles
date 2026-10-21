@@ -1659,7 +1659,17 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                          (res.get("texto_respuesta") or "")[:300],
                          nota=f"toolcalling inscripcion tools={len(res.get('tools_llamadas', []))}")
                     return True
-                log.warning("[flow:tc] inscripcion fallo (%s) → fallback determinístico",
+                # LLM falló todos los retries → encolamos + mandamos
+                # mensaje humano. NO caemos a determinístico (mala UX).
+                if res.get("retriable"):
+                    from app.petra_agents import toolcalling_queue as _tcq
+                    _tcq.encolar(telefono, texto, cid, "inscripcion",
+                                 res.get("fallo"))
+                    _tcq.enviar_disculpame(telefono)
+                    _log(telefono, texto, "[LLM failing — queued]",
+                         nota=f"tc fallo={res.get('fallo')}")
+                    return True
+                log.warning("[flow:tc] inscripcion fallo (%s) non-retriable → fallback",
                             res.get("fallo"))
             except Exception:
                 log.exception("[flow:tc] excepcion inscripcion → fallback determinístico")
