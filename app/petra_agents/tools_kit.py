@@ -259,11 +259,14 @@ def handle_marcar_qr_instalado(args, ctx):
     _sm(ctx["telefono"],
         "activacion.msg_pedir_foto_qr",
         fallback=(
-            "¡Buenísimo! 💜\n\nPara confirmar que el QR quedó bien "
-            "instalado, mandame una *foto del QR pegado en el edificio* "
-            "📸 (puede ser en la portería, el ascensor, el lobby — donde "
-            "lo hayas puesto).\n\n"
-            "Apenas me llegue la foto, te activo oficialmente 🚀"
+            "¡Casi listo! 💜\n\n"
+            "Para activarte oficialmente necesito *una foto del QR instalado*. "
+            "Seguí estos 3 pasos:\n\n"
+            "1️⃣ Pegá el QR en un lugar *bien visible* (portería, lobby o ascensor).\n"
+            "2️⃣ Ponete a *50 cm* y verificá que el código *completo* entre en la toma.\n"
+            "3️⃣ Mandámela por este chat 📸\n\n"
+            "💡 _Tip: con buena luz y sin reflejos se lee mejor._\n\n"
+            "Apenas me llegue, te activo y empezás a recibir leads 🚀"
         ),
     )
     return {"ok": True, "pide": "foto_qr", "_silenciar_llm": True}
