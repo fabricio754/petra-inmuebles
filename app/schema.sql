@@ -1282,6 +1282,23 @@ SELECT 'kit_pendiente',
         AND titulo='Vid 2.0'
    );
 
+-- Mismo Vid 2.0 adjunto también al mensaje "¡Dirección confirmada!"
+-- (porque ahora, tras capturar dirección, el bot avanza directo a
+-- kit_enviado y manda el bloque de activación bajo ESA clave).
+INSERT INTO petra_media_estacion (estado_key, clave_texto, orden, titulo, url, activo)
+SELECT 'kit_pendiente',
+       'activacion.msg_direccion_completa',
+       1,
+       'Vid 2.0',
+       (SELECT url FROM petra_contenidos WHERE titulo='Vid 2.0' AND tipo='otro' ORDER BY id DESC LIMIT 1),
+       TRUE
+ WHERE EXISTS (SELECT 1 FROM petra_contenidos WHERE titulo='Vid 2.0' AND tipo='otro')
+   AND NOT EXISTS (
+     SELECT 1 FROM petra_media_estacion
+      WHERE clave_texto='activacion.msg_direccion_completa'
+        AND titulo='Vid 2.0'
+   );
+
 -- Mejora idempotente del mensaje activacion.msg_direccion_completa:
 -- reemplaza la versión corta vieja por la nueva más cálida con bullets.
 -- Solo corre si el contenido actual coincide EXACTAMENTE con el viejo.
