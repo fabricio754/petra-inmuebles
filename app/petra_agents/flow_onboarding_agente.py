@@ -827,16 +827,25 @@ def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
         return True
     if texto == "ONBAG_KIT_PERFECTO":
         _send_buttons(telefono, _t(
-            "activacion.msg_qr_boton",
+            "activacion.msg_pedir_foto_libro",
             fallback=(
-                "✨ *Último paso para activarte*\n\n"
-                "Cuando te llegue el kit, pegá el QR en un lugar bien "
-                "visible del edificio 🏢 (portería, lobby o ascensor).\n\n"
-                "Apenas lo tengas instalado, tocá el botón de abajo y "
-                "te activo al toque 🚀💜"
+                "📸 *Ahora necesitamos una foto del libro de "
+                "arriendos y ventas* de tu conjunto.\n\n"
+                "Pasá por la *portería o el lobby* y pedí ver el "
+                "libro. Tomale una foto bien clara y mandámela por "
+                "acá 💜\n\n"
+                "✨ Con eso vamos a *cargar tu QR con la info de "
+                "tu conjunto*, para que cuando lo instales ya "
+                "funcione completo 🚀"
             ),
-        ), [{"id": "ONBAG_QR_INSTALADO", "title": "✅ Ya instalé el QR"}])
-        _log(telefono, texto, "[kit_enviado: perfecto → último paso + botón QR]")
+        ), [{"id": "ONBAG_FOTO_LIBRO", "title": "✨ Perfecto"}])
+        _log(telefono, texto, "[kit_enviado: perfecto → pide foto libro]")
+        return True
+    if texto == "ONBAG_FOTO_LIBRO":
+        _enviar(telefono,
+            "¡Genial! 📸 Cuando puedas, mandame la foto del libro "
+            "por acá y seguimos 💜")
+        _log(telefono, texto, "[kit_enviado: espera foto libro]")
         return True
     if texto == "ONBAG_QR_INSTALADO" or t_lc in (
             "instalado", "instalado qr", "ya instale", "ya instalé",
