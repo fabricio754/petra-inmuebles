@@ -1,0 +1,11 @@
+{
+  "name": "inscripcion_pregunta_abierta_no_llama_tool",
+  "fase": "inscripcion",
+  "meta_inicial": {"nombre": "Fabricio Zabala"},
+  "turnos": [
+    {
+      "user_msg": "¿cuánto me demora todo esto?",
+      "expect_tool": null
+    }
+  ]
+}

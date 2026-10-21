@@ -1,0 +1,12 @@
+{
+  "name": "kit_direccion_junta_varios_campos",
+  "fase": "kit",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Torres del Parque", "estado_agente": "kit_pendiente", "direccion_paso": "torre", "direccion": {}},
+  "turnos": [
+    {
+      "user_msg": "Torre 3 apto 702, barrio Chapinero, Bogotá",
+      "expect_tool": "capturar_direccion",
+      "expect_args_contains": {"torre": "Torre 3", "apto": "702", "barrio": "Chapinero", "ciudad": "Bogotá"}
+    }
+  ]
+}

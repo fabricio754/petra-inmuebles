@@ -1,0 +1,13 @@
+{
+  "name": "inscripcion_no_repide_cedula_al_capturar_ciudad",
+  "fase": "inscripcion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "cedula": "1020800837"},
+  "turnos": [
+    {
+      "user_msg": "Zipaquira",
+      "expect_tool": "capturar_datos_personales",
+      "expect_args_contains": {"ciudad": "Zipaquira"},
+      "expect_args_not_contains": ["cedula", "nombre"]
+    }
+  ]
+}

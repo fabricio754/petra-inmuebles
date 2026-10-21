@@ -1,0 +1,11 @@
+{
+  "name": "autorizacion_pide_material",
+  "fase": "autorizacion",
+  "meta_inicial": {"nombre": "Fabricio Zabala", "conjunto": "Torres del Parque", "estado_agente": "autorizacion_pendiente"},
+  "turnos": [
+    {
+      "user_msg": "Mandame el material para mostrarle al admin",
+      "expect_tool": "enviar_material_autorizacion"
+    }
+  ]
+}
