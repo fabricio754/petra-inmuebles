@@ -1955,14 +1955,9 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                      nota="botón o palabra clave pidió material")
                 return True
             # Botón "❓ Tengo una duda" → prompt para que escriba la pregunta
-            # Atajo por palabra clave: "voy a agendar", "voy a hablar",
-            # "agendar", "voy", "me voy a hablar con el admin", etc.
-            if texto == "ONBAG_VOY_AGENDAR_CITA" or (texto or "").lower().strip() in (
-                    "voy a agendar", "voy agendar", "agendar", "voy a hablar",
-                    "voy hablar", "voy a hablar con el admin", "voy con el admin",
-                    "voy al admin", "me voy", "voy", "ya voy", "listo voy",
-                    "listo a hablar", "voy a la reunion", "voy a la reunión",
-                    "agendar cita", "voy a agendar cita"):
+            # Atajo por palabra clave: escribir "suerte" dispara el mismo
+            # mensaje del botón "📅 Voy a agendar".
+            if texto == "ONBAG_VOY_AGENDAR_CITA" or (texto or "").lower().strip() == "suerte":
                 _send_buttons(
                     telefono,
                     _t(
