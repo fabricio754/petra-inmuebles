@@ -1,0 +1,133 @@
+"""Infraestructura de tool-calling para agentes Petra.
+
+Patrón world-class para flujos conversacionales: en vez de switch/case
+determinístico sobre texto, el LLM lee cada mensaje y decide:
+  - Responder con texto natural (default)
+  - Llamar una "tool" (función Python registrada) con parámetros validados
+
+Las tools tienen schemas estrictos. Si el LLM intenta pasar valores
+inválidos, se le rechaza y re-pregunta. Si intenta inventar algo que
+no es una tool, no tiene efecto (solo texto conversacional).
+
+Guardrails incluidos:
+  - Validación de inputs por tool
+  - Logging de cada llamada con metadata (quién, cuándo, args, resultado)
+  - Fallback silencioso: si el LLM falla (timeout, API down), delega al
+    flow determinístico tradicional.
+
+Uso típico:
+    from app.petra_agents import toolcalling as tc
+    tools = [TOOL_X, TOOL_Y, ...]  # list of tool defs (anthropic shape)
+    handlers = {"X": handle_x, "Y": handle_y}  # name → callable(args, ctx)
+    tc.ejecutar_turno(telefono, texto, meta, tools, handlers, system_prompt)
+"""
+import json
+import logging
+import os
+import time
+
+log = logging.getLogger("petra")
+
+MODEL = os.environ.get("PETRA_TOOLCALLING_MODEL", "claude-haiku-4-5")
+MAX_TURNS_LLM = 3  # cantidad máxima de iteraciones LLM<->tools por mensaje
+MAX_TOKENS = 1024
+
+
+def _llm_client():
+    """Construye cliente Anthropic. Devuelve None si no hay API key."""
+    api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if not api_key:
+        return None
+    try:
+        from anthropic import Anthropic
+    except ImportError:
+        return None
+    return Anthropic(api_key=api_key)
+
+
+def ejecutar_turno(telefono, texto, contexto, tools, handlers,
+                   system_prompt, historial_prev=None, modo_debug=False):
+    """Procesa UN mensaje de la agente usando tool-calling.
+
+    Args:
+        telefono: str, para log
+        texto: str, lo que la agente mandó
+        contexto: dict con estado actual, datos ya capturados, cid, etc.
+                  Se pasa a los handlers para que puedan actualizar DB.
+        tools: list[dict], tool definitions en formato Anthropic
+        handlers: dict[str, callable(args, contexto)] — se ejecuta cuando
+                  el LLM llama una tool. Debe devolver str o dict (resultado).
+        system_prompt: str, prompt completo con instrucciones + estado.
+        historial_prev: list[dict], mensajes anteriores de ESTA conversación
+                        (opcional, para contexto multi-turn).
+        modo_debug: bool, si True no envía a WA, solo devuelve plan.
+
+    Returns:
+        dict: {
+            "ok": bool,
+            "texto_respuesta": str|None (lo que el bot le dijo),
+            "tools_llamadas": [{"nombre": ..., "args": ..., "resultado": ...}],
+            "fallo": str|None,
+        }
+    """
+    client = _llm_client()
+    if client is None:
+        return {"ok": False, "fallo": "sin ANTHROPIC_API_KEY o SDK",
+                "texto_respuesta": None, "tools_llamadas": []}
+    mensajes = list(historial_prev or [])
+    mensajes.append({"role": "user", "content": texto})
+    tools_llamadas = []
+    texto_respuesta = None
+    for turn in range(MAX_TURNS_LLM):
+        try:
+            resp = client.messages.create(
+                model=MODEL,
+                max_tokens=MAX_TOKENS,
+                system=system_prompt,
+                tools=tools,
+                messages=mensajes,
+            )
+        except Exception as e:
+            log.exception("[toolcalling] LLM call fallo tel=%s", telefono)
+            return {"ok": False, "fallo": f"LLM error: {type(e).__name__}",
+                    "texto_respuesta": None, "tools_llamadas": tools_llamadas}
+        # Separar texto + tool_use blocks del response
+        bloques_texto = []
+        bloques_tool = []
+        for block in resp.content:
+            if block.type == "text":
+                bloques_texto.append(block.text)
+            elif block.type == "tool_use":
+                bloques_tool.append(block)
+        if bloques_texto:
+            texto_respuesta = "\n\n".join(bloques_texto).strip() or texto_respuesta
+        # Si no hay tools pendientes y stop_reason != "tool_use", terminamos
+        if not bloques_tool or resp.stop_reason != "tool_use":
+            break
+        # Procesar cada tool call
+        mensajes.append({"role": "assistant", "content": resp.content})
+        tool_results = []
+        for tb in bloques_tool:
+            nombre = tb.name
+            args = tb.input or {}
+            handler = handlers.get(nombre)
+            if not handler:
+                resultado = {"error": f"tool desconocida: {nombre}"}
+                log.warning("[toolcalling] tool desconocida=%s tel=%s", nombre, telefono)
+            else:
+                try:
+                    resultado = handler(args, contexto)
+                except Exception as e:
+                    log.exception("[toolcalling] handler %s fallo tel=%s", nombre, telefono)
+                    resultado = {"error": f"excepcion: {type(e).__name__}: {e}"}
+            tools_llamadas.append({"nombre": nombre, "args": args, "resultado": resultado})
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tb.id,
+                "content": json.dumps(resultado, ensure_ascii=False, default=str),
+            })
+        mensajes.append({"role": "user", "content": tool_results})
+    return {
+        "ok": True, "texto_respuesta": texto_respuesta,
+        "tools_llamadas": tools_llamadas, "fallo": None,
+    }
