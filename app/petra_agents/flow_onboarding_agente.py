@@ -1714,6 +1714,35 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         estado = meta.get("estado_agente", "recolectando")
 
+        # ─── Shortcut de prueba (Fabricio): 'suerte' ──────────────────
+        # Escribir 'suerte' desde el 3227057375 en cualquier estado
+        # dispara el mensaje "¡Perfecto! Te deseamos mucha suerte..."
+        # con botones [✅ Autorización / ❓ Tengo una duda]. Está acá
+        # al principio para que no lo intercepte ningún otro bloque.
+        if (texto or "").lower().strip() == "suerte" and (telefono or "").endswith("3227057375"):
+            _send_buttons(
+                telefono,
+                _t(
+                    "autorizacion.msg_voy_agendar",
+                    fallback=(
+                        "¡Perfecto! 🙌✨\n\n"
+                        "Te deseamos *mucha suerte* con la reunión 🤝 "
+                        "Acordate de llevar el material que te pasé — vas "
+                        "a estar genial.\n\n"
+                        "Estamos acá si necesitás ayuda 💜 Apenas termines, "
+                        "elegí abajo según cómo te fue:"
+                    ),
+                ),
+                [
+                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Autorización")},
+                    {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
+                ],
+                estado_key="autorizacion_pendiente",
+            )
+            _log(telefono, texto, "[shortcut global 'suerte' → msg agendar]",
+                 nota=f"estado={estado}")
+            return True
+
         # ─── Panel de control (atajo global) ──────────────────────────
         # Si la agente escribe "panel", "menu", etc. — abrimos el menú
         # con 4 opciones: mis inmuebles / mis citas / mi capacitación /
