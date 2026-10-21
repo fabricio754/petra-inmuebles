@@ -1282,22 +1282,39 @@ SELECT 'kit_pendiente',
         AND titulo='Vid 2.0'
    );
 
--- Mismo Vid 2.0 adjunto también al mensaje "¡Dirección confirmada!"
--- (porque ahora, tras capturar dirección, el bot avanza directo a
--- kit_enviado y manda el bloque de activación bajo ESA clave).
+-- Adjuntos al mensaje "¡Dirección confirmada!" — 3 contenidos que Fabricio
+-- cargó en el panel para que el bot los mande justo después del texto:
+--   1) Vid 2.0 (TikTok)
+--   2) Tu QR único (api.qrserver.com)
+--   3) Como usar el QR (link externo)
+-- Idempotente: cada INSERT verifica que no exista ya con ese título.
+
+-- 1) Vid 2.0
 INSERT INTO petra_media_estacion (estado_key, clave_texto, orden, titulo, url, activo)
-SELECT 'kit_pendiente',
-       'activacion.msg_direccion_completa',
-       1,
-       'Vid 2.0',
+SELECT 'kit_pendiente', 'activacion.msg_direccion_completa', 1, 'Vid 2.0',
        (SELECT url FROM petra_contenidos WHERE titulo='Vid 2.0' AND tipo='otro' ORDER BY id DESC LIMIT 1),
        TRUE
  WHERE EXISTS (SELECT 1 FROM petra_contenidos WHERE titulo='Vid 2.0' AND tipo='otro')
-   AND NOT EXISTS (
-     SELECT 1 FROM petra_media_estacion
-      WHERE clave_texto='activacion.msg_direccion_completa'
-        AND titulo='Vid 2.0'
-   );
+   AND NOT EXISTS (SELECT 1 FROM petra_media_estacion
+                    WHERE clave_texto='activacion.msg_direccion_completa' AND titulo='Vid 2.0');
+
+-- 2) Tu QR único
+INSERT INTO petra_media_estacion (estado_key, clave_texto, orden, titulo, url, activo)
+SELECT 'kit_pendiente', 'activacion.msg_direccion_completa', 2, 'Tu QR único',
+       (SELECT url FROM petra_contenidos WHERE titulo='Tu QR unico' ORDER BY id DESC LIMIT 1),
+       TRUE
+ WHERE EXISTS (SELECT 1 FROM petra_contenidos WHERE titulo='Tu QR unico')
+   AND NOT EXISTS (SELECT 1 FROM petra_media_estacion
+                    WHERE clave_texto='activacion.msg_direccion_completa' AND titulo='Tu QR único');
+
+-- 3) Como usar el QR
+INSERT INTO petra_media_estacion (estado_key, clave_texto, orden, titulo, url, activo)
+SELECT 'kit_pendiente', 'activacion.msg_direccion_completa', 3, 'Como usar el QR',
+       (SELECT url FROM petra_contenidos WHERE titulo='Como usar el QR' ORDER BY id DESC LIMIT 1),
+       TRUE
+ WHERE EXISTS (SELECT 1 FROM petra_contenidos WHERE titulo='Como usar el QR')
+   AND NOT EXISTS (SELECT 1 FROM petra_media_estacion
+                    WHERE clave_texto='activacion.msg_direccion_completa' AND titulo='Como usar el QR');
 
 -- Mejora idempotente del mensaje activacion.msg_direccion_completa:
 -- reemplaza la versión corta vieja por la nueva más cálida con bullets.

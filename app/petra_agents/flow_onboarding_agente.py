@@ -77,16 +77,18 @@ def _sm(telefono, clave, fallback=None, **variables):
     texto = _t(clave, fallback=fallback, **variables)
     if not texto or texto.strip() == "":
         return  # mensaje ocultado desde el panel
-    # Media PRIMERO (va antes del texto, es la convención visual de WA)
-    try:
-        _enviar_media_por_clave(telefono, clave)
-    except Exception:
-        log.exception("[flow:_sm] media hook fallo clave=%s", clave)
+    # 1) Texto primero (con botones si hay)
     botones_adjuntos = _botones.botones_de_clave(clave)
     if botones_adjuntos:
         petra_wa.send_buttons(telefono, texto, botones_adjuntos)
     else:
         petra_wa.send_text(telefono, texto)
+    # 2) Media adjunta DESPUÉS del texto
+    try:
+        _enviar_media_por_clave(telefono, clave)
+    except Exception:
+        log.exception("[flow:_sm] media hook fallo clave=%s", clave)
+    # 3) Extras al final
     try:
         _extras.enviar_extras(telefono, clave, variables)
     except Exception:
@@ -725,32 +727,11 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
                 "Mientras tanto, mirá cómo se usa el QR y ya podés activarte 👇"
             ),
         )
-        # Inline del bloque de activación (video + link QR + botón) sin
-        # repetir el preámbulo "tu kit ya está en camino" porque el msg de
-        # arriba ya cumple ese rol.
+        # Los contenidos (Vid 2.0 + Tu QR único + Como usar el QR) ya se
+        # enviaron por _sm vía petra_media_estacion adjunto a esa clave.
+        # Agregamos solo el botón final ✅ Ya instalé el QR.
         import time as _tm_d
-        from app import petra_wa as _pwa_d
         _tm_d.sleep(1)
-        vid_row = conn.execute(
-            "SELECT titulo, url FROM petra_contenidos "
-            "WHERE tipo='video_como_usar_qr' AND activo=TRUE "
-            "ORDER BY orden LIMIT 1"
-        ).fetchone()
-        qr_row = conn.execute(
-            "SELECT e.qr_slug FROM petra_edificios e "
-            "JOIN petra_contacto_roles r ON r.edificio_id=e.id AND r.contacto_id=%s "
-            "AND r.rol='agente_petra' WHERE e.qr_slug IS NOT NULL LIMIT 1",
-            (cid,),
-        ).fetchone()
-        if vid_row:
-            _pwa_d.send_media_o_texto(telefono, vid_row[0], vid_row[1])
-            _tm_d.sleep(1)
-        if qr_row and qr_row[0]:
-            _pwa_d.send_text(
-                telefono,
-                f"🔗 Tu QR único: https://petra-inmuebles.onrender.com/qr/{qr_row[0]}",
-            )
-            _tm_d.sleep(1)
         _send_buttons(telefono, _t(
             "activacion.msg_qr_boton",
             fallback="Cuando lo tengas instalado, pulsá el botón 👇",
