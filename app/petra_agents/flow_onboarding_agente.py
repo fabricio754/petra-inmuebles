@@ -601,7 +601,15 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
              nota="paso 2: videos enviados")
         return True
 
-    # Cualquier otra cosa: re-mostrar el botón del paso actual
+    # Texto libre que no matchea comando: delegamos al LLM (agente_petra)
+    # para responder preguntas sobre Petra. Si falla, caemos al re-prompt.
+    if texto:
+        try:
+            _log(telefono, texto, "[inscrito → LLM por pregunta libre]")
+            return _responder_con_llm(telefono, texto)
+        except Exception:
+            log.exception("[flow:inscrito] delegación LLM fallo tel=%s", telefono)
+    # Fallback: re-mostrar el botón
     _send_buttons(telefono,
         f"Para continuar tu onboarding, pulsá el botón 👇",
         [{"id": "ONBAG_VER_JOURNEY", "title": _b("ONBAG_VER_JOURNEY", "Ver próximos pasos")}],
