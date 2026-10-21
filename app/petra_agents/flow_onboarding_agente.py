@@ -758,6 +758,10 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
             "💜 Mientras tanto, podés seguir con tu capacitación."
         ),
     ), [{"id": "ONBAG_KIT_PERFECTO", "title": "✨ Perfecto"}])
+    try:
+        _enviar_media_por_clave(telefono, "activacion.msg_direccion_completa")
+    except Exception:
+        log.exception("[flow:kit_pendiente] media hook fallo tel=%s", telefono)
     _log(telefono, texto, "[kit_pendiente: direccion completa → kit_enviado]")
     return True
 

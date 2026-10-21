@@ -126,7 +126,7 @@ def handle_capturar_direccion(args, ctx):
     from app import petra_wa
     from app.petra_agents.textos import t as _t
     from app.petra_agents.flow_onboarding_agente import (
-        _set_estado, _sm, _send_buttons,
+        _set_estado, _sm, _send_buttons, _enviar_media_por_clave,
     )
     meta = ctx["meta"]
     direccion_raw = args.get("direccion") or ""
@@ -180,6 +180,10 @@ def handle_capturar_direccion(args, ctx):
         ),
         [{"id": "ONBAG_KIT_PERFECTO", "title": "✨ Perfecto"}],
     )
+    try:
+        _enviar_media_por_clave(ctx["telefono"], "activacion.msg_direccion_completa")
+    except Exception:
+        log.exception("[tools_kit] media hook fallo tel=%s", ctx["telefono"])
     return {
         "ok": True,
         "direccion": limpio,
