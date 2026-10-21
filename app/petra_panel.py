@@ -2006,17 +2006,24 @@ def admin_nudges_run():
     al cron. Usa el panel token. Devuelve resumen de reglas evaluadas +
     nudges enviados.
     NO borra NI modifica agentes — solo envía mensajes de nudge a las que
-    cumplan la condición de tiempo + estado."""
+    cumplan la condición de tiempo + estado.
+
+    Antes de evaluar, carga las reglas default si la tabla está vacía
+    (idempotente). Esto garantiza que funcione aunque nadie haya ido
+    manualmente al panel a sembrarlas."""
     _check_token()
     from app.petra_agents import nudges as _n
     try:
+        ins, upd, omi = _n.seed_reglas(forzar=False)
         reglas, enviados = _n.evaluar_y_enviar()
-        return (f"OK ✅ Nudges evaluados: {reglas} reglas activas → "
-                f"{enviados} mensajes enviados a agentes paradas. "
+        return (f"OK ✅ Reglas seed: {ins} nuevas, {upd} actualizadas, {omi} ya existían.\n"
+                f"Nudges evaluados: {reglas} reglas activas → "
+                f"{enviados} mensajes enviados a agentes paradas.\n"
                 f"Revisá /panel/petra/tool-calls o los logs de Render "
                 f"para ver el detalle."), 200
     except Exception as e:
-        return f"❌ Error evaluando nudges: {type(e).__name__}: {e}", 500
+        import traceback
+        return f"❌ Error: {type(e).__name__}: {e}\n{traceback.format_exc()}", 500
 
 
 @petra_panel_bp.get("/_admin/reset-agente")
