@@ -75,6 +75,10 @@ def _reintentar_fase(telefono, texto, cid, fase):
             from app.petra_agents import tools_inscripcion as _tins
             resultado = _tins.procesar(telefono, texto, cid, meta, conn)
             return bool(resultado.get("ok"))
+        if fase == "autorizacion":
+            from app.petra_agents import tools_autorizacion as _tau
+            resultado = _tau.procesar(telefono, texto, cid, meta, conn)
+            return bool(resultado.get("ok"))
         # Otras fases: a medida que se migren, agregarlas acá
         log.warning("[tc-queue] fase desconocida=%s tel=%s", fase, telefono)
         return False
