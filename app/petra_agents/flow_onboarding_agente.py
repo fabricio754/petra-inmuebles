@@ -1769,6 +1769,29 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         # ─── Fase 4: autorización pendiente — esperando botón "✅ Ya tengo autorización" ───
         if estado == "autorizacion_pendiente":
+            # Tool-calling opt-in: si está activo y el texto es libre (no
+            # un botón ONBAG_*), delegamos al LLM con tools.
+            if (_os_tc.environ.get("PETRA_TOOLCALLING_AUTORIZACION", "0") == "1"
+                    and not (texto or "").startswith("ONBAG_")
+                    and not (texto or "").startswith("CUSTOM_")):
+                try:
+                    from app.petra_agents import tools_autorizacion as _tau
+                    res = _tau.procesar(telefono, texto, cid, meta, conn)
+                    if res.get("ok"):
+                        _log(telefono, texto,
+                             (res.get("texto_respuesta") or "")[:300],
+                             nota=f"tc-autorizacion tools={len(res.get('tools_llamadas', []))}")
+                        return True
+                    if res.get("retriable"):
+                        from app.petra_agents import toolcalling_queue as _tcq
+                        _tcq.encolar(telefono, texto, cid, "autorizacion",
+                                     res.get("fallo"))
+                        _tcq.enviar_disculpame(telefono)
+                        _log(telefono, texto, "[LLM failing — queued]",
+                             nota=f"tc-autorizacion fallo={res.get('fallo')}")
+                        return True
+                except Exception:
+                    log.exception("[flow:tc] excepcion autorizacion")
             # Botón "🚀 Iniciar" → muestra los 3 botones de autorización.
             if texto == "ONBAG_INICIAR_AUTORIZACION":
                 _send_buttons(telefono, _t(
