@@ -1875,10 +1875,52 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
         if estado == "kit_pendiente":
+            if (_os_tc.environ.get("PETRA_TOOLCALLING_KIT", "0") == "1"
+                    and not (texto or "").startswith("ONBAG_")
+                    and not (texto or "").startswith("CUSTOM_")):
+                try:
+                    from app.petra_agents import tools_kit as _tkit
+                    res = _tkit.procesar(telefono, texto, cid, meta, conn)
+                    if res.get("ok"):
+                        _log(telefono, texto,
+                             (res.get("texto_respuesta") or "")[:300],
+                             nota=f"tc-kit tools={len(res.get('tools_llamadas', []))}")
+                        return True
+                    if res.get("retriable"):
+                        from app.petra_agents import toolcalling_queue as _tcq
+                        _tcq.encolar(telefono, texto, cid, "kit_pendiente",
+                                     res.get("fallo"))
+                        _tcq.enviar_disculpame(telefono)
+                        _log(telefono, texto, "[LLM failing — queued]",
+                             nota=f"tc-kit fallo={res.get('fallo')}")
+                        return True
+                except Exception:
+                    log.exception("[flow:tc] excepcion kit_pendiente")
             return _fase_kit_pendiente(conn, telefono, cid, meta, texto,
                                        sesion_id=sesion_id)
 
         if estado == "kit_enviado":
+            if (_os_tc.environ.get("PETRA_TOOLCALLING_KIT", "0") == "1"
+                    and not (texto or "").startswith("ONBAG_")
+                    and not (texto or "").startswith("CUSTOM_")):
+                try:
+                    from app.petra_agents import tools_kit as _tkit
+                    res = _tkit.procesar(telefono, texto, cid, meta, conn)
+                    if res.get("ok"):
+                        _log(telefono, texto,
+                             (res.get("texto_respuesta") or "")[:300],
+                             nota=f"tc-kit tools={len(res.get('tools_llamadas', []))}")
+                        return True
+                    if res.get("retriable"):
+                        from app.petra_agents import toolcalling_queue as _tcq
+                        _tcq.encolar(telefono, texto, cid, "kit_enviado",
+                                     res.get("fallo"))
+                        _tcq.enviar_disculpame(telefono)
+                        _log(telefono, texto, "[LLM failing — queued]",
+                             nota=f"tc-kit fallo={res.get('fallo')}")
+                        return True
+                except Exception:
+                    log.exception("[flow:tc] excepcion kit_enviado")
             return _fase_kit_enviado(conn, telefono, cid, meta, texto,
                                      sesion_id=sesion_id)
 
