@@ -1594,3 +1594,12 @@ UPDATE petra_media_estacion SET activo = FALSE
  WHERE clave_texto = 'activacion.msg_direccion_completa'
    AND titulo IN ('Vid 2.0', 'Tu QR único', 'Como usar el QR')
    AND activo = TRUE;
+
+-- Mejorar textos de autorización: más cálidos, con contexto, pero no largos.
+UPDATE petra_textos
+   SET contenido = E'¡Buenísimo! 🚀 Entramos en la última etapa antes de activarte.\n\nAhora toca hablar con el *admin de tu edificio* para que te dé el OK como Agente Petra. Te armé un combo con todo lo que vas a necesitar: un video corto, piezas gráficas y respuestas a lo que te puede preguntar.\n\nPulsá *📎 Ver material* y lo tenés al toque 💜'
+ WHERE clave = 'autorizacion.cta_botones';
+
+UPDATE petra_textos
+   SET contenido = E'Perfecto, ya tenés todo lo que necesitás 🙌\n\nAhora el próximo paso es *hablar con el admin*. Tomate tu tiempo — no hay apuro.\n\nCuando tengas novedades, elegí abajo:\n\n✅ *Ya tengo autorización* → si el admin te dijo que sí, seguimos con el envío de tu kit.\n❓ *Tengo una duda* → si no sabés cómo abordarlo o te surgió algo, contame y lo vemos juntas 💜'
+ WHERE clave = 'autorizacion.msg_post_material';
