@@ -1923,14 +1923,16 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 _sm(telefono,
                     "autorizacion.msg_voy_agendar",
                     fallback=(
-                        "¡Dale, vas con todo! 💪✨\n\n"
-                        "Suerte con la reunión 🤝 Acordate de llevar el material "
-                        "que te pasé y vas a estar genial.\n\n"
-                        "Apenas termines la reunión, volvé por acá:\n"
-                        "✅ Si el admin te dio el OK → escribime *\"ya me autorizó\"* "
-                        "y seguimos con tu kit.\n"
-                        "❓ Si surge alguna duda o quiere pensarlo → contame y "
-                        "lo resolvemos juntas 💜"
+                        "¡Perfecto! 🙌✨\n\n"
+                        "Te deseamos *mucha suerte* con la reunión 🤝 "
+                        "Acordate de llevar el material que te pasé — vas "
+                        "a estar genial.\n\n"
+                        "Estamos acá si necesitás ayuda 💜 Apenas termines, "
+                        "volvé por acá:\n\n"
+                        "✅ Si el admin te dio el OK → escribime "
+                        "*\"ya me autorizó\"* y seguimos con el envío de tu kit 📦\n"
+                        "❓ Si surge alguna duda o quiere pensarlo → "
+                        "contame y lo resolvemos juntas"
                     ),
                 )
                 _log(telefono, texto, "[voy a agendar cita]",
