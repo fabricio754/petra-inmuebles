@@ -1423,3 +1423,25 @@ VALUES (
   TRUE
 )
 ON CONFLICT (clave) DO NOTHING;
+
+-- Autorización 7d + 14d: autónomos (bot resuelve, sin escalar a humano).
+UPDATE petra_textos
+   SET contenido = E'¡Hola {nombre}! 💜\n\nYa va una semana con la gestión del admin. Entiendo que a veces cuesta — te paso argumentos concretos según lo que te esté diciendo:\n\n🟢 Si duda si *vale la pena* → Petra ya está activo en edificios como el tuyo y en 30 días levantan de 2 a 5 operaciones. Mandame "quiero caso" y te paso un ejemplo real.\n\n💰 Si pregunta *cuánto cuesta* → nada. Petra es gratis para el edificio. Vos ganás comisión, el edificio no paga un peso.\n\n🔒 Si le preocupa *seguridad o datos* → el QR solo deja un formulario público para interesados, no guarda nada del edificio.\n\n📅 Si *necesita tiempo* o lo tiene que llevar a asamblea → escribime "pausar 15 días" y te vuelvo a escribir en 2 semanas, sin molestar antes.\n\n¿Cuál es el tema? Decime en una línea y te armo la respuesta.',
+       updated_at = NOW()
+ WHERE clave = 'nudges.autorizacion_pendiente_7d';
+
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'nudges.autorizacion_pendiente_7d',
+  E'¡Hola {nombre}! 💜\n\nYa va una semana con la gestión del admin. Te paso argumentos según lo que te esté diciendo:\n\n🟢 Si duda si *vale la pena* → mandame "quiero caso" y te paso un ejemplo real.\n💰 Si pregunta *cuánto cuesta* → Petra es gratis para el edificio.\n🔒 Si le preocupa *seguridad* → el QR solo capta interesados, no toca datos del edificio.\n📅 Si *necesita tiempo* → escribime "pausar 15 días" y te vuelvo a escribir en 2 semanas.\n\n¿Cuál es el tema? Decime en una línea y te armo la respuesta.',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'nudges.autorizacion_pendiente_14d',
+  E'¡Hola {nombre}! 👋\n\nNo te quiero seguir molestando. Dejamos la autorización en pausa — cuando el admin te dé el ok (o quieras intentar con otro edificio), escribime *"ya me autorizó"* o *"quiero cambiar de edificio"* y seguimos.\n\nAcá te espero cuando sea el momento 💜',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
