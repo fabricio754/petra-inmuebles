@@ -1584,3 +1584,12 @@ BEGIN
     );
   END LOOP;
 END $faq_seed$;
+
+-- Dejar solo el texto principal de "¡Dirección confirmada!" — quitar los
+-- 3 links adjuntos (Vid 2.0, Tu QR único, Como usar el QR). Idempotente:
+-- si ya están desactivos, no toca nada. Reversible: toggleable desde
+-- /panel/petra tab Flujo.
+UPDATE petra_media_estacion SET activo = FALSE, updated_at = NOW()
+ WHERE clave_texto = 'activacion.msg_direccion_completa'
+   AND titulo IN ('Vid 2.0', 'Tu QR único', 'Como usar el QR')
+   AND activo = TRUE;
