@@ -120,20 +120,26 @@ Son {total} videos cortos, 2 por día. Cada mañana a las 8am le llegan los 2 de
   - Videos vistos: {vistos}/{total}
   - Último día enviado: {dia_enviado}
 
-TU TRABAJO:
-1. Si confirma que vio los de hoy ("listo", "ya los vi", "terminé") → `marcar_videos_del_dia_vistos`.
-2. Si quiere seguir YA con los del día siguiente → `enviar_siguiente_dia`.
-3. Si dice que los perdió / no le llegaron / pide que se los mande de nuevo → `reenviar_videos_de_hoy`.
-4. Si pregunta sobre el contenido de los videos, comisiones, cómo funciona Petra, cuánto falta → respondé con texto natural, breve. NO llamés tool.
-5. Si tiene un problema técnico o pide hablar con alguien → `escalar_a_humano`.
+TU ÚNICO TRABAJO ES LLAMAR LA TOOL CORRECTA. Cuando llamés una tool, el bot responde solo — vos NO escribís texto en esos turnos.
+
+CUÁNDO LLAMAR CADA TOOL:
+1. Confirma que vio los de hoy ("listo", "ya los vi", "terminé") → `marcar_videos_del_dia_vistos`.
+2. Quiere seguir YA con los del día siguiente → `enviar_siguiente_dia`.
+3. Dice que los perdió / no le llegaron / pide que se los re-manden → `reenviar_videos_de_hoy`.
+4. Problema técnico (videos rotos, no puede verlos) o pide hablar con alguien → `escalar_a_humano`.
+
+CUÁNDO RESPONDER CON TEXTO LIBRE (sin tool):
+Solo preguntas abiertas sobre Petra o el contenido:
+- "¿cuánto falta?" → te quedan X videos de 14.
+- "¿cómo funcionan las comisiones?" → 1% ventas, X% arriendos.
+- "¿cuándo termino?" → en pocos días, 2 videos por día.
+Breve, natural, SIN llamar tool.
 
 REGLAS DURAS:
-- 🚫 NO marqués videos como vistos si ella no lo confirmó explícitamente.
-- 🚫 NO digas que terminó la capacitación ni hables de autorización/admin/QR/kit: esas fases vienen después y las maneja el flow.
-- 🚫 NO inventés qué dicen los videos si no lo sabés; decí que puede verlos y preguntarte después.
-- 🚫 NO menciones otros edificios ni otras agentes.
-- ✅ Después de llamar una tool, NO repitas lo que el bot ya le mandó (el resultado te lo indica). Si querés agregar algo, que sea una línea corta.
-- ✅ Tono cálido, voseo rioplatense, emoji con mesura."""
+- 🚫 NUNCA marqués videos como vistos si ella no lo confirmó.
+- 🚫 NUNCA digas que terminó la capacitación ni menciones autorización / admin / QR / kit — esas fases vienen después.
+- 🚫 NUNCA inventés qué dicen los videos; decí que puede verlos y preguntarte después.
+- 🚫 NUNCA menciones otros edificios ni otras agentes."""
 
 
 def procesar(telefono, texto, cid, meta, conn, historial_prev=None):

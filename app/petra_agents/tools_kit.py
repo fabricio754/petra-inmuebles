@@ -25,6 +25,32 @@ NOMBRE_DIR = {
     "ciudad": "ciudad",
 }
 
+PREGUNTA_DIR = {
+    "torre": ("kit.pedir_torre",
+              "¿En qué *torre o bloque* vivís? 🏢 (ej. *Torre 3*, *Bloque A*. "
+              "Si no aplica, respondé *N/A*)"),
+    "apto": ("kit.pedir_apto",
+             "¿Cuál es tu *número de apartamento*? 🚪 (ej. *702*, *15B*)"),
+    "barrio": ("kit.pedir_barrio",
+               "¿En qué *barrio* queda el edificio? 📍"),
+    "ciudad": ("kit.pedir_ciudad",
+               "¿En qué *ciudad*? 🏙️"),
+}
+
+CONFIRMACION_DIR = {
+    "torre": ("kit.ok_torre", "✅ Anotado: *torre* {valor}."),
+    "apto": ("kit.ok_apto", "✅ Anotado: *apto* {valor}."),
+    "barrio": ("kit.ok_barrio", "✅ Anotado: *barrio* {valor}."),
+    "ciudad": ("kit.ok_ciudad", "✅ Anotado: *ciudad* {valor}."),
+}
+
+RECHAZO_DIR = {
+    "torre": "No me quedó claro la torre. Mandámela como *Torre 3* / *Bloque A* / *N/A* 🙏",
+    "apto": "No me quedó claro el apto. Mandámelo como *702* o *15B* 🙏",
+    "barrio": "No me quedó claro el barrio. Mandámelo como el nombre nomás (ej. *Chapinero*) 🙏",
+    "ciudad": "No me quedó clara la ciudad. Mandámela con una palabra (ej. *Bogotá*) 🙏",
+}
+
 _VAL_SOSPECHOSOS = ("?", "ya te", "ya te la", "ya te lo", "ya les", "cuanto",
                     "cuándo", "cómo", "dónde", "donde", "disculp", "olvid",
                     "no sé", "no se", "mandame", "mandáme", "escribí",
@@ -124,8 +150,12 @@ def _save_meta(conn, cid, meta):
 
 def handle_capturar_direccion(args, ctx):
     """Guarda campos de dirección. Si quedan todos capturados, avanza a
-    kit_enviado y manda el bloque de activación completo."""
+    kit_enviado y manda el bloque de activación completo. Si falta algún
+    campo, el handler mismo manda la confirmación + próxima pregunta
+    (templateado) para evitar alucinaciones del LLM."""
     import datetime as _dt
+    from app import petra_wa
+    from app.petra_agents.textos import t as _t
     meta = ctx["meta"]
     direccion = dict(meta.get("direccion") or {})
     guardados = {}
@@ -143,6 +173,14 @@ def handle_capturar_direccion(args, ctx):
         meta["direccion"] = direccion
         _save_meta(ctx["conn"], ctx["cid"], meta)
     faltantes = [c for c in CAMPOS_DIR if not direccion.get(c)]
+
+    # Si no capturamos ni rechazamos nada (args vacío o campos desconocidos),
+    # devolvemos sin silenciar — dejamos que el LLM responda (puede ser
+    # pregunta abierta sobre el kit, ej. "¿cuánto tarda?").
+    if not guardados and not rechazados:
+        return {"guardados": {}, "rechazados": {}, "faltantes": faltantes,
+                "nota": "no se guardó nada — explicá al user qué necesitás"}
+
     if not faltantes:
         # ¡Dirección completa! Avanzar a kit_enviado + bloque completo
         from app.petra_agents.flow_onboarding_agente import (
@@ -171,11 +209,29 @@ def handle_capturar_direccion(args, ctx):
              "title": "✅ Ya instalé el QR"}])
         return {"ok": True, "guardados": guardados, "faltantes": [],
                 "transicion": "kit_pendiente→kit_enviado", "_silenciar_llm": True}
-    # Guardamos el próximo paso para que el prompt sepa qué pedir
+    # Captura parcial. Armamos mensaje: confirmaciones + rechazos +
+    # pregunta por el próximo campo. Lo envía el handler, el LLM queda
+    # silenciado para no agregar texto encima.
     meta["direccion_paso"] = faltantes[0]
     _save_meta(ctx["conn"], ctx["cid"], meta)
+    partes = []
+    for campo, valor in guardados.items():
+        clave, fallback = CONFIRMACION_DIR[campo]
+        partes.append(_t(clave, fallback=fallback, valor=valor))
+    for campo, _err in rechazados.items():
+        partes.append(RECHAZO_DIR[campo])
+    if guardados:
+        prox = faltantes[0]
+        clave, fallback = PREGUNTA_DIR[prox]
+        partes.append(_t(clave, fallback=fallback))
+    try:
+        petra_wa.send_text(ctx["telefono"], "\n\n".join(partes))
+    except Exception:
+        log.exception("[tools_kit] send fallo tel=%s", ctx["telefono"])
     return {"ok": True, "guardados": guardados, "rechazados": rechazados,
-            "faltantes": faltantes}
+            "faltantes": faltantes,
+            "proximo_pedido": NOMBRE_DIR[faltantes[0]],
+            "_silenciar_llm": True}
 
 
 def handle_marcar_qr_instalado(args, ctx):
@@ -236,37 +292,42 @@ ESTADO INTERNO ACTUAL: {estado}
 """
 
     if estado == "kit_pendiente":
-        proximo = faltantes[0] if faltantes else "nada"
-        return base + f"""
-Faltan estos datos de dirección: {", ".join(faltantes) or "ninguno"}
-Próximo a pedir: *{proximo}*
+        return base + """
+TU ÚNICO TRABAJO ES LLAMAR LA TOOL CORRECTA. Cuando llamés una tool, el bot responde solo con un mensaje templateado — vos NO escribís texto en esos turnos.
 
-TU TRABAJO:
-1. Si te da uno o más datos de dirección (torre, apto, barrio, ciudad) → llamá `capturar_direccion` con los valores limpios (podés pasar varios juntos si vinieron juntos).
-2. Si pregunta cuánto tarda el kit, qué incluye, etc. → respondé con texto natural: el kit llega en 2-3 días hábiles, incluye QR físico + regalo. NO llamés tool.
-3. Si pide ayuda / no sabe qué poner / dice que no vive en el edificio → `escalar_a_humano`.
+CUÁNDO LLAMAR CADA TOOL:
+1. Te da uno o más datos de dirección (torre, apto, barrio, ciudad) → `capturar_direccion` con los valores limpios. El bot ya se encarga de confirmar y pedir el próximo.
+2. Pide ayuda / no sabe qué poner / dice que no vive en ese edificio / problema real → `escalar_a_humano`.
+
+CUÁNDO RESPONDER CON TEXTO LIBRE (sin tool):
+Solo preguntas abiertas sobre el kit:
+- "¿cuánto tarda?" → 2-3 días hábiles.
+- "¿qué incluye?" → QR físico para pegar + un regalito.
+- "¿puedo usar el QR mientras tanto?" → sí, el digital ya lo tiene por el link, puede imprimirlo y pegarlo.
+Breve, natural, SIN llamar tool.
 
 REGLAS DURAS:
-- 🚫 NUNCA inventés datos. Si te dio "ya te lo dije", "?", "cuánto demora?" como respuesta → NO llamés capturar_direccion, pedí aclaración.
-- 🚫 NUNCA MENCIONES el QR como ya instalado, ni digas "generé tu QR". El QR se activa SOLO cuando ella termine de darte la dirección Y pulse el botón 'Ya instalé el QR' después.
-- 🚫 NUNCA menciones conjuntos ajenos (ej. "Condominio Monaco") a menos que ella lo diga ahora.
-- ✅ Tono cálido, voseo rioplatense.
-- ✅ Si pregunta por un dato que ya tenés, decile cuál tenés y confirmá si es correcto.
-- ✅ Para torre, "N/A" es válido (si no aplica).
-"""
+- 🚫 NUNCA inventés datos. Si te dio "ya te lo dije", "?", pregunta → NO llamés capturar_direccion.
+- 🚫 NUNCA afirmés que el QR está instalado ni digas "generé tu QR".
+- 🚫 NUNCA menciones conjuntos ajenos.
+- ✅ Para torre, "N/A" es válido."""
     # kit_enviado
-    return base + f"""
-Dirección completa. La agente ya recibió el link del QR + instrucciones para instalarlo. Estamos esperando que ella confirme la instalación.
+    return base + """
+TU ÚNICO TRABAJO ES LLAMAR LA TOOL CORRECTA.
 
-TU TRABAJO:
-1. Si ella confirma que instaló el QR (texto "ya instalé", "listo lo pegué", pulsa botón '✅ Ya instalé el QR') → llamá `marcar_qr_instalado`. Esto hace que el bot le pida una FOTO del QR instalado para validar.
-2. Si pregunta cómo instalarlo, dónde pegarlo, cuándo llega el kit físico → respondé con texto natural. El kit físico tarda 2-3 días hábiles. El QR digital ya lo recibió por el link. Puede imprimirlo y pegarlo mientras llega el físico.
-3. Si tiene un problema (no le llegó, lo rompió, no sabe dónde pegar) → `escalar_a_humano`.
+CUÁNDO LLAMAR CADA TOOL:
+1. Confirma que instaló el QR (texto "ya instalé", "listo lo pegué", pulsa botón "✅ Ya instalé el QR") → `marcar_qr_instalado`. El bot le pide la FOTO para validar.
+2. Problema real (no llegó, lo rompió, no sabe dónde pegar) → `escalar_a_humano`.
+
+CUÁNDO RESPONDER CON TEXTO LIBRE (sin tool):
+Preguntas abiertas sobre el kit o la instalación:
+- "¿cómo lo instalo?" / "¿dónde lo pego?" → en la entrada / portería / lobby, bien visible, idealmente a la altura de los ojos.
+- "¿cuándo llega el físico?" → 2-3 días hábiles.
+- "¿puedo usar el digital mientras?" → sí, imprimilo y pegalo.
 
 REGLAS DURAS:
-- 🚫 NUNCA la actives sin que ella mande la FOTO del QR primero. `marcar_qr_instalado` SOLO pide la foto; la activación real pasa cuando llega la foto.
-- 🚫 NUNCA inventés que ya la activaste.
-- 🚫 NUNCA menciones direcciones específicas (ya está capturada, no la repitas inventando).
+- 🚫 NUNCA la actives sin la FOTO del QR. `marcar_qr_instalado` solo pide la foto; la activación real pasa cuando llega la imagen.
+- 🚫 NUNCA inventés que ya está activada."""
 - ✅ Tono cálido, voseo.
 """
 
