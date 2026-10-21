@@ -291,6 +291,14 @@ HANDLERS = {
 
 # ===== System prompt (varía por sub-estado) =====
 
+def _get_faqs_prompt():
+    try:
+        from app.petra_agents import faq_kb
+        return faq_kb.seccion_para_prompt()
+    except Exception:
+        return ""
+
+
 def build_system_prompt(meta):
     estado = meta.get("estado_agente", "kit_pendiente")
     nombre = (meta.get("nombre") or "").split()[0] if meta.get("nombre") else ""
@@ -332,7 +340,7 @@ Breve, natural, SIN llamar tool.
 REGLAS DURAS:
 - 🚫 NUNCA inventés datos. Si te dio "ya te lo dije", "?", "mmm", pregunta → NO llamés capturar_direccion.
 - 🚫 NUNCA afirmés que el QR está instalado ni digas "generé tu QR".
-- 🚫 NUNCA menciones otros conjuntos."""
+- 🚫 NUNCA menciones otros conjuntos.""" + _get_faqs_prompt()
     # kit_enviado
     return base + """
 TU ÚNICO TRABAJO ES LLAMAR LA TOOL CORRECTA.
@@ -349,7 +357,7 @@ Preguntas abiertas sobre el kit o la instalación:
 
 REGLAS DURAS:
 - 🚫 NUNCA la actives sin la FOTO del QR. `marcar_qr_instalado` solo pide la foto; la activación real pasa cuando llega la imagen.
-- 🚫 NUNCA inventés que ya está activada."""
+- 🚫 NUNCA inventés que ya está activada.""" + _get_faqs_prompt()
 - ✅ Tono cálido, voseo.
 """
 

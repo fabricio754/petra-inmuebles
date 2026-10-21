@@ -362,6 +362,14 @@ HANDLERS = {
 
 # ===== System prompt =====
 
+def _get_faqs_prompt():
+    try:
+        from app.petra_agents import faq_kb
+        return faq_kb.seccion_para_prompt()
+    except Exception:
+        return ""
+
+
 def build_system_prompt(meta):
     datos = []
     for c in CAMPOS:
@@ -406,7 +414,7 @@ REGLAS DURAS:
 - 🚫 NO AFIRMÉS QUE ALGO PASÓ hasta llamar la tool. No digas "te registré" si no llamaste `confirmar_registro`.
 - 🚫 NO MENCIONES autorización, QR, kit, dirección — esas fases vienen después.
 - 🚫 NO HABLÉS de otras agentes ni menciones conjuntos (ej. "Condominio Monaco") que ella no te haya dicho AHORA.
-- ✅ Tono: cálido, breve, voseo rioplatense."""
+- ✅ Tono: cálido, breve, voseo rioplatense.""" + _get_faqs_prompt()
 
 
 # ===== Entry point =====

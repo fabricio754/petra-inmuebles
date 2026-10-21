@@ -106,6 +106,14 @@ HANDLERS = {
 }
 
 
+def _get_faqs_prompt():
+    try:
+        from app.petra_agents import faq_kb
+        return faq_kb.seccion_para_prompt()
+    except Exception:
+        return ""
+
+
 def build_system_prompt(meta):
     nombre = (meta.get("nombre") or "").split()[0] if meta.get("nombre") else ""
     vistos = int(meta.get("videos_vistos", 0) or 0)
@@ -139,7 +147,7 @@ REGLAS DURAS:
 - 🚫 NUNCA marqués videos como vistos si ella no lo confirmó.
 - 🚫 NUNCA digas que terminó la capacitación ni menciones autorización / admin / QR / kit — esas fases vienen después.
 - 🚫 NUNCA inventés qué dicen los videos; decí que puede verlos y preguntarte después.
-- 🚫 NUNCA menciones otros edificios ni otras agentes."""
+- 🚫 NUNCA menciones otros edificios ni otras agentes.""" + _get_faqs_prompt()
 
 
 def procesar(telefono, texto, cid, meta, conn, historial_prev=None):
