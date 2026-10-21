@@ -27,28 +27,30 @@ NOMBRE_DIR = {
 
 PREGUNTA_DIR = {
     "torre": ("kit.pedir_torre",
-              "¿En qué *torre o bloque* vivís? 🏢 (ej. *Torre 3*, *Bloque A*. "
-              "Si no aplica, respondé *N/A*)"),
+              "Me faltaría la *torre o bloque*. Mandámela como *Torre 3* / "
+              "*Bloque A*. Si vivís en casa individual, respondé *N/A*."),
     "apto": ("kit.pedir_apto",
-             "¿Cuál es tu *número de apartamento*? 🚪 (ej. *702*, *15B*)"),
+             "Me faltaría el *número de apto o casa*. Mandámelo como "
+             "*702*, *15B* o *Casa 49*."),
     "barrio": ("kit.pedir_barrio",
-               "¿En qué *barrio* queda el edificio? 📍"),
+               "Me faltaría el *barrio*. Mandámelo como el nombre nomás "
+               "(ej. *Chapinero*, *Portal del Norte*)."),
     "ciudad": ("kit.pedir_ciudad",
-               "¿En qué *ciudad*? 🏙️"),
+               "Me faltaría la *ciudad* (ej. *Bogotá*, *Zipaquirá*)."),
 }
 
 CONFIRMACION_DIR = {
-    "torre": ("kit.ok_torre", "✅ Anotado: *torre* {valor}."),
-    "apto": ("kit.ok_apto", "✅ Anotado: *apto* {valor}."),
-    "barrio": ("kit.ok_barrio", "✅ Anotado: *barrio* {valor}."),
-    "ciudad": ("kit.ok_ciudad", "✅ Anotado: *ciudad* {valor}."),
+    "torre": ("kit.ok_torre", "✅ Torre: *{valor}*."),
+    "apto": ("kit.ok_apto", "✅ Apto/Casa: *{valor}*."),
+    "barrio": ("kit.ok_barrio", "✅ Barrio: *{valor}*."),
+    "ciudad": ("kit.ok_ciudad", "✅ Ciudad: *{valor}*."),
 }
 
 RECHAZO_DIR = {
-    "torre": "No me quedó claro la torre. Mandámela como *Torre 3* / *Bloque A* / *N/A* 🙏",
-    "apto": "No me quedó claro el apto. Mandámelo como *702* o *15B* 🙏",
-    "barrio": "No me quedó claro el barrio. Mandámelo como el nombre nomás (ej. *Chapinero*) 🙏",
-    "ciudad": "No me quedó clara la ciudad. Mandámela con una palabra (ej. *Bogotá*) 🙏",
+    "torre": "La *torre* no me quedó clara. Mandámela como *Torre 3* / *Bloque A* / *N/A* 🙏",
+    "apto": "El *apto o casa* no me quedó claro. Mandámelo como *702*, *15B* o *Casa 49* 🙏",
+    "barrio": "El *barrio* no me quedó claro. Mandámelo como el nombre nomás (ej. *Chapinero*) 🙏",
+    "ciudad": "La *ciudad* no me quedó clara. Mandámela con una palabra (ej. *Bogotá*) 🙏",
 }
 
 _VAL_SOSPECHOSOS = ("?", "ya te", "ya te la", "ya te lo", "ya les", "cuanto",
@@ -75,11 +77,16 @@ def _validar_dir(campo, valor):
     if not valor or not isinstance(valor, str):
         return False, None, "vacío"
     v = valor.strip()
-    # "N/A" es válido para torre
-    if campo == "torre" and v.upper() in ("N/A", "NA", "NINGUNA", "NINGUNO"):
+    # "N/A" es válido para torre Y para apto (ej. casa individual sin apto).
+    if campo in ("torre", "apto") and v.upper() in ("N/A", "NA", "NINGUNA", "NINGUNO", "-"):
         return True, "N/A", None
     if _parece_sospechoso(v):
         return False, None, f"no parece un {NOMBRE_DIR[campo]} válido"
+    # Rechazar valores sin ninguna letra ni dígito útil (ej. "??", "mmm", ".").
+    import re as _re
+    utiles = _re.sub(r"[^a-záéíóúñA-ZÁÉÍÓÚÑ0-9]", "", v)
+    if len(utiles) < 2:
+        return False, None, f"'{v}' no parece un {NOMBRE_DIR[campo]} válido"
     return True, v[:80], None
 
 
@@ -90,19 +97,28 @@ TOOLS = [
         "name": "capturar_direccion",
         "description": (
             "Guarda uno o más datos de la dirección física donde enviar "
-            "el kit (torre, apto, barrio, ciudad). Podés pasar varios "
-            "campos a la vez si vinieron juntos (ej. 'vivo en Torre 3 "
-            "apto 702 barrio Chapinero Bogotá'). Para torre, aceptar "
-            "'N/A' si no aplica. NO INVENTAR: si lo que te dio no parece "
-            "un dato válido (ej. una pregunta, '?', 'ya te lo dije'), "
-            "NO llamés esta tool: pedí aclaración por texto."
+            "el kit (torre, apto, barrio, ciudad). SIEMPRE que la agente "
+            "mande datos de dirección, extraé TODOS los campos que puedas "
+            "del mensaje en una sola llamada — no esperes a tener uno por "
+            "turno.\n\n"
+            "REGLAS DE INFERENCIA (importantes en Colombia):\n"
+            "• Si menciona 'Casa X' (ej. 'Casa 49') → es CASA individual, "
+            "no apartamento: poné torre='N/A' y apto='Casa 49'.\n"
+            "• Si menciona 'Torre X' + 'apto Y' → torre='Torre X', apto='Y'.\n"
+            "• Si menciona solo un número (ej. '702') → es apto, torre queda "
+            "pendiente de preguntar.\n"
+            "• Si menciona 'conjunto X' o 'edificio X' NO es ni torre ni "
+            "barrio — es el conjunto que ya tenemos aparte, ignoralo.\n"
+            "• Si NO está claro un campo, dejalo fuera (no lo inventes).\n\n"
+            "NO llamés esta tool con '?', 'ya te lo dije', emoji suelto, "
+            "preguntas: pedí aclaración por texto en su lugar."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "torre": {"type": "string", "description": "Torre o bloque (ej. 'Torre 3', 'Bloque A', 'N/A')"},
-                "apto": {"type": "string", "description": "Apartamento (ej. '702', 'Apto 15B', 'Casa 49')"},
-                "barrio": {"type": "string", "description": "Barrio (ej. 'Chapinero', 'San Pablo')"},
+                "torre": {"type": "string", "description": "Torre o bloque, o 'N/A' si vive en casa individual (ej. 'Torre 3', 'Bloque A', 'N/A')"},
+                "apto": {"type": "string", "description": "Apartamento o casa (ej. '702', 'Apto 15B', 'Casa 49', 'N/A')"},
+                "barrio": {"type": "string", "description": "Barrio o nombre del conjunto si el barrio no se menciona (ej. 'Chapinero', 'Portal del Norte')"},
                 "ciudad": {"type": "string", "description": "Ciudad (ej. 'Bogotá', 'Zipaquirá')"},
             },
             "additionalProperties": False,
@@ -296,21 +312,24 @@ ESTADO INTERNO ACTUAL: {estado}
 TU ÚNICO TRABAJO ES LLAMAR LA TOOL CORRECTA. Cuando llamés una tool, el bot responde solo con un mensaje templateado — vos NO escribís texto en esos turnos.
 
 CUÁNDO LLAMAR CADA TOOL:
-1. Te da uno o más datos de dirección (torre, apto, barrio, ciudad) → `capturar_direccion` con los valores limpios. El bot ya se encarga de confirmar y pedir el próximo.
-2. Pide ayuda / no sabe qué poner / dice que no vive en ese edificio / problema real → `escalar_a_humano`.
+1. Te da datos de dirección en UN MENSAJE LIBRE (ej. "Casa 49, Portal del Norte, Zipaquirá" o "Torre 3 apto 702, Chapinero, Bogotá") → `capturar_direccion` extrayendo TODOS los campos que puedas en una sola llamada. Reglas clave:
+   • "Casa X" → torre="N/A", apto="Casa X" (es casa individual, muy común en Colombia).
+   • "Torre X" + "apto Y" → torre="Torre X", apto="Y".
+   • Solo un número suelto → apto, torre queda pendiente.
+   • NUNCA inventes un campo que no está en el mensaje. Dejalo fuera y el bot lo pide después.
+2. Pide ayuda / no sabe qué poner / problema real → `escalar_a_humano`.
 
 CUÁNDO RESPONDER CON TEXTO LIBRE (sin tool):
 Solo preguntas abiertas sobre el kit:
 - "¿cuánto tarda?" → 2-3 días hábiles.
 - "¿qué incluye?" → QR físico para pegar + un regalito.
-- "¿puedo usar el QR mientras tanto?" → sí, el digital ya lo tiene por el link, puede imprimirlo y pegarlo.
+- "¿puedo usar el QR mientras?" → sí, el digital ya lo tiene por el link.
 Breve, natural, SIN llamar tool.
 
 REGLAS DURAS:
-- 🚫 NUNCA inventés datos. Si te dio "ya te lo dije", "?", pregunta → NO llamés capturar_direccion.
+- 🚫 NUNCA inventés datos. Si te dio "ya te lo dije", "?", "mmm", pregunta → NO llamés capturar_direccion.
 - 🚫 NUNCA afirmés que el QR está instalado ni digas "generé tu QR".
-- 🚫 NUNCA menciones conjuntos ajenos.
-- ✅ Para torre, "N/A" es válido."""
+- 🚫 NUNCA menciones otros conjuntos."""
     # kit_enviado
     return base + """
 TU ÚNICO TRABAJO ES LLAMAR LA TOOL CORRECTA.

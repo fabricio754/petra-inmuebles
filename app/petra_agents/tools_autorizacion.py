@@ -109,10 +109,12 @@ def handle_marcar_tengo_autorizacion(args, ctx):
         fallback=(
             "🎉 *¡Buenísimo! Ya tenés la autorización del administrador.*\n\n"
             "📦 *Siguiente paso: te enviamos tu kit* (QR + un regalito 💜)\n\n"
-            "Necesito tu dirección exacta para enviártelo. Empecemos por lo "
-            "primero:\n\n"
-            "*¿En qué torre vivís?* (ej. Torre 3, Bloque A, etc. Si no "
-            "aplica, respondé *N/A*)"
+            "📍 *Mandame tu dirección completa en un solo mensaje*, "
+            "con todo lo que tengas: torre o casa, apto, barrio y ciudad.\n\n"
+            "Ejemplos:\n"
+            "• _Torre 3 apto 702, Chapinero, Bogotá_\n"
+            "• _Casa 49, Portal del Norte, Zipaquirá_\n"
+            "• _Apto 15B, Chicó, Bogotá_"
         ),
     )
     return {"ok": True, "estado_nuevo": "kit_pendiente", "_silenciar_llm": True}
