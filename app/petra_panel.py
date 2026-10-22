@@ -2000,6 +2000,60 @@ def evals_run():
 # Admin: reset de un agente por teléfono (uso puntual de testing)
 # =============================================================================
 
+@petra_panel_bp.get("/_admin/run-evals")
+def admin_run_evals():
+    """Corre los goldens end-to-end (app/evals_e2e) contra la DB prod,
+    usando teléfonos de prueba +99999* que se auto-limpian.
+
+    Query params:
+      - name: nombre del golden a correr (opcional; si no, corre todos)
+      - baseline: 1 para guardar baseline.json (snapshot del output)
+    Devuelve resumen JSON con pass/fail por golden.
+    """
+    _check_token()
+    import json as _json
+    import io, contextlib
+    from pathlib import Path
+    from app.evals_e2e import runner as _runner
+    name = (request.args.get("name") or "").strip()
+    guardar_baseline = request.args.get("baseline") == "1"
+    goldens = _runner._listar()
+    if name:
+        goldens = [p for p in goldens if p.name == name or p.stem == name]
+    if not goldens:
+        return "No hay goldens coincidentes", 404
+    resultados = []
+    failed = 0
+    for p in goldens:
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                ok, res = _runner.run_golden(p, verbose=True)
+            res["log"] = buf.getvalue()
+            resultados.append(res)
+            if not ok:
+                failed += 1
+        except Exception as e:
+            import traceback
+            resultados.append({"name": p.stem, "ok": False,
+                               "errores_total": 1,
+                               "exception": f"{type(e).__name__}: {e}",
+                               "traceback": traceback.format_exc()})
+            failed += 1
+    if guardar_baseline:
+        try:
+            with open(_runner.BASELINE_FILE, "w") as f:
+                _json.dump(resultados, f, indent=2, ensure_ascii=False, default=str)
+        except Exception:
+            pass
+    return (_json.dumps({
+        "total": len(goldens),
+        "ok": len(goldens) - failed,
+        "failed": failed,
+        "resultados": resultados,
+    }, indent=2, ensure_ascii=False, default=str), 200, {"Content-Type": "application/json"})
+
+
 @petra_panel_bp.get("/_admin/nudges-run")
 def admin_nudges_run():
     """Dispara la evaluación de todos los nudges manualmente, sin esperar
