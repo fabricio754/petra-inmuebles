@@ -267,7 +267,7 @@ def _enviar_dir_confirmada(telefono):
 
 
 def _enviar_pedir_foto_libro(telefono):
-    _send_text(telefono, _t(
+    _send_buttons(telefono, _t(
         "activacion.msg_libro_intro",
         fallback=(
             "📸 *Ahora necesitamos una foto del libro de arriendos y ventas* "
@@ -277,10 +277,6 @@ def _enviar_pedir_foto_libro(telefono):
             "✨ Con eso vamos a *cargar tu QR con la info de tu conjunto*, para "
             "que cuando lo instales ya funcione completo 🚀"
         ),
-    ))
-    _send_buttons(telefono, _t(
-        "activacion.msg_pedir_foto_libro",
-        fallback=FB_PEDIR_FOTO_LIBRO,
     ), [
         {"id": "ONBAG_LIBRO_SI",
          "title": _b("ONBAG_LIBRO_SI", "✅ Sí")},
