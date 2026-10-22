@@ -1,0 +1,23 @@
+{
+  "name": "capacitacion_dia7_completa",
+  "description": "Agente ya completó 6 días. Pulsa Listo del día 7 → recibe mensaje de capacitación completa + botón 'Iniciar' para arrancar autorización.",
+  "telefono": "+99999000007",
+  "meta_inicial": {
+    "estado_agente": "en_capacitacion",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo",
+    "cap_version": 2,
+    "cap_dia_enviado": 7,
+    "videos_vistos": 12
+  },
+  "turnos": [
+    {
+      "boton": "ONBAG_LISTO",
+      "bot_contiene": ["Terminaste", "capacitación"],
+      "estado_esperado": "capacitacion_completa"
+    }
+  ]
+}

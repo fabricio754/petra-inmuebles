@@ -1,0 +1,28 @@
+{
+  "name": "escape_hatch_llamame",
+  "description": "Agente en medio de capacitación escribe 'llámame'. El bot ofrece resolver por chat primero. Si insiste, pasa a humano por WhatsApp.",
+  "telefono": "+99999000014",
+  "meta_inicial": {
+    "estado_agente": "en_capacitacion",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo",
+    "cap_version": 2,
+    "cap_dia_enviado": 3,
+    "videos_vistos": 6
+  },
+  "_requiere": "M4: escape hatch global + detección 'llámame'",
+  "turnos": [
+    {
+      "user": "llámame por favor",
+      "bot_contiene": ["chat", "ayudar"],
+      "bot_no_contiene": ["ya te llamamos", "pronto te llamaremos"]
+    },
+    {
+      "user": "no, necesito que me llamen urgente",
+      "bot_contiene": ["aviso", "equipo"]
+    }
+  ]
+}

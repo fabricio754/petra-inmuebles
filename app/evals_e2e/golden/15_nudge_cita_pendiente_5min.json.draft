@@ -1,0 +1,26 @@
+{
+  "name": "nudge_cita_pendiente_5min",
+  "description": "Agente activa tiene una cita nueva sin responder hace 6 minutos. El cron de nudges dispara el recordatorio de confirmar/rechazar.",
+  "telefono": "+99999000015",
+  "meta_inicial": {
+    "estado_agente": "activa",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo",
+    "cita_pendiente": {
+      "id": "test-cita-001",
+      "cliente": "Carlos Mejía",
+      "created_at_minutes_ago": 6
+    }
+  },
+  "_requiere": "M5: nudge diferenciado por fase (activa + cita → cada 5 min)",
+  "turnos": [
+    {
+      "simular_cron": "nudges",
+      "bot_contiene": ["cita", "Carlos", "confirmar"],
+      "_nota": "El cron corre, detecta cita pendiente > 5 min, manda nudge."
+    }
+  ]
+}

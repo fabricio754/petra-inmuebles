@@ -1,0 +1,28 @@
+{
+  "name": "inscripcion_corregir_dato",
+  "description": "Agente completa 5 datos pero pulsa Corregir en la confirmación. El bot muestra el list de 5 campos. Elige cambiar la ciudad, la cambia, re-confirma, se registra.",
+  "telefono": "+99999000006",
+  "meta_inicial": {},
+  "turnos": [
+    {"user": "Juana Pérez", "bot_contiene": ["cédula"]},
+    {"user": "1020800837", "bot_contiene": ["ciudad"]},
+    {"user": "Zipaquirá", "bot_contiene": ["barrio"]},
+    {"user": "Centro", "bot_contiene": ["conjunto"]},
+    {"user": "Edificio Palermo", "bot_contiene": ["Confirm", "Zipaquirá"]},
+    {
+      "boton": "ONBAG_CORREGIR",
+      "bot_contiene": ["corregir", "ciudad"],
+      "_nota": "Debería aparecer un list con las 5 opciones."
+    },
+    {
+      "boton": "ONBAG_FIX_ciudad",
+      "bot_contiene": ["ciudad"]
+    },
+    {"user": "Bogotá", "bot_contiene": ["Bogotá", "Confirm"]},
+    {
+      "boton": "ONBAG_CONFIRM",
+      "bot_contiene": ["Felicitaciones"],
+      "estado_esperado": "inscrito"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "autorizacion_me_dijo_que_si",
+  "description": "Agente en autorizacion_pendiente pulsa el botón del material, lee, pulsa 'Voy a agendar' → mensaje de suerte → pulsa 'Me dijo que sí' → pasa a kit_pendiente y pide dirección.",
+  "telefono": "+99999000008",
+  "meta_inicial": {
+    "estado_agente": "autorizacion_pendiente",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo"
+  },
+  "turnos": [
+    {
+      "boton": "ONBAG_VOY_AGENDAR_CITA",
+      "bot_contiene": ["suerte", "reunión"]
+    },
+    {
+      "boton": "ONBAG_YA_TENGO_AUTORIZACION",
+      "bot_contiene": ["dirección", "Mandame"],
+      "estado_esperado": "kit_pendiente"
+    }
+  ]
+}

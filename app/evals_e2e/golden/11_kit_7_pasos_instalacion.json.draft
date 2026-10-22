@@ -1,0 +1,21 @@
+{
+  "name": "kit_7_pasos_instalacion",
+  "description": "Agente ya recibió el kit físico. Pulsa 'Dime los pasos' → recibe los 7 pasos para instalar el QR + botón 'Ya lo instalé'.",
+  "telefono": "+99999000011",
+  "meta_inicial": {
+    "estado_agente": "kit_enviado",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo",
+    "kit_entregado": true
+  },
+  "_requiere": "M4: pasos de instalación QR + botón ONBAG_YA_INSTALE",
+  "turnos": [
+    {
+      "boton": "ONBAG_DIME_PASOS",
+      "bot_contiene": ["administrador", "vigilante", "QR", "portería"]
+    }
+  ]
+}

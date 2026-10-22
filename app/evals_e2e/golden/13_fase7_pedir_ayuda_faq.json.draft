@@ -1,0 +1,25 @@
+{
+  "name": "fase7_pedir_ayuda_faq",
+  "description": "Agente activa pulsa 'Pedir ayuda', escribe una pregunta sobre comisiones, el agente FAQ responde + ofrece volver al menú.",
+  "telefono": "+99999000013",
+  "meta_inicial": {
+    "estado_agente": "activa",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo"
+  },
+  "_requiere": "M4: agente FAQ aislado + handler ONBAG_PC_AYUDA → FAQ",
+  "turnos": [
+    {
+      "boton": "ONBAG_PC_AYUDA",
+      "bot_contiene": ["pregunta", "ayuda"]
+    },
+    {
+      "user": "¿cuánto gano por venta?",
+      "bot_contiene": ["%", "venta"],
+      "bot_regex": ["(1|uno) ?%"]
+    }
+  ]
+}
