@@ -368,6 +368,16 @@ SEED_TEXTOS = [
      "Mensaje que recibe la agente justo después de mandar una foto en "
      "el paso foto_libro_pedida — confirmación con botones Sí/No.",
      [], "activacion"),
+    ("activacion.msg_libro_intro",
+     "📸 *Ahora necesitamos una foto del libro de arriendos y ventas* "
+     "de tu conjunto.\n\n"
+     "Pasá por la *portería o el lobby* y pedí ver el libro. Tomale una "
+     "foto bien clara y mandámela por acá 💜\n\n"
+     "✨ Con eso vamos a *cargar tu QR con la info de tu conjunto*, para "
+     "que cuando lo instales ya funcione completo 🚀",
+     "Mensaje intro al paso del libro — se envía ANTES del msg con "
+     "botones Sí/No, para explicar que la agente tiene que ir al lobby.",
+     [], "activacion"),
     ("activacion.msg_qr_instalado",
      "🎉 *¡Felicitaciones! Ya sos una Agente Petra activa.* 💜\n\n"
      "Tu QR está en tu edificio y los residentes ya pueden escanearlo "
