@@ -1726,3 +1726,23 @@ VALUES (
   TRUE
 )
 ON CONFLICT (clave) DO NOTHING;
+
+-- =============================================================================
+-- Inscripción: nuevo campo 'torre_apto' (texto libre) y textos editables.
+-- =============================================================================
+
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'inscripcion.pedir_torre_apto',
+  E'Último dato — ¿En qué *torre y apartamento* vivís? (ej. _Torre 3 apto 702_, _Casa 49_, _Apto 15B_) 🏠',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'inscripcion.ok_torre_apto',
+  E'✅ Anotado: {valor}.',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
