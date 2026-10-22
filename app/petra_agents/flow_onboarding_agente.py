@@ -1939,10 +1939,18 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             meta.pop("libro_fotos", None)
             _save_meta(conn, cid, meta)
             _enviar(telefono, _t(
-                "activacion.msg_pedir_direccion_simple",
+                "activacion.msg_pedir_direccion_inicio",
                 fallback=(
-                    "📍 Mandame tu dirección completa en un solo mensaje "
-                    "(torre o casa, apto, barrio, ciudad)."
+                    "🎉 *¡Buenísimo! Ya tenés la autorización del administrador* ✨\n\n"
+                    "📦 Ahora te enviamos tu *kit de activación* a tu casa:\n"
+                    "• Tu *QR físico* para pegar en el edificio 📱\n"
+                    "• Un *regalito* de bienvenida 💜\n\n"
+                    "📍 *Mandame la dirección de donde vivís* — en *un solo mensaje*, "
+                    "con todo lo que tengas: torre o casa, apto, barrio y ciudad.\n\n"
+                    "_Ejemplos:_\n"
+                    "• _Torre 3 apto 702, Chapinero, Bogotá_\n"
+                    "• _Casa 49, Portal del Norte, Zipaquirá_\n"
+                    "• _Apto 15B, Chicó, Bogotá_"
                 ),
             ))
             _log(telefono, texto, "[shortcut global 'guia' → kit_pendiente]",
