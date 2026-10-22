@@ -134,16 +134,17 @@ def _sm(telefono, clave, fallback=None, **variables):
 
 log = logging.getLogger("petra")
 
-CAMPOS = ["nombre", "cedula", "ciudad", "barrio", "conjunto"]
+CAMPOS = ["nombre", "cedula", "ciudad", "barrio", "conjunto", "torre_apto"]
 
 # Hardcode fallback — se usa si petra_textos no tiene la clave en DB.
 # Los textos editables desde panel sobreescriben estos valores (ver textos.py).
 _PREGUNTAS_FALLBACK = {
-    "nombre": "👋 ¡Qué alegría que quieras ser Agente Petra!\n\nTe voy a pedir 5 datos para registrarte. Empecemos por el primero:\n\n*¿Cuál es tu nombre completo?*",
+    "nombre": "👋 ¡Qué alegría que quieras ser Agente Petra!\n\nTe voy a pedir 6 datos para registrarte. Empecemos por el primero:\n\n*¿Cuál es tu nombre completo?*",
     "cedula": "✅ Gracias, {nombre}.\n\n*¿Cuál es tu cédula?* (solo los números)",
     "ciudad": "Perfecto. *¿En qué ciudad vivís?*",
     "barrio": "*¿En qué barrio?*",
-    "conjunto": "Último dato — *¿Cómo se llama el conjunto o edificio donde vivís?*",
+    "conjunto": "*¿Cómo se llama el conjunto o edificio donde vivís?*",
+    "torre_apto": "Último dato — ¿En qué *torre y apartamento* vivís? (ej. _Torre 3 apto 702_, _Casa 49_, _Apto 15B_) 🏠",
 }
 
 
@@ -176,6 +177,7 @@ NOMBRE_CAMPO = {
     "ciudad": "ciudad",
     "barrio": "barrio",
     "conjunto": "conjunto/edificio",
+    "torre_apto": "torre y apto / casa",
 }
 
 
@@ -310,13 +312,16 @@ def _validar(campo, texto):
 
 
 def _resumen_texto(meta):
+    torre_apto = meta.get("torre_apto") or ""
+    linea_torre = f"• Torre/Apto: {torre_apto}\n" if torre_apto else ""
     return (
         "📋 *Confirmemos tus datos:*\n\n"
         f"• Nombre: {meta.get('nombre')}\n"
         f"• Cédula: {meta.get('cedula')}\n"
         f"• Ciudad: {meta.get('ciudad')}\n"
         f"• Barrio: {meta.get('barrio')}\n"
-        f"• Conjunto: {meta.get('conjunto')}\n\n"
+        f"• Conjunto: {meta.get('conjunto')}\n"
+        f"{linea_torre}\n"
         "¿Están correctos?"
     )
 
@@ -353,6 +358,8 @@ def _enviar_lista_correccion(telefono, meta):
                  "description": meta.get("barrio", "")[:70]},
                 {"id": "ONBAG_FIX_conjunto", "title": "Conjunto/Edificio",
                  "description": meta.get("conjunto", "")[:70]},
+                {"id": "ONBAG_FIX_torre_apto", "title": "Torre / Apto",
+                 "description": meta.get("torre_apto", "")[:70]},
             ],
         }],
     )
