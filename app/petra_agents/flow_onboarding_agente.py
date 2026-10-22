@@ -983,8 +983,12 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
         })
         meta["libro_fotos"] = fotos
         meta["libro_recibido_at"] = _dt.datetime.utcnow().isoformat()
+        # NO avanzamos kit_paso: nos quedamos en foto_libro_pedida y
+        # preguntamos a la agente si ya cargó TODAS. Avanza solo cuando
+        # pulsa Sí (manejado en kit_v3.handle).
         # Anti-spam: si llegan varias fotos en <30s, solo persistimos y
         # no reenviamos el msg de confirmación.
+        import datetime as _dtf
         skip_prompt = False
         ultimo_prompt = meta.get("libro_prompt_at")
         if ultimo_prompt:
