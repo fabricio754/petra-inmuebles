@@ -155,8 +155,8 @@
      href="?tab=postulaciones&token={{ token }}">🏘️ Postulaciones ({{ postulaciones|length }})</a>
   <a class="tab {% if tab == 'pagos' %}active{% endif %}"
      href="?tab=pagos&token={{ token }}">💸 Pagos ({{ pagos_arriendo|length }})</a>
-  {# Tab Textos oculto: ahora todo vive en 🧪 Simulador / Flujo. El endpoint
-     sigue vivo porque los links "✏️ Editar" dentro de cada mensaje lo usan. #}
+  <a class="tab {% if tab == 'textos' %}active{% endif %}"
+     href="?tab=textos&token={{ token }}">✏️ Textos</a>
   <a class="tab {% if tab == 'faq' %}active{% endif %}"
      href="?tab=faq&token={{ token }}">❓ FAQ ({{ faqs|length }})</a>
   <a class="tab {% if tab == 'kits' %}active{% endif %}"
