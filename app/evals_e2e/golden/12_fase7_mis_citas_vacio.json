@@ -1,0 +1,20 @@
+{
+  "name": "fase7_mis_citas_vacio",
+  "description": "Agente activa abre menú, elige 'Mis citas'. Como no tiene ninguna, el bot responde que estamos trabajando para enviarle clientes.",
+  "telefono": "+99999000012",
+  "meta_inicial": {
+    "estado_agente": "activa",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo"
+  },
+  "turnos": [
+    {
+      "boton": "ONBAG_PC_CITAS",
+      "bot_contiene": ["citas"],
+      "_nota": "Debería decir algo tipo 'Por ahora no tenés citas, estamos trabajando para enviarte clientes.'"
+    }
+  ]
+}

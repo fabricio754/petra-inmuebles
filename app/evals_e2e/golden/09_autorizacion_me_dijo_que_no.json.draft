@@ -1,0 +1,21 @@
+{
+  "name": "autorizacion_me_dijo_que_no",
+  "description": "Agente en autorizacion_pendiente pulsa 'Me dijo que no'. El bot responde 'Lo lamentamos' + ofrece hablar con asesor Petra. Estado pasa a autorizacion_rechazada (pausada).",
+  "telefono": "+99999000009",
+  "meta_inicial": {
+    "estado_agente": "autorizacion_pendiente",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo"
+  },
+  "_requiere": "M3: botón ONBAG_ADMIN_NO + estado autorizacion_rechazada",
+  "turnos": [
+    {
+      "boton": "ONBAG_ADMIN_NO",
+      "bot_contiene": ["lamentamos", "asesor"],
+      "estado_esperado": "autorizacion_rechazada"
+    }
+  ]
+}

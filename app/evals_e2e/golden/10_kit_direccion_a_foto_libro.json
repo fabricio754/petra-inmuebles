@@ -1,0 +1,24 @@
+{
+  "name": "kit_direccion_a_foto_libro",
+  "description": "Agente en kit_pendiente manda dirección completa en un solo mensaje. Confirmación → Perfecto → pedido de foto del libro.",
+  "telefono": "+99999000010",
+  "meta_inicial": {
+    "estado_agente": "kit_pendiente",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo"
+  },
+  "turnos": [
+    {
+      "user": "Cra 15 #20-15, Chapinero, Bogotá, Torre 3 apto 702",
+      "bot_contiene": ["Dirección confirmada", "2 a 3 días"],
+      "estado_esperado": "kit_enviado"
+    },
+    {
+      "boton": "ONBAG_KIT_PERFECTO",
+      "bot_contiene": ["libro", "arriendos"]
+    }
+  ]
+}
