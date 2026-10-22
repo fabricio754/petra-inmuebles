@@ -1,0 +1,99 @@
+name: Evals end-to-end
+
+# Corre las goldens de app/evals_e2e/ contra una Postgres fresca
+# levantada por el workflow. No toca prod.
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "requirements.txt"
+      - ".github/workflows/evals-e2e.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "requirements.txt"
+      - ".github/workflows/evals-e2e.yml"
+  workflow_dispatch:
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: petra
+          POSTGRES_PASSWORD: petra
+          POSTGRES_DB: petra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U petra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://petra:petra@localhost:5432/petra_test
+      # Forzamos camino determinístico (legacy) para no depender del LLM
+      # en CI. Las goldens que requieren LLM están marcadas como .draft
+      # y se activan recién cuando M4 habilita el agente FAQ aislado
+      # con mocks determinísticos.
+      PETRA_TOOLCALLING_INSCRIPCION: "0"
+      PETRA_TOOLCALLING_AUTORIZACION: "0"
+      PETRA_TOOLCALLING_KIT: "0"
+      PETRA_TOOLCALLING_CAPACITACION: "0"
+      # Variables requeridas por la app para arrancar sin reventar
+      WA_TOKEN: "test-token-fake"
+      WA_PHONE_ID: "test-phone-id"
+      PANEL_TOKEN: "test-panel-token"
+      ANTHROPIC_API_KEY: "test-key-not-used"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Esperar que Postgres esté arriba
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -U petra && break
+            echo "Esperando postgres..."
+            sleep 2
+          done
+
+      - name: Cargar schema
+        run: |
+          PGPASSWORD=petra psql -h localhost -U petra -d petra_test \
+            -f app/schema.sql -v ON_ERROR_STOP=0 || true
+
+      - name: Verificar que podemos importar la app
+        run: python -c "from app.petra_agents import flow_onboarding_agente; print('import OK')"
+
+      - name: Correr goldens
+        run: python -m app.evals_e2e
+
+      - name: Upload baseline (artifact)
+        if: always()
+        run: |
+          python -m app.evals_e2e --baseline || true
+          ls -la app/evals_e2e/baseline.json 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evals-baseline-${{ github.sha }}
+          path: app/evals_e2e/baseline.json
+          if-no-files-found: ignore
