@@ -289,7 +289,7 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
             _log(telefono, texto, "[v3:cap reenvío día actual]")
             return True
 
-    # ── 5) Pregunta libre: fallback LLM (en M4 irá al FAQ) ──────────────
+    # ── 5) Pregunta libre: M4.B escape hatch → FAQ ──────────────────────
     # Anti-spam: 30s entre delegaciones.
     now = _dt.datetime.utcnow()
     ultimo = meta.get("ultimo_llm_at")
@@ -303,6 +303,20 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
             pass
     meta["ultimo_llm_at"] = now.isoformat()
     _save_meta(conn, cid, meta)
+    # Primero intento FAQ (M4.B): si logra responder la duda, listo.
+    try:
+        from app.petra_agents._faq_hook import intentar_faq
+        dia_actual = (vistos // 2) + 1
+        if intentar_faq(telefono, texto, meta, conn, cid,
+                        ultimo_paso_descripcion=(
+                            f"ver los videos del día {dia_actual}"),
+                        ultimo_boton={"id": "ONBAG_LISTO",
+                                      "title": _b("ONBAG_LISTO", "✅ Listo")}):
+            _log(telefono, texto, "[v3:cap FAQ respondió]",
+                 nota=f"vistos={vistos}/{total}")
+            return True
+    except Exception:
+        log.exception("[v3:cap] FAQ hook fallo tel=%s", telefono)
     _log(telefono, texto, "[v3:cap delegado a LLM/FAQ]",
          nota=f"vistos={vistos}/{total}")
     return _responder_con_llm_fallback(telefono, texto)

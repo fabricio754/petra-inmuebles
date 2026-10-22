@@ -1747,6 +1747,54 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         estado = meta.get("estado_agente", "recolectando")
 
+        # ─── M4.B: modo "Pedir ayuda" (FAQ) ────────────────────────────
+        # Si la agente activó el modo FAQ desde el panel de control, los
+        # textos libres (no botones ONBAG_*) van directamente al mini-agente
+        # FAQ. Palabras tipo "listo", "gracias" cierran el modo.
+        if meta.get("en_faq") and texto and not texto.startswith(
+                ("ONBAG_", "CUSTOM_")):
+            try:
+                from app.petra_agents import agente_faq as _faq
+                res = _faq.responder(telefono, texto, meta,
+                                     ultimo_paso_descripcion="volver al menú",
+                                     ultimo_boton=None, cid=cid)
+                if res.get("cerrar_faq"):
+                    meta["en_faq"] = False
+                    meta.pop("faq_ofrecimos_chat", None)
+                    _save_meta(conn, cid, meta)
+                    _mostrar_panel_control(telefono, meta)
+                    _log(telefono, texto, "[faq → cerrado, panel reofrecido]")
+                    return True
+                if res.get("texto"):
+                    from app import petra_wa as _pw
+                    _pw.send_text(telefono, res["texto"])
+                if res.get("escalar"):
+                    try:
+                        conn.execute(
+                            "INSERT INTO pilot_leads "
+                            "(telefono, requiere_humano, "
+                            " requiere_humano_motivo, requiere_humano_at) "
+                            "VALUES (%s, TRUE, %s, NOW()) "
+                            "ON CONFLICT (telefono) DO UPDATE SET "
+                            " requiere_humano=TRUE, "
+                            " requiere_humano_motivo=EXCLUDED.requiere_humano_motivo, "
+                            " requiere_humano_at=NOW()",
+                            (telefono, "faq_pedido_llamada"),
+                        )
+                    except Exception:
+                        log.exception("[faq] marcar_requiere_humano fallo")
+                # Marcamos que ya ofrecimos chat para que una siguiente
+                # insistencia escale.
+                if res.get("fuente") == "heuristica" and not res.get("escalar"):
+                    meta["faq_ofrecimos_chat"] = True
+                    _save_meta(conn, cid, meta)
+                _log(telefono, texto, "[faq fase7]",
+                     nota=f"fuente={res.get('fuente')}")
+                return True
+            except Exception:
+                log.exception("[faq] fallo en modo pedir_ayuda tel=%s", telefono)
+                # Caemos al flow normal.
+
         # ─── Shortcut de prueba (Fabricio): 'primero' ─────────────────
         # Escribir 'primero' desde el 3227057375 en cualquier estado
         # resetea a inscripción (recolectando) y manda el mensaje de
@@ -2572,19 +2620,30 @@ def _mostrar_mi_capacitacion(telefono, meta):
     petra_wa.send_text(telefono, texto)
 
 
-def _mostrar_pedir_ayuda(telefono):
+def _mostrar_pedir_ayuda(telefono, cid=None, meta=None, conn=None):
+    """M4.B: activa modo FAQ (meta.en_faq=true) y pide la duda.
+    Mientras `en_faq` esté activo, los textos libres caen al agente FAQ
+    (ver `_handle_core`) en vez del menú."""
     from app import petra_wa
-    texto = (
-        "💬 *¿En qué te puedo ayudar?*\n\n"
-        "Escribime tu duda en una línea y te respondo. Ejemplos:\n\n"
-        "• _¿cuánto gano por una venta?_\n"
-        "• _¿cómo le hablo al admin?_\n"
-        "• _no me llegó el kit_\n"
-        "• _necesito corregir un dato_\n\n"
-        "Si querés hablar con alguien del equipo, escribime "
-        "*hablar con alguien* y te derivo."
+    prompt = _t(
+        "activacion.msg_pedir_ayuda_prompt",
+        fallback=(
+            "💬 *¡Dale, decime en qué te puedo ayudar!* 💜\n\n"
+            "Escribime tu *pregunta* o *duda* en una línea y te respondo. "
+            "Ejemplos:\n\n"
+            "• _¿cuánto gano por una venta?_\n"
+            "• _¿cómo le hablo al admin?_\n"
+            "• _no me llegó el kit_\n\n"
+            "Cuando quieras volver al menú, escribime *listo* o *gracias*."
+        ),
     )
-    petra_wa.send_text(telefono, texto)
+    if conn is not None and cid is not None and meta is not None:
+        try:
+            meta["en_faq"] = True
+            _save_meta(conn, cid, meta)
+        except Exception:
+            log.exception("[faq] no pude activar en_faq cid=%s", cid)
+    petra_wa.send_text(telefono, prompt)
 
 
 def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
@@ -2599,6 +2658,6 @@ def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
         _mostrar_mi_capacitacion(telefono, meta)
         return True
     if boton_id == "ONBAG_PC_AYUDA":
-        _mostrar_pedir_ayuda(telefono)
+        _mostrar_pedir_ayuda(telefono, cid=cid, meta=meta, conn=conn)
         return True
     return False

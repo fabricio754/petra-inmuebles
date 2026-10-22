@@ -336,6 +336,20 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
             pass
     meta["ultimo_llm_at"] = now.isoformat()
     _save_meta(conn, cid, meta)
+    # M4.B escape hatch: primero probamos el mini-agente FAQ.
+    try:
+        from app.petra_agents._faq_hook import intentar_faq
+        if intentar_faq(telefono, texto, meta, conn, cid,
+                        ultimo_paso_descripcion=(
+                            "hablar con el administrador de tu conjunto"),
+                        ultimo_boton={
+                            "id": "ONBAG_VOY_AGENDAR_CITA",
+                            "title": _b("ONBAG_VOY_AGENDAR_CITA",
+                                        "📅 Voy a agendar")}):
+            _log(telefono, texto, "[v3:auth FAQ respondió]")
+            return True
+    except Exception:
+        log.exception("[v3:auth] FAQ hook fallo tel=%s", telefono)
     try:
         from app.petra_agents.flow_onboarding_agente import _responder_con_llm
         _log(telefono, texto, "[v3:auth delegado a LLM/FAQ]")

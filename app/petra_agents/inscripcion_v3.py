@@ -587,6 +587,27 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
     # SIN guardar nada. Primera entrada (meta vacía) cae acá y manda
     # el saludo + pedir_nombre (que contiene "Petra" + "nombre").
     if not texto or _es_sospechoso(texto):
+        # M4.B escape hatch: si parece una pregunta de la agente, dejamos
+        # que el FAQ la responda antes de re-pedir el dato pendiente.
+        # Primera entrada (meta vacía, len(texto)==0) la salteamos.
+        if texto and any(meta.get(c) for c in CAMPOS):
+            try:
+                from app.petra_agents._faq_hook import intentar_faq
+                prox = faltantes[0] if faltantes else None
+                if prox:
+                    desc = f"darme tu {NOMBRE_CAMPO[prox]}"
+                    boton = None
+                else:
+                    desc = "confirmar tus datos"
+                    boton = {"id": "ONBAG_CONFIRM",
+                             "title": _b("ONBAG_CONFIRM", "✅ Registrarme")}
+                if intentar_faq(telefono, texto, meta, conn, cid,
+                                ultimo_paso_descripcion=desc,
+                                ultimo_boton=boton):
+                    log.info("[v3:ins] FAQ respondió → sin re-pregunta")
+                    return True
+            except Exception:
+                log.exception("[v3:ins] FAQ hook fallo tel=%s", telefono)
         if faltantes:
             _enviar_pregunta(telefono, faltantes[0])
         else:
