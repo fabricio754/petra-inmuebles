@@ -171,6 +171,22 @@ def _cleanup_fixtures(telefonos):
         pass
 
 
+def _simular_cron(cron):
+    """Dispara un cron del scheduler como si corriese ahora. Pasa
+    `forzar_horario=True` a los helpers de nudges para que los tests
+    no dependan del día/hora en que corre el runner."""
+    from app.petra_agents import nudges
+    if cron == "nudges":
+        nudges.evaluar_citas_pendientes(forzar_horario=True)
+        nudges.evaluar_y_enviar(forzar_horario=True)
+    elif cron == "nudges_cita":
+        nudges.evaluar_citas_pendientes(forzar_horario=True)
+    elif cron == "nudges_fase":
+        nudges.evaluar_y_enviar(forzar_horario=True)
+    else:
+        raise ValueError(f"simular_cron desconocido: {cron}")
+
+
 def _procesar_mensaje(telefono, texto):
     """Entra un mensaje al bot como si fuera un webhook de WhatsApp."""
     from app.petra_agents import flow_onboarding_agente as flow
@@ -256,6 +272,10 @@ def run_golden(path, verbose=True):
                 elif "boton" in turno:
                     input_desc = f"boton: {turno['boton']}"
                     _procesar_mensaje(telefono, turno["boton"])
+                elif "simular_cron" in turno:
+                    cron = turno["simular_cron"]
+                    input_desc = f"cron: {cron}"
+                    _simular_cron(cron)
                 else:
                     input_desc = "(sin input)"
             finally:

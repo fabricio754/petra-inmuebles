@@ -449,6 +449,12 @@ SEED_TEXTOS = [
      "Mensaje al terminar la captura exitosamente.", [], "inventario"),
 
     # ─── Nudges (remarketing automático) ───
+    ("nudges.recolectando_6h",
+     "¡Hola {nombre}! 👋 Vi que empezaste a inscribirte como Agente "
+     "Petra pero no terminaste. ¿Querés que te ayude a completar los "
+     "datos? Si no, escribime *CANCELAR* y no te vuelvo a molestar 💜",
+     "Agente en recolectando por 6h+. Variable: nombre.",
+     ["nombre"], "nudges"),
     ("nudges.recolectando_12h",
      "¡Hola {nombre}! 👋 Vi que empezaste a inscribirte como Agente Petra "
      "pero no terminaste. ¿Querés que te ayude a completar los datos? "
@@ -474,6 +480,30 @@ SEED_TEXTOS = [
      "te espero.",
      "Agente en capacitación sin confirmar videos por 24h+. Variable: nombre.",
      ["nombre"], "nudges"),
+    ("nudges.capacitacion_48h",
+     "¡Hola {nombre}! 🎓 ¿Pudiste ver los videos de hoy? Cuando los "
+     "veas pulsá *✅ Listo* y seguimos con el siguiente día.",
+     "Agente en capacitación sin pulsar Listo por 48h+. Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.autorizacion_pendiente_24h",
+     "¡Hola {nombre}! 👋 ¿Cómo vas con la gestión de la autorización "
+     "del administrador? Si necesitás repasar el material o un empujón, "
+     "escribime 💜",
+     "Chequeo amable 24h en autorización pendiente. Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.autorizacion_pendiente_7d",
+     "{nombre}, ya pasaron 7 días con la autorización pendiente 👀. "
+     "¿Querés que te vuelva a pasar los argumentos para hablar con el "
+     "admin o preferís que te acompañe de otra forma? Si querés "
+     "frenar por ahora, escribime *cancelar*.",
+     "Nudge 7d con argumentos para destrabar. Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.autorizacion_pendiente_14d",
+     "Hola {nombre} 💜 Vamos a pausar los recordatorios de la "
+     "autorización. Cuando el admin te dé el ok, escribime *ya me "
+     "autorizó* y seguimos. ¡Acá te espero!",
+     "Nudge 14d: pausa amable. Variable: nombre.",
+     ["nombre"], "nudges"),
     ("nudges.autorizacion_pendiente_48h",
      "¡Hola {nombre}! 👋 Vi que llevás unos días con la gestión de la "
      "autorización del admin. ¿Cómo vas? Si necesitás ayuda con qué "
@@ -487,6 +517,20 @@ SEED_TEXTOS = [
      "Agente que empezó dirección pero no la completó en 24h+. "
      "Variable: nombre.",
      ["nombre"], "nudges"),
+    ("nudges.kit_pendiente_72h",
+     "{nombre}, hace 3 días que te estoy esperando con tu dirección "
+     "para despachar el kit 📦. Si querés que lo haga ya, mandame la "
+     "dirección completa en un solo mensaje; si no, escribime "
+     "*cancelar*.",
+     "Agente sin dirección después de 3 días. Variable: nombre.",
+     ["nombre"], "nudges"),
+    ("nudges.kit_enviado_7d",
+     "¡Hola {nombre}! 📦 Hace una semana te enviamos el kit con el QR. "
+     "¿Ya te llegó? Si sí, pulsá *✅ Ya instalé el QR*; si todavía "
+     "no, avisame y lo rastreamos juntas 💜",
+     "Agente con guía enviada: a los 7 días pregunta '¿llegó el kit?'. "
+     "Variable: nombre.",
+     ["nombre"], "nudges"),
     ("nudges.kit_enviado_72h",
      "¡Hola {nombre}! 👋 ¿Ya recibiste tu kit? Si ya instalaste el QR, "
      "pulsá *✅ Ya instalé el QR* para activarte. Si todavía no te "
@@ -494,6 +538,11 @@ SEED_TEXTOS = [
      "Agente que recibió kit pero no confirmó instalación en 72h+. "
      "Variable: nombre.",
      ["nombre"], "nudges"),
+    ("nudges.cita_pendiente",
+     "👋 {nombre}, llegó una cita nueva con *{cliente}* y todavía no "
+     "la respondiste. Confirmá o rechazá cuando puedas 💜",
+     "Nudge cita pendiente (activa). Variables: nombre, cliente.",
+     ["nombre", "cliente"], "nudges"),
 
     # ─── Botones (título visible — el ID queda fijo en código) ───
     ("boton.onbag_confirm", "✅ Registrarme",

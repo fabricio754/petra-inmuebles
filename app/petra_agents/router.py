@@ -155,6 +155,87 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
                               contacto_nombre)
 
 
+# Mapeo estado → recordatorio breve. Usado en M5.A' cuando una sesión
+# se reabre después de ≥5 min: antes de procesar el mensaje nuevo, le
+# mandamos "¡Hola de nuevo!" + el prompt del paso actual, para que no
+# tenga que preguntarse en qué estaba.
+_RECORDATORIOS_RETORNO = {
+    "inscrito": (
+        "¡Hola de nuevo! 💜 Para seguir con tu onboarding tocá "
+        "*Ver próximos pasos* 👇"
+    ),
+    "bienvenida_enviada": (
+        "¡Hola de nuevo! 💜 Cuando puedas, pulsá *Empezar ahora* para "
+        "arrancar con tu capacitación 🎓"
+    ),
+    "esperando_capacitacion_dia1": (
+        "¡Hola de nuevo! 💜 Tu capacitación arranca cuando estés lista. "
+        "Pulsá *Ver mis videos* para empezar."
+    ),
+    "en_capacitacion": (
+        "¡Hola de nuevo! 💜 Estamos en tu capacitación. Si ya viste los "
+        "videos del día, pulsá *✅ Listo* para avanzar."
+    ),
+    "capacitacion_completa": (
+        "¡Hola de nuevo! 💜 Ya terminaste la capacitación 🎉. Falta "
+        "conseguir la autorización del administrador — ¿seguimos?"
+    ),
+    "autorizacion_pendiente": (
+        "¡Hola de nuevo! 💜 Estamos esperando que te autorice el "
+        "administrador del conjunto. Cuando te dé el ok, escribime "
+        "*ya me autorizó*."
+    ),
+    "autorizacion_rechazada": (
+        "¡Hola de nuevo! 💜 Cuando el administrador te apruebe, "
+        "escribime *ya me autorizó* y seguimos."
+    ),
+    "kit_pendiente": (
+        "¡Hola de nuevo! 💜 Para enviarte el kit necesito tu *dirección "
+        "completa* (torre, apto, barrio y ciudad) en un solo mensaje."
+    ),
+    "kit_enviado": (
+        "¡Hola de nuevo! 💜 Tu kit ya salió. Cuando llegue y pegues el "
+        "QR, mandame una foto del QR instalado."
+    ),
+    "activa": (
+        "¡Hola de nuevo! 💜 Si querés revisar inmuebles, citas o "
+        "capacitación, escribime *menú* y abrimos tu panel."
+    ),
+}
+
+
+def _enviar_recordatorio_retorno(telefono):
+    """M5.A' — Al abrir una sesión nueva (gap ≥5 min) y si el agente no
+    está en 'recolectando', manda un saludo breve + recordatorio del
+    paso actual. Si no hay rol agente o estado no mapeado, silencio."""
+    from app import db as _db
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT r.metadata->>'estado_agente' "
+                "FROM petra_contactos c "
+                "JOIN petra_contacto_roles r "
+                "  ON r.contacto_id=c.id AND r.rol='agente_petra' "
+                "WHERE c.telefono=%s",
+                (telefono,),
+            ).fetchone()
+    except Exception:
+        log.exception("[router] retorno: lectura estado fallo tel=%s", telefono)
+        return
+    estado = row[0] if row else None
+    if not estado or estado == "recolectando":
+        # recolectando ya repregunta solo el próximo campo faltante
+        return
+    msg = _RECORDATORIOS_RETORNO.get(estado)
+    if not msg:
+        return
+    try:
+        from app import petra_wa
+        petra_wa.send_text(telefono, msg)
+    except Exception:
+        log.exception("[router] retorno: envío fallo tel=%s", telefono)
+
+
 def _bot_pausado(telefono):
     """¿El operador humano pausó el bot para este contacto desde el panel?
 
@@ -197,6 +278,16 @@ def _handle_locked(telefono, texto, button_id, list_id, contacto_nombre):
     # 3. Sesión — abrir si no hay, actualizar último_msg_at.
     sess = sesion.obtener_o_abrir(telefono)
     sesion_id = sess["id"] if sess else None
+
+    # 3.b M5.A' — Retorno después de días: si abrimos una sesión NUEVA
+    # y el agente no está en 'recolectando' (que ya repregunta solo), le
+    # mandamos un saludo breve + el recordatorio del paso actual, para
+    # que no empiece a hablar sin contexto.
+    try:
+        if sess and sess.get("nueva"):
+            _enviar_recordatorio_retorno(telefono)
+    except Exception:
+        log.exception("[router] retorno-recordatorio fallo tel=%s", telefono)
 
     # 4. Fast path: si está en un estado que el flow handler Python
     # determinístico maneja (recolectando / inscrito / bienvenida_enviada),
