@@ -1789,3 +1789,15 @@ UPDATE petra_contacto_roles
        updated_at = NOW()
  WHERE rol = 'agente_petra'
    AND (metadata->>'conjunto') ~* '^(onbag_|custom_)';
+
+-- Mensaje fallback cuando 'Empezar ahora' no logra enviar el día 1 por falta
+-- de videos/dedup/pausa. En vez de 'nos vemos mañana', ofrece botón retry.
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'capacitacion.msg_listo_para_arrancar',
+  E'¡Buenísimo! 🎉✨\n\n'
+  || E'Ya está todo listo para que arranques con tu capacitación 🎓\n\n'
+  || E'Tocá el botón de abajo para ver tus videos del día 👇',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;

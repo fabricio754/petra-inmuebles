@@ -596,16 +596,18 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
             _log(telefono, texto, "[v2 día 1 enviado inmediato]",
                  nota="v2 empezar_ahora → día 1 disparado")
         else:
-            resp = _t(
-                "capacitacion.msg_arranca_manana",
+            _send_buttons(telefono, _t(
+                "capacitacion.msg_listo_para_arrancar",
                 fallback=(
-                    "¡Buenísimo! 🎉\n\nTu capacitación arranca mañana a las "
-                    "*8am* con los primeros 2 videos. Y así durante 7 días.\n\n"
-                    "Nos vemos mañana. 👋"
+                    "¡Buenísimo! 🎉✨\n\n"
+                    "Ya está todo listo para que arranques con tu "
+                    "capacitación 🎓\n\n"
+                    "Tocá el botón de abajo para ver tus videos del día 👇"
                 ),
-            )
-            _enviar(telefono, resp)
-            _log(telefono, texto, resp, nota="v2 empezar_ahora fallback")
+            ), [{"id": "ONBAG_VER_VIDEOS_HOY", "title": _b("ONBAG_VER_VIDEOS_HOY", "▶️ Ver mis videos")}],
+               estado_key="bienvenida_enviada")
+            _log(telefono, texto, "[v2 empezar_ahora: sin envío → botón ver videos]",
+                 nota="fallback con botón retry")
         return True
 
     # Paso 2: user pulsó "Ver videos de hoy" → envía videos reales
@@ -1619,7 +1621,7 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
     if (texto in (ONBAG_EMPEZAR_AHORA, legacy_ya_vi) or
             t_lc in ("listo", "vi", "visto", "ya", "ya lo vi", "ok", "si",
                      "sí", "terminé", "termine", "empezar", "empezar ahora",
-                     "arrancar")):
+                     "arrancar", "ver videos", "ver mis videos")):
         import datetime as _dt, json as _json, time as _time
         try:
             from zoneinfo import ZoneInfo
@@ -1644,19 +1646,22 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
             _log(telefono, texto, "[día 1 enviado inmediato por botón Empezar ahora]",
                  nota="empezar_ahora → día 1 disparado")
         else:
-            # Fallback: no se pudo enviar (sin videos, pausa, etc). Mensaje
-            # explicativo con la ruta normal del cron.
-            resp = _t(
-                "capacitacion.msg_arranca_manana",
+            # Fallback: no se pudo enviar (sin videos, pausa, dedup, etc).
+            # En vez de decir "nos vemos mañana", mandamos un mensaje con
+            # botón "▶️ Ver mis videos" (ONBAG_VER_VIDEOS_HOY, que ya tiene
+            # handler) para que la agente pueda arrancar.
+            _send_buttons(telefono, _t(
+                "capacitacion.msg_listo_para_arrancar",
                 fallback=(
-                    "¡Buenísimo! 🎉\n\n"
-                    "Tu capacitación arranca mañana a las *8am* con los primeros "
-                    "2 videos. Y así durante 7 días.\n\n"
-                    "Nos vemos mañana. 👋"
+                    "¡Buenísimo! 🎉✨\n\n"
+                    "Ya está todo listo para que arranques con tu "
+                    "capacitación 🎓\n\n"
+                    "Tocá el botón de abajo para ver tus videos del día 👇"
                 ),
-            )
-            _enviar(telefono, resp)
-            _log(telefono, texto, resp, nota="empezar_ahora pero sin envío (fallback)")
+            ), [{"id": "ONBAG_VER_VIDEOS_HOY", "title": _b("ONBAG_VER_VIDEOS_HOY", "▶️ Ver mis videos")}],
+               estado_key="bienvenida_enviada")
+            _log(telefono, texto, "[empezar_ahora: sin envío → botón ver videos]",
+                 nota="fallback con botón retry")
         return True
     # Cualquier otra cosa: recordatorio con botón
     _send_buttons(telefono, _t(
