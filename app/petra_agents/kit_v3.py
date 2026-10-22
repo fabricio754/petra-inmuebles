@@ -428,19 +428,38 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _log(telefono, texto, f"[v3:kit shortcut kit paso={paso}]")
         return True
 
+    # Orden de los pasos para detectar botones duplicados (si la agente
+    # pulsa 2 veces el mismo botón o uno de un paso ya pasado, no
+    # reenviamos el mensaje).
+    _ORDEN_PASOS = {
+        "dir_confirmada": 0,
+        "foto_libro_pedida": 1,
+        "qr_cargado": 2,
+        "guia_enviada": 3,
+        "kit_recibido": 4,
+        "pasos_mostrados": 5,
+        "qr_foto_pendiente": 6,
+    }
+
+    def _ya_paso(nombre):
+        return _ORDEN_PASOS.get(paso, -1) > _ORDEN_PASOS.get(nombre, 99)
+
     # ── Paso 2 → Paso 3: pulsa ONBAG_KIT_PERFECTO ──────────────────────
     if texto == "ONBAG_KIT_PERFECTO":
+        if _ya_paso("dir_confirmada"):
+            _log(telefono, texto, f"[v3:kit botón duplicado paso={paso}]")
+            return True
         _marcar_paso(conn, cid, meta, "foto_libro_pedida")
         _enviar_pedir_foto_libro(telefono)
         _log(telefono, texto, "[v3:kit → pide foto libro]")
         return True
 
     # ── Paso 3: pulsa ONBAG_LIBRO_SI → avanzamos a qr_cargado ──────────
-    # La agente confirma que ya mandó las fotos del libro. Avanzamos sin
-    # esperar que humano cargue el QR — el flow queda autónomo. Humano
-    # puede revisar las fotos en el panel.
     # Compat: ONBAG_FOTO_LIBRO (botón viejo) también cuenta como Sí.
     if texto in ("ONBAG_LIBRO_SI", "ONBAG_FOTO_LIBRO"):
+        if _ya_paso("foto_libro_pedida"):
+            _log(telefono, texto, f"[v3:kit botón duplicado paso={paso}]")
+            return True
         import datetime as _dtl
         meta["qr_cargado_at"] = meta.get("qr_cargado_at") or _dtl.datetime.utcnow().isoformat()
         _marcar_paso(conn, cid, meta, "qr_cargado")
@@ -450,6 +469,9 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
 
     # ── Paso 3 alterno: pulsa ONBAG_LIBRO_NO → recordamos cómo subirlas
     if texto == "ONBAG_LIBRO_NO":
+        if _ya_paso("foto_libro_pedida"):
+            _log(telefono, texto, f"[v3:kit botón duplicado paso={paso}]")
+            return True
         _send_buttons(telefono, _t(
             "activacion.msg_libro_no",
             fallback=FB_LIBRO_NO,
@@ -464,6 +486,9 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
 
     # ── Paso 4: pulsa ONBAG_QR_CARGADO (tras admin endpoint) ───────────
     if texto == "ONBAG_QR_CARGADO":
+        if _ya_paso("qr_cargado"):
+            _log(telefono, texto, f"[v3:kit botón duplicado paso={paso}]")
+            return True
         _marcar_paso(conn, cid, meta, "guia_enviada")
         _enviar_guia(telefono, (meta.get("kit_guia") or "").strip())
         _log(telefono, texto, "[v3:kit → envía guía]")
@@ -471,6 +496,9 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
 
     # ── Paso 5 ack: ONBAG_GUIA_PERFECTO (ack de la guía) ───────────────
     if texto == "ONBAG_GUIA_PERFECTO":
+        if _ya_paso("guia_enviada"):
+            _log(telefono, texto, f"[v3:kit botón duplicado paso={paso}]")
+            return True
         _send_buttons(telefono, _t(
             "activacion.msg_guia_ack",
             fallback=(
@@ -485,6 +513,9 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
 
     # ── Paso 6: kit llegado — botón o texto ─────────────────────────────
     if texto == "ONBAG_KIT_LLEGO" or any(k in t_lc for k in _PAL_KIT_LLEGO):
+        if _ya_paso("guia_enviada"):
+            _log(telefono, texto, f"[v3:kit botón duplicado paso={paso}]")
+            return True
         _marcar_paso(conn, cid, meta, "kit_recibido")
         _enviar_kit_llegado(telefono)
         _log(telefono, texto, "[v3:kit → kit_recibido / describe contenido]")
@@ -492,6 +523,9 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
 
     # ── Paso 7: dime los pasos ──────────────────────────────────────────
     if texto == "ONBAG_DIME_PASOS":
+        if _ya_paso("kit_recibido"):
+            _log(telefono, texto, f"[v3:kit botón duplicado paso={paso}]")
+            return True
         _marcar_paso(conn, cid, meta, "pasos_mostrados")
         _enviar_pasos(telefono)
         _log(telefono, texto, "[v3:kit → pasos instalación]")
@@ -499,6 +533,9 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
 
     # ── Paso final: ya instalé → pedí foto del QR (fase 7 toma de ahí) ──
     if texto == "ONBAG_YA_INSTALE" or any(k in t_lc for k in _PAL_YA_INSTALE):
+        if _ya_paso("pasos_mostrados"):
+            _log(telefono, texto, f"[v3:kit botón duplicado paso={paso}]")
+            return True
         _marcar_paso(conn, cid, meta, "qr_foto_pendiente")
         _enviar_pedir_foto_qr(telefono)
         _log(telefono, texto, "[v3:kit → pide foto QR]")
