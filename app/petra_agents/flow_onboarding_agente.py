@@ -1866,7 +1866,8 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             return True
         # También si pulsa un botón del list del panel.
         if texto in ("ONBAG_PC_INMUEBLES", "ONBAG_PC_CITAS",
-                     "ONBAG_PC_CAPACITACION", "ONBAG_PC_AYUDA"):
+                     "ONBAG_PC_CAPACITACION", "ONBAG_PC_AYUDA") \
+                or (texto and texto.startswith("ONBAG_REVID_")):
             if _handle_panel_control_boton(telefono, cid, meta, conn, texto):
                 _log(telefono, texto, f"[panel-control {texto}]")
                 return True
@@ -2512,10 +2513,15 @@ def _mostrar_mis_inmuebles(telefono, cid, conn):
         log.exception("[panel-control] inmuebles query fallo cid=%s", cid)
         rows = []
     if not rows:
-        texto = (
-            "📭 *No tenés inmuebles cargados todavía.*\n\n"
-            "Cuando quieras cargar uno, escribime *cargar inmueble* y te "
-            "guío por los datos (son 10 campos, 2 min)."
+        # M5.B: nunca mostramos vacío sin contexto. Si no hay inmuebles,
+        # el humano todavía no subió la data del libro.
+        texto = _t(
+            "panel.mis_inmuebles_vacio",
+            fallback=(
+                "🏠 *Mis inmuebles*\n\n"
+                "Estamos cargando los inmuebles de tu edificio, te "
+                "avisamos cuando estén listos 💜"
+            ),
         )
     else:
         lineas = [f"🏠 *Tus inmuebles ({len(rows)})*", ""]
@@ -2558,10 +2564,14 @@ def _mostrar_mis_citas(telefono, cid, conn):
         log.exception("[panel-control] citas query fallo cid=%s", cid)
         rows = []
     if not rows:
-        texto = (
-            "📭 *No tenés citas todavía.*\n\n"
-            "Cuando llegue un interesado y pida visita, te aviso por "
-            "acá para que la confirmes 📅"
+        # M5.B: nunca vacío sin contexto.
+        texto = _t(
+            "panel.mis_citas_vacio",
+            fallback=(
+                "📅 *Mis citas*\n\n"
+                "Por ahora no tenés citas. Estamos trabajando para "
+                "enviarte clientes 💜"
+            ),
         )
     else:
         lineas = [f"📅 *Tus citas ({len(rows)})*", ""]
@@ -2586,38 +2596,154 @@ def _mostrar_mis_citas(telefono, cid, conn):
 
 
 def _mostrar_mi_capacitacion(telefono, meta):
+    """M5.B — Panel Fase 7: muestra el summary + lista interactiva con
+    los 14 videos iniciales (bienvenida + proximos_pasos + 12 videos
+    diarios de los 7 días) y espacio para 'Nuevos' si hay. Al clickear
+    una row (ONBAG_REVID_<idx>) se re-envía ese video."""
+    from app import db as _db
     from app import petra_wa
     vistos = int(meta.get("videos_vistos", 0) or 0)
     cap_v = int(meta.get("cap_version", 1) or 1)
     total = 14 if cap_v >= 2 else 12
     dia_enviado = int(meta.get("cap_dia_enviado", 0) or 0)
     pct = int((vistos / total) * 100) if total else 0
-    estado = meta.get("estado_agente", "")
-    if estado == "en_capacitacion":
-        extra = (
-            f"\n📅 Último día enviado: *día {dia_enviado}*\n"
-            f"Mañana a las 8am te mando los próximos. "
-            f"Si querés adelantar escribime *ver día siguiente*."
-        )
-    elif vistos >= total:
-        extra = "\n🎉 *¡Capacitación completa!*"
-    elif estado in ("autorizacion_pendiente", "kit_pendiente", "kit_enviado", "activa"):
-        extra = (
-            "\n✅ *Ya terminaste la capacitación.*\n"
-            "Si querés volver a ver un video escribime *ver video día X* "
-            "(ej. 'ver video día 3')."
-        )
-    else:
-        extra = ""
     barra_llenos = int(pct / 10)
     barra = "🟪" * barra_llenos + "⬜" * (10 - barra_llenos)
-    texto = (
+    header = (
         f"🎓 *Mi capacitación*\n\n"
-        f"Videos vistos: *{vistos}/{total}* ({pct}%)\n"
-        f"{barra}"
-        f"{extra}"
+        f"Videos vistos: *{vistos}/{total}* ({pct}%)\n{barra}\n\n"
     )
-    petra_wa.send_text(telefono, texto)
+    # 1) Traer los videos (iniciales + diarios + nuevos)
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            bienvenida = conn.execute(
+                "SELECT titulo, url FROM petra_contenidos "
+                "WHERE tipo='bienvenida' AND activo=TRUE "
+                "ORDER BY orden LIMIT 1"
+            ).fetchone()
+            proximos = conn.execute(
+                "SELECT titulo, url FROM petra_contenidos "
+                "WHERE tipo='proximos_pasos' AND activo=TRUE "
+                "ORDER BY orden LIMIT 1"
+            ).fetchone()
+            diarios = conn.execute(
+                "SELECT titulo, url FROM petra_contenidos "
+                "WHERE tipo='video_capacitacion' AND activo=TRUE "
+                "ORDER BY orden LIMIT 12"
+            ).fetchall()
+            nuevos = conn.execute(
+                "SELECT titulo, url FROM petra_contenidos "
+                "WHERE tipo='video_capacitacion_nuevo' AND activo=TRUE "
+                "ORDER BY orden LIMIT 10"
+            ).fetchall()
+    except Exception:
+        log.exception("[panel-control] capacitacion query fallo tel=%s", telefono)
+        bienvenida = proximos = None
+        diarios = []
+        nuevos = []
+    # Secuencia estable: [bienvenida, proximos, diarios(12), nuevos(…)]
+    iniciales = []
+    if bienvenida:
+        iniciales.append(("Bienvenida", bienvenida[1]))
+    if proximos:
+        iniciales.append(("Próximos pasos", proximos[1]))
+    for i, (tit, url) in enumerate(diarios, 1):
+        iniciales.append((tit or f"Video día {i}", url))
+    nuevos_pack = [(tit or f"Nuevo {i+1}", url)
+                   for i, (tit, url) in enumerate(nuevos)]
+    # Guardar índice de reenvío en meta para resolverlo luego sin DB id.
+    # Lo cacheamos en memoria con una tupla (titulo, url). El handler
+    # vuelve a leer DB con el mismo orden, así no depende de persistir.
+    if not iniciales and not nuevos_pack:
+        # Sin contenido cargado — mostramos solo el summary.
+        petra_wa.send_text(telefono,
+                           header + "_Los videos están cargándose._")
+        return
+    petra_wa.send_text(telefono, header +
+                       "Elegí un video para volver a verlo 👇")
+    sections = []
+    rows_iniciales = []
+    for i, (titulo, _url) in enumerate(iniciales):
+        rows_iniciales.append({
+            "id": f"ONBAG_REVID_INI_{i}",
+            "title": titulo[:24],
+            "description": "Volver a ver",
+        })
+    if rows_iniciales:
+        sections.append({"title": "Capacitación inicial",
+                         "rows": rows_iniciales[:10]})
+    if nuevos_pack:
+        rows_nuevos = []
+        for i, (titulo, _url) in enumerate(nuevos_pack):
+            rows_nuevos.append({
+                "id": f"ONBAG_REVID_NUEVO_{i}",
+                "title": titulo[:24],
+                "description": "Nuevo",
+            })
+        sections.append({"title": "Nuevos",
+                         "rows": rows_nuevos[:10]})
+    try:
+        petra_wa.send_list(telefono, "Tocá un video para volver a verlo",
+                           "Ver videos", sections)
+    except Exception:
+        log.exception("[panel-control] send_list capacitacion fallo tel=%s", telefono)
+
+
+def _reenviar_video_capacitacion(telefono, boton_id):
+    """Handler de ONBAG_REVID_INI_<i> / ONBAG_REVID_NUEVO_<i>: re-envía
+    ese video al agente. Devuelve True si manejó algo."""
+    from app import db as _db
+    from app import petra_wa
+    m = re.match(r"ONBAG_REVID_(INI|NUEVO)_(\d+)$", boton_id or "")
+    if not m:
+        return False
+    cat, idx = m.group(1), int(m.group(2))
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            if cat == "INI":
+                bienvenida = conn.execute(
+                    "SELECT titulo, url FROM petra_contenidos "
+                    "WHERE tipo='bienvenida' AND activo=TRUE "
+                    "ORDER BY orden LIMIT 1"
+                ).fetchone()
+                proximos = conn.execute(
+                    "SELECT titulo, url FROM petra_contenidos "
+                    "WHERE tipo='proximos_pasos' AND activo=TRUE "
+                    "ORDER BY orden LIMIT 1"
+                ).fetchone()
+                diarios = conn.execute(
+                    "SELECT titulo, url FROM petra_contenidos "
+                    "WHERE tipo='video_capacitacion' AND activo=TRUE "
+                    "ORDER BY orden LIMIT 12"
+                ).fetchall()
+                lista = []
+                if bienvenida:
+                    lista.append(("Bienvenida", bienvenida[1]))
+                if proximos:
+                    lista.append(("Próximos pasos", proximos[1]))
+                for i, (tit, url) in enumerate(diarios, 1):
+                    lista.append((tit or f"Video día {i}", url))
+            else:
+                nuevos = conn.execute(
+                    "SELECT titulo, url FROM petra_contenidos "
+                    "WHERE tipo='video_capacitacion_nuevo' AND activo=TRUE "
+                    "ORDER BY orden LIMIT 10"
+                ).fetchall()
+                lista = [(tit or f"Nuevo {i+1}", url)
+                         for i, (tit, url) in enumerate(nuevos)]
+    except Exception:
+        log.exception("[panel-control] revid query fallo tel=%s id=%s",
+                      telefono, boton_id)
+        return True
+    if idx < 0 or idx >= len(lista):
+        petra_wa.send_text(telefono, "Ese video ya no está disponible 💜")
+        return True
+    titulo, url = lista[idx]
+    try:
+        petra_wa.send_media_o_texto(telefono, titulo or "", url)
+    except Exception:
+        log.exception("[panel-control] revid envío fallo tel=%s", telefono)
+    return True
 
 
 def _mostrar_pedir_ayuda(telefono, cid=None, meta=None, conn=None):
@@ -2660,4 +2786,6 @@ def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
     if boton_id == "ONBAG_PC_AYUDA":
         _mostrar_pedir_ayuda(telefono, cid=cid, meta=meta, conn=conn)
         return True
+    if boton_id and boton_id.startswith("ONBAG_REVID_"):
+        return _reenviar_video_capacitacion(telefono, boton_id)
     return False

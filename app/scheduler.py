@@ -96,6 +96,13 @@ def iniciar():
                        minute=15,
                        id="petra_nudges_horario",
                        max_instances=1, coalesce=True)
+    # M5.A — Nudges de "cita nueva sin responder" (cadencia agresiva:
+    # 5min x3 → 1h x6 → 24h). Corre cada 5 min; el helper filtra por
+    # horario laboral y feriados Colombia.
+    _scheduler.add_job(_petra_evaluar_citas_pendientes, "interval",
+                       minutes=5,
+                       id="petra_nudges_citas",
+                       max_instances=1, coalesce=True)
     # Autonomía kit: pasadas ~KIT_AUTOENVIO_HORAS (24 default) desde que la
     # agente completó la dirección, el bot automáticamente la pasa a
     # kit_enviado y le manda "tu kit salió en camino" + video + botón QR.
@@ -527,6 +534,18 @@ def _petra_evaluar_nudges():
                      reglas, enviados)
     except Exception:
         log.exception("[Scheduler] evaluar_nudges fallo")
+
+
+def _petra_evaluar_citas_pendientes():
+    """M5.A — Cadencia agresiva para 'activa + cita_pendiente'.
+    5min x3 → 1h x6 → 24h, pausado fin de semana/feriados CO y fuera 8-20."""
+    try:
+        from app.petra_agents import nudges
+        enviados = nudges.evaluar_citas_pendientes()
+        if enviados:
+            log.info("[Scheduler] nudges:cita: %d enviados", enviados)
+    except Exception:
+        log.exception("[Scheduler] evaluar_citas_pendientes fallo")
 
 
 def _petra_tc_queue_procesar():
