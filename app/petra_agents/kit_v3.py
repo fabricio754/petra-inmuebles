@@ -363,7 +363,7 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         # Validamos la dirección libre.
         if not texto:
             _send_text(telefono, _t(
-                "activacion.msg_pedir_direccion_inicio",
+                "activacion.msg_pedir_direccion_simple",
                 fallback=(
                     "📍 Mandame tu dirección completa en un solo mensaje "
                     "(torre o casa, apto, barrio, ciudad)."
