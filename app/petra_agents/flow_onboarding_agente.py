@@ -1026,40 +1026,80 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
 
     # ── Rama B: foto del QR instalado (último paso) ────────────────────
     if kit_paso in ("qr_foto_pendiente", "pasos_mostrados", ""):
-        # Guardar referencia + transitar a activa
+        # Si ya avanzamos a activa (foto previa llegó primero en la misma
+        # tanda), solo persistimos la foto adicional y salimos.
+        ya_activa = meta.get("estado_agente") == "activa"
         meta["qr_foto_local_path"] = local_path or ""
         meta["qr_foto_media_id"] = media_id or ""
         meta["qr_foto_mime"] = mime or ""
         meta["qr_foto_caption"] = caption or ""
         meta["qr_foto_at"] = _dt.datetime.utcnow().isoformat()
-        _set_estado(meta, "activa")
-        meta["activada_at"] = _dt.datetime.utcnow().isoformat()
+        if not ya_activa:
+            _set_estado(meta, "activa")
+            meta["activada_at"] = _dt.datetime.utcnow().isoformat()
         try:
             with _db._conexion_directa(timeout=10) as conn:
                 _save_meta(conn, cid, meta)
-                _sm(telefono,
-                    "activacion.msg_qr_foto_recibida",
-                    fallback=(
-                        "📸 *¡Foto recibida!* Gracias por el soporte 💜\n\n"
-                        "🎉 *¡Ya sos una Agente Petra activa!* Tu QR está en tu "
-                        "edificio y los residentes ya pueden escanearlo para "
-                        "contactarte. A partir de ahora te vamos a avisar cada "
-                        "vez que llegue un interesado 📲\n\n"
-                        "¡Mucho éxito! 🚀"
-                    ),
-                )
+            log.info("[flow:foto-qr] meta guardada tel=%s ya=%s",
+                     telefono, ya_activa)
+        except Exception:
+            log.exception("[flow:foto-qr] save meta fallo tel=%s", telefono)
+            return False
+        if ya_activa:
+            return True
+        try:
+            _sm(telefono,
+                "activacion.msg_qr_foto_recibida",
+                fallback=(
+                    "📸 *¡Foto recibida!* Gracias por el soporte 💜\n\n"
+                    "🎉 *¡Ya sos una Agente Petra activa!* Tu QR está en tu "
+                    "edificio y los residentes ya pueden escanearlo para "
+                    "contactarte. A partir de ahora te vamos a avisar cada "
+                    "vez que llegue un interesado 📲\n\n"
+                    "¡Mucho éxito! 🚀"
+                ),
+            )
+            with _db._conexion_directa(timeout=5) as conn:
                 _enviar_video_citas_una_vez(conn, cid, meta, telefono)
             _log(telefono, "[imagen]", "[kit_enviado → foto QR → activa]",
                  nota=f"foto en {local_path}")
         except Exception:
-            log.exception("[flow:foto-qr] avance fallo tel=%s", telefono)
-            return False
+            log.exception("[flow:foto-qr] envio msgs fallo tel=%s", telefono)
         return True
 
-    # Otro paso del kit — no es momento de recibir foto. False para que
-    # webhook_worker siga el flujo normal (alerta a humano / respuesta
-    # genérica).
-    return False
+    # Otro paso del kit — tratamos la foto como "foto del QR instalado"
+    # igual: la agente mandó una foto, por lo general significa que
+    # terminó. Avanzamos a activa. El humano puede revisar en el panel.
+    meta["qr_foto_local_path"] = local_path or ""
+    meta["qr_foto_media_id"] = media_id or ""
+    meta["qr_foto_mime"] = mime or ""
+    meta["qr_foto_caption"] = caption or ""
+    meta["qr_foto_at"] = _dt.datetime.utcnow().isoformat()
+    ya_activa = meta.get("estado_agente") == "activa"
+    if not ya_activa:
+        _set_estado(meta, "activa")
+        meta["activada_at"] = _dt.datetime.utcnow().isoformat()
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            _save_meta(conn, cid, meta)
+        log.info("[flow:foto-qr-fallback] tel=%s paso=%s → activa",
+                 telefono, kit_paso)
+    except Exception:
+        log.exception("[flow:foto-qr-fallback] save fallo tel=%s", telefono)
+        return False
+    if ya_activa:
+        return True
+    try:
+        _sm(telefono,
+            "activacion.msg_qr_foto_recibida",
+            fallback=(
+                "📸 *¡Foto recibida!* Gracias por el soporte 💜\n\n"
+                "🎉 *¡Ya sos una Agente Petra activa!* 🚀"
+            ),
+        )
+    except Exception:
+        log.exception("[flow:foto-qr-fallback] envio fallo tel=%s", telefono)
+    return True
 
 
 def _enviar_video_citas_una_vez(conn, cid, meta, telefono):
