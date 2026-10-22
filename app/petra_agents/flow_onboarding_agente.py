@@ -2149,6 +2149,17 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
         if estado == "kit_pendiente":
+            # M4.A: motor v3 determinístico (opt-in con PETRA_V3=1).
+            if _os_tc.environ.get("PETRA_V3", "0") == "1":
+                try:
+                    from app.petra_agents import kit_v3 as _kv3
+                    if _kv3.handle(telefono, texto, cid, meta, conn,
+                                   es_handoff=es_handoff):
+                        _log(telefono, texto, "[v3:kit kit_pendiente]",
+                             nota="PETRA_V3=1")
+                        return True
+                except Exception:
+                    log.exception("[flow:v3] excepcion kit_pendiente → fallback")
             if (_os_tc.environ.get("PETRA_TOOLCALLING_KIT", "0") == "1"
                     and not (texto or "").startswith("ONBAG_")
                     and not (texto or "").startswith("CUSTOM_")):
@@ -2174,6 +2185,17 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                                        sesion_id=sesion_id)
 
         if estado == "kit_enviado":
+            # M4.A: motor v3 determinístico (opt-in con PETRA_V3=1).
+            if _os_tc.environ.get("PETRA_V3", "0") == "1":
+                try:
+                    from app.petra_agents import kit_v3 as _kv3
+                    if _kv3.handle(telefono, texto, cid, meta, conn,
+                                   es_handoff=es_handoff):
+                        _log(telefono, texto, "[v3:kit kit_enviado]",
+                             nota="PETRA_V3=1")
+                        return True
+                except Exception:
+                    log.exception("[flow:v3] excepcion kit_enviado → fallback")
             if (_os_tc.environ.get("PETRA_TOOLCALLING_KIT", "0") == "1"
                     and not (texto or "").startswith("ONBAG_")
                     and not (texto or "").startswith("CUSTOM_")):
