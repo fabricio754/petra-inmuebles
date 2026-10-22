@@ -532,6 +532,21 @@ def _procesar_webhook_petra(payload):
     except Exception:
         log.exception("[petra] log_mensaje in fallo (no crítico)")
 
+    # Media (image/audio/video/document/sticker) va al handler propio de
+    # Petra: descarga el archivo + capturar_foto_qr se encarga de hacer
+    # avanzar el flow del kit cuando corresponde. Sin esta rama, el
+    # mtype quedaba como texto vacío y caía al fallback que reenvía el
+    # mismo mensaje del paso actual.
+    if mtype in ("image", "audio", "video", "document", "sticker"):
+        try:
+            from app.server import _to_event
+            event = _to_event(message)
+            if event.get("type") == "media" and event.get("media_id"):
+                _procesar_media_in(phone, event, message)
+                return
+        except Exception:
+            log.exception("[petra] media handler fallo tel=%s", phone)
+
     # Feature flag en cascada: multi-agent > orchestrator monolítico > legacy.
     # - USE_MULTI_AGENT=true → router + sub-agentes especializados
     # - USE_OWN_ORCHESTRATOR=true → orchestrator monolítico con Claude SDK
