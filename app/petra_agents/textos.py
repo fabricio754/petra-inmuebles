@@ -360,6 +360,14 @@ SEED_TEXTOS = [
     ("activacion.msg_qr_boton",
      "Cuando lo tengas instalado, pulsá el botón 👇",
      "Mensaje que acompaña el botón 'Ya instalé el QR'.", [], "activacion"),
+    ("activacion.msg_foto_libro_recibida",
+     "📸 *Acabas de enviar la foto. Decime:*\n\n"
+     "¿Ya cargaste *todas* las fotos del libro?\n\n"
+     "Apretá *Sí* y cargamos tu QR 🚀\n"
+     "Apretá *No* si todavía te faltan 💜",
+     "Mensaje que recibe la agente justo después de mandar una foto en "
+     "el paso foto_libro_pedida — confirmación con botones Sí/No.",
+     [], "activacion"),
     ("activacion.msg_qr_instalado",
      "🎉 *¡Felicitaciones! Ya sos una Agente Petra activa.* 💜\n\n"
      "Tu QR está en tu edificio y los residentes ya pueden escanearlo "
