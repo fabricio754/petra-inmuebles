@@ -122,6 +122,55 @@ def _cleanup_contacto(telefono):
         pass
 
 
+def _seed_fixtures(fixtures):
+    """Seedea contactos extra para que la golden tenga contexto en DB
+    (ej. una agente ya 'activa' en un conjunto para probar duplicados).
+
+    Cada entrada: {"telefono": ..., "meta": {...}}
+    Devuelve lista de teléfonos a limpiar al final.
+    """
+    from app import db as _db
+    import json as _json
+    telefonos = []
+    if not fixtures:
+        return telefonos
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            for fx in fixtures:
+                tel = fx.get("telefono")
+                meta = fx.get("meta") or {}
+                if not tel:
+                    continue
+                telefonos.append(tel)
+                # Limpiamos cualquier residuo previo del mismo teléfono.
+                conn.execute("DELETE FROM petra_contactos WHERE telefono=%s", (tel,))
+                r = conn.execute(
+                    "INSERT INTO petra_contactos (telefono) VALUES (%s) RETURNING id",
+                    (tel,),
+                ).fetchone()
+                cid = r[0]
+                conn.execute(
+                    "INSERT INTO petra_contacto_roles (contacto_id, rol, metadata) "
+                    "VALUES (%s, 'agente_petra', %s::jsonb)",
+                    (cid, _json.dumps(meta)),
+                )
+    except Exception as e:
+        raise RuntimeError(f"No se pudieron seedear fixtures: {e}")
+    return telefonos
+
+
+def _cleanup_fixtures(telefonos):
+    from app import db as _db
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            for tel in telefonos:
+                conn.execute(
+                    "DELETE FROM petra_contactos WHERE telefono=%s", (tel,)
+                )
+    except Exception:
+        pass
+
+
 def _procesar_mensaje(telefono, texto):
     """Entra un mensaje al bot como si fuera un webhook de WhatsApp."""
     from app.petra_agents import flow_onboarding_agente as flow
@@ -191,6 +240,7 @@ def run_golden(path, verbose=True):
             print(f"    {golden['description']}")
 
     _reset_contacto(telefono, meta_inicial)
+    fixtures_telefonos = _seed_fixtures(golden.get("fixtures") or [])
 
     all_turns = []
     total_errors = []
@@ -231,6 +281,7 @@ def run_golden(path, verbose=True):
                 total_errors.extend(errors)
     finally:
         _cleanup_contacto(telefono)
+        _cleanup_fixtures(fixtures_telefonos)
 
     resumen = {
         "name": name,
