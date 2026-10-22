@@ -423,10 +423,16 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
 
     # ── Paso 5 ack: ONBAG_GUIA_PERFECTO (ack de la guía) ───────────────
     if texto == "ONBAG_GUIA_PERFECTO":
-        _send_text(telefono,
-            "💜 Dale, apenas te llegue el kit, apretá el botón o "
-            "escribime *\"ya llegó\"* y seguimos.")
-        _log(telefono, texto, "[v3:kit ack guía]")
+        _send_buttons(telefono, _t(
+            "activacion.msg_guia_ack",
+            fallback=(
+                "💜 Dale, apenas te llegue el kit, apretá el botón o "
+                "escribime *\"ya llegó\"* y seguimos."
+            ),
+        ), [{"id": "ONBAG_KIT_LLEGO",
+             "title": _b("ONBAG_KIT_LLEGO", "📦 Ya llegó")}],
+           estado_key="kit_enviado")
+        _log(telefono, texto, "[v3:kit ack guía + botón ya llegó]")
         return True
 
     # ── Paso 6: kit llegado — botón o texto ─────────────────────────────
