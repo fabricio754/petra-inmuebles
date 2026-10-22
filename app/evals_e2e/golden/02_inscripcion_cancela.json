@@ -1,0 +1,19 @@
+{
+  "name": "inscripcion_cancela",
+  "description": "Agente arranca inscripción pero cancela antes de confirmar. Los datos se borran.",
+  "telefono": "+99999000002",
+  "meta_inicial": {},
+  "turnos": [
+    {"user": "Hola", "bot_contiene": ["nombre"]},
+    {"user": "Juana Pérez", "bot_contiene": ["cédula"]},
+    {"user": "1020800837", "bot_contiene": ["ciudad"]},
+    {"user": "Bogotá", "bot_contiene": ["barrio"]},
+    {"user": "Chapinero", "bot_contiene": ["conjunto"]},
+    {"user": "Edificio Palermo", "bot_contiene": ["Confirm"]},
+    {
+      "boton": "ONBAG_CANCELAR",
+      "bot_contiene": ["cancel"],
+      "bot_no_contiene": ["Agente Petra ya sos", "Felicitaciones"]
+    }
+  ]
+}
