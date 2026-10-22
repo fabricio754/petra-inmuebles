@@ -1,0 +1,27 @@
+{
+  "name": "capacitacion_dia1_click_listo",
+  "description": "Agente inscrita arranca capacitación día 1 con 'Empezar ahora', recibe los 2 videos, pulsa Listo. El bot confirma avance y queda esperando día 2.",
+  "telefono": "+99999000005",
+  "meta_inicial": {
+    "estado_agente": "inscrito",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837",
+    "ciudad": "Bogotá",
+    "barrio": "Chapinero",
+    "conjunto": "Edificio Palermo",
+    "cap_version": 2,
+    "cap_dia_enviado": 0,
+    "videos_vistos": 0
+  },
+  "turnos": [
+    {
+      "boton": "ONBAG_EMPEZAR_AHORA",
+      "bot_contiene": ["video", "Listo"]
+    },
+    {
+      "boton": "ONBAG_LISTO",
+      "bot_contiene": ["mañana", "próximo"],
+      "estado_esperado": "en_capacitacion"
+    }
+  ]
+}

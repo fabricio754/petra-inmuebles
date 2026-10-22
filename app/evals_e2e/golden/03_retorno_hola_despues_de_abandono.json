@@ -1,0 +1,17 @@
+{
+  "name": "retorno_hola_despues_de_abandono",
+  "description": "Agente abandona en medio de inscripción (ya dio nombre y cédula). Vuelve días después diciendo 'Hola'. Esperamos: saludo + re-prompt del último paso pendiente.",
+  "telefono": "+99999000003",
+  "meta_inicial": {
+    "estado_agente": "recolectando",
+    "nombre": "Juana Pérez",
+    "cedula": "1020800837"
+  },
+  "turnos": [
+    {
+      "user": "Hola",
+      "bot_contiene": ["ciudad"],
+      "_nota": "El bot debe recordar que ya tiene nombre+cédula y pedir el próximo campo faltante (ciudad). Idealmente también saluda explícitamente."
+    }
+  ]
+}

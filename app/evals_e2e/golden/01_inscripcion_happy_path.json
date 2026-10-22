@@ -1,0 +1,38 @@
+{
+  "name": "inscripcion_happy_path",
+  "description": "Agente nueva se inscribe de principio a fin, con los 5 datos: nombre, cédula, ciudad, barrio, conjunto. Confirma y recibe felicitación.",
+  "telefono": "+99999000001",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "Hola",
+      "bot_contiene": ["Petra", "nombre"],
+      "bot_no_contiene": ["ONBAG_"]
+    },
+    {
+      "user": "Juana Pérez",
+      "bot_contiene": ["cédula"]
+    },
+    {
+      "user": "1020800837",
+      "bot_contiene": ["ciudad"]
+    },
+    {
+      "user": "Bogotá",
+      "bot_contiene": ["barrio"]
+    },
+    {
+      "user": "Chapinero",
+      "bot_contiene": ["conjunto"]
+    },
+    {
+      "user": "Edificio Palermo",
+      "bot_contiene": ["Confirm", "Juana", "1020800837", "Bogotá", "Chapinero", "Palermo"]
+    },
+    {
+      "boton": "ONBAG_CONFIRM",
+      "bot_contiene": ["Felicitaciones", "Agente Petra"],
+      "estado_esperado": "inscrito"
+    }
+  ]
+}
