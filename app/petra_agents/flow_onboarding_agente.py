@@ -938,9 +938,15 @@ def _fase_kit_enviado(conn, telefono, cid, meta, texto, sesion_id=None):
 
 
 def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
-    """Si el remitente es Agente Petra en estado 'kit_enviado', trata la
-    imagen entrante como foto del QR instalado: guarda referencia en
-    metadata y avanza a 'activa'.
+    """Hook de imágenes entrantes para Agente Petra en estado 'kit_enviado'.
+
+    Según el sub-paso del kit (meta.kit_paso) interpreta la imagen como:
+      - 'foto_libro_pedida' → foto(s) del libro de arriendos. Guarda ref,
+        marca paso 'libro_recibido' y ack a la agente. Humano sube la
+        info del libro + dispara /panel/petra/_admin/kit-qr-cargado?tel=
+      - 'qr_foto_pendiente' → foto del QR instalado. Guarda ref, transita
+        a 'activa' y envía bienvenida.
+      - otros pasos → ignora (fallback al handler genérico de media).
 
     Devuelve True si consumió la imagen (webhook_worker salta el resto
     del processing de media), False en caso contrario."""
@@ -961,35 +967,95 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
     cid, meta = row[0], dict(row[1] or {})
     if meta.get("estado_agente") != "kit_enviado":
         return False
-    # Guardar referencia + avanzar
-    meta["qr_foto_local_path"] = local_path or ""
-    meta["qr_foto_media_id"] = media_id or ""
-    meta["qr_foto_mime"] = mime or ""
-    meta["qr_foto_caption"] = caption or ""
-    meta["qr_foto_at"] = _dt.datetime.utcnow().isoformat()
-    _set_estado(meta, "activa")
-    meta["activada_at"] = _dt.datetime.utcnow().isoformat()
-    try:
-        with _db._conexion_directa(timeout=10) as conn:
-            _save_meta(conn, cid, meta)
-            _sm(telefono,
-                "activacion.msg_qr_foto_recibida",
-                fallback=(
-                    "📸 *¡Foto recibida!* Gracias por el soporte 💜\n\n"
-                    "🎉 *¡Ya sos una Agente Petra activa!* Tu QR está en tu "
-                    "edificio y los residentes ya pueden escanearlo para "
-                    "contactarte. A partir de ahora te vamos a avisar cada "
-                    "vez que llegue un interesado 📲\n\n"
-                    "¡Mucho éxito! 🚀"
-                ),
-            )
-            _enviar_video_citas_una_vez(conn, cid, meta, telefono)
-        _log(telefono, "[imagen]", "[kit_enviado → foto QR → activa]",
-             nota=f"foto en {local_path}")
-    except Exception:
-        log.exception("[flow:foto-qr] avance fallo tel=%s", telefono)
-        return False
-    return True
+
+    kit_paso = (meta.get("kit_paso") or "").strip()
+
+    # ── Rama A: foto del libro de arriendos ────────────────────────────
+    if kit_paso == "foto_libro_pedida":
+        fotos = meta.get("libro_fotos") or []
+        fotos.append({
+            "local_path": local_path or "",
+            "media_id": media_id or "",
+            "mime": mime or "",
+            "caption": caption or "",
+            "at": _dt.datetime.utcnow().isoformat(),
+        })
+        meta["libro_fotos"] = fotos
+        meta["libro_recibido_at"] = _dt.datetime.utcnow().isoformat()
+        # Avanzamos directo al paso "qr_cargado" sin esperar que humano
+        # dispare el endpoint — el flow queda autónomo. Humano puede
+        # igual confirmar manualmente desde el panel si hace falta.
+        meta["kit_paso"] = "qr_cargado"
+        meta["qr_cargado_at"] = _dt.datetime.utcnow().isoformat()
+        try:
+            with _db._conexion_directa(timeout=10) as conn:
+                _save_meta(conn, cid, meta)
+                # 1) Ack cálido de la foto del libro.
+                _sm(telefono,
+                    "activacion.msg_foto_libro_ack",
+                    fallback=(
+                        "✅ *¡Perfecto!* Recibimos tus fotos del libro 💜"
+                    ),
+                )
+                # 2) Avance automático al siguiente paso ("cargamos el QR")
+                #    con botón Perfecto para que la agente siga el flujo.
+                import time as _tm
+                _tm.sleep(1)
+                _send_buttons(
+                    telefono,
+                    _t(
+                        "activacion.msg_qr_cargado",
+                        fallback=(
+                            "📸 Hemos *cargado el QR* con la info de tu "
+                            "conjunto. Cuando lo instales, va a mostrar toda "
+                            "la oferta de arriendos y ventas 💜"
+                        ),
+                    ),
+                    [{"id": "ONBAG_QR_CARGADO", "title": "✨ Perfecto"}],
+                )
+            _log(telefono, "[imagen]", "[kit:foto_libro_pedida → qr_cargado auto]",
+                 nota=f"foto en {local_path}")
+        except Exception:
+            log.exception("[flow:foto-libro] avance fallo tel=%s", telefono)
+            return False
+        return True
+
+    # ── Rama B: foto del QR instalado (último paso) ────────────────────
+    if kit_paso in ("qr_foto_pendiente", "pasos_mostrados", ""):
+        # Guardar referencia + transitar a activa
+        meta["qr_foto_local_path"] = local_path or ""
+        meta["qr_foto_media_id"] = media_id or ""
+        meta["qr_foto_mime"] = mime or ""
+        meta["qr_foto_caption"] = caption or ""
+        meta["qr_foto_at"] = _dt.datetime.utcnow().isoformat()
+        _set_estado(meta, "activa")
+        meta["activada_at"] = _dt.datetime.utcnow().isoformat()
+        try:
+            with _db._conexion_directa(timeout=10) as conn:
+                _save_meta(conn, cid, meta)
+                _sm(telefono,
+                    "activacion.msg_qr_foto_recibida",
+                    fallback=(
+                        "📸 *¡Foto recibida!* Gracias por el soporte 💜\n\n"
+                        "🎉 *¡Ya sos una Agente Petra activa!* Tu QR está en tu "
+                        "edificio y los residentes ya pueden escanearlo para "
+                        "contactarte. A partir de ahora te vamos a avisar cada "
+                        "vez que llegue un interesado 📲\n\n"
+                        "¡Mucho éxito! 🚀"
+                    ),
+                )
+                _enviar_video_citas_una_vez(conn, cid, meta, telefono)
+            _log(telefono, "[imagen]", "[kit_enviado → foto QR → activa]",
+                 nota=f"foto en {local_path}")
+        except Exception:
+            log.exception("[flow:foto-qr] avance fallo tel=%s", telefono)
+            return False
+        return True
+
+    # Otro paso del kit — no es momento de recibir foto. False para que
+    # webhook_worker siga el flujo normal (alerta a humano / respuesta
+    # genérica).
+    return False
 
 
 def _enviar_video_citas_una_vez(conn, cid, meta, telefono):
