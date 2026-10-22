@@ -400,21 +400,18 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _log(telefono, texto, "[v3:kit → pide foto libro]")
         return True
 
-    # ── Paso 3 ack: pulsa ONBAG_FOTO_LIBRO ──────────────────────────────
-    # Si la agente ya mandó fotos del libro (meta.libro_fotos no vacío),
-    # avanzamos directo al paso qr_cargado para no quedar en loop.
-    # Si no, es el ack clásico (todavía no mandó fotos).
+    # ── Paso 3: pulsa ONBAG_FOTO_LIBRO → avanzamos a qr_cargado ────────
+    # Antes era un ack que esperaba que las fotos llegaran, pero el flow
+    # queda bloqueado si la foto no se guarda. La agente ya vio la
+    # instrucción, así que al pulsar Perfecto consideramos que mandó (o
+    # va a mandar) la foto y avanzamos. El humano puede revisar las fotos
+    # en el panel y seguir con la carga del QR como siempre.
     if texto == "ONBAG_FOTO_LIBRO":
-        if meta.get("libro_fotos"):
-            import datetime as _dtl
-            meta["qr_cargado_at"] = meta.get("qr_cargado_at") or _dtl.datetime.utcnow().isoformat()
-            _marcar_paso(conn, cid, meta, "qr_cargado")
-            _enviar_qr_cargado(telefono)
-            _log(telefono, texto,
-                 "[v3:kit ONBAG_FOTO_LIBRO con fotos → qr_cargado]")
-            return True
-        _enviar_ack_foto_libro(telefono)
-        _log(telefono, texto, "[v3:kit ack foto libro]")
+        import datetime as _dtl
+        meta["qr_cargado_at"] = meta.get("qr_cargado_at") or _dtl.datetime.utcnow().isoformat()
+        _marcar_paso(conn, cid, meta, "qr_cargado")
+        _enviar_qr_cargado(telefono)
+        _log(telefono, texto, "[v3:kit ONBAG_FOTO_LIBRO → qr_cargado]")
         return True
 
     # ── Paso 4: pulsa ONBAG_QR_CARGADO (tras admin endpoint) ───────────
@@ -468,11 +465,10 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _log(telefono, texto, "[v3:kit compat ONBAG_QR_INSTALADO]")
         return True
 
-    # Safety-net: si estamos en foto_libro_pedida con fotos ya recibidas
-    # y la agente responde cualquier cosa afirmativa ("perfecto", "ok",
-    # "listo"), avanzamos a qr_cargado para no quedar en loop pidiendo
-    # la foto que ya mandó.
-    if paso == "foto_libro_pedida" and meta.get("libro_fotos"):
+    # Safety-net: si estamos en foto_libro_pedida y la agente responde
+    # cualquier cosa afirmativa ("perfecto", "ok", "listo"), avanzamos a
+    # qr_cargado para no quedar en loop pidiendo la foto.
+    if paso == "foto_libro_pedida":
         PAL_OK = ("perfecto", "ok", "okay", "listo", "dale", "sí", "si",
                   "vale", "ya", "✨ perfecto")
         if any(p == t_lc or p in t_lc for p in PAL_OK):
