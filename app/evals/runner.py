@@ -45,9 +45,8 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
 # app.petra_agents.inscripcion_v3). Los goldens de inscripción viejos
 # en app/evals/golden/ no se usan — los nuevos están en app/evals_e2e/.
 _FASES = {
-    "autorizacion": "app.petra_agents.tools_autorizacion",
-    "kit": "app.petra_agents.tools_kit",
-    "capacitacion": "app.petra_agents.tools_capacitacion",
+    # M5.C: inscripcion/autorizacion/kit/capacitacion ya no usan LLM
+    # (migradas a *_v3 determinísticos). Solo queda 'activa'.
     "activa": "app.petra_agents.tools_activa",
 }
 

@@ -79,17 +79,17 @@ def _reintentar_fase(telefono, texto, cid, fase):
                      "(M2.E), dropeando entrada vieja", telefono)
             return True
         if fase == "autorizacion":
-            from app.petra_agents import tools_autorizacion as _tau
-            resultado = _tau.procesar(telefono, texto, cid, meta, conn)
-            return bool(resultado.get("ok"))
+            # M5.C: ya no usa LLM (autorizacion_v3 determinístico).
+            log.info("[tc-queue] autorizacion tel=%s: motor v3, dropeando", telefono)
+            return True
         if fase in ("kit_pendiente", "kit_enviado"):
-            from app.petra_agents import tools_kit as _tkit
-            resultado = _tkit.procesar(telefono, texto, cid, meta, conn)
-            return bool(resultado.get("ok"))
+            # M5.C: ya no usa LLM (kit_v3 determinístico).
+            log.info("[tc-queue] kit tel=%s: motor v3, dropeando", telefono)
+            return True
         if fase == "capacitacion":
-            from app.petra_agents import tools_capacitacion as _tcap
-            resultado = _tcap.procesar(telefono, texto, cid, meta, conn)
-            return bool(resultado.get("ok"))
+            # M5.C: ya no usa LLM (capacitacion_v3 determinístico).
+            log.info("[tc-queue] capacitacion tel=%s: motor v3, dropeando", telefono)
+            return True
         if fase == "activa":
             from app.petra_agents import tools_activa as _tact
             resultado = _tact.procesar(telefono, texto, cid, meta, conn)

@@ -39,7 +39,8 @@ def _send_buttons(telefono, texto, defaults, estado_key=None):
 
 
 _TC_MODULOS = {
-    "capacitacion": "app.petra_agents.tools_capacitacion",
+    # Nota: inscripcion/autorizacion/kit/capacitacion ya no usan LLM
+    # (migradas a *_v3 en M2-M4). Solo queda 'activa' por ahora.
     "activa": "app.petra_agents.tools_activa",
 }
 
@@ -2016,9 +2017,6 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                         return True
                 except Exception:
                     log.exception("[flow:v3] excepcion capacitacion → fallback")
-            if _tc_delegar("capacitacion", "PETRA_TOOLCALLING_CAPACITACION",
-                           telefono, texto, cid, meta, conn):
-                return True
             return _fase_capacitacion(conn, telefono, cid, meta, texto, estado,
                                       sesion_id=sesion_id)
 
@@ -2066,29 +2064,6 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                         return True
                 except Exception:
                     log.exception("[flow:v3] excepcion autorizacion_pendiente → fallback")
-            # Tool-calling opt-in: si está activo y el texto es libre (no
-            # un botón ONBAG_*), delegamos al LLM con tools.
-            if (_os_tc.environ.get("PETRA_TOOLCALLING_AUTORIZACION", "0") == "1"
-                    and not (texto or "").startswith("ONBAG_")
-                    and not (texto or "").startswith("CUSTOM_")):
-                try:
-                    from app.petra_agents import tools_autorizacion as _tau
-                    res = _tau.procesar(telefono, texto, cid, meta, conn)
-                    if res.get("ok"):
-                        _log(telefono, texto,
-                             (res.get("texto_respuesta") or "")[:300],
-                             nota=f"tc-autorizacion tools={len(res.get('tools_llamadas', []))}")
-                        return True
-                    if res.get("retriable"):
-                        from app.petra_agents import toolcalling_queue as _tcq
-                        _tcq.encolar(telefono, texto, cid, "autorizacion",
-                                     res.get("fallo"))
-                        _tcq.enviar_disculpame(telefono)
-                        _log(telefono, texto, "[LLM failing — queued]",
-                             nota=f"tc-autorizacion fallo={res.get('fallo')}")
-                        return True
-                except Exception:
-                    log.exception("[flow:tc] excepcion autorizacion")
             # Botón "🚀 Iniciar" → muestra los 3 botones de autorización.
             if texto == "ONBAG_INICIAR_AUTORIZACION":
                 _send_buttons(telefono, _t(
@@ -2209,27 +2184,6 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                         return True
                 except Exception:
                     log.exception("[flow:v3] excepcion kit_pendiente → fallback")
-            if (_os_tc.environ.get("PETRA_TOOLCALLING_KIT", "0") == "1"
-                    and not (texto or "").startswith("ONBAG_")
-                    and not (texto or "").startswith("CUSTOM_")):
-                try:
-                    from app.petra_agents import tools_kit as _tkit
-                    res = _tkit.procesar(telefono, texto, cid, meta, conn)
-                    if res.get("ok"):
-                        _log(telefono, texto,
-                             (res.get("texto_respuesta") or "")[:300],
-                             nota=f"tc-kit tools={len(res.get('tools_llamadas', []))}")
-                        return True
-                    if res.get("retriable"):
-                        from app.petra_agents import toolcalling_queue as _tcq
-                        _tcq.encolar(telefono, texto, cid, "kit_pendiente",
-                                     res.get("fallo"))
-                        _tcq.enviar_disculpame(telefono)
-                        _log(telefono, texto, "[LLM failing — queued]",
-                             nota=f"tc-kit fallo={res.get('fallo')}")
-                        return True
-                except Exception:
-                    log.exception("[flow:tc] excepcion kit_pendiente")
             return _fase_kit_pendiente(conn, telefono, cid, meta, texto,
                                        sesion_id=sesion_id)
 
@@ -2245,27 +2199,6 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                         return True
                 except Exception:
                     log.exception("[flow:v3] excepcion kit_enviado → fallback")
-            if (_os_tc.environ.get("PETRA_TOOLCALLING_KIT", "0") == "1"
-                    and not (texto or "").startswith("ONBAG_")
-                    and not (texto or "").startswith("CUSTOM_")):
-                try:
-                    from app.petra_agents import tools_kit as _tkit
-                    res = _tkit.procesar(telefono, texto, cid, meta, conn)
-                    if res.get("ok"):
-                        _log(telefono, texto,
-                             (res.get("texto_respuesta") or "")[:300],
-                             nota=f"tc-kit tools={len(res.get('tools_llamadas', []))}")
-                        return True
-                    if res.get("retriable"):
-                        from app.petra_agents import toolcalling_queue as _tcq
-                        _tcq.encolar(telefono, texto, cid, "kit_enviado",
-                                     res.get("fallo"))
-                        _tcq.enviar_disculpame(telefono)
-                        _log(telefono, texto, "[LLM failing — queued]",
-                             nota=f"tc-kit fallo={res.get('fallo')}")
-                        return True
-                except Exception:
-                    log.exception("[flow:tc] excepcion kit_enviado")
             return _fase_kit_enviado(conn, telefono, cid, meta, texto,
                                      sesion_id=sesion_id)
 

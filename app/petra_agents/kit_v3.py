@@ -458,11 +458,46 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _log(telefono, texto, "[v3:kit compat ONBAG_QR_INSTALADO]")
         return True
 
-    # Texto libre no reconocido en el flow: no delegamos al LLM todavía
-    # (eso lo cubre M4.B / FAQ). Mandamos recordatorio del paso actual.
+    # Texto libre no reconocido: primero intento FAQ (M4.B).
+    # Si el agente FAQ responde la duda + reofrece el botón, listo.
+    # Si no es pregunta, cae al recordatorio del paso actual.
+    try:
+        from app.petra_agents._faq_hook import intentar_faq
+        descr, boton_actual = _descripcion_y_boton_del_paso(meta)
+        if intentar_faq(telefono, texto, meta, conn, cid,
+                        ultimo_paso_descripcion=descr,
+                        ultimo_boton=boton_actual):
+            _log(telefono, texto, f"[v3:kit FAQ respondió paso={paso}]")
+            return True
+    except Exception:
+        log.exception("[v3:kit] FAQ hook fallo tel=%s", telefono)
     _reenviar_paso_actual(telefono, meta)
     _log(telefono, texto, f"[v3:kit sin match — recordatorio paso={paso}]")
     return True
+
+
+def _descripcion_y_boton_del_paso(meta):
+    """Devuelve (descripcion_corta, botón_actual) para pasar al FAQ."""
+    paso = meta.get("kit_paso") or "dir_confirmada"
+    estado = meta.get("estado_agente") or "kit_enviado"
+    if estado == "kit_pendiente":
+        return ("mandar la dirección de donde vivís", None)
+    mapping = {
+        "dir_confirmada": ("confirmar que recibiste la info del kit",
+                           {"id": "ONBAG_KIT_PERFECTO", "title": "✨ Perfecto"}),
+        "foto_libro_pedida": ("mandar la foto del libro de arriendos",
+                              None),
+        "qr_cargado": ("confirmar que viste la carga del QR",
+                       {"id": "ONBAG_GUIA_PERFECTO", "title": "✨ Perfecto"}),
+        "guia_enviada": ("avisar cuando llegue el kit",
+                         {"id": "ONBAG_KIT_LLEGO", "title": "📦 Ya llegó"}),
+        "kit_recibido": ("ver los pasos para instalar el QR",
+                         {"id": "ONBAG_DIME_PASOS", "title": "✨ Dime los pasos"}),
+        "pasos_mostrados": ("instalar el QR y avisarme",
+                            {"id": "ONBAG_YA_INSTALE", "title": "✅ Ya lo instalé"}),
+        "qr_foto_pendiente": ("mandar la foto del QR instalado", None),
+    }
+    return mapping.get(paso, ("seguir con el flujo", None))
 
 
 # ─── Recordatorio del paso actual ───────────────────────────────────────

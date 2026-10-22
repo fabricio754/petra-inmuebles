@@ -43,7 +43,6 @@ jobs:
       # y se activan recién cuando M4 habilita el agente FAQ aislado
       # con mocks determinísticos.
       PETRA_V3: "1"
-      PETRA_TOOLCALLING_AUTORIZACION: "0"
       PETRA_TOOLCALLING_KIT: "0"
       PETRA_TOOLCALLING_CAPACITACION: "0"
       # Variables requeridas por la app para arrancar sin reventar
