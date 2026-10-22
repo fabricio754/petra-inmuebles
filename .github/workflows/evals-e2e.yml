@@ -42,7 +42,7 @@ jobs:
       # en CI. Las goldens que requieren LLM están marcadas como .draft
       # y se activan recién cuando M4 habilita el agente FAQ aislado
       # con mocks determinísticos.
-      PETRA_TOOLCALLING_INSCRIPCION: "0"
+      PETRA_V3: "1"
       PETRA_TOOLCALLING_AUTORIZACION: "0"
       PETRA_TOOLCALLING_KIT: "0"
       PETRA_TOOLCALLING_CAPACITACION: "0"

@@ -40,9 +40,11 @@ from pathlib import Path
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
 
-# Módulos por fase (mismo mapping que flow_onboarding_agente)
+# Módulos por fase (mismo mapping que flow_onboarding_agente).
+# NOTA: inscripcion ya no usa LLM desde M2.E (motor determinístico en
+# app.petra_agents.inscripcion_v3). Los goldens de inscripción viejos
+# en app/evals/golden/ no se usan — los nuevos están en app/evals_e2e/.
 _FASES = {
-    "inscripcion": "app.petra_agents.tools_inscripcion",
     "autorizacion": "app.petra_agents.tools_autorizacion",
     "kit": "app.petra_agents.tools_kit",
     "capacitacion": "app.petra_agents.tools_capacitacion",
