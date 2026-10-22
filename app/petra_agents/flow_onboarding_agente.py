@@ -2041,6 +2041,25 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                  nota=f"estado={estado}")
             return True
 
+        # ─── Shortcut de prueba (Fabricio): 'guia' ────────────────────
+        # Escribir 'guia' desde el 3227057375 fuerza el flow del kit
+        # (Fase 6) desde el inicio: estado=kit_pendiente, reset del
+        # kit_paso y pedido de la dirección completa.
+        if _texto_lc_kit == "guia" and (telefono or "").endswith("3227057375"):
+            _set_estado(meta, "kit_pendiente")
+            meta.pop("kit_paso", None)
+            _save_meta(conn, cid, meta)
+            _enviar(telefono, _t(
+                "activacion.msg_pedir_direccion_inicio",
+                fallback=(
+                    "📍 Mandame tu dirección completa en un solo mensaje "
+                    "(torre o casa, apto, barrio, ciudad)."
+                ),
+            ))
+            _log(telefono, texto, "[shortcut global 'guia' → kit_pendiente]",
+                 nota=f"estado={estado}")
+            return True
+
         # Intercept de botones CUSTOM_<id> definidos desde el panel.
         if texto and texto.startswith("CUSTOM_"):
             info = _botones.resolver_custom(texto)
