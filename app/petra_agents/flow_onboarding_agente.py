@@ -987,37 +987,42 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
         # igual confirmar manualmente desde el panel si hace falta.
         meta["kit_paso"] = "qr_cargado"
         meta["qr_cargado_at"] = _dt.datetime.utcnow().isoformat()
+        # Separamos el save (rápido, DB) del envío (lento, HTTP). Si el
+        # envío falla, el save ya quedó committed y el estado del flow
+        # avanza igual — la agente puede re-disparar escribiendo "kit".
         try:
             with _db._conexion_directa(timeout=10) as conn:
                 _save_meta(conn, cid, meta)
-                # 1) Ack cálido de la foto del libro.
-                _sm(telefono,
-                    "activacion.msg_foto_libro_ack",
+            log.info("[flow:foto-libro] meta guardada tel=%s fotos=%d",
+                     telefono, len(fotos))
+        except Exception:
+            log.exception("[flow:foto-libro] save meta fallo tel=%s", telefono)
+            return False
+        try:
+            _sm(telefono,
+                "activacion.msg_foto_libro_ack",
+                fallback=(
+                    "✅ *¡Perfecto!* Recibimos tus fotos del libro 💜"
+                ),
+            )
+            import time as _tm
+            _tm.sleep(1)
+            _send_buttons(
+                telefono,
+                _t(
+                    "activacion.msg_qr_cargado",
                     fallback=(
-                        "✅ *¡Perfecto!* Recibimos tus fotos del libro 💜"
+                        "📸 Hemos *cargado el QR* con la info de tu "
+                        "conjunto. Cuando lo instales, va a mostrar toda "
+                        "la oferta de arriendos y ventas 💜"
                     ),
-                )
-                # 2) Avance automático al siguiente paso ("cargamos el QR")
-                #    con botón Perfecto para que la agente siga el flujo.
-                import time as _tm
-                _tm.sleep(1)
-                _send_buttons(
-                    telefono,
-                    _t(
-                        "activacion.msg_qr_cargado",
-                        fallback=(
-                            "📸 Hemos *cargado el QR* con la info de tu "
-                            "conjunto. Cuando lo instales, va a mostrar toda "
-                            "la oferta de arriendos y ventas 💜"
-                        ),
-                    ),
-                    [{"id": "ONBAG_QR_CARGADO", "title": "✨ Perfecto"}],
-                )
+                ),
+                [{"id": "ONBAG_QR_CARGADO", "title": "✨ Perfecto"}],
+            )
             _log(telefono, "[imagen]", "[kit:foto_libro_pedida → qr_cargado auto]",
                  nota=f"foto en {local_path}")
         except Exception:
-            log.exception("[flow:foto-libro] avance fallo tel=%s", telefono)
-            return False
+            log.exception("[flow:foto-libro] envio msgs fallo tel=%s", telefono)
         return True
 
     # ── Rama B: foto del QR instalado (último paso) ────────────────────
@@ -1931,9 +1936,10 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         if _texto_guia == "guia" and (telefono or "").endswith("3227057375"):
             _set_estado(meta, "kit_pendiente")
             meta.pop("kit_paso", None)
+            meta.pop("libro_fotos", None)
             _save_meta(conn, cid, meta)
             _enviar(telefono, _t(
-                "activacion.msg_pedir_direccion_inicio",
+                "activacion.msg_pedir_direccion_simple",
                 fallback=(
                     "📍 Mandame tu dirección completa en un solo mensaje "
                     "(torre o casa, apto, barrio, ciudad)."
