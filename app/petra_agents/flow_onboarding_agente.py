@@ -384,10 +384,25 @@ def _enviar(telefono, texto):
     petra_wa.send_text(telefono, texto)
 
 
+ESTADOS_VALIDOS = (
+    "recolectando", "inscrito", "bienvenida_enviada",
+    "esperando_capacitacion_dia1", "en_capacitacion",
+    "capacitacion_completa",
+    "autorizacion_pendiente", "autorizacion_rechazada",
+    "kit_pendiente", "kit_enviado", "activa",
+)
+
+
 def _set_estado(meta, nuevo_estado):
     """Setea estado_agente + estampa estado_desde (ISO 8601 UTC).
     Usado por el motor de nudges para saber hace cuánto está la agente
-    en el estado actual."""
+    en el estado actual.
+
+    Estados válidos declarados en ESTADOS_VALIDOS (M3.C agrega
+    `autorizacion_rechazada`, pausado). No bloqueamos — solo log si
+    aparece algo inesperado."""
+    if nuevo_estado not in ESTADOS_VALIDOS:
+        log.warning("[flow] _set_estado: estado no declarado=%s", nuevo_estado)
     import datetime as _d
     anterior = meta.get("estado_agente")
     if anterior != nuevo_estado:
@@ -1941,6 +1956,17 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         # ─── Fase 3: en capacitación o esperando día 1 ───
         if estado in ("esperando_capacitacion_dia1", "en_capacitacion"):
+            # M3.A: motor v3 determinístico (opt-in con PETRA_V3=1).
+            if _os_tc.environ.get("PETRA_V3", "0") == "1":
+                try:
+                    from app.petra_agents import capacitacion_v3 as _capv3
+                    if _capv3.handle(telefono, texto, cid, meta, conn,
+                                     es_handoff=es_handoff):
+                        _log(telefono, texto, "[v3:capacitacion]",
+                             nota="PETRA_V3=1")
+                        return True
+                except Exception:
+                    log.exception("[flow:v3] excepcion capacitacion → fallback")
             if _tc_delegar("capacitacion", "PETRA_TOOLCALLING_CAPACITACION",
                            telefono, texto, cid, meta, conn):
                 return True
@@ -1948,11 +1974,49 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                                       sesion_id=sesion_id)
 
         if estado == "capacitacion_completa":
+            # M3.B: motor v3 determinístico — maneja ONBAG_INICIAR.
+            if _os_tc.environ.get("PETRA_V3", "0") == "1":
+                try:
+                    from app.petra_agents import autorizacion_v3 as _autv3
+                    if _autv3.handle(telefono, texto, cid, meta, conn,
+                                     es_handoff=es_handoff):
+                        _log(telefono, texto, "[v3:autorizacion capacitacion_completa]",
+                             nota="PETRA_V3=1")
+                        return True
+                except Exception:
+                    log.exception("[flow:v3] excepcion autorizacion/completa → fallback")
             _log(telefono, texto, "[delegado a LLM capacitacion_completa]")
+            return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
+
+        # ─── Fase 4b: autorización rechazada (pausada, M3.C) ───
+        if estado == "autorizacion_rechazada":
+            if _os_tc.environ.get("PETRA_V3", "0") == "1":
+                try:
+                    from app.petra_agents import autorizacion_v3 as _autv3
+                    if _autv3.handle(telefono, texto, cid, meta, conn,
+                                     es_handoff=es_handoff):
+                        _log(telefono, texto, "[v3:autorizacion rechazada]",
+                             nota="PETRA_V3=1")
+                        return True
+                except Exception:
+                    log.exception("[flow:v3] excepcion autorizacion_rechazada")
+            # Fallback cuando PETRA_V3 off: tratamos como pendiente.
+            _log(telefono, texto, "[flow legacy: autorizacion_rechazada sin v3]")
             return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
         # ─── Fase 4: autorización pendiente — esperando botón "✅ Ya tengo autorización" ───
         if estado == "autorizacion_pendiente":
+            # M3.B: motor v3 determinístico (opt-in con PETRA_V3=1).
+            if _os_tc.environ.get("PETRA_V3", "0") == "1":
+                try:
+                    from app.petra_agents import autorizacion_v3 as _autv3
+                    if _autv3.handle(telefono, texto, cid, meta, conn,
+                                     es_handoff=es_handoff):
+                        _log(telefono, texto, "[v3:autorizacion pendiente]",
+                             nota="PETRA_V3=1")
+                        return True
+                except Exception:
+                    log.exception("[flow:v3] excepcion autorizacion_pendiente → fallback")
             # Tool-calling opt-in: si está activo y el texto es libre (no
             # un botón ONBAG_*), delegamos al LLM con tools.
             if (_os_tc.environ.get("PETRA_TOOLCALLING_AUTORIZACION", "0") == "1"
