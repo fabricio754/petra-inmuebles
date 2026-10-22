@@ -279,8 +279,15 @@ def _enviar_pedir_foto_libro(telefono):
         ),
     ))
     _send_buttons(telefono, _t(
-        "activacion.msg_pedir_foto_libro",
-        fallback=FB_PEDIR_FOTO_LIBRO,
+        "activacion.msg_libro_intro",
+        fallback=(
+            "📸 *Ahora necesitamos una foto del libro de arriendos y ventas* "
+            "de tu conjunto.\n\n"
+            "Pasá por la *portería o el lobby* y pedí ver el libro. Tomale una "
+            "foto bien clara y mandámela por acá 💜\n\n"
+            "✨ Con eso vamos a *cargar tu QR con la info de tu conjunto*, para "
+            "que cuando lo instales ya funcione completo 🚀"
+        ),
     ), [
         {"id": "ONBAG_LIBRO_SI",
          "title": _b("ONBAG_LIBRO_SI", "✅ Sí")},
