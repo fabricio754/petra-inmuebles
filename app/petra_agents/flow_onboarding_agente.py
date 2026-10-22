@@ -1721,6 +1721,32 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         estado = meta.get("estado_agente", "recolectando")
 
+        # ─── Shortcut de prueba (Fabricio): 'primero' ─────────────────
+        # Escribir 'primero' desde el 3227057375 en cualquier estado
+        # resetea a inscripción (recolectando) y manda el mensaje de
+        # bienvenida con los 6 datos a pedir.
+        if (texto or "").lower().strip() == "primero" and (telefono or "").endswith("3227057375"):
+            _set_estado(meta, "recolectando")
+            _save_meta(conn, cid, meta)
+            _sm(telefono,
+                "inscripcion.msg_bienvenida",
+                fallback=(
+                    "¡Hola! 💜 Bienvenida a Petra.\n\n"
+                    "Perfecto, vamos a inscribirte en menos de *2 minutos*. "
+                    "Solo necesito 6 datos:\n\n"
+                    "1. *Tu nombre completo*\n"
+                    "2. Tu cédula\n"
+                    "3. Tu ciudad\n"
+                    "4. Tu barrio\n"
+                    "5. El nombre del conjunto o edificio donde vivís\n"
+                    "6. Tu torre y apartamento (o número de casa)\n\n"
+                    "¿Empezamos? Decime tu *nombre completo* primero. 👤"
+                ),
+            )
+            _log(telefono, texto, "[shortcut global 'primero' → bienvenida]",
+                 nota=f"estado={estado}")
+            return True
+
         # ─── Shortcut de prueba (Fabricio): 'suerte' ──────────────────
         # Escribir 'suerte' desde el 3227057375 en cualquier estado
         # dispara el mensaje "¡Perfecto! Te deseamos mucha suerte..."

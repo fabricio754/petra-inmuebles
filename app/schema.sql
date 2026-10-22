@@ -1746,3 +1746,20 @@ VALUES (
   TRUE
 )
 ON CONFLICT (clave) DO NOTHING;
+
+-- Mensaje de bienvenida a inscripción (editable desde panel).
+INSERT INTO petra_textos (clave, contenido, activo)
+VALUES (
+  'inscripcion.msg_bienvenida',
+  E'¡Hola! 💜 Bienvenida a Petra.\n\n'
+  || E'Perfecto, vamos a inscribirte en menos de *2 minutos*. Solo necesito 6 datos:\n\n'
+  || E'1. *Tu nombre completo*\n'
+  || E'2. Tu cédula\n'
+  || E'3. Tu ciudad\n'
+  || E'4. Tu barrio\n'
+  || E'5. El nombre del conjunto o edificio donde vivís\n'
+  || E'6. Tu torre y apartamento (o número de casa)\n\n'
+  || E'¿Empezamos? Decime tu *nombre completo* primero. 👤',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
