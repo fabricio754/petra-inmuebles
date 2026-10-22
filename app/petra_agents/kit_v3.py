@@ -127,12 +127,19 @@ FB_DIRECCION_CONFIRMADA = (
 )
 
 FB_PEDIR_FOTO_LIBRO = (
-    "📸 *Ahora necesitamos una foto del libro de arriendos y ventas* "
-    "de tu conjunto.\n\n"
-    "Pasá por la *portería o el lobby* y pedí ver el libro. Tomale una "
-    "foto bien clara y mandámela por acá 💜\n\n"
-    "✨ Con eso vamos a *cargar tu QR con la info de tu conjunto*, para "
-    "que cuando lo instales ya funcione completo 🚀"
+    "📚 *¿Ya cargaste las fotos del libro de arriendos y ventas* "
+    "de tu conjunto?*\n\n"
+    "Pasá por la *portería o el lobby* y pedí ver el libro — tomale "
+    "una foto bien clara de cada hoja y mandámela por acá 💜\n\n"
+    "Cuando las tengas subidas, apretá *Sí* y cargamos tu QR 🚀"
+)
+
+FB_LIBRO_NO = (
+    "Dale, mientras tanto 💜\n\n"
+    "📸 Pasá por la *portería o el lobby*, pedí ver el *libro de "
+    "arriendos y ventas*, y mandame una foto bien clara de las hojas "
+    "que necesitamos.\n\n"
+    "Cuando ya las tengas acá, apretá *Sí* y seguimos ✨"
 )
 
 FB_FOTO_LIBRO_ACK = (
@@ -256,9 +263,12 @@ def _enviar_pedir_foto_libro(telefono):
     _send_buttons(telefono, _t(
         "activacion.msg_pedir_foto_libro",
         fallback=FB_PEDIR_FOTO_LIBRO,
-    ), [{"id": "ONBAG_FOTO_LIBRO",
-         "title": _b("ONBAG_FOTO_LIBRO", "✨ Perfecto")}],
-       estado_key="kit_enviado")
+    ), [
+        {"id": "ONBAG_LIBRO_SI",
+         "title": _b("ONBAG_LIBRO_SI", "✅ Sí")},
+        {"id": "ONBAG_LIBRO_NO",
+         "title": _b("ONBAG_LIBRO_NO", "❌ No")},
+    ], estado_key="kit_enviado")
 
 
 def _enviar_ack_foto_libro(telefono):
@@ -400,18 +410,31 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _log(telefono, texto, "[v3:kit → pide foto libro]")
         return True
 
-    # ── Paso 3: pulsa ONBAG_FOTO_LIBRO → avanzamos a qr_cargado ────────
-    # Antes era un ack que esperaba que las fotos llegaran, pero el flow
-    # queda bloqueado si la foto no se guarda. La agente ya vio la
-    # instrucción, así que al pulsar Perfecto consideramos que mandó (o
-    # va a mandar) la foto y avanzamos. El humano puede revisar las fotos
-    # en el panel y seguir con la carga del QR como siempre.
-    if texto == "ONBAG_FOTO_LIBRO":
+    # ── Paso 3: pulsa ONBAG_LIBRO_SI → avanzamos a qr_cargado ──────────
+    # La agente confirma que ya mandó las fotos del libro. Avanzamos sin
+    # esperar que humano cargue el QR — el flow queda autónomo. Humano
+    # puede revisar las fotos en el panel.
+    # Compat: ONBAG_FOTO_LIBRO (botón viejo) también cuenta como Sí.
+    if texto in ("ONBAG_LIBRO_SI", "ONBAG_FOTO_LIBRO"):
         import datetime as _dtl
         meta["qr_cargado_at"] = meta.get("qr_cargado_at") or _dtl.datetime.utcnow().isoformat()
         _marcar_paso(conn, cid, meta, "qr_cargado")
         _enviar_qr_cargado(telefono)
-        _log(telefono, texto, "[v3:kit ONBAG_FOTO_LIBRO → qr_cargado]")
+        _log(telefono, texto, "[v3:kit ONBAG_LIBRO_SI → qr_cargado]")
+        return True
+
+    # ── Paso 3 alterno: pulsa ONBAG_LIBRO_NO → recordamos cómo subirlas
+    if texto == "ONBAG_LIBRO_NO":
+        _send_buttons(telefono, _t(
+            "activacion.msg_libro_no",
+            fallback=FB_LIBRO_NO,
+        ), [
+            {"id": "ONBAG_LIBRO_SI",
+             "title": _b("ONBAG_LIBRO_SI", "✅ Sí")},
+            {"id": "ONBAG_LIBRO_NO",
+             "title": _b("ONBAG_LIBRO_NO", "❌ No")},
+        ], estado_key="kit_enviado")
+        _log(telefono, texto, "[v3:kit ONBAG_LIBRO_NO → re-prompt]")
         return True
 
     # ── Paso 4: pulsa ONBAG_QR_CARGADO (tras admin endpoint) ───────────
