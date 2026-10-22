@@ -1808,11 +1808,28 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 _log(telefono, texto, f"[panel-control {texto}]")
                 return True
 
+        # ─── Motor v3 (determinístico puro, sin LLM) — opt-in ─────────
+        # Si PETRA_V3=1 y el agente está en fase de inscripción, usamos
+        # el nuevo motor en `inscripcion_v3.py`. Rollout gradual:
+        # PETRA_V3=0 → ruta legacy / tool-calling (según env).
+        # PETRA_V3=1 → nuevo motor determinístico puro.
+        import os as _os_tc
+        if (_os_tc.environ.get("PETRA_V3", "0") == "1"
+                and estado == "recolectando"):
+            try:
+                from app.petra_agents import inscripcion_v3 as _v3
+                if _v3.handle(telefono, texto, cid, meta, conn,
+                              es_handoff=es_handoff):
+                    _log(telefono, texto, "[v3:inscripcion]",
+                         nota="PETRA_V3=1")
+                    return True
+            except Exception:
+                log.exception("[flow:v3] excepcion → fallback legacy")
+
         # ─── Tool-calling (opt-in via env) ────────────────────────────
         # Si PETRA_TOOLCALLING_INSCRIPCION=1 y el agente está en fase de
         # inscripción (recolectando datos), delegamos al LLM con tools.
         # El flow determinístico queda como fallback si el LLM falla.
-        import os as _os_tc
         if (_os_tc.environ.get("PETRA_TOOLCALLING_INSCRIPCION", "0") == "1"
                 and estado == "recolectando"
                 and not (texto or "").startswith("ONBAG_")
