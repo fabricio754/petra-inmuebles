@@ -1019,8 +1019,33 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
             log.exception("[flow:foto-libro] envio msgs fallo tel=%s", telefono)
         return True
 
+    # ── Pasos intermedios (qr_cargado, guia_enviada) ──────────────────
+    # La agente ya pasó la etapa del libro pero todavía no llegó al QR
+    # instalado. Si manda una foto acá, es ruido (una del libro que llegó
+    # tarde, un screenshot, etc.). Guardamos silencioso y NO avanzamos
+    # al estado activa.
+    if kit_paso in ("qr_cargado", "guia_enviada"):
+        extras = meta.get("libro_fotos_extra") or []
+        extras.append({
+            "local_path": local_path or "",
+            "media_id": media_id or "",
+            "mime": mime or "",
+            "caption": caption or "",
+            "at": _dt.datetime.utcnow().isoformat(),
+        })
+        meta["libro_fotos_extra"] = extras
+        try:
+            with _db._conexion_directa(timeout=10) as conn:
+                _save_meta(conn, cid, meta)
+            log.info("[flow:foto-extra] tel=%s paso=%s guardada silenciosa",
+                     telefono, kit_paso)
+        except Exception:
+            log.exception("[flow:foto-extra] save fallo tel=%s", telefono)
+            return False
+        return True
+
     # ── Rama B: foto del QR instalado (último paso) ────────────────────
-    if kit_paso in ("qr_foto_pendiente", "pasos_mostrados", ""):
+    if kit_paso in ("qr_foto_pendiente", "pasos_mostrados", "kit_recibido", ""):
         # Si ya avanzamos a activa (foto previa llegó primero en la misma
         # tanda), solo persistimos la foto adicional y salimos.
         ya_activa = meta.get("estado_agente") == "activa"
@@ -1062,38 +1087,26 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
             log.exception("[flow:foto-qr] envio msgs fallo tel=%s", telefono)
         return True
 
-    # Otro paso del kit — tratamos la foto como "foto del QR instalado"
-    # igual: la agente mandó una foto, por lo general significa que
-    # terminó. Avanzamos a activa. El humano puede revisar en el panel.
-    meta["qr_foto_local_path"] = local_path or ""
-    meta["qr_foto_media_id"] = media_id or ""
-    meta["qr_foto_mime"] = mime or ""
-    meta["qr_foto_caption"] = caption or ""
-    meta["qr_foto_at"] = _dt.datetime.utcnow().isoformat()
-    ya_activa = meta.get("estado_agente") == "activa"
-    if not ya_activa:
-        _set_estado(meta, "activa")
-        meta["activada_at"] = _dt.datetime.utcnow().isoformat()
+    # Otro paso del kit (ej. dir_confirmada) — foto inesperada. La
+    # guardamos silenciosa como extra para que el humano pueda revisarla
+    # pero NO avanzamos ni respondemos (el flow sigue en su paso actual).
+    extras = meta.get("fotos_extra_kit") or []
+    extras.append({
+        "paso_al_recibir": kit_paso or "",
+        "local_path": local_path or "",
+        "media_id": media_id or "",
+        "mime": mime or "",
+        "caption": caption or "",
+        "at": _dt.datetime.utcnow().isoformat(),
+    })
+    meta["fotos_extra_kit"] = extras
     try:
         with _db._conexion_directa(timeout=10) as conn:
             _save_meta(conn, cid, meta)
-        log.info("[flow:foto-qr-fallback] tel=%s paso=%s → activa",
+        log.info("[flow:foto-extra-generica] tel=%s paso=%s guardada",
                  telefono, kit_paso)
     except Exception:
-        log.exception("[flow:foto-qr-fallback] save fallo tel=%s", telefono)
-        return False
-    if ya_activa:
-        return True
-    try:
-        _sm(telefono,
-            "activacion.msg_qr_foto_recibida",
-            fallback=(
-                "📸 *¡Foto recibida!* Gracias por el soporte 💜\n\n"
-                "🎉 *¡Ya sos una Agente Petra activa!* 🚀"
-            ),
-        )
-    except Exception:
-        log.exception("[flow:foto-qr-fallback] envio fallo tel=%s", telefono)
+        log.exception("[flow:foto-extra-generica] save fallo tel=%s", telefono)
     return True
 
 
