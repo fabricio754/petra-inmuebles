@@ -985,36 +985,35 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
         # Avanzamos directo al paso "qr_cargado" sin esperar que humano
         # dispare el endpoint — el flow queda autónomo. Humano puede
         # igual confirmar manualmente desde el panel si hace falta.
-        meta["kit_paso"] = "qr_cargado"
-        meta["qr_cargado_at"] = _dt.datetime.utcnow().isoformat()
-        # Separamos el save (rápido, DB) del envío (lento, HTTP). Si el
-        # envío falla, el save ya quedó committed y el estado del flow
-        # avanza igual — la agente puede re-disparar escribiendo "kit".
+        # Si ya avanzamos (foto previa de la misma tanda llegó primero),
+        # solo guardamos la foto adicional y salimos sin reenviar nada.
+        ya_avanzado = meta.get("kit_paso") in ("qr_cargado", "guia_enviada",
+                                               "kit_recibido", "pasos_mostrados",
+                                               "qr_foto_pendiente")
+        if not ya_avanzado:
+            meta["kit_paso"] = "qr_cargado"
+            meta["qr_cargado_at"] = _dt.datetime.utcnow().isoformat()
         try:
             with _db._conexion_directa(timeout=10) as conn:
                 _save_meta(conn, cid, meta)
-            log.info("[flow:foto-libro] meta guardada tel=%s fotos=%d",
-                     telefono, len(fotos))
+            log.info("[flow:foto-libro] meta guardada tel=%s fotos=%d ya=%s",
+                     telefono, len(fotos), ya_avanzado)
         except Exception:
             log.exception("[flow:foto-libro] save meta fallo tel=%s", telefono)
             return False
+        if ya_avanzado:
+            # Foto adicional de la misma tanda: solo persistimos.
+            return True
         try:
-            _sm(telefono,
-                "activacion.msg_foto_libro_ack",
-                fallback=(
-                    "✅ *¡Perfecto!* Recibimos tus fotos del libro 💜"
-                ),
-            )
-            import time as _tm
-            _tm.sleep(1)
             _send_buttons(
                 telefono,
                 _t(
                     "activacion.msg_qr_cargado",
                     fallback=(
-                        "📸 Hemos *cargado el QR* con la info de tu "
-                        "conjunto. Cuando lo instales, va a mostrar toda "
-                        "la oferta de arriendos y ventas 💜"
+                        "✅ *¡Perfecto!* Recibimos tus fotos del libro 💜\n\n"
+                        "📸 Hemos *cargado el QR* con la info de tu conjunto. "
+                        "Cuando lo instales, va a mostrar toda la oferta de "
+                        "arriendos y ventas 💜"
                     ),
                 ),
                 [{"id": "ONBAG_QR_CARGADO", "title": "✨ Perfecto"}],
