@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Petra · Flow Explorer</title>
+<style>
+  :root {
+    --bg: #faf7f5;
+    --fg: #1a1626;
+    --muted: #6b6478;
+    --surface: #ffffff;
+    --border: #ece7e0;
+    --accent: #7c5dc9;
+    --accent-soft: #efe9fb;
+    --phase-bg: #f3eef7;
+    --inactive: #d6cfe3;
+    --warn: #c99a2e;
+    --warn-bg: #faf1dd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15121c; --fg: #ece7f5; --muted: #9890aa;
+      --surface: #1e1a28; --border: #2d2638; --accent: #b299ea;
+      --accent-soft: #2a2238; --phase-bg: #211b2d; --inactive: #4a4258;
+      --warn: #e3b55a; --warn-bg: #2d2416;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px;
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { margin-bottom: 32px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 8px;
+  }
+  h1 {
+    font-family: Georgia, serif; font-weight: 500;
+    font-size: 36px; margin: 0 0 8px; letter-spacing: -0.01em;
+  }
+  .lede { color: var(--muted); margin: 0 0 16px; max-width: 60ch; }
+  .stats {
+    display: flex; gap: 20px; font-size: 13px; color: var(--muted);
+    margin-top: 16px;
+  }
+  .stats b { color: var(--fg); font-weight: 600; }
+
+  nav.toc {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 20px; margin-bottom: 40px;
+    display: flex; flex-wrap: wrap; gap: 10px;
+  }
+  nav.toc a {
+    color: var(--accent); text-decoration: none; font-size: 13px;
+    font-weight: 500; padding: 4px 10px; border-radius: 5px;
+    background: var(--accent-soft);
+  }
+  nav.toc a:hover { background: var(--accent); color: #fff; }
+
+  section.fase {
+    background: var(--phase-bg); border-radius: 12px;
+    padding: 24px; margin-bottom: 20px; border: 1px solid var(--border);
+  }
+  section.fase h2 {
+    font-family: Georgia, serif; font-size: 24px; margin: 0 0 4px;
+    color: var(--accent); text-transform: capitalize;
+  }
+  section.fase .count { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+
+  .msg {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px; margin-bottom: 10px;
+  }
+  .msg.inactive { opacity: 0.55; border-style: dashed; }
+  .msg-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .clave {
+    font: 500 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent); background: var(--accent-soft);
+    padding: 3px 8px; border-radius: 4px;
+  }
+  .badge {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 2px 7px; border-radius: 3px; font-weight: 700;
+  }
+  .badge.off {
+    color: var(--warn); background: var(--warn-bg);
+  }
+  .msg-body {
+    white-space: pre-wrap; font-size: 14px; line-height: 1.6;
+    color: var(--fg); word-break: break-word;
+  }
+  .msg-body .var {
+    background: var(--warn-bg); color: var(--warn);
+    padding: 1px 5px; border-radius: 3px;
+    font: 500 12px/1 ui-monospace, Menlo, monospace;
+  }
+  .msg-meta {
+    margin-top: 8px; font-size: 11px; color: var(--muted);
+    display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .empty {
+    color: var(--muted); font-style: italic; padding: 20px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Documento vivo · Petra bot</div>
+    <h1>Flow Explorer</h1>
+    <p class="lede">
+      Todos los textos que el bot puede enviar, agrupados por fase.
+      Lee en vivo de <code>petra_textos</code> — si editás un texto desde el
+      panel de textos, acá se refleja al toque.
+    </p>
+    <div class="stats">
+      <span><b>{{ total }}</b> textos</span>
+      <span><b>{{ activos }}</b> activos</span>
+      <span><b>{{ secciones|length }}</b> secciones</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    {% for fase, items in secciones %}
+      <a href="#{{ fase }}">{{ fase }} · {{ items|length }}</a>
+    {% endfor %}
+  </nav>
+
+  {% for fase, items in secciones %}
+    <section class="fase" id="{{ fase }}">
+      <h2>{{ fase }}</h2>
+      <div class="count">{{ items|length }} textos</div>
+      {% for item in items %}
+        <div class="msg {% if not item.activo %}inactive{% endif %}">
+          <div class="msg-head">
+            <code class="clave">{{ item.clave }}</code>
+            {% if not item.activo %}
+              <span class="badge off">Desactivado</span>
+            {% endif %}
+          </div>
+          <div class="msg-body">{{ item.contenido_html|safe }}</div>
+          {% if item.updated_at %}
+            <div class="msg-meta">
+              <span>última edición: {{ item.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </section>
+  {% else %}
+    <div class="empty">No hay textos en petra_textos.</div>
+  {% endfor %}
+</div>
+</body>
+</html>
