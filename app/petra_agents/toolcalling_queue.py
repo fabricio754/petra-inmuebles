@@ -72,9 +72,12 @@ def _reintentar_fase(telefono, texto, cid, fase):
             return False
         meta = dict(row[0] or {})
         if fase == "inscripcion":
-            from app.petra_agents import tools_inscripcion as _tins
-            resultado = _tins.procesar(telefono, texto, cid, meta, conn)
-            return bool(resultado.get("ok"))
+            # M2.E: la fase de inscripción ya no usa LLM. Si quedó una
+            # entrada vieja en la cola, la marcamos como OK para que
+            # salga sin reintentar y no bloquee la cola.
+            log.info("[tc-queue] inscripcion tel=%s: ya es determinística "
+                     "(M2.E), dropeando entrada vieja", telefono)
+            return True
         if fase == "autorizacion":
             from app.petra_agents import tools_autorizacion as _tau
             resultado = _tau.procesar(telefono, texto, cid, meta, conn)
