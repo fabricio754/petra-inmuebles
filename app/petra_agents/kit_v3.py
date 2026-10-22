@@ -128,10 +128,17 @@ FB_DIRECCION_CONFIRMADA = (
 
 FB_PEDIR_FOTO_LIBRO = (
     "📚 *¿Ya cargaste las fotos del libro de arriendos y ventas* "
-    "de tu conjunto?*\n\n"
+    "de tu conjunto?\n\n"
     "Pasá por la *portería o el lobby* y pedí ver el libro — tomale "
     "una foto bien clara de cada hoja y mandámela por acá 💜\n\n"
     "Cuando las tengas subidas, apretá *Sí* y cargamos tu QR 🚀"
+)
+
+FB_FOTO_LIBRO_RECIBIDA = (
+    "📸 *Acabas de enviar la foto. Decime:*\n\n"
+    "¿Ya cargaste *todas* las fotos del libro?\n\n"
+    "Apretá *Sí* y cargamos tu QR 🚀\n"
+    "Apretá *No* si todavía te faltan 💜"
 )
 
 FB_LIBRO_NO = (
