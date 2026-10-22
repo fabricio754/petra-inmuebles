@@ -2232,3 +2232,97 @@ def admin_reset_agente_por_tel():
             f"rol_eliminado={n_rol}, cap_eliminada={n_cap}, "
             f"intent_eliminado={n_intent}, sesiones_cerradas={n_sess}. "
             f"Ya podés escribirle desde tu WhatsApp y arranca de cero."), 200
+
+
+# =============================================================================
+# M4.A — Endpoints humano-in-the-loop para el flow determinístico del kit.
+# =============================================================================
+
+
+def _buscar_agente_por_tel(tel):
+    """Devuelve (cid, meta) o (None, None). Normaliza el teléfono."""
+    import json as _json
+    tel = (tel or "").strip().lstrip("+").replace(" ", "")
+    if not tel or not tel.isdigit():
+        return None, None, None
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT c.id, r.metadata FROM petra_contactos c "
+            "JOIN petra_contacto_roles r ON r.contacto_id=c.id "
+            "AND r.rol='agente_petra' WHERE c.telefono=%s",
+            (tel,),
+        ).fetchone()
+    if not row:
+        return None, None, tel
+    cid = row[0]
+    meta = row[1]
+    if isinstance(meta, str):
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            meta = {}
+    meta = dict(meta or {})
+    return cid, meta, tel
+
+
+@petra_panel_bp.get("/_admin/kit-qr-cargado")
+def admin_kit_qr_cargado():
+    """Humano confirma: fotos del libro OK + QR cargado en el sistema.
+    Transiciona el estado del agente al sub-paso `qr_cargado` y envía
+    por WhatsApp el mensaje con el botón ONBAG_QR_CARGADO.
+
+    Uso:
+        GET /panel/petra/_admin/kit-qr-cargado?tel=<tel>&token=<PANEL_TOKEN>
+    """
+    _check_token()
+    cid, meta, tel = _buscar_agente_por_tel(request.args.get("tel") or "")
+    if cid is None:
+        return (f"Sin agente_petra con telefono={tel!r}", 404)
+    estado = (meta.get("estado_agente") or "").strip()
+    if estado not in ("kit_pendiente", "kit_enviado"):
+        return (f"Estado inválido para QR cargado: {estado!r} "
+                f"(se esperaba kit_pendiente / kit_enviado)", 400)
+    try:
+        from app.petra_agents import kit_v3 as _kv3
+        with _db._conexion_directa(timeout=10) as conn:
+            ok = _kv3.disparar_qr_cargado(conn, cid, tel, meta)
+    except Exception as e:
+        return f"Error disparando qr-cargado: {e!r}", 500
+    if not ok:
+        return "No se pudo disparar (estado no válido)", 400
+    return (f"OK ✅ kit-qr-cargado disparado — tel={tel}, cid={cid}, "
+            f"paso=qr_cargado. Se envió msg al chat con botón "
+            f"ONBAG_QR_CARGADO."), 200
+
+
+@petra_panel_bp.get("/_admin/kit-guia")
+def admin_kit_guia():
+    """Humano setea el número de guía del envío del kit. Guarda
+    `meta.kit_guia`, transiciona a `guia_enviada` y manda al chat el
+    mensaje con el número de guía.
+
+    Uso:
+        GET /panel/petra/_admin/kit-guia?tel=<tel>&guia=<N>&token=<TK>
+
+    Si guia= viene vacío, se usa el msg "guía te la compartimos cuando
+    esté disponible" (igual que el flow interno). Si meta.kit_guia ya
+    existía, se sobrescribe con el nuevo valor.
+    """
+    _check_token()
+    cid, meta, tel = _buscar_agente_por_tel(request.args.get("tel") or "")
+    if cid is None:
+        return (f"Sin agente_petra con telefono={tel!r}", 404)
+    guia = (request.args.get("guia") or "").strip()
+    estado = (meta.get("estado_agente") or "").strip()
+    if estado not in ("kit_pendiente", "kit_enviado"):
+        return (f"Estado inválido para kit-guia: {estado!r}", 400)
+    try:
+        from app.petra_agents import kit_v3 as _kv3
+        with _db._conexion_directa(timeout=10) as conn:
+            ok = _kv3.disparar_guia(conn, cid, tel, meta, guia)
+    except Exception as e:
+        return f"Error disparando kit-guia: {e!r}", 500
+    if not ok:
+        return "No se pudo disparar (estado no válido)", 400
+    return (f"OK ✅ kit-guia seteado — tel={tel}, cid={cid}, "
+            f"guia={guia!r}, paso=guia_enviada."), 200

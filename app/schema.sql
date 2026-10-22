@@ -1846,3 +1846,80 @@ VALUES (
   TRUE
 )
 ON CONFLICT (clave) DO NOTHING;
+
+-- =============================================================================
+-- M4.A — Textos nuevos para el motor determinístico del kit (kit_v3).
+-- =============================================================================
+
+INSERT INTO petra_textos (clave, contenido, descripcion, categoria, activo)
+VALUES (
+  'activacion.msg_qr_cargado',
+  E'📸 *¡Hemos recibido tus fotos y hemos cargado el QR!* ✨\n\n'
+  || E'Tu QR ya está listo para funcionar con la info de tu conjunto 🚀\n\n'
+  || E'Apretá para seguir 👇',
+  'Humano cargó el QR tras procesar la foto del libro de arriendos.',
+  'activacion',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+INSERT INTO petra_textos (clave, contenido, descripcion, categoria, activo)
+VALUES (
+  'activacion.msg_guia_envio',
+  E'📦 *¡Tu kit ya está en camino!*\n\n'
+  || E'Avísanos cuando te llegue. *Tu número de guía es:* `{guia}` 🚚\n\n'
+  || E'Apretá para seguir 👇',
+  'Mensaje de envío del kit con número de guía (plantilla: {guia}).',
+  'activacion',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+INSERT INTO petra_textos (clave, contenido, descripcion, categoria, activo)
+VALUES (
+  'activacion.msg_guia_envio_sin_guia',
+  E'📦 *¡Tu kit ya está en camino!*\n\n'
+  || E'Avísanos cuando te llegue. 🚚\n\n'
+  || E'_Tu número de guía te lo compartimos apenas esté disponible._\n\n'
+  || E'Apretá para seguir 👇',
+  'Fallback de msg_guia_envio cuando aún no hay número de guía cargado.',
+  'activacion',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+INSERT INTO petra_textos (clave, contenido, descripcion, categoria, activo)
+VALUES (
+  'activacion.msg_kit_llegado_contenido',
+  E'📦 *¡Genial! Destapá tu kit* 🎁\n\n'
+  || E'Adentro vas a encontrar:\n'
+  || E'• 👜 Tu *bolsa Petra*\n'
+  || E'• 🔘 Tu *botón ✨ Petra*\n'
+  || E'• 🖊️ Un *esfero* de Petra\n'
+  || E'• ☂️ Una *sombrilla* Petra\n'
+  || E'• 🏷️ Tu *QR sticker*\n'
+  || E'• 🪧 Tu *QR con base* para pegar\n\n'
+  || E'Cuando lo tengas todo a la mano, apretá y te paso los pasos para instalar el QR 👇',
+  'Descripción del contenido del kit tras avisar que llegó.',
+  'activacion',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+INSERT INTO petra_textos (clave, contenido, descripcion, categoria, activo)
+VALUES (
+  'activacion.msg_pasos_instalacion',
+  E'📋 *Pasos para instalar tu QR* 📱\n\n'
+  || E'1️⃣ Hablá con el *administrador* o la *portería* y pedí autorización para pegar el QR en un lugar visible.\n'
+  || E'2️⃣ Elegí el mejor punto: *portería*, *lobby*, cartelera común o ascensor — donde pase la mayor cantidad de gente del conjunto.\n'
+  || E'3️⃣ Limpiá la superficie para que el *sticker* o la base se pegue bien y no se despegue.\n'
+  || E'4️⃣ Pegá el *QR* (sticker o base rígida) a la altura de los ojos, sin reflejos ni obstáculos.\n'
+  || E'5️⃣ Pedile al *vigilante* o al admin que te ayude a verificar que quedó derecho y visible.\n'
+  || E'6️⃣ Escanealo con tu celular para confirmar que *abre bien* el chat de Petra.\n'
+  || E'7️⃣ Tomale una *foto clara* al QR instalado y mandámela por acá 📸 — con eso te activo oficialmente.\n\n'
+  || E'Cuando lo tengas pegado, apretá 👇',
+  'Siete pasos de instalación del QR tras ONBAG_DIME_PASOS.',
+  'activacion',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
