@@ -985,41 +985,50 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
         # Avanzamos directo al paso "qr_cargado" sin esperar que humano
         # dispare el endpoint — el flow queda autónomo. Humano puede
         # igual confirmar manualmente desde el panel si hace falta.
-        # Si ya avanzamos (foto previa de la misma tanda llegó primero),
-        # solo guardamos la foto adicional y salimos sin reenviar nada.
-        ya_avanzado = meta.get("kit_paso") in ("qr_cargado", "guia_enviada",
-                                               "kit_recibido", "pasos_mostrados",
-                                               "qr_foto_pendiente")
-        if not ya_avanzado:
-            meta["kit_paso"] = "qr_cargado"
-            meta["qr_cargado_at"] = _dt.datetime.utcnow().isoformat()
+        # NO avanzamos el kit_paso: nos quedamos en foto_libro_pedida y
+        # le preguntamos a la agente si ya cargó TODAS. Avanza solo
+        # cuando pulsa Sí (manejado en kit_v3.handle).
         try:
             with _db._conexion_directa(timeout=10) as conn:
                 _save_meta(conn, cid, meta)
-            log.info("[flow:foto-libro] meta guardada tel=%s fotos=%d ya=%s",
-                     telefono, len(fotos), ya_avanzado)
+            log.info("[flow:foto-libro] meta guardada tel=%s fotos=%d",
+                     telefono, len(fotos))
         except Exception:
             log.exception("[flow:foto-libro] save meta fallo tel=%s", telefono)
             return False
-        if ya_avanzado:
-            # Foto adicional de la misma tanda: solo persistimos.
-            return True
+        # Si ya mandó varias fotos seguidas, solo guardamos la nueva
+        # sin spamear el msg de confirmación (idempotente por minuto).
+        import datetime as _dtf
+        ultimo_prompt = meta.get("libro_prompt_at")
+        if ultimo_prompt:
+            try:
+                dt_prompt = _dtf.datetime.fromisoformat(ultimo_prompt.replace("Z",""))
+                if (_dtf.datetime.utcnow() - dt_prompt).total_seconds() < 30:
+                    return True
+            except Exception:
+                pass
+        meta["libro_prompt_at"] = _dtf.datetime.utcnow().isoformat()
         try:
+            with _db._conexion_directa(timeout=5) as conn:
+                _save_meta(conn, cid, meta)
             _send_buttons(
                 telefono,
                 _t(
-                    "activacion.msg_qr_cargado",
+                    "activacion.msg_foto_libro_recibida",
                     fallback=(
-                        "✅ *¡Perfecto!* Recibimos tus fotos del libro 💜\n\n"
-                        "📸 Hemos *cargado el QR* con la info de tu conjunto. "
-                        "Cuando lo instales, va a mostrar toda la oferta de "
-                        "arriendos y ventas 💜"
+                        "📸 *Acabas de enviar la foto. Decime:*\n\n"
+                        "¿Ya cargaste *todas* las fotos del libro?\n\n"
+                        "Apretá *Sí* y cargamos tu QR 🚀\n"
+                        "Apretá *No* si todavía te faltan 💜"
                     ),
                 ),
-                [{"id": "ONBAG_QR_CARGADO", "title": "✨ Perfecto"}],
+                [
+                    {"id": "ONBAG_LIBRO_SI", "title": "✅ Sí"},
+                    {"id": "ONBAG_LIBRO_NO", "title": "❌ No"},
+                ],
             )
-            _log(telefono, "[imagen]", "[kit:foto_libro_pedida → qr_cargado auto]",
-                 nota=f"foto en {local_path}")
+            _log(telefono, "[imagen]", "[kit:foto_libro recibida → espera Sí/No]",
+                 nota=f"foto en {local_path} total={len(fotos)}")
         except Exception:
             log.exception("[flow:foto-libro] envio msgs fallo tel=%s", telefono)
         return True
