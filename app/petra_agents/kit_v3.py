@@ -401,8 +401,18 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         return True
 
     # ── Paso 3 ack: pulsa ONBAG_FOTO_LIBRO ──────────────────────────────
-    # (ack de que el usuario entendió; después manda la foto).
+    # Si la agente ya mandó fotos del libro (meta.libro_fotos no vacío),
+    # avanzamos directo al paso qr_cargado para no quedar en loop.
+    # Si no, es el ack clásico (todavía no mandó fotos).
     if texto == "ONBAG_FOTO_LIBRO":
+        if meta.get("libro_fotos"):
+            import datetime as _dtl
+            meta["qr_cargado_at"] = meta.get("qr_cargado_at") or _dtl.datetime.utcnow().isoformat()
+            _marcar_paso(conn, cid, meta, "qr_cargado")
+            _enviar_qr_cargado(telefono)
+            _log(telefono, texto,
+                 "[v3:kit ONBAG_FOTO_LIBRO con fotos → qr_cargado]")
+            return True
         _enviar_ack_foto_libro(telefono)
         _log(telefono, texto, "[v3:kit ack foto libro]")
         return True
@@ -457,6 +467,22 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _enviar_pedir_foto_qr(telefono)
         _log(telefono, texto, "[v3:kit compat ONBAG_QR_INSTALADO]")
         return True
+
+    # Safety-net: si estamos en foto_libro_pedida con fotos ya recibidas
+    # y la agente responde cualquier cosa afirmativa ("perfecto", "ok",
+    # "listo"), avanzamos a qr_cargado para no quedar en loop pidiendo
+    # la foto que ya mandó.
+    if paso == "foto_libro_pedida" and meta.get("libro_fotos"):
+        PAL_OK = ("perfecto", "ok", "okay", "listo", "dale", "sí", "si",
+                  "vale", "ya", "✨ perfecto")
+        if any(p == t_lc or p in t_lc for p in PAL_OK):
+            import datetime as _dts
+            meta["qr_cargado_at"] = meta.get("qr_cargado_at") or _dts.datetime.utcnow().isoformat()
+            _marcar_paso(conn, cid, meta, "qr_cargado")
+            _enviar_qr_cargado(telefono)
+            _log(telefono, texto,
+                 "[v3:kit safety-net foto_libro+fotos → qr_cargado]")
+            return True
 
     # Texto libre no reconocido: primero intento FAQ (M4.B).
     # Si el agente FAQ responde la duda + reofrece el botón, listo.
