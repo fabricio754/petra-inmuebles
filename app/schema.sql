@@ -1812,3 +1812,37 @@ UPDATE petra_textos
        updated_at = NOW()
  WHERE clave = 'capacitacion.msg_listo_para_arrancar'
    AND contenido LIKE E'¡Buenísimo! 🎉✨%';
+
+-- ─── M2.B / M2.C — texts introducidos con PETRA_V3 ──────────────────────
+-- Mensaje de rechazo cuando una nueva agente intenta inscribirse en un
+-- edificio donde ya hay un QR activo (o kit en camino). Decisión de
+-- producto: NO mencionamos que hay otra agente.
+INSERT INTO petra_textos (clave, contenido, descripcion, categoria, activo)
+VALUES (
+  'inscripcion.conjunto_duplicado',
+  E'🏢 Ya hay un QR instalado en ese edificio.\n\n'
+  || E'Si creés que es un error, escribile a soporte.',
+  'Mensaje mostrado al 5º campo cuando el edificio ya tiene agente activa.',
+  'inscripcion',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;
+
+-- Journey de 6 pasos — se muestra DIRECTO tras la felicitación (M2.C).
+-- Reemplaza al botón intermedio "Ver próximos pasos" + msg de bienvenida.
+INSERT INTO petra_textos (clave, contenido, descripcion, categoria, activo)
+VALUES (
+  'inscripcion.msg_journey',
+  E'📋 *Tu camino como Agente Petra:*\n\n'
+  || E'1️⃣ *Inscripción* ✅ — ya lo hiciste.\n'
+  || E'2️⃣ *Capacitación* 🎓 — 2 videos cada día durante 7 días.\n'
+  || E'3️⃣ *Autorización del conjunto* 🏢 — hablás con el administrador de tu conjunto.\n'
+  || E'4️⃣ *Activar el QR* 📬 — te enviamos kit + regalo.\n'
+  || E'5️⃣ *Gestionar citas* 📅 — recibís citas con propietarios/interesados.\n'
+  || E'6️⃣ *Registrar inventario* 🔑 — recibís llaves y revisás inmuebles.\n\n'
+  || E'¿Arrancamos con los videos de hoy? 👇',
+  'Journey de 6 pasos tras la felicitación. Botón: Empezar ahora.',
+  'inscripcion',
+  TRUE
+)
+ON CONFLICT (clave) DO NOTHING;

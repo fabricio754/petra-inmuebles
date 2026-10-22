@@ -239,6 +239,43 @@ def _extraer_multiples(texto):
 
 # ─── DB helpers ─────────────────────────────────────────────────────────
 
+# Estados en los que un rol agente_petra ya tiene (o está por tener) un QR
+# activo en el edificio — bloquean una nueva inscripción en el mismo
+# conjunto. 'activa' = QR instalado y confirmado por foto;
+# 'kit_enviado' = kit ya se despachó, la agente aún no instala el QR pero
+# el edificio ya está asignado a ella.
+_ESTADOS_QR_OCUPAN_CONJUNTO = ("activa", "kit_enviado")
+
+
+def _conjunto_ya_tomado(conn, conjunto, cid_actual=None):
+    """True si ya existe un rol agente_petra con `conjunto` ILIKE match
+    en algún estado que ocupa el edificio (QR activo o kit en camino).
+    Excluye al cid actual para que el propio registro en curso no cuente.
+    """
+    if not conjunto or not isinstance(conjunto, str):
+        return False
+    cj = conjunto.strip()
+    if not cj:
+        return False
+    try:
+        q = (
+            "SELECT 1 FROM petra_contacto_roles r "
+            "WHERE r.rol='agente_petra' "
+            "AND r.metadata->>'conjunto' ILIKE %s "
+            "AND r.metadata->>'estado_agente' = ANY(%s) "
+        )
+        params = [cj, list(_ESTADOS_QR_OCUPAN_CONJUNTO)]
+        if cid_actual is not None:
+            q += "AND r.contacto_id <> %s "
+            params.append(cid_actual)
+        q += "LIMIT 1"
+        row = conn.execute(q, tuple(params)).fetchone()
+        return bool(row)
+    except Exception:
+        log.exception("[v3] fallo chequeo conjunto_ya_tomado conjunto=%s", conjunto)
+        return False
+
+
 def _save_meta(conn, cid, meta):
     """Upsert del rol agente_petra + metadata."""
     existente = conn.execute(
@@ -390,19 +427,74 @@ def _felicitar_y_marcar_inscrito(conn, cid, telefono, meta):
             "🎉✨ *¡Felicitaciones {nombre_corto}!* ✨🎉\n\n"
             "Ya sos oficialmente *Agente Petra* 💜\n\n"
             "🏢 Vas a representar a Petra en *{conjunto}*\n"
-            "📍 {barrio}, {ciudad}\n\n"
-            "Vamos a arrancar con tu capacitación paso a paso 🚀\n"
-            "Tocá el botón de abajo para ver los próximos pasos 👇"
+            "📍 {barrio}, {ciudad}"
         ),
         nombre_corto=nombre_corto,
         conjunto=conjunto,
         barrio=meta.get("barrio") or "",
         ciudad=meta.get("ciudad") or "",
     )
-    _flow_send_btns(telefono, felicitaciones,
-        [{"id": "ONBAG_VER_JOURNEY",
-          "title": _b("ONBAG_VER_JOURNEY", "Ver próximos pasos")}],
+    _send_text(telefono, felicitaciones)
+
+    # M2.C: Enviar journey de 6 pasos + botón "Empezar ahora" DIRECTAMENTE
+    # (eliminamos el paso intermedio "Ver próximos pasos").
+    journey = _t(
+        "inscripcion.msg_journey",
+        fallback=(
+            "📋 *Tu camino como Agente Petra:*\n\n"
+            "1️⃣ *Inscripción* ✅ — ya lo hiciste.\n"
+            "2️⃣ *Capacitación* 🎓 — 2 videos cada día durante 7 días.\n"
+            "3️⃣ *Autorización del conjunto* 🏢 — hablás con el administrador de tu conjunto.\n"
+            "4️⃣ *Activar el QR* 📬 — te enviamos kit + regalo.\n"
+            "5️⃣ *Gestionar citas* 📅 — recibís citas con propietarios/interesados.\n"
+            "6️⃣ *Registrar inventario* 🔑 — recibís llaves y revisás inmuebles.\n\n"
+            "¿Arrancamos con los videos de hoy? 👇"
+        ),
+    )
+    meta["journey_mostrado"] = True
+    _save_meta(conn, cid, meta)
+    _flow_send_btns(telefono, journey,
+        [{"id": "ONBAG_EMPEZAR_AHORA",
+          "title": _b("ONBAG_EMPEZAR_AHORA", "Empezar ahora")}],
         estado_key="inscrito")
+
+
+def _rechazar_conjunto_duplicado(conn, cid, telefono, meta, conjunto):
+    """M2.B: El conjunto ya tiene un QR activo (o kit en camino) en manos
+    de otra agente. Rechazamos la inscripción:
+    - mensaje templateado (clave `inscripcion.conjunto_duplicado`),
+    - sin mencionar que hay otra agente,
+    - borramos el rol agente_petra (meta se resetea; el teléfono queda
+      en petra_contactos para futuro),
+    - cerramos sesión + intent para que el próximo "hola" arranque limpio.
+    """
+    try:
+        conn.execute(
+            "DELETE FROM petra_contacto_roles "
+            "WHERE contacto_id=%s AND rol='agente_petra'",
+            (cid,),
+        )
+    except Exception:
+        log.exception("[v3] delete rol duplicado fallo cid=%s", cid)
+    msg = _t(
+        "inscripcion.conjunto_duplicado",
+        fallback=(
+            "🏢 Ya hay un QR instalado en ese edificio.\n\n"
+            "Si creés que es un error, escribile a soporte."
+        ),
+        conjunto=(conjunto or "").strip(),
+    )
+    _send_buttons(telefono, msg,
+        [{"id": "ONBAG_CANCELAR",
+          "title": _b("ONBAG_CANCELAR", "Entiendo, cancelar")}],
+        estado_key="recolectando")
+    try:
+        from app.petra_agents import sesion, intent_store
+        intent_store.cerrar(telefono)
+        sesion.cerrar(telefono, razon="conjunto_duplicado")
+    except Exception:
+        log.exception("[v3] cerrar sesion dup fallo tel=%s", telefono)
+    log.info("[v3] tel=%s rechazado por conjunto duplicado=%s", telefono, conjunto)
 
 
 def _cancelar(conn, cid, telefono):
@@ -447,6 +539,13 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
             _send_text(telefono, resp)
             prox = faltantes[0]
             _enviar_pregunta(telefono, prox)
+            return True
+        # M2.B: defensive re-check al confirmar (en caso de race condition
+        # entre captura de conjunto y pulsar Registrarme).
+        if _conjunto_ya_tomado(conn, meta.get("conjunto") or "",
+                               cid_actual=cid):
+            _rechazar_conjunto_duplicado(conn, cid, telefono, meta,
+                                         meta.get("conjunto") or "")
             return True
         _felicitar_y_marcar_inscrito(conn, cid, telefono, meta)
         return True
@@ -523,6 +622,15 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
                 _enviar_pregunta(telefono, campo)
             return True
         extraidos = {campo: valor}
+
+    # ── 7.5) M2.B: si entre los extraídos viene `conjunto`, chequeamos
+    #       que no esté tomado por otra agente activa / con kit en camino.
+    #       Si lo está, rechazamos y borramos la inscripción en curso. ──
+    if "conjunto" in extraidos:
+        if _conjunto_ya_tomado(conn, extraidos["conjunto"], cid_actual=cid):
+            _rechazar_conjunto_duplicado(conn, cid, telefono, meta,
+                                         extraidos["conjunto"])
+            return True
 
     # ── 8) Guardar los campos extraídos ─────────────────────────────────
     for c, v in extraidos.items():

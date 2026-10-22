@@ -3,7 +3,20 @@
   "description": "Agente intenta inscribirse en un conjunto donde ya hay un QR activo. El bot rechaza sin mencionar que hay otra agente.",
   "telefono": "+99999000004",
   "meta_inicial": {},
-  "_requiere": "M2: validación de conjunto único con QR activo",
+  "fixtures": [
+    {
+      "telefono": "+99999000904",
+      "meta": {
+        "nombre": "Agente Previa",
+        "cedula": "1111111111",
+        "ciudad": "Bogotá",
+        "barrio": "Chapinero",
+        "conjunto": "Edificio Palermo",
+        "estado_agente": "activa"
+      }
+    }
+  ],
+  "_requiere": "M2.B: validación de conjunto único con QR activo",
   "turnos": [
     {"user": "Hola", "bot_contiene": ["nombre"]},
     {"user": "María López", "bot_contiene": ["cédula"]},
@@ -13,7 +26,7 @@
     {
       "user": "Edificio Palermo",
       "bot_contiene": ["Ya hay un QR instalado"],
-      "bot_no_contiene": ["otra agente", "ya existe"]
+      "bot_no_contiene": ["otra agente", "ya existe", "Felicitaciones"]
     }
   ]
 }
