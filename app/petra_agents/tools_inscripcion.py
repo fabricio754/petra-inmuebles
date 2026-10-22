@@ -16,13 +16,14 @@ import re
 
 log = logging.getLogger("petra")
 
-CAMPOS = ["nombre", "cedula", "ciudad", "barrio", "conjunto"]
+CAMPOS = ["nombre", "cedula", "ciudad", "barrio", "conjunto", "torre_apto"]
 NOMBRE_CAMPO = {
     "nombre": "nombre completo",
     "cedula": "cédula",
     "ciudad": "ciudad",
     "barrio": "barrio",
     "conjunto": "conjunto / edificio",
+    "torre_apto": "torre y apto / casa",
 }
 
 # Pregunta templateada por campo (editable en petra_textos vía clave).
@@ -38,6 +39,9 @@ PREGUNTA_CAMPO = {
                "¿En qué *barrio* vivís? 📍"),
     "conjunto": ("inscripcion.pedir_conjunto",
                  "¿Cómo se llama tu *conjunto o edificio*? 🏢"),
+    "torre_apto": ("inscripcion.pedir_torre_apto",
+                   "Último dato — ¿En qué *torre y apartamento* vivís? "
+                   "(ej. _Torre 3 apto 702_, _Casa 49_, _Apto 15B_) 🏠"),
 }
 
 # Mensaje de confirmación cuando capturamos un dato. {valor} = lo guardado.
@@ -47,6 +51,7 @@ CONFIRMACION_CAMPO = {
     "ciudad": ("inscripcion.ok_ciudad", "✅ Perfecto, tu ciudad es {valor}."),
     "barrio": ("inscripcion.ok_barrio", "✅ Anotado el barrio {valor}."),
     "conjunto": ("inscripcion.ok_conjunto", "✅ Anotado {valor}."),
+    "torre_apto": ("inscripcion.ok_torre_apto", "✅ Anotado: {valor}."),
 }
 
 # Mensaje de rechazo cuando el dato no es válido.
@@ -56,6 +61,7 @@ RECHAZO_CAMPO = {
     "ciudad": "No me quedó claro cuál es tu ciudad. Decímelo con una palabra (ej. *Bogotá*) 🙏",
     "barrio": "No me quedó claro cuál es tu barrio. Mandámelo como el nombre nomás (ej. *Chapinero*) 🙏",
     "conjunto": "No me quedó claro el nombre del conjunto. Mandámelo como aparece en la entrada (ej. *Torres del Parque*) 🙏",
+    "torre_apto": "No me quedó claro. Mandámelo como *Torre 3 apto 702*, *Casa 49* o *Apto 15B* 🙏",
 }
 
 
@@ -82,6 +88,7 @@ TOOLS = [
                 "ciudad": {"type": "string", "description": "Ciudad de Colombia (ej. 'Bogotá', 'Zipaquirá')"},
                 "barrio": {"type": "string", "description": "Barrio dentro de la ciudad (ej. 'Chapinero', 'San Pablo')"},
                 "conjunto": {"type": "string", "description": "Nombre del conjunto residencial o edificio donde vive (ej. 'Edificio Palermo', 'Condominio Monaco')"},
+                "torre_apto": {"type": "string", "description": "Torre y apartamento o número de casa, en un solo string libre (ej. 'Torre 3 apto 702', 'Casa 49', 'Apto 15B'). NO desglosar, pasalo tal cual lo mandó."},
             },
             "additionalProperties": False,
         },
@@ -384,8 +391,8 @@ def build_system_prompt(meta):
     )
     return f"""Sos Petra, el bot de WhatsApp que ayuda a nuevas Agentes Petra a inscribirse en la plataforma inmobiliaria.
 
-La persona que te escribe quiere ser Agente Petra. Tu única tarea en esta fase es completar los 5 datos de registro:
-nombre completo, cédula, ciudad, barrio, y nombre del conjunto/edificio donde vive.
+La persona que te escribe quiere ser Agente Petra. Tu única tarea en esta fase es completar los 6 datos de registro:
+nombre completo, cédula, ciudad, barrio, nombre del conjunto/edificio, y torre + apartamento o número de casa.
 
 📋 DATOS ACTUALES:
 {datos_str}
@@ -395,7 +402,9 @@ ESTADO: {estado_str}
 TU ÚNICO TRABAJO ES LLAMAR LA TOOL CORRECTA. El bot responde solo (templates), vos NO escribís texto cuando llamás una tool.
 
 CUÁNDO LLAMAR CADA TOOL:
-1. La agente te manda uno o más datos (nombre, cédula, ciudad, barrio, conjunto) → `capturar_datos_personales` con los campos que vinieron. Podés mandar varios si vinieron juntos. El bot ya se encarga de confirmar y pedir el próximo.
+1. La agente te manda uno o más datos (nombre, cédula, ciudad, barrio, conjunto, torre_apto) → `capturar_datos_personales` con los campos que vinieron. Podés mandar varios si vinieron juntos. El bot ya se encarga de confirmar y pedir el próximo.
+   • `torre_apto`: la agente puede decir "Torre 3 apto 702", "Casa 49", "Apto 15B", "Bloque A 302". Pasalo COMO ESTÁ en un único string — NO lo desgloses en 2 campos ni lo inventes.
+   • Si la agente responde "Conjunto X torre Y" cuando le pediste el conjunto, extraé AMBOS: conjunto="X", torre_apto="Torre Y".
 2. Pulsa botón "Registrarme" (texto "ONBAG_CONFIRM") o escribe "registrarme"/"confirmo" Y están los 5 campos → `confirmar_registro`.
 3. Pulsa "Corregir" o pide cambiar un dato puntual → `corregir_dato` con el campo.
 4. Pulsa "Cancelar" o dice explícitamente que no quiere → `cancelar_inscripcion`.
