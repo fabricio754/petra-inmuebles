@@ -599,10 +599,13 @@ def _fase_inscrito(conn, telefono, cid, meta, texto):
             _send_buttons(telefono, _t(
                 "capacitacion.msg_listo_para_arrancar",
                 fallback=(
-                    "¡Buenísimo! 🎉✨\n\n"
-                    "Ya está todo listo para que arranques con tu "
-                    "capacitación 🎓\n\n"
-                    "Tocá el botón de abajo para ver tus videos del día 👇"
+                    "🎉✨ *¡Todo listo!*\n\n"
+                    "Tu capacitación arranca cuando vos quieras 💜\n\n"
+                    "🎬 Vas a ver *2 videos cortos por día* — a tu "
+                    "ritmo, sin presión.\n"
+                    "📚 En *7 días* vas a estar lista para ser una "
+                    "Agente Petra experta en tu edificio 🏢\n\n"
+                    "¿Querés ver los videos de hoy? Tocá el botón 👇"
                 ),
             ), [{"id": "ONBAG_VER_VIDEOS_HOY", "title": _b("ONBAG_VER_VIDEOS_HOY", "▶️ Ver mis videos")}],
                estado_key="bienvenida_enviada")
@@ -1653,10 +1656,13 @@ def _fase_bienvenida_enviada(conn, telefono, cid, meta, texto):
             _send_buttons(telefono, _t(
                 "capacitacion.msg_listo_para_arrancar",
                 fallback=(
-                    "¡Buenísimo! 🎉✨\n\n"
-                    "Ya está todo listo para que arranques con tu "
-                    "capacitación 🎓\n\n"
-                    "Tocá el botón de abajo para ver tus videos del día 👇"
+                    "🎉✨ *¡Todo listo!*\n\n"
+                    "Tu capacitación arranca cuando vos quieras 💜\n\n"
+                    "🎬 Vas a ver *2 videos cortos por día* — a tu "
+                    "ritmo, sin presión.\n"
+                    "📚 En *7 días* vas a estar lista para ser una "
+                    "Agente Petra experta en tu edificio 🏢\n\n"
+                    "¿Querés ver los videos de hoy? Tocá el botón 👇"
                 ),
             ), [{"id": "ONBAG_VER_VIDEOS_HOY", "title": _b("ONBAG_VER_VIDEOS_HOY", "▶️ Ver mis videos")}],
                estado_key="bienvenida_enviada")

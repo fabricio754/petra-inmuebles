@@ -1801,3 +1801,14 @@ VALUES (
   TRUE
 )
 ON CONFLICT (clave) DO NOTHING;
+
+-- Mejora del texto 'listo para arrancar' (más cálido + con contexto).
+UPDATE petra_textos
+   SET contenido = E'🎉✨ *¡Todo listo!*\n\n'
+                || E'Tu capacitación arranca cuando vos quieras 💜\n\n'
+                || E'🎬 Vas a ver *2 videos cortos por día* — a tu ritmo, sin presión.\n'
+                || E'📚 En *7 días* vas a estar lista para ser una Agente Petra experta en tu edificio 🏢\n\n'
+                || E'¿Querés ver los videos de hoy? Tocá el botón 👇',
+       updated_at = NOW()
+ WHERE clave = 'capacitacion.msg_listo_para_arrancar'
+   AND contenido LIKE E'¡Buenísimo! 🎉✨%';
