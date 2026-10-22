@@ -972,6 +972,7 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
 
     # ── Rama A: foto del libro de arriendos ────────────────────────────
     if kit_paso == "foto_libro_pedida":
+        import datetime as _dtf
         fotos = meta.get("libro_fotos") or []
         fotos.append({
             "local_path": local_path or "",
@@ -982,35 +983,36 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
         })
         meta["libro_fotos"] = fotos
         meta["libro_recibido_at"] = _dt.datetime.utcnow().isoformat()
-        # Avanzamos directo al paso "qr_cargado" sin esperar que humano
-        # dispare el endpoint — el flow queda autónomo. Humano puede
-        # igual confirmar manualmente desde el panel si hace falta.
-        # NO avanzamos el kit_paso: nos quedamos en foto_libro_pedida y
-        # le preguntamos a la agente si ya cargó TODAS. Avanza solo
-        # cuando pulsa Sí (manejado en kit_v3.handle).
-        try:
-            with _db._conexion_directa(timeout=10) as conn:
-                _save_meta(conn, cid, meta)
-            log.info("[flow:foto-libro] meta guardada tel=%s fotos=%d",
-                     telefono, len(fotos))
-        except Exception:
-            log.exception("[flow:foto-libro] save meta fallo tel=%s", telefono)
-            return False
-        # Si ya mandó varias fotos seguidas, solo guardamos la nueva
-        # sin spamear el msg de confirmación (idempotente por minuto).
+        # NO avanzamos kit_paso: nos quedamos en foto_libro_pedida y
+        # preguntamos a la agente si ya cargó TODAS. Avanza solo cuando
+        # pulsa Sí (manejado en kit_v3.handle).
+        # Anti-spam: si llegan varias fotos en <30s, solo persistimos y
+        # no reenviamos el msg de confirmación.
         import datetime as _dtf
+        skip_prompt = False
         ultimo_prompt = meta.get("libro_prompt_at")
         if ultimo_prompt:
             try:
                 dt_prompt = _dtf.datetime.fromisoformat(ultimo_prompt.replace("Z",""))
                 if (_dtf.datetime.utcnow() - dt_prompt).total_seconds() < 30:
-                    return True
+                    skip_prompt = True
             except Exception:
                 pass
-        meta["libro_prompt_at"] = _dtf.datetime.utcnow().isoformat()
+        if not skip_prompt:
+            meta["libro_prompt_at"] = _dtf.datetime.utcnow().isoformat()
+        # UNA sola conexión DB para no saturar el pool.
         try:
-            with _db._conexion_directa(timeout=5) as conn:
+            with _db._conexion_directa(timeout=10) as conn:
                 _save_meta(conn, cid, meta)
+            log.info("[flow:foto-libro] meta guardada tel=%s fotos=%d skip=%s",
+                     telefono, len(fotos), skip_prompt)
+        except Exception:
+            log.exception("[flow:foto-libro] save meta fallo tel=%s", telefono)
+            return False
+        if skip_prompt:
+            return True
+        # Envío HTTP FUERA de la conexión DB.
+        try:
             _send_buttons(
                 telefono,
                 _t(
