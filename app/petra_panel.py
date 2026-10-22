@@ -2000,6 +2000,55 @@ def evals_run():
 # Admin: reset de un agente por teléfono (uso puntual de testing)
 # =============================================================================
 
+@petra_panel_bp.get("/flow")
+def flow_vista():
+    """Flow explorer: documento vivo del flow del bot.
+    Lee todas las claves de petra_textos activas, las agrupa por fase
+    (prefijo), y muestra el contenido actual. Si el admin edita un
+    texto en el panel de textos, acá se refleja al toque."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT clave, contenido, activo, updated_at "
+                "FROM petra_textos "
+                "ORDER BY clave")
+    except Exception as e:
+        return f"❌ Error leyendo petra_textos: {e}", 500
+    import html as _html
+    import re as _re
+    orden_fases = [
+        "inscripcion", "capacitacion", "autorizacion", "activacion",
+        "citas", "inventario", "nudges", "fallback", "boton", "otros",
+    ]
+    # Pre-procesamos cada item: HTML-escape + resaltar variables {X} +
+    # convertir saltos de línea en <br> + resaltar *bold*.
+    for r in rows:
+        raw = r.get("contenido") or ""
+        esc = _html.escape(raw)
+        esc = _re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}",
+                      r'<span class="var">{\1}</span>', esc)
+        esc = _re.sub(r"\*([^*\n]+?)\*", r"<b>\1</b>", esc)
+        esc = esc.replace("\n", "<br>")
+        r["contenido_html"] = esc
+    # Agrupar por prefijo (fase)
+    secciones = {}
+    for r in rows:
+        clave = r.get("clave") or ""
+        pref = clave.split(".", 1)[0] if "." in clave else "otros"
+        pref = pref if pref in orden_fases else "otros"
+        secciones.setdefault(pref, []).append(r)
+    secciones_ordenadas = [(f, secciones[f]) for f in orden_fases if f in secciones]
+    return render_template(
+        "petra_flow.html",
+        secciones=secciones_ordenadas,
+        total=len(rows),
+        activos=sum(1 for r in rows if r.get("activo")),
+        token=token,
+    )
+
+
 @petra_panel_bp.get("/_admin/run-evals")
 def admin_run_evals():
     """Corre los goldens end-to-end (app/evals_e2e) contra la DB prod,
