@@ -972,7 +972,6 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
 
     # ── Rama A: foto del libro de arriendos ────────────────────────────
     if kit_paso == "foto_libro_pedida":
-        import datetime as _dtf
         fotos = meta.get("libro_fotos") or []
         fotos.append({
             "local_path": local_path or "",
@@ -983,53 +982,38 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
         })
         meta["libro_fotos"] = fotos
         meta["libro_recibido_at"] = _dt.datetime.utcnow().isoformat()
-        # NO avanzamos kit_paso: nos quedamos en foto_libro_pedida y
-        # preguntamos a la agente si ya cargó TODAS. Avanza solo cuando
-        # pulsa Sí (manejado en kit_v3.handle).
-        # Anti-spam: si llegan varias fotos en <30s, solo persistimos y
-        # no reenviamos el msg de confirmación.
-        import datetime as _dtf
-        skip_prompt = False
-        ultimo_prompt = meta.get("libro_prompt_at")
-        if ultimo_prompt:
-            try:
-                dt_prompt = _dtf.datetime.fromisoformat(ultimo_prompt.replace("Z",""))
-                if (_dtf.datetime.utcnow() - dt_prompt).total_seconds() < 30:
-                    skip_prompt = True
-            except Exception:
-                pass
-        if not skip_prompt:
-            meta["libro_prompt_at"] = _dtf.datetime.utcnow().isoformat()
-        # UNA sola conexión DB para no saturar el pool.
+        # Avanzamos directo al siguiente paso: cualquier foto hace avanzar.
+        # Si llegan varias fotos en la misma tanda, solo la primera envía
+        # el msg de qr_cargado; las siguientes solo persisten.
+        ya_avanzado = meta.get("kit_paso") == "qr_cargado"
+        if not ya_avanzado:
+            meta["kit_paso"] = "qr_cargado"
+            meta["qr_cargado_at"] = _dt.datetime.utcnow().isoformat()
         try:
             with _db._conexion_directa(timeout=10) as conn:
                 _save_meta(conn, cid, meta)
-            log.info("[flow:foto-libro] meta guardada tel=%s fotos=%d skip=%s",
-                     telefono, len(fotos), skip_prompt)
+            log.info("[flow:foto-libro] meta guardada tel=%s fotos=%d ya=%s",
+                     telefono, len(fotos), ya_avanzado)
         except Exception:
             log.exception("[flow:foto-libro] save meta fallo tel=%s", telefono)
             return False
-        if skip_prompt:
+        if ya_avanzado:
             return True
-        # Envío HTTP FUERA de la conexión DB.
         try:
             _send_buttons(
                 telefono,
                 _t(
-                    "activacion.msg_foto_libro_recibida",
+                    "activacion.msg_qr_cargado",
                     fallback=(
-                        "📸 *Acabas de enviar la foto. Decime:*\n\n"
-                        "¿Ya cargaste *todas* las fotos del libro?\n\n"
-                        "Apretá *Sí* y cargamos tu QR 🚀\n"
-                        "Apretá *No* si todavía te faltan 💜"
+                        "📸 *¡Hemos recibido tus fotos y hemos cargado el QR!* ✨\n\n"
+                        "Tu QR ya está listo para funcionar con la info de tu conjunto 🚀\n\n"
+                        "Apretá para seguir 👇"
                     ),
                 ),
-                [
-                    {"id": "ONBAG_LIBRO_SI", "title": "✅ Sí"},
-                    {"id": "ONBAG_LIBRO_NO", "title": "❌ No"},
-                ],
+                [{"id": "ONBAG_QR_CARGADO",
+                  "title": "✨ Perfecto"}],
             )
-            _log(telefono, "[imagen]", "[kit:foto_libro recibida → espera Sí/No]",
+            _log(telefono, "[imagen]", "[kit:foto_libro → qr_cargado auto]",
                  nota=f"foto en {local_path} total={len(fotos)}")
         except Exception:
             log.exception("[flow:foto-libro] envio msgs fallo tel=%s", telefono)
