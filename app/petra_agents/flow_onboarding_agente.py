@@ -2210,15 +2210,21 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                     (meta.get("nombre"), cid),
                 )
                 nombre_corto = meta.get("nombre", "").split()[0] if meta.get("nombre") else ""
+                _conj = (meta.get("conjunto") or "").strip()
+                if _conj.lower().startswith(("onbag_", "custom_")):
+                    _conj = "tu edificio"
                 felicitaciones = _t(
                     "inscripcion.msg_felicitaciones",
                     fallback=(
-                        "🎉 *¡Felicitaciones {nombre_corto}, ya sos oficialmente Agente Petra!*\n\n"
-                        "Vas a representar a Petra en *{conjunto}*, "
-                        "{barrio}, {ciudad}."
+                        "🎉✨ *¡Felicitaciones {nombre_corto}!* ✨🎉\n\n"
+                        "Ya sos oficialmente *Agente Petra* 💜\n\n"
+                        "🏢 Vas a representar a Petra en *{conjunto}*\n"
+                        "📍 {barrio}, {ciudad}\n\n"
+                        "Vamos a arrancar con tu capacitación paso a paso 🚀\n"
+                        "Tocá el botón de abajo para ver los próximos pasos 👇"
                     ),
                     nombre_corto=nombre_corto,
-                    conjunto=meta.get("conjunto") or "",
+                    conjunto=_conj,
                     barrio=meta.get("barrio") or "",
                     ciudad=meta.get("ciudad") or "",
                 )

@@ -1763,3 +1763,29 @@ VALUES (
   TRUE
 )
 ON CONFLICT (clave) DO NOTHING;
+
+-- =============================================================================
+-- Fix: mensaje felicitaciones más bonito + limpieza de meta.conjunto sucio
+-- =============================================================================
+
+-- Actualiza el texto editable al nuevo diseño (idempotente: solo si el
+-- contenido actual tiene la versión vieja de 2 líneas).
+UPDATE petra_textos
+   SET contenido = E'🎉✨ *¡Felicitaciones {nombre_corto}!* ✨🎉\n\n'
+                || E'Ya sos oficialmente *Agente Petra* 💜\n\n'
+                || E'🏢 Vas a representar a Petra en *{conjunto}*\n'
+                || E'📍 {barrio}, {ciudad}\n\n'
+                || E'Vamos a arrancar con tu capacitación paso a paso 🚀\n'
+                || E'Tocá el botón de abajo para ver los próximos pasos 👇',
+       updated_at = NOW()
+ WHERE clave = 'inscripcion.msg_felicitaciones'
+   AND contenido LIKE E'🎉 *¡Felicitaciones%';
+
+-- Limpia metadata.conjunto que haya quedado con un payload de botón
+-- (ONBAG_*, CUSTOM_*): reemplaza por 'tu edificio' para que el mensaje
+-- no muestre basura. Afecta solo filas con el bug.
+UPDATE petra_contacto_roles
+   SET metadata = jsonb_set(metadata, '{conjunto}', '"tu edificio"'::jsonb),
+       updated_at = NOW()
+ WHERE rol = 'agente_petra'
+   AND (metadata->>'conjunto') ~* '^(onbag_|custom_)';

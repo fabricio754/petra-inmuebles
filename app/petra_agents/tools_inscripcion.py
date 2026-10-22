@@ -178,6 +178,10 @@ def _parece_sospechoso(valor):
         return True
     if len(v) < 2 or len(v) > 120:
         return True
+    # Rechazar payloads de botones del bot (ids internos tipo ONBAG_X,
+    # CUSTOM_X). Nunca son datos de la agente.
+    if v.startswith("onbag_") or v.startswith("custom_"):
+        return True
     for s in _VAL_SOSPECHOSOS:
         if s in v:
             return True
@@ -304,14 +308,24 @@ def handle_confirmar_registro(args, ctx):
         (meta.get("nombre"), ctx["cid"]),
     )
     nombre_corto = (meta.get("nombre") or "").split()[0] if meta.get("nombre") else ""
+    # Protección final: si el conjunto tiene un payload tipo ONBAG_X
+    # (bug de LLM que guardó el id de un botón), lo limpiamos antes de
+    # usarlo en el mensaje para no mostrar basura a la agente.
+    _conj = (meta.get("conjunto") or "").strip()
+    if _conj.lower().startswith(("onbag_", "custom_")):
+        _conj = "tu edificio"
     felicitaciones = _t(
         "inscripcion.msg_felicitaciones",
         fallback=(
-            "🎉 *¡Felicitaciones {nombre_corto}, ya sos oficialmente Agente Petra!*\n\n"
-            "Vas a representar a Petra en *{conjunto}*, {barrio}, {ciudad}."
+            "🎉✨ *¡Felicitaciones {nombre_corto}!* ✨🎉\n\n"
+            "Ya sos oficialmente *Agente Petra* 💜\n\n"
+            "🏢 Vas a representar a Petra en *{conjunto}*\n"
+            "📍 {barrio}, {ciudad}\n\n"
+            "Vamos a arrancar con tu capacitación paso a paso 🚀\n"
+            "Tocá el botón de abajo para ver los próximos pasos 👇"
         ),
         nombre_corto=nombre_corto,
-        conjunto=meta.get("conjunto") or "",
+        conjunto=_conj,
         barrio=meta.get("barrio") or "",
         ciudad=meta.get("ciudad") or "",
     )
