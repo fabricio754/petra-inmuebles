@@ -387,6 +387,16 @@ SEED_TEXTOS = [
      "Mensaje final al confirmar QR instalado. Pasa a estado 'activa'.",
      [], "activacion"),
 
+    # ─── Sesión / inactividad ───
+    ("sesion.msg_cierre_inactividad",
+     "Voy a cerrar esta conversación por ahora 👋 "
+     "Vuelvenos a escribir cuando nos necesites — siempre acá "
+     "para ayudarte. ❤️",
+     "Mensaje que se envía cuando la agente queda inactiva más de "
+     "5 min (PETRA_SESION_INACTIVIDAD_MIN). Se manda 1 sola vez por "
+     "sesión. Para desactivarlo, dejá la clave vacía o editala a '' ",
+     [], "sesion"),
+
     # ─── Citas ───
     ("citas.msg_intro_video",
      "Antes de que empiecen a llegar interesados, mirá este video "
