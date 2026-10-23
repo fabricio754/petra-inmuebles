@@ -1081,7 +1081,13 @@ def capturar_foto_qr(telefono, local_path, media_id, mime, caption):
             )
             with _db._conexion_directa(timeout=5) as conn:
                 _enviar_video_citas_una_vez(conn, cid, meta, telefono)
-            _log(telefono, "[imagen]", "[kit_enviado → foto QR → activa]",
+            # Mostramos el panel de agente activa (list con Mis inmuebles /
+            # citas / capacitación / Pedir ayuda).
+            try:
+                _mostrar_panel_control(telefono, meta)
+            except Exception:
+                log.exception("[flow:foto-qr] panel-control fallo tel=%s", telefono)
+            _log(telefono, "[imagen]", "[kit_enviado → foto QR → activa + panel]",
                  nota=f"foto en {local_path}")
         except Exception:
             log.exception("[flow:foto-qr] envio msgs fallo tel=%s", telefono)
