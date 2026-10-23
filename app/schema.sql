@@ -1366,6 +1366,25 @@ UPDATE petra_textos
  WHERE clave = 'capacitacion.msg_dia_completo'
    AND contenido LIKE E'%Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas el ritmo 👋\r\n\r\nMañana%';
 
+-- Horario de capacitación cambiado de 8am → 11am. Idempotente: aplica
+-- a cualquier template de 'capacitacion.*' que mencione las *8am* o
+-- "las 8am" (patrón libre y con asterisks de bold).
+UPDATE petra_textos
+   SET contenido = REPLACE(contenido, '*8am*', '*11am*'),
+       updated_at = NOW()
+ WHERE clave LIKE 'capacitacion.%'
+   AND contenido LIKE '%*8am*%';
+UPDATE petra_textos
+   SET contenido = REPLACE(contenido, 'las 8am', 'las 11am'),
+       updated_at = NOW()
+ WHERE clave LIKE 'capacitacion.%'
+   AND contenido LIKE '%las 8am%';
+UPDATE petra_textos
+   SET contenido = REPLACE(contenido, 'a las *8', 'a las *11'),
+       updated_at = NOW()
+ WHERE clave LIKE 'capacitacion.%'
+   AND contenido LIKE '%a las *8%';
+
 -- Botones custom con ACCIÓN: por defecto 'enviar_texto' (envía texto_respuesta).
 --   'disparar_boton' + payload=<ONBAG_X>: el flow procesa como si pulsaran
 --   el botón default X (ej. ONBAG_LISTO avanza al próximo día de capacitación).
