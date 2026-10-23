@@ -427,35 +427,18 @@ def _felicitar_y_marcar_inscrito(conn, cid, telefono, meta):
             "🎉✨ *¡Felicitaciones {nombre_corto}!* ✨🎉\n\n"
             "Ya sos oficialmente *Agente Petra* 💜\n\n"
             "🏢 Vas a representar a Petra en *{conjunto}*\n"
-            "📍 {barrio}, {ciudad}"
+            "📍 {barrio}, {ciudad}\n\n"
+            "Vamos a arrancar con tu capacitación paso a paso 🚀\n"
+            "Tocá el botón de abajo para ver los próximos pasos 👇"
         ),
         nombre_corto=nombre_corto,
         conjunto=conjunto,
         barrio=meta.get("barrio") or "",
         ciudad=meta.get("ciudad") or "",
     )
-    _send_text(telefono, felicitaciones)
-
-    # M2.C: Enviar journey de 6 pasos + botón "Empezar ahora" DIRECTAMENTE
-    # (eliminamos el paso intermedio "Ver próximos pasos").
-    journey = _t(
-        "inscripcion.msg_journey",
-        fallback=(
-            "📋 *Tu camino como Agente Petra:*\n\n"
-            "1️⃣ *Inscripción* ✅ — ya lo hiciste.\n"
-            "2️⃣ *Capacitación* 🎓 — 2 videos cada día durante 7 días.\n"
-            "3️⃣ *Autorización del conjunto* 🏢 — hablás con el administrador de tu conjunto.\n"
-            "4️⃣ *Activar el QR* 📬 — te enviamos kit + regalo.\n"
-            "5️⃣ *Gestionar citas* 📅 — recibís citas con propietarios/interesados.\n"
-            "6️⃣ *Registrar inventario* 🔑 — recibís llaves y revisás inmuebles.\n\n"
-            "¿Arrancamos con los videos de hoy? 👇"
-        ),
-    )
-    meta["journey_mostrado"] = True
-    _save_meta(conn, cid, meta)
-    _flow_send_btns(telefono, journey,
-        [{"id": "ONBAG_EMPEZAR_AHORA",
-          "title": _b("ONBAG_EMPEZAR_AHORA", "Empezar ahora")}],
+    _flow_send_btns(telefono, felicitaciones,
+        [{"id": "ONBAG_VER_JOURNEY",
+          "title": _b("ONBAG_VER_JOURNEY", "Próximos pasos")}],
         estado_key="inscrito")
 
 
