@@ -1918,7 +1918,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         # Escribir 'primero' desde el 3227057375 en cualquier estado
         # resetea a inscripción (recolectando) y manda el mensaje de
         # bienvenida con los 6 datos a pedir.
-        if (texto or "").lower().strip() == "primero" and (telefono or "").endswith("3227057375"):
+        if (texto or "").lower().strip() in ("primero", "mundo") and (telefono or "").endswith("3227057375"):
             _set_estado(meta, "recolectando")
             # Reset total de los 5 campos para probar el flow de cero.
             for _c in ("nombre", "cedula", "ciudad", "barrio", "conjunto"):
