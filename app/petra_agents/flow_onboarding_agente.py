@@ -1925,22 +1925,23 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
 
         # ─── Botón global "Volver al menú" del modo FAQ ─────────────────
         # Cierra el modo FAQ y devuelve a la agente al paso donde quedó.
+        # En capacitación la lleva de vuelta a terminar sus videos del
+        # día (re-envía los 2 videos + botón Listo).
         if texto == "ONBAG_FAQ_VOLVER_MENU":
             meta["en_faq"] = False
             meta.pop("faq_ofrecimos_chat", None)
             _save_meta(conn, cid, meta)
-            # Según el estado, mostramos el msg del paso actual.
-            if estado == "en_capacitacion":
+            reenviado = False
+            if estado in ("en_capacitacion", "esperando_capacitacion_dia1"):
                 try:
                     from app.petra_agents import capacitacion_v3 as _cv3
-                    _cv3._reenviar_dia_actual(conn, telefono, meta)
+                    reenviado = bool(_cv3._reenviar_dia_actual(conn, telefono, meta))
                 except Exception:
                     log.exception("[faq] reenvío día actual fallo tel=%s", telefono)
-                    _mostrar_panel_control(telefono, meta)
-            else:
+            if not reenviado:
                 _mostrar_panel_control(telefono, meta)
             _log(telefono, texto, "[faq volver al menú]",
-                 nota=f"estado={estado}")
+                 nota=f"estado={estado} reenviado={reenviado}")
             return True
 
         # ─── Shortcut de prueba (Fabricio): 'primero' ─────────────────
