@@ -1366,6 +1366,15 @@ UPDATE petra_textos
  WHERE clave = 'capacitacion.msg_dia_completo'
    AND contenido LIKE E'%Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas el ritmo 👋\r\n\r\nMañana%';
 
+-- Deactivar botón custom "QR" (CUSTOM_1) que aparecía en TODOS los
+-- mensajes del estado kit_enviado y confundía a la agente. Idempotente.
+UPDATE petra_botones_estacion
+   SET activo = FALSE
+ WHERE boton_id = 'CUSTOM_1'
+   AND titulo = 'QR'
+   AND estado_key = 'kit_enviado'
+   AND activo = TRUE;
+
 -- Deactivar video legacy "Comisiones por ventas" (id=124) que empataba
 -- en orden=1 con "Beneficios para el conjunto/edificio 1" (id=131) y
 -- desalineaba el orden visible del panel con lo que mandaba el cron.
