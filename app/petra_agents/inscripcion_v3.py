@@ -583,12 +583,20 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
     # ── 5) Determinar si el input es un dato o algo "ruidoso" ────────────
     faltantes = [c for c in CAMPOS if not meta.get(c)]
 
-    # Si es la PRIMERA entrada (meta vacía — ningún campo guardado),
-    # NO consumimos el texto como dato aunque parezca válido. La agente
-    # recién arranca y suele mandar algo tipo "Hola quiero ser agente".
-    # Esto lo tratamos como sospechoso para que el flow mande el saludo
-    # + "¿Cuál es tu nombre?".
-    es_primera_entrada = len(faltantes) == len(CAMPOS)
+    # Si es la PRIMERA entrada ABSOLUTA (meta vacía — ningún campo
+    # guardado Y nunca mandamos el saludo), NO consumimos el texto como
+    # dato. La agente recién arranca y suele mandar "Hola quiero ser
+    # agente"; eso cae al saludo + pedir_nombre.
+    # Una vez que mandamos el saludo (marcamos flag), las entradas
+    # siguientes ya se procesan como datos aunque los campos sigan vacíos.
+    es_primera_entrada = (
+        len(faltantes) == len(CAMPOS)
+        and not meta.get("inscripcion_prompted_at")
+    )
+    if es_primera_entrada:
+        import datetime as _dtp
+        meta["inscripcion_prompted_at"] = _dtp.datetime.utcnow().isoformat()
+        _save_meta(conn, cid, meta)
 
     # Mensaje vacío / sospechoso / primera entrada → re-preguntar el
     # próximo pendiente, SIN guardar nada.
