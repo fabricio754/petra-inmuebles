@@ -268,6 +268,10 @@ def _enviar_dir_confirmada(telefono):
 
 
 def _enviar_pedir_foto_libro(telefono):
+    # Sin botones — la agente solo manda la foto del libro y el flow
+    # avanza solo (ver capturar_foto_qr en flow_onboarding_agente).
+    # Botones custom del panel (ej. "QR") siguen apareciendo si están
+    # configurados para el estado kit_enviado.
     _send_text(telefono, _t(
         "activacion.msg_libro_intro",
         fallback=(
@@ -279,22 +283,6 @@ def _enviar_pedir_foto_libro(telefono):
             "que cuando lo instales ya funcione completo 🚀"
         ),
     ))
-    _send_buttons(telefono, _t(
-        "activacion.msg_libro_intro",
-        fallback=(
-            "📸 *Ahora necesitamos una foto del libro de arriendos y ventas* "
-            "de tu conjunto.\n\n"
-            "Pasá por la *portería o el lobby* y pedí ver el libro. Tomale una "
-            "foto bien clara y mandámela por acá 💜\n\n"
-            "✨ Con eso vamos a *cargar tu QR con la info de tu conjunto*, para "
-            "que cuando lo instales ya funcione completo 🚀"
-        ),
-    ), [
-        {"id": "ONBAG_LIBRO_SI",
-         "title": _b("ONBAG_LIBRO_SI", "✅ Sí")},
-        {"id": "ONBAG_LIBRO_NO",
-         "title": _b("ONBAG_LIBRO_NO", "❌ No")},
-    ], estado_key="kit_enviado")
 
 
 def _enviar_ack_foto_libro(telefono):
