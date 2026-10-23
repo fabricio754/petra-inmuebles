@@ -144,7 +144,9 @@ def _reenviar_dia_actual(conn, telefono, meta):
     dias_total = 7 if cap_v >= 2 else 6
     _pwa.send_text(telefono, _t(
         "capacitacion.msg_reenvio_videos",
-        fallback="¡Claro! Acá los tenés de nuevo 💜 — videos del día *{d}/{t}*:",
+        fallback="¡Claro! Acá los tenés de nuevo 💜 — videos del día *{dia_actual_env}/{dias_total}*:",
+        dia_actual_env=dia_env, dias_total=dias_total,
+        # Compat alias cortos
         d=dia_env, t=dias_total,
     ))
     _time.sleep(1)
