@@ -258,12 +258,13 @@ _PAL_YA_INSTALE = (
 # ─── Pasos del flow (helpers) ───────────────────────────────────────────
 
 def _enviar_dir_confirmada(telefono):
-    _send_buttons(telefono, _t(
+    # Sin botón de Perfecto — el flow avanza solo al próximo paso
+    # (foto del libro). Botones custom del panel (tipo "QR") siguen
+    # apareciendo si están configurados para el estado kit_enviado.
+    _send_text(telefono, _t(
         "activacion.msg_direccion_completa",
         fallback=FB_DIRECCION_CONFIRMADA,
-    ), [{"id": "ONBAG_KIT_PERFECTO",
-         "title": _b("ONBAG_KIT_PERFECTO", "✨ Perfecto")}],
-       estado_key="kit_enviado")
+    ))
 
 
 def _enviar_pedir_foto_libro(telefono):
@@ -356,8 +357,8 @@ def _enviar_pedir_foto_qr(telefono):
 # ─── Transiciones ───────────────────────────────────────────────────────
 
 def _guardar_direccion_y_avanzar(conn, cid, telefono, meta, direccion):
-    """Guarda la dirección y salta a `kit_enviado` + sub-paso
-    `dir_confirmada`."""
+    """Guarda la dirección, confirma al usuario y arranca el flow del
+    libro automáticamente (sin esperar que la agente pulse Perfecto)."""
     limpio = direccion.strip()[:280]
     meta["direccion"] = {"completa": limpio}
     meta["direccion_texto"] = limpio
@@ -366,9 +367,12 @@ def _guardar_direccion_y_avanzar(conn, cid, telefono, meta, direccion):
     _set_estado(meta, "kit_enviado")
     meta["kit_enviado_at"] = _dt.datetime.utcnow().isoformat()
     meta["kit_enviado_tras_direccion"] = True
-    meta["kit_paso"] = "dir_confirmada"
+    # Avanzamos directo a foto_libro_pedida (saltamos dir_confirmada
+    # como paso intermedio bloqueante).
+    meta["kit_paso"] = "foto_libro_pedida"
     _save_meta(conn, cid, meta)
     _enviar_dir_confirmada(telefono)
+    _enviar_pedir_foto_libro(telefono)
 
 
 def _marcar_paso(conn, cid, meta, nuevo_paso):
