@@ -1920,6 +1920,9 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         # bienvenida con los 6 datos a pedir.
         if (texto or "").lower().strip() == "primero" and (telefono or "").endswith("3227057375"):
             _set_estado(meta, "recolectando")
+            # Reset total de los 5 campos para probar el flow de cero.
+            for _c in ("nombre", "cedula", "ciudad", "barrio", "conjunto"):
+                meta.pop(_c, None)
             _save_meta(conn, cid, meta)
             _sm(telefono,
                 "inscripcion.msg_bienvenida",
