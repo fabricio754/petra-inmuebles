@@ -1880,9 +1880,13 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 ("ONBAG_", "CUSTOM_")):
             try:
                 from app.petra_agents import agente_faq as _faq
+                boton_volver = {
+                    "id": "ONBAG_FAQ_VOLVER_MENU",
+                    "title": _b("ONBAG_FAQ_VOLVER_MENU", "↩ Volver al menú"),
+                }
                 res = _faq.responder(telefono, texto, meta,
                                      ultimo_paso_descripcion="volver al menú",
-                                     ultimo_boton=None, cid=cid)
+                                     ultimo_boton=boton_volver, cid=cid)
                 if res.get("cerrar_faq"):
                     meta["en_faq"] = False
                     meta.pop("faq_ofrecimos_chat", None)
@@ -1891,8 +1895,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                     _log(telefono, texto, "[faq → cerrado, panel reofrecido]")
                     return True
                 if res.get("texto"):
-                    from app import petra_wa as _pw
-                    _pw.send_text(telefono, res["texto"])
+                    _send_buttons(telefono, res["texto"], [boton_volver])
                 if res.get("escalar"):
                     try:
                         conn.execute(
@@ -1919,6 +1922,26 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             except Exception:
                 log.exception("[faq] fallo en modo pedir_ayuda tel=%s", telefono)
                 # Caemos al flow normal.
+
+        # ─── Botón global "Volver al menú" del modo FAQ ─────────────────
+        # Cierra el modo FAQ y devuelve a la agente al paso donde quedó.
+        if texto == "ONBAG_FAQ_VOLVER_MENU":
+            meta["en_faq"] = False
+            meta.pop("faq_ofrecimos_chat", None)
+            _save_meta(conn, cid, meta)
+            # Según el estado, mostramos el msg del paso actual.
+            if estado == "en_capacitacion":
+                try:
+                    from app.petra_agents import capacitacion_v3 as _cv3
+                    _cv3._reenviar_dia_actual(conn, telefono, meta)
+                except Exception:
+                    log.exception("[faq] reenvío día actual fallo tel=%s", telefono)
+                    _mostrar_panel_control(telefono, meta)
+            else:
+                _mostrar_panel_control(telefono, meta)
+            _log(telefono, texto, "[faq volver al menú]",
+                 nota=f"estado={estado}")
+            return True
 
         # ─── Shortcut de prueba (Fabricio): 'primero' ─────────────────
         # Escribir 'primero' desde el 3227057375 en cualquier estado
