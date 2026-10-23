@@ -1366,6 +1366,17 @@ UPDATE petra_textos
  WHERE clave = 'capacitacion.msg_dia_completo'
    AND contenido LIKE E'%Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas el ritmo 👋\r\n\r\nMañana%';
 
+-- Deactivar video legacy "Comisiones por ventas" (id=124) que empataba
+-- en orden=1 con "Beneficios para el conjunto/edificio 1" (id=131) y
+-- desalineaba el orden visible del panel con lo que mandaba el cron.
+-- Idempotente: solo lo apaga si está activo.
+UPDATE petra_contenidos
+   SET activo = FALSE, updated_at = NOW()
+ WHERE id = 124
+   AND tipo = 'video_capacitacion'
+   AND titulo = 'Comisiones por ventas'
+   AND activo = TRUE;
+
 -- Horario de capacitación cambiado de 8am → 11am. Idempotente: aplica
 -- a cualquier template de 'capacitacion.*' que mencione las *8am* o
 -- "las 8am" (patrón libre y con asterisks de bold).
