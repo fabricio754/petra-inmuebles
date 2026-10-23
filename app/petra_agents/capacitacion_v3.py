@@ -268,9 +268,27 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _send_buttons(telefono, resp, [
             {"id": "ONBAG_SIGUIENTE_DIA",
              "title": _b("ONBAG_SIGUIENTE_DIA", "⏭ Ver día siguiente")},
+            {"id": "ONBAG_TENGO_DUDA_CAP",
+             "title": _b("ONBAG_TENGO_DUDA_CAP", "❓ Tengo una duda")},
         ], estado_key="en_capacitacion")
         _log(telefono, texto, "[v3:cap día marcado]",
              nota=f"vistos={vistos_nuevos}/{total}")
+        return True
+
+    # ── Botón "Tengo una duda" → activa modo FAQ ─────────────────────────
+    # Prende un flag en meta.en_faq; cualquier texto libre siguiente va al
+    # mini-agente FAQ. El agente mismo cierra el modo cuando corresponde.
+    if texto == "ONBAG_TENGO_DUDA_CAP":
+        meta["en_faq"] = True
+        _save_meta(conn, cid, meta)
+        _send_text(telefono, _t(
+            "capacitacion.msg_faq_abierto",
+            fallback=(
+                "💜 Decime tu pregunta — te respondo con lo que sé y "
+                "después seguimos con los videos."
+            ),
+        ))
+        _log(telefono, texto, "[v3:cap FAQ abierto por botón]")
         return True
 
     # ── 3) Botón "ver día siguiente" ────────────────────────────────────
