@@ -251,12 +251,16 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         resp = _t(
             "capacitacion.msg_dia_completo",
             fallback=(
-                "🎉 *¡Felicitaciones, cerraste el día {d}/{dt}!* 🌟\n\n"
-                "Ya viste *{v}/{t} videos* ✅ Vas re bien 💪\n\n"
-                "Te quedan solo *{q} videos ({dr} días)* para completar.\n\n"
+                "🎉 *¡Felicitaciones, cerraste el día {dia_actual}/{dias_total}!* 🌟\n\n"
+                "Ya viste *{vistos}/{total} videos* ✅ Vas re bien 💪\n\n"
+                "Te quedan solo *{quedan} videos ({dias_restantes} días)* para completar.\n\n"
                 "Mañana a las *11am* te mando los próximos 2 videos. "
                 "O si querés seguir ahora, apretá el botón 👇"
             ),
+            dia_actual=dia_actual, dias_total=dias_total,
+            vistos=vistos_nuevos, total=total,
+            quedan=quedan, dias_restantes=dias_rest,
+            # Compat alias cortos (templates viejos).
             d=dia_actual, dt=dias_total,
             v=vistos_nuevos, t=total,
             q=quedan, dr=dias_rest,

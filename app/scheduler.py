@@ -83,10 +83,10 @@ def iniciar():
                        hour=10, minute=0,
                        id="petra_nudge_autorizaciones",
                        max_instances=1, coalesce=True)
-    # Capacitación de agentes: 2 videos por día x 6 días, 8am Bogotá.
+    # Capacitación de agentes: 2 videos por día x 6 días, 11am Bogotá.
     # Solo avanza al día siguiente si la agente confirmó los del anterior.
     _scheduler.add_job(_petra_enviar_capacitacion_diaria, "cron",
-                       hour=8, minute=0,
+                       hour=11, minute=0,
                        id="petra_capacitacion_diaria",
                        max_instances=1, coalesce=True)
     # FASE F — Nudges de remarketing: evalúa reglas y manda recordatorios

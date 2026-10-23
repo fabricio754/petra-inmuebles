@@ -237,7 +237,7 @@ SEED_TEXTOS = [
      "Cada video que ves te acerca un paso más a ser una Agente Petra "
      "experta en tu edificio 🏢💪\n\n"
      "Cuando los termines, apretá el botón 👇",
-     "Mensaje del cron de las 8am que acompaña los 2 videos del día. "
+     "Mensaje del cron de las 11am que acompaña los 2 videos del día. "
      "Variables: dia_a_enviar, max_dia.",
      ["dia_a_enviar", "max_dia"], "capacitacion"),
     ("capacitacion.msg_dia_completo",
@@ -246,7 +246,7 @@ SEED_TEXTOS = [
      "confianza y conocimiento para arrancar como Agente Petra en tu edificio 🏢💜\n\n"
      "Te quedan solo *{quedan} videos ({dias_restantes} días)* para completar "
      "toda tu capacitación. Vas re bien, dale con todo 💪\n\n"
-     "Mañana a las *8am* te mando los próximos 2 videos, para que no pierdas "
+     "Mañana a las *11am* te mando los próximos 2 videos, para que no pierdas "
      "el ritmo. O si tenés ganas de seguir avanzando ahora mismo, apretá el botón 👇",
      "Mensaje al marcar LISTO en un día de capacitación (si quedan días). "
      "Variables: dia_actual, dias_total, vistos, total, quedan, dias_restantes.",
@@ -254,7 +254,7 @@ SEED_TEXTOS = [
      "capacitacion"),
     ("capacitacion.msg_arranca_manana",
      "¡Buenísimo! 🎉\n\nTu capacitación arranca mañana a las "
-     "*8am* con los primeros 2 videos. Y así durante 7 días.\n\n"
+     "*11am* con los primeros 2 videos. Y así durante 7 días.\n\n"
      "Nos vemos mañana. 👋",
      "Mensaje al pulsar Empezar ahora cuando el día 1 aún no se puede "
      "enviar (fallback). También se usa en la bienvenida v2.",
@@ -266,11 +266,11 @@ SEED_TEXTOS = [
      ["dia_actual_env", "dias_total"], "capacitacion"),
     ("capacitacion.msg_siguiente_dia_fallo",
      "Hmm, no pude mandarte el siguiente par ahora. "
-     "Mañana a las 8am te llega sin falta. 🙏",
+     "Mañana a las 11am te llega sin falta. 🙏",
      "Mensaje cuando se pulsa 'Ver día siguiente' pero no se pudo enviar.",
      [], "capacitacion"),
     ("capacitacion.msg_por_hoy_ya",
-     "Por hoy ya está. Mañana a las 8am te mando el próximo. 👋",
+     "Por hoy ya está. Mañana a las 11am te mando el próximo. 👋",
      "Mensaje cuando pide 'siguiente' pero ya no hay más por hoy.",
      [], "capacitacion"),
     ("capacitacion.msg_recordatorio_empezar",
@@ -572,7 +572,7 @@ SEED_TEXTOS = [
     ("boton.onbag_ver_journey", "Ver próximos pasos",
      "Botón para avanzar al journey después de inscribirse.", [], "botones"),
     ("boton.onbag_empezar_ahora", "Empezar ahora",
-     "Botón para arrancar la capacitación sin esperar al cron 8am.",
+     "Botón para arrancar la capacitación sin esperar al cron 11am.",
      [], "botones"),
     ("boton.onbag_ver_videos_hoy", "Ver videos de hoy",
      "Botón para ver los videos del día actual.", [], "botones"),
