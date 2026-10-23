@@ -313,6 +313,21 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
             _log(telefono, texto, "[v3:cap reenvío día actual]")
             return True
 
+    # Saludo plano ("hola", "ya volví", "buenas", etc.): no delegamos
+    # al LLM porque el recordatorio de retorno ya cubrió el "¡Hola de
+    # nuevo!". Devolvemos True para que no caiga a nada más.
+    _PAL_SALUDO = {
+        "hola", "holaa", "holaaa", "ola", "buenas", "buenos dias",
+        "buenos días", "buenas tardes", "buenas noches", "hey", "hi",
+        "ya volvi", "ya volví", "volvi", "volví", "aqui estoy",
+        "aquí estoy", "acá estoy", "aca estoy",
+    }
+    t_norm = t_lc.replace(",", " ").replace(".", " ").strip()
+    palabras = [p for p in t_norm.split() if p]
+    if palabras and all(p in _PAL_SALUDO or p in ("y", "ya", "estoy") for p in palabras):
+        _log(telefono, texto, "[v3:cap saludo plano — silencio]")
+        return True
+
     # ── 5) Pregunta libre: M4.B escape hatch → FAQ ──────────────────────
     # Anti-spam: 30s entre delegaciones.
     now = _dt.datetime.utcnow()
