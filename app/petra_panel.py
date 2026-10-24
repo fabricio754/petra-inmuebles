@@ -2326,3 +2326,319 @@ def admin_kit_guia():
         return "No se pudo disparar (estado no válido)", 400
     return (f"OK ✅ kit-guia seteado — tel={tel}, cid={cid}, "
             f"guia={guia!r}, paso=guia_enviada."), 200
+
+
+# =============================================================================
+# Visitante QR — Admin de conjuntos, inmuebles y solicitudes de contacto
+# =============================================================================
+# Este bloque administra el inventario que consume el flujo WhatsApp
+# `app/petra_visitante/*` (tablas `conjuntos_visitante`, `inmuebles_visitante`,
+# `visitante_contactos`). Reutiliza `_check_token` y `_rows` ya definidos
+# arriba y el mismo patrón de conexión directa que usa el router visitante.
+
+
+def _fmt_precio_cop(valor):
+    """Formato $ 1.950.000 — reutiliza textos.formatear_precio del visitante
+    para no divergir del formato que ve el usuario en WhatsApp."""
+    try:
+        from app.petra_visitante.textos import formatear_precio
+        return formatear_precio(valor)
+    except Exception:
+        try:
+            n = int(valor)
+            if n <= 0:
+                return "Sin precio"
+            return "$ " + f"{n:,}".replace(",", ".")
+        except (TypeError, ValueError):
+            return "Sin precio"
+
+
+@petra_panel_bp.get("/visitante")
+def visitante_conjuntos():
+    """Index de conjuntos registrados en el flujo visitante QR."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        conjuntos = _rows(conn,
+            """SELECT c.id, c.codigo, c.nombre, c.ciudad, c.creado_en,
+                      COALESCE(SUM(CASE WHEN i.activo AND i.operacion='arriendo'
+                                        THEN 1 ELSE 0 END), 0) AS arr_activos,
+                      COALESCE(SUM(CASE WHEN i.activo AND i.operacion='venta'
+                                        THEN 1 ELSE 0 END), 0) AS ven_activos
+                 FROM conjuntos_visitante c
+                 LEFT JOIN inmuebles_visitante i ON i.conjunto_id = c.id
+                GROUP BY c.id
+                ORDER BY c.creado_en DESC""")
+    return render_template(
+        "petra_visitante_conjuntos.html",
+        conjuntos=conjuntos, token=token, flash=flash,
+    )
+
+
+@petra_panel_bp.post("/visitante/conjuntos/nuevo")
+def visitante_conjunto_nuevo():
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    codigo = (request.form.get("codigo") or "").strip()
+    nombre = (request.form.get("nombre") or "").strip()
+    ciudad = (request.form.get("ciudad") or "").strip() or None
+    if not codigo or not nombre:
+        return redirect(url_for("petra_panel.visitante_conjuntos",
+                                token=token, flash="falta_campo"))
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            dup = conn.execute(
+                "SELECT 1 FROM conjuntos_visitante WHERE codigo=%s",
+                (codigo,),
+            ).fetchone()
+            if dup:
+                return redirect(url_for("petra_panel.visitante_conjuntos",
+                                        token=token, flash="codigo_dup"))
+            conn.execute(
+                "INSERT INTO conjuntos_visitante (codigo, nombre, ciudad) "
+                "VALUES (%s, %s, %s)",
+                (codigo, nombre, ciudad),
+            )
+            conn.commit()
+    except Exception:
+        return redirect(url_for("petra_panel.visitante_conjuntos",
+                                token=token, flash="error"))
+    return redirect(url_for("petra_panel.visitante_conjuntos",
+                            token=token, flash="creado"))
+
+
+@petra_panel_bp.post("/visitante/conjuntos/<int:cid>/editar")
+def visitante_conjunto_editar(cid):
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    nombre = (request.form.get("nombre") or "").strip()
+    ciudad = (request.form.get("ciudad") or "").strip() or None
+    if not nombre:
+        return redirect(url_for("petra_panel.visitante_conjuntos",
+                                token=token, flash="falta_campo"))
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "UPDATE conjuntos_visitante SET nombre=%s, ciudad=%s "
+                "WHERE id=%s",
+                (nombre, ciudad, cid),
+            )
+            conn.commit()
+    except Exception:
+        return redirect(url_for("petra_panel.visitante_conjuntos",
+                                token=token, flash="error"))
+    return redirect(url_for("petra_panel.visitante_conjuntos",
+                            token=token, flash="editado"))
+
+
+@petra_panel_bp.get("/visitante/conjuntos/<int:cid>/qr")
+def visitante_conjunto_qr(cid):
+    """QR generator client-side para pegar en el edificio."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
+            "WHERE id=%s", (cid,),
+        ).fetchone()
+    if not row:
+        abort(404)
+    conjunto = {"id": row[0], "codigo": row[1], "nombre": row[2],
+                "ciudad": row[3] or ""}
+    wa_phone = (os.environ.get("WA_PILOT_PHONE") or "").strip()
+    # wa.me espera el número sin el signo + (ej. 573001234567).
+    wa_phone_clean = wa_phone.lstrip("+").replace(" ", "")
+    from urllib.parse import quote as _urlquote
+    texto_prefill = (
+        f"Estoy en el edificio {conjunto['nombre']} en "
+        f"{conjunto['ciudad'] or 'Colombia'}. Cod: {conjunto['codigo']}"
+    )
+    wa_link = (f"https://wa.me/{wa_phone_clean}?text="
+               f"{_urlquote(texto_prefill)}") if wa_phone_clean else ""
+    return render_template(
+        "petra_visitante_qr.html",
+        conjunto=conjunto, token=token,
+        wa_phone=wa_phone, wa_link=wa_link,
+        texto_prefill=texto_prefill,
+    )
+
+
+@petra_panel_bp.get("/visitante/conjuntos/<int:cid>/inmuebles")
+def visitante_inmuebles(cid):
+    """Lista + alta de inmuebles para un conjunto."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    op_filtro = (request.args.get("op") or "todos").strip()
+    estado_filtro = (request.args.get("estado") or "activos").strip()
+
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
+            "WHERE id=%s", (cid,),
+        ).fetchone()
+        if not row:
+            abort(404)
+        conjunto = {"id": row[0], "codigo": row[1],
+                    "nombre": row[2], "ciudad": row[3] or ""}
+
+        where = ["conjunto_id=%s"]
+        params = [cid]
+        if op_filtro in ("arriendo", "venta"):
+            where.append("operacion=%s")
+            params.append(op_filtro)
+        if estado_filtro == "activos":
+            where.append("activo=TRUE")
+        elif estado_filtro == "inactivos":
+            where.append("activo=FALSE")
+        sql = (
+            "SELECT id, nro, operacion, habitaciones, banos, m2, precio, "
+            "       fuente, activo, creado_en, propietario_telefono "
+            "  FROM inmuebles_visitante "
+            " WHERE " + " AND ".join(where) +
+            " ORDER BY activo DESC, creado_en DESC"
+        )
+        inmuebles = _rows(conn, sql, tuple(params))
+
+    for i in inmuebles:
+        i["precio_fmt"] = _fmt_precio_cop(i.get("precio"))
+    return render_template(
+        "petra_visitante_inmuebles.html",
+        conjunto=conjunto, inmuebles=inmuebles, token=token, flash=flash,
+        op_filtro=op_filtro, estado_filtro=estado_filtro,
+    )
+
+
+def _parse_int_or_none(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+@petra_panel_bp.post("/visitante/conjuntos/<int:cid>/inmuebles/nuevo")
+def visitante_inmueble_nuevo(cid):
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    nro = (request.form.get("nro") or "").strip()
+    operacion = (request.form.get("operacion") or "").strip()
+    hab = _parse_int_or_none(request.form.get("habitaciones"))
+    banos = _parse_int_or_none(request.form.get("banos"))
+    m2 = _parse_int_or_none(request.form.get("m2"))
+    precio = _parse_int_or_none(request.form.get("precio"))
+    tel = (request.form.get("propietario_telefono") or "").strip() or None
+
+    if (not nro or operacion not in ("arriendo", "venta") or precio is None
+            or precio <= 0):
+        return redirect(url_for("petra_panel.visitante_inmuebles",
+                                cid=cid, token=token, flash="falta_campo"))
+    for v in (hab, banos, m2):
+        if v is not None and v < 0:
+            return redirect(url_for("petra_panel.visitante_inmuebles",
+                                    cid=cid, token=token,
+                                    flash="valores_invalidos"))
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "INSERT INTO inmuebles_visitante "
+                "(conjunto_id, nro, operacion, habitaciones, banos, m2, "
+                " precio, propietario_telefono, fuente, activo) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'petra', TRUE)",
+                (cid, nro, operacion, hab, banos, m2, precio, tel),
+            )
+            conn.commit()
+    except Exception:
+        return redirect(url_for("petra_panel.visitante_inmuebles",
+                                cid=cid, token=token, flash="error"))
+    return redirect(url_for("petra_panel.visitante_inmuebles",
+                            cid=cid, token=token, flash="creado"))
+
+
+@petra_panel_bp.post("/visitante/inmuebles/<int:iid>/editar")
+def visitante_inmueble_editar(iid):
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    nro = (request.form.get("nro") or "").strip()
+    operacion = (request.form.get("operacion") or "").strip()
+    hab = _parse_int_or_none(request.form.get("habitaciones"))
+    banos = _parse_int_or_none(request.form.get("banos"))
+    m2 = _parse_int_or_none(request.form.get("m2"))
+    precio = _parse_int_or_none(request.form.get("precio"))
+    tel = (request.form.get("propietario_telefono") or "").strip() or None
+
+    if (not nro or operacion not in ("arriendo", "venta") or precio is None
+            or precio <= 0):
+        return redirect(request.referrer or url_for(
+            "petra_panel.visitante_conjuntos", token=token))
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT conjunto_id FROM inmuebles_visitante WHERE id=%s",
+                (iid,),
+            ).fetchone()
+            if not row:
+                abort(404)
+            cid = row[0]
+            conn.execute(
+                "UPDATE inmuebles_visitante SET nro=%s, operacion=%s, "
+                "habitaciones=%s, banos=%s, m2=%s, precio=%s, "
+                "propietario_telefono=%s WHERE id=%s",
+                (nro, operacion, hab, banos, m2, precio, tel, iid),
+            )
+            conn.commit()
+    except Exception:
+        return redirect(request.referrer or url_for(
+            "petra_panel.visitante_conjuntos", token=token))
+    return redirect(url_for("petra_panel.visitante_inmuebles",
+                            cid=cid, token=token, flash="editado"))
+
+
+@petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle")
+def visitante_inmueble_toggle(iid):
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT conjunto_id, activo FROM inmuebles_visitante "
+                "WHERE id=%s", (iid,),
+            ).fetchone()
+            if not row:
+                abort(404)
+            cid = row[0]
+            conn.execute(
+                "UPDATE inmuebles_visitante SET activo = NOT activo "
+                "WHERE id=%s", (iid,),
+            )
+            conn.commit()
+    except Exception:
+        return redirect(request.referrer or url_for(
+            "petra_panel.visitante_conjuntos", token=token))
+    return redirect(url_for("petra_panel.visitante_inmuebles",
+                            cid=cid, token=token, flash="toggled"))
+
+
+@petra_panel_bp.get("/visitante/contactos")
+def visitante_contactos_vista():
+    """Solicitudes de contacto generadas desde el flujo visitante."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        rows = _rows(conn,
+            """SELECT vc.id, vc.creado_en, vc.telefono, vc.contacto_nombre,
+                      cj.id AS conjunto_id, cj.codigo AS conjunto_codigo,
+                      cj.nombre AS conjunto_nombre,
+                      im.id AS inmueble_id, im.nro AS inmueble_nro,
+                      im.operacion, im.precio
+                 FROM visitante_contactos vc
+                 JOIN conjuntos_visitante cj ON cj.id = vc.conjunto_id
+                 JOIN inmuebles_visitante im ON im.id = vc.inmueble_id
+                ORDER BY vc.creado_en DESC
+                LIMIT 500""")
+    for r in rows:
+        r["precio_fmt"] = _fmt_precio_cop(r.get("precio"))
+    return render_template(
+        "petra_visitante_contactos.html",
+        contactos=rows, token=token,
+    )

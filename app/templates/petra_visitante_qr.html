@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>QR · {{ conjunto.nombre }} | Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff; --panel: #ffffff; --border: #e8e4f0;
+    --text: #2a2440; --muted: #76708a; --accent: #7c5cff;
+    --accent-soft: #ece6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background: #fff;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  .topbar .brand { color: var(--accent); }
+  .topbar a.back { color: var(--accent); text-decoration: none; font-size: 13px; }
+  main { padding: 24px; max-width: 720px; margin: 0 auto; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+  h2 { margin: 0 0 8px; font-size: 20px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .link-row { display: flex; gap: 8px; align-items: center;
+              background: var(--accent-soft); border-radius: 8px;
+              padding: 10px 14px; margin: 14px 0; word-break: break-all; }
+  .link-row code { flex: 1; font-size: 12px; color: var(--text);
+                   font-family: ui-monospace, Menlo, monospace; }
+  button, a.btn { padding: 8px 14px; border: 1px solid var(--border);
+          background: #fff; color: var(--text); border-radius: 6px;
+          cursor: pointer; font-size: 13px; font-family: inherit;
+          text-decoration: none; display: inline-block; }
+  button:hover, a.btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: #6a4ae8; }
+  .qr-wrap { display: flex; justify-content: center; padding: 24px;
+             background: #fff; border-radius: 10px;
+             border: 1px solid var(--border); margin-top: 16px; }
+  #qr { width: 320px; height: 320px; }
+  #qr img, #qr canvas, #qr table { margin: 0 auto; display: block; }
+  .brand-footer { text-align: center; margin-top: 16px; color: var(--muted);
+                  font-size: 13px; }
+  .warn { background: #fef3c7; color: #92400e; padding: 10px 14px;
+          border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+
+  @media print {
+    .topbar, .actions, .link-row, .no-print { display: none !important; }
+    main { padding: 0; }
+    .card { border: none; box-shadow: none; }
+    body { background: #fff; }
+    #qr { width: 480px; height: 480px; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar no-print">
+  <h1>🔳 <span class="brand">QR Visitante</span></h1>
+  <a class="back" href="{{ url_for('petra_panel.visitante_conjuntos') }}?token={{ token }}">← Conjuntos</a>
+</div>
+
+<main>
+  <div class="card">
+    <h2>{{ conjunto.nombre }}</h2>
+    <div class="muted">Código: <strong>{{ conjunto.codigo }}</strong>{% if conjunto.ciudad %} · {{ conjunto.ciudad }}{% endif %}</div>
+
+    {% if not wa_link %}
+    <div class="warn" style="margin-top:16px">
+      ⚠️ No hay <code>WA_PILOT_PHONE</code> configurado en el servidor. El QR
+      no apuntará a ningún número. Configurá la variable de entorno y recargá.
+    </div>
+    {% endif %}
+
+    {% if wa_link %}
+    <div class="link-row no-print">
+      <code id="wa-link">{{ wa_link }}</code>
+      <button type="button" onclick="copiarLink()">Copiar</button>
+    </div>
+    <div class="muted no-print" style="font-size:12px">
+      Texto prefill: <em>{{ texto_prefill }}</em>
+    </div>
+    {% endif %}
+
+    <div class="qr-wrap">
+      <div id="qr">Generando…</div>
+    </div>
+
+    <div class="brand-footer">
+      <strong>{{ conjunto.nombre }}</strong><br>
+      Escaneá con la cámara para contactarte con Petra Inmuebles
+    </div>
+
+    <div class="actions no-print">
+      <button type="button" class="primary" onclick="window.print()">🖨️ Imprimir</button>
+      <a class="btn" href="{{ url_for('petra_panel.visitante_conjuntos') }}?token={{ token }}">Volver</a>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+  (function () {
+    var link = {{ wa_link|tojson }};
+    var el = document.getElementById('qr');
+    if (!link) {
+      el.innerHTML = '<div style="color:#991b1b;padding:40px">Sin WA_PILOT_PHONE</div>';
+      return;
+    }
+    try {
+      var typeNumber = 0;      // auto
+      var errorCorrection = 'M';
+      var qr = qrcode(typeNumber, errorCorrection);
+      qr.addData(link);
+      qr.make();
+      el.innerHTML = qr.createImgTag(8, 8);
+      var img = el.querySelector('img');
+      if (img) { img.style.width = '100%'; img.style.height = 'auto'; }
+    } catch (e) {
+      el.innerHTML = '<div style="color:#991b1b;padding:40px">Error generando QR: ' + e + '</div>';
+    }
+  })();
+
+  function copiarLink() {
+    var code = document.getElementById('wa-link');
+    if (!code) return;
+    var txt = code.textContent;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(txt).then(function () {
+        alert('Link copiado al portapapeles.');
+      });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = txt; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta);
+      alert('Link copiado.');
+    }
+  }
+</script>
+</body>
+</html>

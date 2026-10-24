@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Inmuebles · {{ conjunto.nombre }} | Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff; --panel: #ffffff; --border: #e8e4f0;
+    --text: #2a2440; --muted: #76708a; --accent: #7c5cff;
+    --accent-soft: #ece6ff; --ok: #16a34a; --warn: #f59e0b;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background: #fff;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  .topbar .brand { color: var(--accent); }
+  .topbar a.back { color: var(--accent); text-decoration: none; font-size: 13px; }
+  main { padding: 20px 24px; max-width: 1300px; margin: 0 auto; }
+  .flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+  .flash.ok { background: #dcfce7; color: #166534; }
+  .flash.err { background: #fee2e2; color: #991b1b; }
+  .panel { background: var(--panel); border-radius: 10px;
+           border: 1px solid var(--border); overflow: hidden;
+           margin-bottom: 20px; }
+  .panel-head { padding: 14px 18px; border-bottom: 1px solid var(--border);
+                display: flex; align-items: center; justify-content: space-between;
+                flex-wrap: wrap; gap: 10px; }
+  .panel-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; padding: 10px 14px; background: #f5f2fb;
+             color: var(--muted); font-weight: 500; text-transform: uppercase;
+             font-size: 11px; letter-spacing: 0.5px;
+             border-bottom: 1px solid var(--border); }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid #f1eef7;
+             vertical-align: middle; }
+  tbody tr:hover { background: #fcfaff; }
+  tbody tr.inactivo { opacity: 0.55; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px;
+          font-size: 11px; font-weight: 600;
+          background: var(--accent-soft); color: var(--accent); }
+  .pill.arr { background: #e0f2fe; color: #075985; }
+  .pill.ven { background: #fef3c7; color: #92400e; }
+  .pill.ok  { background: #dcfce7; color: #166534; }
+  .pill.off { background: #fee2e2; color: #991b1b; }
+  .pill.src-seed { background: #f3f4f6; color: #4b5563; }
+  .pill.src-petra { background: #ece6ff; color: #6a4ae8; }
+  .pill.src-propietario { background: #fef9c3; color: #854d0e; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .btn, button, a.btn { padding: 6px 12px; border: 1px solid var(--border);
+          background: #fff; color: var(--text); border-radius: 6px;
+          cursor: pointer; font-size: 12px; font-family: inherit;
+          text-decoration: none; display: inline-block; }
+  .btn:hover, button:hover, a.btn:hover {
+          background: var(--accent-soft); border-color: var(--accent); }
+  .btn.primary, button.primary {
+          background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.primary:hover, button.primary:hover { background: #6a4ae8; }
+  details.form-box { background: var(--panel); border-radius: 10px;
+             border: 1px solid var(--border); padding: 14px 18px;
+             margin-bottom: 20px; }
+  details.form-box > summary { cursor: pointer; font-weight: 600;
+             font-size: 14px; color: var(--accent); }
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+               gap: 12px; margin-top: 14px; align-items: end; }
+  .form-grid label { display: block; font-size: 11px; color: var(--muted);
+                     text-transform: uppercase; letter-spacing: 0.5px;
+                     margin-bottom: 4px; }
+  .form-grid input, .form-grid select {
+                     width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+                     border-radius: 6px; font-size: 13px; font-family: inherit;
+                     background: #fff; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .filters a { padding: 4px 10px; border-radius: 6px; font-size: 12px;
+               text-decoration: none; color: var(--muted);
+               background: #f5f2fb; border: 1px solid var(--border); }
+  .filters a.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .filters .lbl { color: var(--muted); font-size: 11px;
+                  text-transform: uppercase; letter-spacing: 0.5px;
+                  margin-right: 4px; }
+  .row-actions { white-space: nowrap; display: flex; gap: 6px; flex-wrap: wrap; }
+  form.inline { display: inline; }
+  .edit-row { display: none; background: #faf8ff; }
+  .edit-row.show { display: table-row; }
+  .meta-head { display: flex; gap: 16px; margin-bottom: 12px;
+               color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+  .meta-head strong { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>🏠 <span class="brand">Visitante QR</span> — Inmuebles</h1>
+  <a class="back" href="{{ url_for('petra_panel.visitante_conjuntos') }}?token={{ token }}">← Conjuntos</a>
+  <span style="flex:1"></span>
+  <a class="btn" href="{{ url_for('petra_panel.visitante_conjunto_qr', cid=conjunto.id) }}?token={{ token }}">🔳 QR del conjunto</a>
+</div>
+
+<main>
+  <div class="meta-head">
+    <div><strong>{{ conjunto.nombre }}</strong></div>
+    <div>Código: <strong class="mono">{{ conjunto.codigo }}</strong></div>
+    {% if conjunto.ciudad %}<div>{{ conjunto.ciudad }}</div>{% endif %}
+  </div>
+
+  {% if flash == 'creado' %}<div class="flash ok">Inmueble creado ✅</div>
+  {% elif flash == 'editado' %}<div class="flash ok">Inmueble actualizado ✅</div>
+  {% elif flash == 'toggled' %}<div class="flash ok">Estado actualizado ✅</div>
+  {% elif flash == 'falta_campo' %}<div class="flash err">Faltan campos obligatorios (nro, operación, precio &gt; 0).</div>
+  {% elif flash == 'valores_invalidos' %}<div class="flash err">Valores numéricos deben ser ≥ 0.</div>
+  {% elif flash == 'error' %}<div class="flash err">Error guardando. Revisá los logs.</div>
+  {% endif %}
+
+  <details class="form-box">
+    <summary>➕ Nuevo inmueble</summary>
+    <form method="POST" action="{{ url_for('petra_panel.visitante_inmueble_nuevo', cid=conjunto.id) }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <div class="form-grid">
+        <div><label>Nro *</label><input type="text" name="nro" required maxlength="60"></div>
+        <div><label>Operación *</label>
+          <select name="operacion" required>
+            <option value="arriendo">Arriendo</option>
+            <option value="venta">Venta</option>
+          </select>
+        </div>
+        <div><label>Habitaciones</label><input type="number" name="habitaciones" min="0"></div>
+        <div><label>Baños</label><input type="number" name="banos" min="0"></div>
+        <div><label>m²</label><input type="number" name="m2" min="0"></div>
+        <div><label>Precio (COP) *</label><input type="number" name="precio" required min="1"></div>
+        <div><label>Tel. propietario</label><input type="text" name="propietario_telefono" placeholder="+57..."></div>
+        <div><button type="submit" class="primary">Crear</button></div>
+      </div>
+    </form>
+  </details>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Inmuebles</h2>
+      <div class="filters">
+        <span class="lbl">Op:</span>
+        {% for v, lbl in [('todos','Todos'),('arriendo','Arriendo'),('venta','Venta')] %}
+          <a class="{% if op_filtro == v %}on{% endif %}"
+             href="?token={{ token }}&op={{ v }}&estado={{ estado_filtro }}">{{ lbl }}</a>
+        {% endfor %}
+        <span class="lbl" style="margin-left:12px">Estado:</span>
+        {% for v, lbl in [('activos','Activos'),('inactivos','Inactivos'),('todos','Todos')] %}
+          <a class="{% if estado_filtro == v %}on{% endif %}"
+             href="?token={{ token }}&op={{ op_filtro }}&estado={{ v }}">{{ lbl }}</a>
+        {% endfor %}
+      </div>
+      <span class="count">{{ inmuebles|length }} resultado(s)</span>
+    </div>
+
+    {% if inmuebles %}
+    <table>
+      <thead>
+        <tr>
+          <th>Nro</th><th>Op</th><th>Hab</th><th>Baños</th><th>m²</th>
+          <th>Precio</th><th>Fuente</th><th>Estado</th><th>Creado</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in inmuebles %}
+        <tr class="{% if not i.activo %}inactivo{% endif %}">
+          <td class="mono"><strong>{{ i.nro }}</strong></td>
+          <td><span class="pill {% if i.operacion == 'arriendo' %}arr{% else %}ven{% endif %}">{{ i.operacion }}</span></td>
+          <td>{{ i.habitaciones if i.habitaciones is not none else '—' }}</td>
+          <td>{{ i.banos if i.banos is not none else '—' }}</td>
+          <td>{{ i.m2 if i.m2 is not none else '—' }}</td>
+          <td class="mono">{{ i.precio_fmt }}</td>
+          <td><span class="pill src-{{ i.fuente }}">{{ i.fuente }}</span></td>
+          <td>
+            {% if i.activo %}<span class="pill ok">activo</span>
+            {% else %}<span class="pill off">inactivo</span>{% endif %}
+          </td>
+          <td class="mono">{{ i.creado_en.strftime('%Y-%m-%d') if i.creado_en else '' }}</td>
+          <td class="row-actions">
+            <button type="button" class="btn" onclick="document.getElementById('edit-{{ i.id }}').classList.toggle('show')">Editar</button>
+            <form class="inline" method="POST" action="{{ url_for('petra_panel.visitante_inmueble_toggle', iid=i.id) }}">
+              <input type="hidden" name="token" value="{{ token }}">
+              <button type="submit">{% if i.activo %}Desactivar{% else %}Activar{% endif %}</button>
+            </form>
+          </td>
+        </tr>
+        <tr id="edit-{{ i.id }}" class="edit-row">
+          <td colspan="10">
+            <form method="POST" action="{{ url_for('petra_panel.visitante_inmueble_editar', iid=i.id) }}">
+              <input type="hidden" name="token" value="{{ token }}">
+              <div class="form-grid">
+                <div><label>Nro *</label><input type="text" name="nro" required value="{{ i.nro }}"></div>
+                <div><label>Operación *</label>
+                  <select name="operacion" required>
+                    <option value="arriendo" {% if i.operacion == 'arriendo' %}selected{% endif %}>Arriendo</option>
+                    <option value="venta" {% if i.operacion == 'venta' %}selected{% endif %}>Venta</option>
+                  </select>
+                </div>
+                <div><label>Hab</label><input type="number" name="habitaciones" min="0" value="{{ i.habitaciones if i.habitaciones is not none else '' }}"></div>
+                <div><label>Baños</label><input type="number" name="banos" min="0" value="{{ i.banos if i.banos is not none else '' }}"></div>
+                <div><label>m²</label><input type="number" name="m2" min="0" value="{{ i.m2 if i.m2 is not none else '' }}"></div>
+                <div><label>Precio (COP) *</label><input type="number" name="precio" required min="1" value="{{ i.precio }}"></div>
+                <div><label>Tel. propietario</label><input type="text" name="propietario_telefono" value="{{ i.propietario_telefono or '' }}"></div>
+                <div><button type="submit" class="primary">Guardar</button></div>
+              </div>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="padding:40px;text-align:center;color:var(--muted)">
+      Sin inmuebles para los filtros actuales.
+    </div>
+    {% endif %}
+  </div>
+</main>
+</body>
+</html>

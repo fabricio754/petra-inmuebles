@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Solicitudes de contacto · Visitante | Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff; --panel: #ffffff; --border: #e8e4f0;
+    --text: #2a2440; --muted: #76708a; --accent: #7c5cff;
+    --accent-soft: #ece6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background: #fff;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  .topbar .brand { color: var(--accent); }
+  .topbar a.back { color: var(--accent); text-decoration: none; font-size: 13px; }
+  main { padding: 20px 24px; max-width: 1300px; margin: 0 auto; }
+  .panel { background: var(--panel); border-radius: 10px;
+           border: 1px solid var(--border); overflow: hidden; }
+  .panel-head { padding: 14px 18px; border-bottom: 1px solid var(--border);
+                display: flex; align-items: center; justify-content: space-between; }
+  .panel-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; padding: 10px 14px; background: #f5f2fb;
+             color: var(--muted); font-weight: 500; text-transform: uppercase;
+             font-size: 11px; letter-spacing: 0.5px;
+             border-bottom: 1px solid var(--border); }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid #f1eef7;
+             vertical-align: middle; }
+  tbody tr:hover { background: #fcfaff; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px;
+          font-size: 11px; font-weight: 600;
+          background: var(--accent-soft); color: var(--accent); }
+  .pill.arr { background: #e0f2fe; color: #075985; }
+  .pill.ven { background: #fef3c7; color: #92400e; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .nav-link { color: var(--accent); text-decoration: none; }
+  .nav-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>📨 <span class="brand">Visitante QR</span> — Solicitudes de contacto</h1>
+  <a class="back" href="{{ url_for('petra_panel.visitante_conjuntos') }}?token={{ token }}">← Conjuntos</a>
+</div>
+
+<main>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Solicitudes</h2>
+      <span class="count">{{ contactos|length }} (últ 500)</span>
+    </div>
+    {% if contactos %}
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th><th>Visitante</th>
+          <th>Conjunto</th><th>Inmueble</th>
+          <th>Op</th><th>Precio</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in contactos %}
+        <tr>
+          <td class="mono">{{ c.creado_en.strftime('%Y-%m-%d %H:%M') if c.creado_en else '' }}</td>
+          <td>
+            <div class="mono">{{ c.telefono }}</div>
+            {% if c.contacto_nombre %}<div style="font-size:12px;color:var(--muted)">{{ c.contacto_nombre }}</div>{% endif %}
+          </td>
+          <td>
+            <a class="nav-link" href="{{ url_for('petra_panel.visitante_inmuebles', cid=c.conjunto_id) }}?token={{ token }}">
+              {{ c.conjunto_nombre }}
+            </a>
+            <div style="font-size:12px;color:var(--muted)">cod {{ c.conjunto_codigo }}</div>
+          </td>
+          <td class="mono">#{{ c.inmueble_nro }}</td>
+          <td><span class="pill {% if c.operacion == 'arriendo' %}arr{% else %}ven{% endif %}">{{ c.operacion }}</span></td>
+          <td class="mono">{{ c.precio_fmt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="padding:40px;text-align:center;color:var(--muted)">
+      Todavía no hay solicitudes de contacto registradas.
+    </div>
+    {% endif %}
+  </div>
+</main>
+</body>
+</html>
