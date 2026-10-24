@@ -46,7 +46,7 @@ def solo_menu_boton(texto):
 # -------- Lista de inmuebles -----------------------------------------------
 def lista_inmuebles(edificio, operacion, inmuebles):
     """Interactive list con hasta 10 inmuebles. `inmuebles` es una lista
-    de dicts con las claves: id, nro, hab, banos, m2, precio.
+    de dicts con las claves: id, nro, hab, banos, m2, precio, tipo.
 
     operacion ∈ {'arriendo', 'venta'} — cambia el header y el prefijo
     de los `id` que vuelven como `list_id`."""
@@ -60,15 +60,16 @@ def lista_inmuebles(edificio, operacion, inmuebles):
     rows = []
     for inm in inmuebles[:10]:
         precio_fmt = T.formatear_precio(inm.get("precio"))
-        desc = T.ROW_DESC.format(
-            hab=inm.get("hab") or "-",
-            banos=inm.get("banos") or "-",
-            m2=inm.get("m2") or "-",
+        desc = T.format_row_desc(
+            hab=inm.get("hab"),
+            banos=inm.get("banos"),
+            m2=inm.get("m2"),
             precio_fmt=precio_fmt,
         )
         rows.append({
             "id": f"{prefix}:{inm['id']}",
-            "title": f"Apto {inm.get('nro') or inm['id']}",
+            "title": T.row_title(inm.get("tipo"),
+                                 inm.get("nro") or inm["id"]),
             "description": desc,
         })
 
@@ -88,12 +89,15 @@ def detalle_inmueble(edificio, operacion, inm):
         T.GESTOR_PROPIETARIO if (inm.get("fuente") == "propietario")
         else T.GESTOR_PETRA
     )
+    titulo = T.row_title(inm.get("tipo"), inm.get("nro") or inm["id"])
     body = tpl.format(
-        nro=inm.get("nro") or inm["id"],
+        titulo=titulo,
         edificio=edificio,
-        hab=inm.get("hab") or "-",
-        banos=inm.get("banos") or "-",
-        m2=inm.get("m2") or "-",
+        atributos=T.detalle_atributos(
+            hab=inm.get("hab"),
+            banos=inm.get("banos"),
+            m2=inm.get("m2"),
+        ),
         precio_fmt=T.formatear_precio(inm.get("precio")),
         gestor=gestor,
     )
@@ -137,14 +141,33 @@ def pub_operacion(edificio):
     }
 
 
+# -------- Publicar — tipo de inmueble (interactive list) -------------------
+def lista_tipos_publicar(token_vuelta_menu=False):
+    """Interactive list con los 5 tipos válidos. Cada row.id es
+    'VIS_PUB_TIPO:<key>' donde key es lowercase y sin acento."""
+    rows = []
+    for key in T.TIPOS_VALIDOS:
+        rows.append({
+            "id": f"VIS_PUB_TIPO:{key}",
+            "title": T.TIPO_LABELS.get(key, key.capitalize()),
+            "description": "",
+        })
+    return {
+        "type": "list",
+        "text": T.PUB_PEDIR_TIPO,
+        "button_label": T.LISTA_TIPO_BTN_LABEL,
+        "sections": [{"title": T.LISTA_TIPO_SECCION_TITULO, "rows": rows}],
+    }
+
+
 # -------- Publicar — resumen + autorización --------------------------------
-def pub_resumen(edificio, operacion, hab, banos, m2, precio):
+def pub_resumen(edificio, operacion, tipo, nro, m2, precio):
     precio_label = "Canon mensual" if operacion == "arriendo" else "Precio"
     body = T.PUB_RESUMEN.format(
         edificio=edificio,
         operacion="Arriendo" if operacion == "arriendo" else "Venta",
-        hab=hab,
-        banos=banos,
+        tipo=T.tipo_label(tipo),
+        nro=nro,
         m2=m2,
         precio_label=precio_label,
         precio_fmt=T.formatear_precio(precio),
