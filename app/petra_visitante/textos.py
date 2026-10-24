@@ -37,6 +37,32 @@ BTN_AUTORIZO = "Autorizo"
 BTN_NO_AUTORIZO = "No autorizo"
 
 
+# -------- Tipos de inmueble (nuevo flujo de publicar) -----------------------
+# Keys lowercase sin acentos — se usan para persistir en DB y para construir
+# los `list_id` de la interactive list. Los labels sí llevan acentos.
+TIPOS_VALIDOS = ["apto", "casa", "parqueadero", "habitacion", "deposito"]
+
+TIPO_LABELS = {
+    "apto": "Apartamento",
+    "casa": "Casa",
+    "parqueadero": "Parqueadero",
+    "habitacion": "Habitación",
+    "deposito": "Depósito",
+}
+
+
+def tipo_label(tipo):
+    """Devuelve el label legible para un tipo. Para el valor legacy
+    'apartamento' y el canon 'apto' usa 'Apartamento'. Si no está en el
+    mapa, devuelve el tipo capitalizado como fallback."""
+    if not tipo:
+        return "Apartamento"
+    t = tipo.strip().lower()
+    if t == "apartamento":
+        return "Apartamento"
+    return TIPO_LABELS.get(t, t.capitalize())
+
+
 # -------- Arriendo / Venta — listados --------------------------------------
 LISTA_ARRIENDO_HEADER = (
     "🏠 *Inmuebles en arriendo* en {edificio}\n\n"
@@ -59,26 +85,66 @@ LISTA_BTN_LABEL = "Ver inmuebles"
 LISTA_SECCION_TITULO = "Disponibles"
 
 # Row description template para la lista (max 72 chars). Se corta
-# automáticamente en `petra_wa.send_list`.
+# automáticamente en `petra_wa.send_list`. Mantiene compat para seed data
+# que trae hab/baños; la render real usa `format_row_desc`.
 ROW_DESC = "{hab} hab · {banos} baños · {m2} m² · {precio_fmt}"
+
+
+def format_row_desc(hab, banos, m2, precio_fmt):
+    """Arma la descripción de un row en la lista de inmuebles con
+    tolerancia a NULL. Si hab/baños son None (visitor-published), se
+    omiten; si m2 también falta, aparece '-'."""
+    partes = []
+    if hab is not None:
+        partes.append(f"{hab} hab")
+    if banos is not None:
+        partes.append(f"{banos} baños")
+    if m2 is not None:
+        partes.append(f"{m2} m²")
+    else:
+        partes.append("- m²")
+    partes.append(precio_fmt)
+    return " · ".join(partes)
+
+
+def row_title(tipo, nro):
+    """Título del row: '<Label> <nro>'. Para apartamentos (apto o legacy
+    'apartamento') se usa 'Apto {nro}' porque es más corto."""
+    t = (tipo or "").strip().lower()
+    if t in ("apto", "apartamento", ""):
+        return f"Apto {nro}"
+    return f"{TIPO_LABELS.get(t, t.capitalize())} {nro}"
+
 
 # -------- Detalle de inmueble -----------------------------------------------
 DETALLE_ARRIENDO = (
-    "🏠 *Apto {nro}* · {edificio}\n\n"
-    "• Habitaciones: *{hab}*\n"
-    "• Baños: *{banos}*\n"
-    "• Área: *{m2} m²*\n"
+    "🏠 *{titulo}* · {edificio}\n\n"
+    "{atributos}"
     "• Canon mensual: *{precio_fmt}*\n\n"
     "_{gestor}_"
 )
 DETALLE_VENTA = (
-    "🏡 *Apto {nro}* · {edificio}\n\n"
-    "• Habitaciones: *{hab}*\n"
-    "• Baños: *{banos}*\n"
-    "• Área: *{m2} m²*\n"
+    "🏡 *{titulo}* · {edificio}\n\n"
+    "{atributos}"
     "• Precio: *{precio_fmt}*\n\n"
     "_{gestor}_"
 )
+
+
+def detalle_atributos(hab, banos, m2):
+    """Bloque de bullets de atributos para el detalle. Omite los que son
+    None para que inmuebles publicados por propietario (sin hab/baños)
+    no muestren 'None'."""
+    partes = []
+    if hab is not None:
+        partes.append(f"• Habitaciones: *{hab}*\n")
+    if banos is not None:
+        partes.append(f"• Baños: *{banos}*\n")
+    if m2 is not None:
+        partes.append(f"• Área: *{m2} m²*\n")
+    return "".join(partes)
+
+
 GESTOR_PROPIETARIO = "Publicado por el propietario"
 GESTOR_PETRA = "Gestiona Petra"
 
@@ -99,21 +165,30 @@ PUB_OPERACION = (
     "📋 Vamos a publicar tu inmueble en *{edificio}*.\n\n"
     "¿Es para *arriendo* o para *venta*?"
 )
-PUB_HAB = (
+
+# Nuevo paso: tipo de inmueble (interactive list).
+PUB_PEDIR_TIPO = (
     "¡Perfecto! 🙌\n\n"
-    "*¿Cuántas habitaciones* tiene el inmueble?\n"
-    "_(solo el número, 1 a 10)_"
+    "¿Qué *tipo de inmueble* es?"
 )
-PUB_BANOS = (
-    "✅ {hab} habitaciones.\n\n"
-    "*¿Cuántos baños*?\n"
-    "_(solo el número, 1 a 10)_"
+LISTA_TIPO_BTN_LABEL = "Ver tipos"
+LISTA_TIPO_SECCION_TITULO = "Tipo de inmueble"
+
+# Ack del tipo elegido + pide identificador en el mismo mensaje
+# (siguiendo el patrón PUB_BANOS/PUB_AREA del flujo anterior).
+PUB_PEDIR_ID = (
+    "✅ {tipo}.\n\n"
+    "*¿Cuál es el # de torre, bloque, apto o casa?*\n"
+    "_(ej: Torre 3 Apto 702, o Casa 15)_"
 )
-PUB_AREA = (
-    "✅ {banos} baños.\n\n"
-    "*¿Qué área tiene en m²?*\n"
-    "_(solo el número, 10 a 10000)_"
+
+# Ack del identificador + pide área.
+PUB_PEDIR_AREA = (
+    "✅ {nro}.\n\n"
+    "*¿Qué área aproximada tiene en m²?*\n"
+    "_(solo el número, 1 a 10000)_"
 )
+
 PUB_PRECIO_ARRIENDO = (
     "✅ {m2} m².\n\n"
     "*¿Cuál es el canon mensual?* _(en pesos, solo números)_\n"
@@ -125,17 +200,19 @@ PUB_PRECIO_VENTA = (
     "Ej: 285000000"
 )
 PUB_ERR_NUM = "⚠️ Necesito solo el *número*. Probá de nuevo."
-PUB_ERR_HAB = "⚠️ Habitaciones entre *1 y 10*, solo el número."
-PUB_ERR_BANOS = "⚠️ Baños entre *1 y 10*, solo el número."
-PUB_ERR_AREA = "⚠️ Área entre *10 y 10000* m², solo el número."
+PUB_ERR_TIPO = "⚠️ Elegí un tipo de la lista."
+PUB_ERR_ID = (
+    "⚠️ Decime algo como 'Torre 3 Apto 702' o 'Casa 15'."
+)
+PUB_ERR_AREA = "⚠️ Área entre *1 y 10000* m², solo el número."
 PUB_ERR_PRECIO = "⚠️ El precio debe ser un número mayor que cero."
 
 PUB_RESUMEN = (
     "📝 *Revisá los datos de tu inmueble:*\n\n"
     "• Edificio: *{edificio}*\n"
     "• Operación: *{operacion}*\n"
-    "• Habitaciones: *{hab}*\n"
-    "• Baños: *{banos}*\n"
+    "• Tipo: *{tipo}*\n"
+    "• Identificación: *{nro}*\n"
     "• Área: *{m2} m²*\n"
     "• {precio_label}: *{precio_fmt}*\n\n"
     "{autorizacion}\n\n"
@@ -153,8 +230,8 @@ PUB_NO_AUTORIZO = (
     "Cuando quieras, volvé a *Publicar mi inmueble* desde el menú."
 )
 PUB_PUBLICADO = (
-    "✅ Tu inmueble quedó publicado: *Apto {nro}* · {edificio} · "
-    "{hab} hab · {banos} baños · {m2} m² · {precio_fmt} · {operacion}.\n\n"
+    "✅ Tu inmueble quedó publicado: *{titulo}* · {edificio} · "
+    "{m2} m² · {precio_fmt} · {operacion}.\n\n"
     "Ya está visible para quienes busquen en tu conjunto 💜"
 )
 

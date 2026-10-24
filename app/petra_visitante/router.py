@@ -13,8 +13,8 @@ Estados (string, el router hace split por ':' para extraer sub-id):
     venta_detalle:{inmueble_id}
     venta_contactar:{inmueble_id}
     publicar_operacion
-    publicar_hab
-    publicar_banos
+    publicar_tipo
+    publicar_identificador
     publicar_area
     publicar_precio
     publicar_autorizacion
@@ -26,7 +26,6 @@ wamid y mandó el typing indicator — no hace falta repetirlo acá.
 """
 import json
 import logging
-import random
 import re
 
 from app import db as _db
@@ -249,7 +248,7 @@ def _resolver_conjunto(conn, telefono, texto, meta):
 
 def _listar_inmuebles(conn, conjunto_id, operacion, limite=10):
     rows = conn.execute(
-        "SELECT id, nro, habitaciones, banos, m2, precio, fuente "
+        "SELECT id, nro, habitaciones, banos, m2, precio, fuente, tipo "
         "FROM inmuebles_visitante "
         "WHERE conjunto_id=%s AND operacion=%s AND activo=TRUE "
         "ORDER BY creado_en DESC LIMIT %s",
@@ -257,14 +256,14 @@ def _listar_inmuebles(conn, conjunto_id, operacion, limite=10):
     ).fetchall()
     return [
         {"id": r[0], "nro": r[1], "hab": r[2], "banos": r[3],
-         "m2": r[4], "precio": r[5], "fuente": r[6]}
+         "m2": r[4], "precio": r[5], "fuente": r[6], "tipo": r[7]}
         for r in rows
     ]
 
 
 def _get_inmueble(conn, inmueble_id, conjunto_id):
     row = conn.execute(
-        "SELECT id, nro, habitaciones, banos, m2, precio, fuente, operacion "
+        "SELECT id, nro, habitaciones, banos, m2, precio, fuente, operacion, tipo "
         "FROM inmuebles_visitante "
         "WHERE id=%s AND conjunto_id=%s AND activo=TRUE",
         (inmueble_id, conjunto_id),
@@ -273,18 +272,21 @@ def _get_inmueble(conn, inmueble_id, conjunto_id):
         return None
     return {"id": row[0], "nro": row[1], "hab": row[2], "banos": row[3],
             "m2": row[4], "precio": row[5], "fuente": row[6],
-            "operacion": row[7]}
+            "operacion": row[7], "tipo": row[8]}
 
 
-def _crear_inmueble(conn, conjunto_id, operacion, hab, banos, m2, precio,
+def _crear_inmueble(conn, conjunto_id, operacion, tipo, hab, banos, m2, precio,
                     propietario_telefono, nro):
+    """Inserta un inmueble publicado por un visitante. `tipo` es la key
+    canónica (apto/casa/parqueadero/habitacion/deposito). `nro` lo
+    escribió el propietario — no se auto-genera."""
     r = conn.execute(
         "INSERT INTO inmuebles_visitante "
-        "(conjunto_id, nro, operacion, habitaciones, banos, m2, precio, "
+        "(conjunto_id, tipo, nro, operacion, habitaciones, banos, m2, precio, "
         " propietario_telefono, fuente) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'propietario') "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'propietario') "
         "RETURNING id",
-        (conjunto_id, nro, operacion, hab, banos, m2, precio,
+        (conjunto_id, tipo, nro, operacion, hab, banos, m2, precio,
          propietario_telefono),
     ).fetchone()
     return r[0]
@@ -439,12 +441,16 @@ def _dispatch(conn, telefono, texto, button_id, list_id,
         _publicar_inicio(conn, telefono, conjunto, meta)
         return
 
-    if base == "publicar_hab":
-        _publicar_recibir_hab(conn, telefono, conjunto, meta, texto)
+    if base == "publicar_tipo":
+        if list_id and list_id.startswith("VIS_PUB_TIPO:"):
+            _publicar_recibir_tipo(conn, telefono, conjunto, meta, list_id)
+            return
+        _enviar(telefono, _menus.texto(T.PUB_ERR_TIPO))
+        _enviar(telefono, _menus.lista_tipos_publicar())
         return
 
-    if base == "publicar_banos":
-        _publicar_recibir_banos(conn, telefono, conjunto, meta, texto)
+    if base == "publicar_identificador":
+        _publicar_recibir_identificador(conn, telefono, conjunto, meta, texto)
         return
 
     if base == "publicar_area":
@@ -583,8 +589,8 @@ def _publicar_set_operacion(conn, telefono, conjunto, meta, operacion):
     pub = dict(meta.get("visitante_pub") or {})
     pub["operacion"] = operacion
     meta["visitante_pub"] = pub
-    _set_estado(conn, telefono, "publicar_hab", meta=meta)
-    _enviar(telefono, _menus.texto(T.PUB_HAB))
+    _set_estado(conn, telefono, "publicar_tipo", meta=meta)
+    _enviar(telefono, _menus.lista_tipos_publicar())
 
 
 def _parse_num(texto):
@@ -600,35 +606,45 @@ def _parse_num(texto):
         return None
 
 
-def _publicar_recibir_hab(conn, telefono, conjunto, meta, texto):
-    n = _parse_num(texto)
-    if n is None or n < 1 or n > 10:
-        _enviar(telefono, _menus.texto(T.PUB_ERR_HAB))
+def _publicar_recibir_tipo(conn, telefono, conjunto, meta, list_id):
+    key = (list_id or "").split(":", 1)[1] if ":" in (list_id or "") else ""
+    key = key.strip().lower()
+    if key not in T.TIPOS_VALIDOS:
+        _enviar(telefono, _menus.texto(T.PUB_ERR_TIPO))
+        _enviar(telefono, _menus.lista_tipos_publicar())
         return
     pub = dict((meta or {}).get("visitante_pub") or {})
-    pub["hab"] = n
+    pub["tipo"] = key
     new_meta = dict(meta or {})
     new_meta["visitante_pub"] = pub
-    _set_estado(conn, telefono, "publicar_banos", meta=new_meta)
-    _enviar(telefono, _menus.texto(T.PUB_BANOS.format(hab=n)))
+    _set_estado(conn, telefono, "publicar_identificador", meta=new_meta)
+    _enviar(telefono, _menus.texto(
+        T.PUB_PEDIR_ID.format(tipo=T.tipo_label(key))
+    ))
 
 
-def _publicar_recibir_banos(conn, telefono, conjunto, meta, texto):
-    n = _parse_num(texto)
-    if n is None or n < 1 or n > 10:
-        _enviar(telefono, _menus.texto(T.PUB_ERR_BANOS))
+def _publicar_recibir_identificador(conn, telefono, conjunto, meta, texto):
+    nro = (texto or "").strip()
+    if not nro:
+        _enviar(telefono, _menus.texto(T.PUB_ERR_ID))
+        return
+    # Cap defensivo — también lo valida WhatsApp con los límites de texto.
+    if len(nro) > 60:
+        nro = nro[:60].strip()
+    if not nro:
+        _enviar(telefono, _menus.texto(T.PUB_ERR_ID))
         return
     pub = dict((meta or {}).get("visitante_pub") or {})
-    pub["banos"] = n
+    pub["nro"] = nro
     new_meta = dict(meta or {})
     new_meta["visitante_pub"] = pub
     _set_estado(conn, telefono, "publicar_area", meta=new_meta)
-    _enviar(telefono, _menus.texto(T.PUB_AREA.format(banos=n)))
+    _enviar(telefono, _menus.texto(T.PUB_PEDIR_AREA.format(nro=nro)))
 
 
 def _publicar_recibir_area(conn, telefono, conjunto, meta, texto):
     n = _parse_num(texto)
-    if n is None or n < 10 or n > 10000:
+    if n is None or n < 1 or n > 10000:
         _enviar(telefono, _menus.texto(T.PUB_ERR_AREA))
         return
     pub = dict((meta or {}).get("visitante_pub") or {})
@@ -668,8 +684,8 @@ def _publicar_mostrar_resumen(conn, telefono, conjunto, meta):
     _enviar(telefono, _menus.pub_resumen(
         edificio=conjunto["nombre"],
         operacion=pub.get("operacion") or "arriendo",
-        hab=pub.get("hab"),
-        banos=pub.get("banos"),
+        tipo=pub.get("tipo") or "apto",
+        nro=pub.get("nro") or "-",
         m2=pub.get("m2"),
         precio=pub.get("precio"),
     ))
@@ -678,33 +694,25 @@ def _publicar_mostrar_resumen(conn, telefono, conjunto, meta):
 def _publicar_confirmar(conn, telefono, conjunto, meta):
     pub = (meta or {}).get("visitante_pub") or {}
     op = pub.get("operacion") or "arriendo"
-    hab = pub.get("hab")
-    banos = pub.get("banos")
+    tipo = pub.get("tipo") or "apto"
+    nro = pub.get("nro") or ""
     m2 = pub.get("m2")
     precio = pub.get("precio")
-    # Nro pseudo-aleatorio de 3 dígitos. Si colisiona con otro apto del
-    # mismo conjunto, reintentamos hasta 5 veces.
-    nro = None
-    for _ in range(5):
-        candidato = str(random.randint(100, 999))
-        exists = conn.execute(
-            "SELECT 1 FROM inmuebles_visitante WHERE conjunto_id=%s AND nro=%s",
-            (conjunto["id"], candidato),
-        ).fetchone()
-        if not exists:
-            nro = candidato
-            break
-    if nro is None:
-        # Fallback — si todos los 3-dig colisionan (improbable), un 4-dig.
-        nro = str(random.randint(1000, 9999))
+    if not nro:
+        # Defensa: no deberíamos llegar acá sin identificador, pero si pasó,
+        # mandamos al usuario al inicio del flujo.
+        _enviar(telefono, _menus.texto(T.FALLBACK))
+        _ir_a_menu(conn, telefono, conjunto, meta)
+        return
     try:
         iid = _crear_inmueble(
-            conn, conjunto["id"], op, hab, banos, m2, precio,
+            conn, conjunto["id"], op, tipo,
+            hab=None, banos=None, m2=m2, precio=precio,
             propietario_telefono=telefono, nro=nro,
         )
         log.info(
-            "[visitante] PUBLICADO tel=%s inmueble=%s conjunto=%s op=%s",
-            telefono, iid, conjunto["codigo"], op,
+            "[visitante] PUBLICADO tel=%s inmueble=%s conjunto=%s op=%s tipo=%s nro=%s",
+            telefono, iid, conjunto["codigo"], op, tipo, nro,
         )
     except Exception:
         log.exception("[visitante] insert inmueble fallo tel=%s", telefono)
@@ -712,9 +720,9 @@ def _publicar_confirmar(conn, telefono, conjunto, meta):
         _ir_a_menu(conn, telefono, conjunto, meta)
         return
     _enviar(telefono, _menus.texto(T.PUB_PUBLICADO.format(
-        nro=nro,
+        titulo=T.row_title(tipo, nro),
         edificio=conjunto["nombre"],
-        hab=hab, banos=banos, m2=m2,
+        m2=m2 if m2 is not None else "-",
         precio_fmt=T.formatear_precio(precio),
         operacion="Arriendo" if op == "arriendo" else "Venta",
     )))
