@@ -547,6 +547,29 @@ def _procesar_webhook_petra(payload):
         except Exception:
             log.exception("[petra] media handler fallo tel=%s", phone)
 
+    # ---- Visitante flow (lectores de QR en edificios) --------------------
+    # Si no es un agente ya registrado o en proceso de inscripción, va al
+    # flujo visitante. Se detecta por: (a) texto trae marker 'Cod: XXXX' o
+    # (b) ya está en algún estado visitante_estado en meta. Agentes
+    # registrados tienen prioridad sobre el flujo visitante.
+    try:
+        from app import petra_visitante, petra_wa
+        if petra_visitante.es_visitante(phone, texto):
+            wamid = message.get("id") if isinstance(message, dict) else None
+            if wamid:
+                try:
+                    petra_wa.send_typing_indicator(wamid)
+                except Exception:
+                    log.exception("[petra] typing fallo")
+            petra_visitante.handle_message(
+                telefono=phone, texto=texto,
+                button_id=button_id, list_id=list_id,
+                contacto_nombre=nombre, wa_msg_id=wamid,
+            )
+            return
+    except Exception:
+        log.exception("[petra] visitante fallo tel=%s", phone)
+
     # Feature flag en cascada: multi-agent > orchestrator monolítico > legacy.
     # - USE_MULTI_AGENT=true → router + sub-agentes especializados
     # - USE_OWN_ORCHESTRATOR=true → orchestrator monolítico con Claude SDK

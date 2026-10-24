@@ -1962,3 +1962,95 @@ VALUES (
   TRUE
 )
 ON CONFLICT (clave) DO NOTHING;
+
+
+-- ============================================================================
+-- Visitante flow (lectores de QR en edificios)
+-- ============================================================================
+
+-- Columnas aux en `contactos` para persistir estado del flujo visitante.
+-- `meta` almacena visitante_estado, visitante_conjunto_id, visitante_pub,
+-- etc. — todo en jsonb para no fragmentar el schema por cada campo nuevo.
+-- `estado_agente` es el mirror explícito del estado del flow de agentes
+-- (que vive canónicamente en petra_contacto_roles.metadata); se usa en el
+-- hook de ruteo para distinguir visitante de agente en un solo SELECT.
+ALTER TABLE contactos ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE contactos ADD COLUMN IF NOT EXISTS estado_agente TEXT;
+
+CREATE TABLE IF NOT EXISTS conjuntos_visitante (
+  id SERIAL PRIMARY KEY,
+  codigo TEXT UNIQUE NOT NULL,
+  nombre TEXT NOT NULL,
+  ciudad TEXT,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS inmuebles_visitante (
+  id SERIAL PRIMARY KEY,
+  conjunto_id INT NOT NULL REFERENCES conjuntos_visitante(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL DEFAULT 'apartamento',
+  nro TEXT NOT NULL,
+  operacion TEXT NOT NULL CHECK (operacion IN ('arriendo', 'venta')),
+  habitaciones INT,
+  banos INT,
+  m2 INT,
+  precio BIGINT NOT NULL,
+  propietario_telefono TEXT,
+  fuente TEXT NOT NULL DEFAULT 'seed' CHECK (fuente IN ('seed', 'propietario', 'petra')),
+  activo BOOL NOT NULL DEFAULT TRUE,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inmuebles_visitante_conjunto_activo
+  ON inmuebles_visitante(conjunto_id, activo, operacion);
+
+-- Seed inicial: Arrayanes (Bogota) con cod 1001 y Prados 1 (Zipaquira) con cod 2530
+INSERT INTO conjuntos_visitante (codigo, nombre, ciudad)
+  VALUES ('1001', 'Conjunto Arrayanes', 'Bogota')
+  ON CONFLICT (codigo) DO NOTHING;
+INSERT INTO conjuntos_visitante (codigo, nombre, ciudad)
+  VALUES ('2530', 'Prados 1', 'Zipaquira')
+  ON CONFLICT (codigo) DO NOTHING;
+
+-- Inmuebles seed Arrayanes + Prados 1
+DO $$
+DECLARE
+  v_arr_id INT;
+  v_pra_id INT;
+BEGIN
+  SELECT id INTO v_arr_id FROM conjuntos_visitante WHERE codigo = '1001';
+  SELECT id INTO v_pra_id FROM conjuntos_visitante WHERE codigo = '2530';
+
+  INSERT INTO inmuebles_visitante (conjunto_id, nro, operacion, habitaciones, banos, m2, precio, fuente)
+  SELECT v_arr_id, '204', 'arriendo', 2, 2, 65, 1950000, 'seed'
+  WHERE NOT EXISTS (SELECT 1 FROM inmuebles_visitante WHERE conjunto_id = v_arr_id AND nro = '204' AND operacion = 'arriendo' AND fuente = 'seed');
+
+  INSERT INTO inmuebles_visitante (conjunto_id, nro, operacion, habitaciones, banos, m2, precio, fuente)
+  SELECT v_arr_id, '508', 'arriendo', 1, 1, 48, 1650000, 'seed'
+  WHERE NOT EXISTS (SELECT 1 FROM inmuebles_visitante WHERE conjunto_id = v_arr_id AND nro = '508' AND operacion = 'arriendo' AND fuente = 'seed');
+
+  INSERT INTO inmuebles_visitante (conjunto_id, nro, operacion, habitaciones, banos, m2, precio, fuente)
+  SELECT v_arr_id, '804', 'arriendo', 3, 2, 85, 2450000, 'seed'
+  WHERE NOT EXISTS (SELECT 1 FROM inmuebles_visitante WHERE conjunto_id = v_arr_id AND nro = '804' AND operacion = 'arriendo' AND fuente = 'seed');
+
+  INSERT INTO inmuebles_visitante (conjunto_id, nro, operacion, habitaciones, banos, m2, precio, fuente)
+  SELECT v_arr_id, '1102', 'venta', 3, 2, 95, 385000000, 'seed'
+  WHERE NOT EXISTS (SELECT 1 FROM inmuebles_visitante WHERE conjunto_id = v_arr_id AND nro = '1102' AND operacion = 'venta' AND fuente = 'seed');
+
+  INSERT INTO inmuebles_visitante (conjunto_id, nro, operacion, habitaciones, banos, m2, precio, fuente)
+  SELECT v_arr_id, '602', 'venta', 2, 2, 72, 285000000, 'seed'
+  WHERE NOT EXISTS (SELECT 1 FROM inmuebles_visitante WHERE conjunto_id = v_arr_id AND nro = '602' AND operacion = 'venta' AND fuente = 'seed');
+
+  -- Prados 1 (Zipaquira)
+  INSERT INTO inmuebles_visitante (conjunto_id, nro, operacion, habitaciones, banos, m2, precio, fuente)
+  SELECT v_pra_id, '301', 'arriendo', 2, 1, 55, 1250000, 'seed'
+  WHERE NOT EXISTS (SELECT 1 FROM inmuebles_visitante WHERE conjunto_id = v_pra_id AND nro = '301' AND operacion = 'arriendo' AND fuente = 'seed');
+
+  INSERT INTO inmuebles_visitante (conjunto_id, nro, operacion, habitaciones, banos, m2, precio, fuente)
+  SELECT v_pra_id, '405', 'arriendo', 3, 2, 70, 1650000, 'seed'
+  WHERE NOT EXISTS (SELECT 1 FROM inmuebles_visitante WHERE conjunto_id = v_pra_id AND nro = '405' AND operacion = 'arriendo' AND fuente = 'seed');
+
+  INSERT INTO inmuebles_visitante (conjunto_id, nro, operacion, habitaciones, banos, m2, precio, fuente)
+  SELECT v_pra_id, '201', 'venta', 2, 1, 60, 185000000, 'seed'
+  WHERE NOT EXISTS (SELECT 1 FROM inmuebles_visitante WHERE conjunto_id = v_pra_id AND nro = '201' AND operacion = 'venta' AND fuente = 'seed');
+END $$;
