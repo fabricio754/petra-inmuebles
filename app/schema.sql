@@ -2054,3 +2054,16 @@ BEGIN
   SELECT v_pra_id, '201', 'venta', 2, 1, 60, 185000000, 'seed'
   WHERE NOT EXISTS (SELECT 1 FROM inmuebles_visitante WHERE conjunto_id = v_pra_id AND nro = '201' AND operacion = 'venta' AND fuente = 'seed');
 END $$;
+
+-- Solicitudes de contacto generadas desde el flujo visitante
+-- (el visitante confirmó "Sí, contactar" en un inmueble).
+CREATE TABLE IF NOT EXISTS visitante_contactos (
+  id SERIAL PRIMARY KEY,
+  telefono TEXT NOT NULL,
+  contacto_nombre TEXT,
+  conjunto_id INT NOT NULL REFERENCES conjuntos_visitante(id) ON DELETE CASCADE,
+  inmueble_id INT NOT NULL REFERENCES inmuebles_visitante(id) ON DELETE CASCADE,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_visitante_contactos_creado
+  ON visitante_contactos(creado_en DESC);

@@ -537,6 +537,29 @@ def _marcar_contactar(conn, telefono, conjunto, meta, operacion, inmueble_id):
         "[visitante] CONTACT_REQ tel=%s inmueble=%s conjunto=%s op=%s",
         telefono, iid, conjunto["codigo"], operacion,
     )
+    # Best-effort: persistir la solicitud para el panel. Si falla, no romper
+    # el flujo — el log de CONTACT_REQ sigue siendo la fuente de verdad.
+    try:
+        nombre = None
+        try:
+            r = conn.execute(
+                "SELECT nombre FROM contactos WHERE telefono=%s", (telefono,)
+            ).fetchone()
+            if r:
+                nombre = r[0]
+        except Exception:
+            nombre = None
+        conn.execute(
+            "INSERT INTO visitante_contactos "
+            "(telefono, contacto_nombre, conjunto_id, inmueble_id) "
+            "VALUES (%s, %s, %s, %s)",
+            (telefono, nombre, conjunto["id"], iid),
+        )
+    except Exception:
+        log.exception(
+            "[visitante] fallo guardando visitante_contactos tel=%s inm=%s",
+            telefono, iid,
+        )
     _enviar(telefono, _menus.texto(T.CONTACTAR_OK.format(nro=inm["nro"])))
     _set_estado(conn, telefono, "menu", meta=meta)
     _enviar(telefono, _menus.menu_principal(conjunto["nombre"]))
