@@ -113,9 +113,11 @@ def es_visitante(telefono, texto):
       2) Marker `Cod:` en el texto (QR recién escaneado) → True SIEMPRE,
          incluso si el teléfono ya está registrado como agente. El QR es
          una acción explícita: la persona está parada frente al edificio.
-      3) Si el agente está en algún estado real (recolectando, inscrito, …),
+      3) Visitante ya en flow (sticky) → True, incluso si el teléfono
+         también es agente. Si no, los botones del menú visitante caerían
+         al flow de agentes en el próximo mensaje.
+      4) Si el agente está en algún estado real (recolectando, inscrito, …),
          el flow de agentes manda → False.
-      4) Si el visitante ya está en un estado (sticky), → True.
       5) Saludo (`hola`, `menu`, etc.) sin ser agente conocido → True.
       6) Resto → False (que lo tome la cascada legacy).
     """
@@ -137,13 +139,13 @@ def es_visitante(telefono, texto):
             if _qr.tiene_marker_qr(texto):
                 return True
 
-            # 3) Agente ya identificado — el agent flow manda.
-            if estado_agente and estado_agente != "desconocido":
-                return False
-
-            # 4) Visitante ya en flow — sticky.
+            # 3) Visitante ya en flow — sticky, prioridad sobre agente.
             if vis_estado:
                 return True
+
+            # 4) Agente ya identificado — el agent flow manda.
+            if estado_agente and estado_agente != "desconocido":
+                return False
 
             # 5) Saludo de alguien sin flag de agente.
             if _es_saludo(texto):
