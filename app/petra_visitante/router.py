@@ -571,6 +571,22 @@ def _marcar_contactar(conn, telefono, conjunto, meta, operacion, inmueble_id):
             telefono, iid,
         )
     _enviar(telefono, _menus.texto(T.CONTACTAR_OK.format(nro=inm["nro"])))
+    # Link editable desde el panel (petra_contenidos.titulo='Watt.1'). Si no
+    # existe o está inactivo, no mandamos nada extra — mejor silencio que un
+    # link roto. El panel es la fuente de verdad del link.
+    try:
+        row = conn.execute(
+            "SELECT url FROM petra_contenidos "
+            "WHERE titulo=%s AND activo=TRUE "
+            "ORDER BY id DESC LIMIT 1",
+            ("Watt.1",),
+        ).fetchone()
+        if row and row[0]:
+            _enviar(telefono, _menus.texto(row[0]))
+    except Exception:
+        log.exception(
+            "[visitante] fallo buscando Watt.1 tel=%s inm=%s", telefono, iid
+        )
     _set_estado(conn, telefono, "menu", meta=meta)
     _enviar(telefono, _menus.menu_principal(conjunto["nombre"]))
 
