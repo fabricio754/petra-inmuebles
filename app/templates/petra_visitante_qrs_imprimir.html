@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Imprimir QRs · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff; --panel: #ffffff; --border: #e8e4f0;
+    --text: #2a2440; --muted: #76708a; --accent: #7c5cff;
+    --accent-soft: #ece6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background: #fff;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  .topbar .brand { color: var(--accent); }
+  .topbar a.back { color: var(--accent); text-decoration: none; font-size: 13px; }
+  main { padding: 24px; max-width: 920px; margin: 0 auto; }
+  .intro { background: var(--panel); border: 1px solid var(--border);
+           border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+  .intro h2 { margin: 0 0 8px; font-size: 18px; }
+  .intro p { margin: 4px 0; color: var(--muted); font-size: 13px; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; }
+  button, a.btn { padding: 8px 14px; border: 1px solid var(--border);
+          background: #fff; color: var(--text); border-radius: 6px;
+          cursor: pointer; font-size: 13px; font-family: inherit;
+          text-decoration: none; display: inline-block; }
+  button:hover, a.btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: #6a4ae8; }
+  .warn { background: #fef3c7; color: #92400e; padding: 10px 14px;
+          border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .qr-card { background: #fff; border: 1px solid var(--border);
+             border-radius: 10px; padding: 16px; text-align: center;
+             page-break-inside: avoid; break-inside: avoid; }
+  .qr-card h3 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
+  .qr-card .meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .qr-card .qr { display: flex; justify-content: center; }
+  .qr-card .qr img { width: 100%; max-width: 220px; height: auto;
+                     display: block; image-rendering: pixelated; }
+  .qr-card .foot { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+  @media print {
+    .topbar, .intro, .actions, .no-print { display: none !important; }
+    main { padding: 0; max-width: none; }
+    body { background: #fff; }
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 8mm; }
+    .qr-card { border: 1px dashed #999; border-radius: 6px;
+               padding: 8mm 6mm; }
+    .qr-card .qr img { max-width: 60mm; }
+    @page { size: A4 portrait; margin: 10mm; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar no-print">
+  <h1>🖨️ <span class="brand">Imprimir QRs</span></h1>
+  <a class="back" href="{{ url_for('petra_panel.visitante_conjuntos') }}?token={{ token }}">← Conjuntos</a>
+</div>
+
+<main>
+  <div class="intro no-print">
+    <h2>QRs de todos los conjuntos ({{ conjuntos|length }})</h2>
+    <p>Grilla imprimible — 2 QRs por fila, A4 vertical.</p>
+    <p>Para imprimir en papel adhesivo o cortar y pegar en el edificio.</p>
+    {% if not wa_phone %}
+    <div class="warn" style="margin-top:12px">
+      ⚠️ Falta <code>WA_PILOT_PHONE</code> en el servidor. Los QRs no se van a generar.
+    </div>
+    {% endif %}
+    <div class="actions">
+      <button type="button" class="primary" onclick="window.print()">🖨️ Imprimir</button>
+      <a class="btn" href="{{ url_for('petra_panel.visitante_conjuntos') }}?token={{ token }}">Volver</a>
+    </div>
+  </div>
+
+  <div class="grid">
+    {% for c in conjuntos %}
+    <div class="qr-card">
+      <h3>{{ c.nombre }}</h3>
+      <div class="meta">Cod: {{ c.codigo }}{% if c.ciudad %} · {{ c.ciudad }}{% endif %}</div>
+      <div class="qr" data-link="{{ c.wa_link }}" id="qr-{{ c.id }}">
+        {% if not c.wa_link %}<small style="color:#991b1b">Sin WA_PILOT_PHONE</small>{% endif %}
+      </div>
+      <div class="foot">Escaneá para contactarte con Petra Inmuebles</div>
+    </div>
+    {% endfor %}
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+  (function () {
+    document.querySelectorAll('.qr-card .qr[data-link]').forEach(function (el) {
+      var link = el.getAttribute('data-link');
+      if (!link) return;
+      try {
+        var qr = qrcode(0, 'M');
+        qr.addData(link);
+        qr.make();
+        el.innerHTML = qr.createImgTag(6, 6);
+      } catch (e) {
+        el.innerHTML = '<small style="color:#991b1b">Error QR</small>';
+      }
+    });
+  })();
+</script>
+</body>
+</html>
