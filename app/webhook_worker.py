@@ -491,9 +491,30 @@ def _procesar_webhook_petra(payload):
         return
     contactos = change.get("contacts") or []
     nombre = None
+    username = None
     if contactos:
         profile = (contactos[0] or {}).get("profile") or {}
         nombre = profile.get("name")
+        # Meta manda `username` cuando el usuario eligió un @username. Lo
+        # guardamos para poder buscarla por `@` en la app de WA cuando el
+        # telefono es un BSUID (CO.XXX) y no hay número para contactar.
+        username = profile.get("username")
+    if username:
+        try:
+            with db._conexion_directa(timeout=5) as conn:
+                conn.execute(
+                    "UPDATE petra_contactos SET username=%s, updated_at=NOW() "
+                    "WHERE telefono=%s AND (username IS NULL OR username <> %s)",
+                    (username, phone, username),
+                )
+                conn.execute(
+                    "UPDATE contactos SET username=%s "
+                    "WHERE telefono=%s AND (username IS NULL OR username <> %s)",
+                    (username, phone, username),
+                )
+                conn.commit()
+        except Exception:
+            log.exception("[petra] guardar username fallo tel=%s", phone)
 
     texto = ""
     button_id = None

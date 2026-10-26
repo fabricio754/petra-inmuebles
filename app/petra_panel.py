@@ -154,7 +154,7 @@ def panel_home():
                    LEFT JOIN petra_contactos ci ON ci.id = v.interesado_id
                    ORDER BY v.programada_at DESC NULLS LAST LIMIT 100"""),
             "agentes": _rows(conn,
-                """SELECT r.contacto_id, c.telefono, c.nombre,
+                """SELECT r.contacto_id, c.telefono, c.nombre, c.username,
                           r.metadata->>'estado_agente' AS estado_agente,
                           r.metadata->>'ciudad' AS ciudad,
                           (r.metadata->>'videos_vistos')::int AS videos_vistos,
@@ -808,7 +808,7 @@ def _cargar_ficha_agente(conn, cid):
     """Trae todo lo que la ficha necesita en un dict. Ordenado para render."""
     cur = conn.execute(
         "SELECT c.id, c.telefono, c.nombre, c.email, c.opt_out, "
-        "       c.created_at AS contacto_desde, "
+        "       c.username, c.created_at AS contacto_desde, "
         "       r.rol, r.estado, r.metadata, r.estado_desde, "
         "       r.proximo_contacto_at, r.updated_at AS rol_updated_at "
         "FROM petra_contactos c "
