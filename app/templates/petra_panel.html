@@ -462,6 +462,7 @@
       <td>
         <a href="/panel/petra/agente/{{ a.contacto_id }}?token={{ token }}">{{ a.nombre or '— sin nombre —' }}</a>
         <br><span class="mono muted">{{ a.telefono }}</span>
+        {% if a.username %}<br><span class="mono" style="color:#7c5cff">@{{ a.username }}</span>{% endif %}
       </td>
       <td>{{ a.ciudad or '—' }}</td>
       <td>

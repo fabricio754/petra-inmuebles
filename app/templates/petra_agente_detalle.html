@@ -157,6 +157,12 @@ a:hover { text-decoration: underline; }
 <div class="card header">
   <div class="nombre">{{ agente.nombre or meta.get('nombre') or '— sin nombre —' }}</div>
   <div class="tel">📱 {{ agente.telefono }}</div>
+  {% if agente.username %}
+  <div class="tel" style="font-size:13px; color:#7c5cff">
+    💬 WhatsApp: <strong>@{{ agente.username }}</strong>
+    <span style="color:#76708a; font-weight:400">· buscala en WA tocando la lupa 🔎</span>
+  </div>
+  {% endif %}
   <div class="chips">
     {% set estado = meta.get('estado_agente') or 'lead' %}
     {% set cls = 'ok' if estado == 'operativo' else 'warn' if estado in ('kit_asignado','certificado') else 'info' %}

@@ -2124,3 +2124,13 @@ INSERT INTO conjuntos_visitante (codigo, nombre, ciudad) VALUES
   ('1050', 'Álamos del Río',      'Pereira'),
   ('1051', 'Mirador Manizales',   'Manizales')
 ON CONFLICT (codigo) DO NOTHING;
+
+-- ============================================================================
+-- Username de WhatsApp (BSUID). Meta lo manda en contacts[0].profile.username
+-- cuando el usuario eligió un @username y nos mantiene BSUID como telefono.
+-- Lo guardamos para poder buscarlas en la app WA cuando no tenemos su número.
+-- ============================================================================
+ALTER TABLE petra_contactos ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE contactos        ADD COLUMN IF NOT EXISTS username TEXT;
+CREATE INDEX IF NOT EXISTS idx_petra_contactos_username
+  ON petra_contactos(username) WHERE username IS NOT NULL;
