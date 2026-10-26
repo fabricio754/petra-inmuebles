@@ -349,7 +349,8 @@ ESTADOS_MENU_RESET = {"menu", None}
 
 # Estados del HOME flow (sin conjunto). Son handleados por `_dispatch_home`
 # y no requieren resolver un conjunto.
-_HOME_STATES = {"home_menu", "home_mis_inmuebles", "home_mis_busquedas"}
+_HOME_STATES = {"home_menu", "home_mis_inmuebles", "home_mis_busquedas",
+                "home_agentes_intro"}
 
 
 def handle_message(telefono, texto, button_id=None, list_id=None,
@@ -855,6 +856,14 @@ def _dispatch_home(conn, telefono, texto, button_id, list_id,
         _mostrar_home(conn, telefono, meta)
         return
 
+    if estado_base == "home_agentes_intro":
+        if button_id == "HOME_AGENTES_START":
+            _start_agent_flow(conn, telefono, meta, contacto_nombre)
+            return
+        # Cualquier otro input → re-mostrar la intro (HOME_MENU ya interceptado).
+        _enviar(telefono, _menus.home_agentes_intro())
+        return
+
     # Estado raro — fallback.
     _mostrar_home(conn, telefono, meta)
 
@@ -963,7 +972,14 @@ def _mostrar_mis_busquedas(conn, telefono, meta):
 
 
 def _handle_home_agentes(conn, telefono, meta, contacto_nombre):
-    """Clear visitante_estado y disparar el agent flow de reclutamiento."""
+    """Muestra la intro de Agentes Petra con un botón 'Quiero ser agente'.
+    El flow de reclutamiento sólo se dispara cuando piquen ese botón."""
+    _set_estado(conn, telefono, "home_agentes_intro", meta=meta)
+    _enviar(telefono, _menus.home_agentes_intro())
+
+
+def _start_agent_flow(conn, telefono, meta, contacto_nombre):
+    """Limpia estado visitante y arranca el flow de reclutamiento."""
     new_meta = dict(meta or {})
     new_meta.pop("visitante_estado", None)
     new_meta.pop("visitante_conjunto_id", None)
@@ -972,17 +988,17 @@ def _handle_home_agentes(conn, telefono, meta, contacto_nombre):
         _guardar_meta(conn, telefono, new_meta)
     except Exception:
         log.exception(
-            "[visitante] HOME_AGENTES clear meta fallo tel=%s", telefono,
+            "[visitante] AGENTES_START clear meta fallo tel=%s", telefono,
         )
     try:
         from app import petra_agents  # import local — evita ciclo
         petra_agents.handle_message(
-            telefono=telefono, texto="hola",
+            telefono=telefono, texto="quiero ser agente petra",
             button_id=None, list_id=None,
             contacto_nombre=contacto_nombre, wa_msg_id=None,
         )
     except Exception:
         log.exception(
-            "[visitante] HOME_AGENTES → petra_agents fallo tel=%s", telefono,
+            "[visitante] AGENTES_START → petra_agents fallo tel=%s", telefono,
         )
         _enviar(telefono, _menus.texto(T.HOME_AGENTES_FALLBACK))

@@ -281,6 +281,15 @@ HOME_AGENTES_FALLBACK = (
     "te guiamos 💜"
 )
 
+HOME_AGENTES_INTRO = (
+    "🤝 *Agentes Petra*\n\n"
+    "Ser agente Petra es gestionar los inmuebles de hasta *5 conjuntos* "
+    "de tu ciudad. Nosotros te damos la plataforma, los contactos y la "
+    "capacitación 💜\n\n"
+    "¿Querés arrancar?"
+)
+BTN_HOME_QUIERO_SER_AGENTE = "🤝 Quiero ser agente"
+
 
 # -------- Helpers de formato ------------------------------------------------
 def formatear_precio(valor):

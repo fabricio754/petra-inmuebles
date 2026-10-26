@@ -208,6 +208,18 @@ def home_volver_boton(body):
     }
 
 
+def home_agentes_intro():
+    """Intro al flow de agentes con 2 botones: Quiero ser agente / Menú."""
+    return {
+        "type": "buttons",
+        "text": T.HOME_AGENTES_INTRO,
+        "buttons": [
+            {"id": "HOME_AGENTES_START", "title": T.BTN_HOME_QUIERO_SER_AGENTE},
+            {"id": "HOME_MENU", "title": T.BTN_MENU},
+        ],
+    }
+
+
 # -------- Texto plano -------------------------------------------------------
 def texto(body):
     return {"type": "text", "text": body}
