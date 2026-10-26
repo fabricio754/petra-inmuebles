@@ -219,26 +219,26 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         meta[f"dia_{vistos_nuevos // 2}_visto_at"] = _dt.datetime.utcnow().isoformat()
 
         if vistos_nuevos >= total:
-            # Capacitación completa → estado `capacitacion_completa`
-            # (NO autorizacion_pendiente — ese salto lo hace autorizacion_v3
-            # al pulsar ONBAG_INICIAR). Mensaje de felicitación + botón.
-            _set_estado(meta, "capacitacion_completa")
+            # Capacitación completa → directo al panel de control.
+            # Estado interno queda autorizacion_pendiente para que el
+            # modelo de datos siga consistente con las fases siguientes.
+            _set_estado(meta, "autorizacion_pendiente")
             _save_meta(conn, cid, meta)
-            _send_buttons(telefono, _t(
+            from app import petra_wa as _pwa_cap
+            from app.petra_agents.flow_onboarding_agente import (
+                _mostrar_panel_control as _mpc_cap,
+            )
+            _pwa_cap.send_text(telefono, _t(
                 "capacitacion.msg_completada_header",
                 fallback=(
-                    "🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
-                    "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
-                    "📍 *Siguiente paso: Autorización del conjunto* 🏢\n\n"
-                    "Ahora toca hablar con el administrador de tu edificio para "
-                    "que te autorice a representar a Petra ahí.\n\n"
-                    "Pulsá el botón para arrancar 👇"
+                    "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
+                    "Ya tenés las herramientas para arrancar como Agente "
+                    "Petra 💜\n\n"
+                    "Aquí tenés tu *panel de control* 👇"
                 ),
-            ), [
-                {"id": "ONBAG_INICIAR",
-                 "title": _b("ONBAG_INICIAR", "🚀 Iniciar")},
-            ], estado_key="capacitacion_completa")
-            _log(telefono, texto, "[v3:cap completa → capacitacion_completa]",
+            ))
+            _mpc_cap(telefono, meta)
+            _log(telefono, texto, "[v3:cap completa → panel de control]",
                  nota=f"vistos={vistos_nuevos}/{total}")
             return True
 
