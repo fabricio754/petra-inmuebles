@@ -374,9 +374,13 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
 
             # Saludo sin flow activo → HOME, aunque haya un conjunto sticky.
             # Caso típico: alguien escaneó un QR hace días (Arrayanes queda
-            # pegado en meta) y hoy escribe "Hola quiero info" — queremos
-            # el home menu, no el menú de Arrayanes.
-            if (not vis_estado_raw and not qr_present
+            # pegado en meta con visitante_estado=menu) y hoy escribe
+            # "Hola quiero info" — queremos el home menu, no el menú de
+            # Arrayanes. Consideramos "sin flow activo" tanto el estado
+            # vacío como "menu" (apenas abrió el menú del conjunto, no se
+            # comprometió a nada).
+            _NO_LOCK_STATES = {"", "menu"}
+            if (base_vis in _NO_LOCK_STATES and not qr_present
                     and _es_saludo(texto)
                     and not button_id and not list_id):
                 _dispatch_home(conn, telefono, texto, button_id, list_id,
