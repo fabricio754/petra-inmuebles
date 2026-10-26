@@ -1588,24 +1588,22 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             _set_estado(meta, "autorizacion_pendiente")
             _save_meta(conn, cid, meta)
             from app import petra_wa as _pwa_cap
-            import time as _t_cap
-            # Mensaje de felicitación + botón "Iniciar" en el mismo mensaje.
-            # Al pulsar Iniciar, se muestran los 3 botones de autorización.
-            _send_buttons(telefono, _t(
+            # Felicitación + panel de control directo. El estado interno
+            # queda en autorizacion_pendiente para que el modelo de datos
+            # siga consistente, pero no mostramos el paso de autorización
+            # en WA — la agente entra directo al panel de control.
+            _pwa_cap.send_text(telefono, _t(
                 "capacitacion.msg_completada_header",
                 fallback=(
-                    "🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
-                    "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
-                    "📍 *Siguiente paso: Autorización del conjunto* 🏢\n\n"
-                    "Ahora toca hablar con el administrador de tu edificio para "
-                    "que te autorice a representar a Petra ahí.\n\n"
-                    "Pulsá el botón para arrancar 👇"
+                    "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
+                    "Ya tenés las herramientas para arrancar como Agente "
+                    "Petra 💜\n\n"
+                    "Aquí tenés tu *panel de control* 👇"
                 ),
-            ), [
-                {"id": "ONBAG_INICIAR_AUTORIZACION", "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
-            ], estado_key="autorizacion_pendiente")
-            _log(telefono, texto, "[capacitación completa → esperando botón material/autorización]",
-                 nota="capacitacion_completa → autorizacion_pendiente")
+            ))
+            _mostrar_panel_control(telefono, meta)
+            _log(telefono, texto, "[capacitación completa → panel de control]",
+                 nota="capacitacion_completa → panel de control")
             return True
         else:
             _save_meta(conn, cid, meta)
