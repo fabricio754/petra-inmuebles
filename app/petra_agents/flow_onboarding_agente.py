@@ -1973,6 +1973,28 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                  nota=f"estado={estado}")
             return True
 
+        # ─── Shortcut de prueba (Fabricio): 'aviso' ───────────────────
+        # Simula el final de la capacitación: felicita y abre el panel
+        # de control. Útil para probar el flujo post-capacitación sin
+        # tener que ver los 12 videos.
+        if (texto or "").lower().strip() == "aviso":
+            _set_estado(meta, "autorizacion_pendiente")
+            _save_meta(conn, cid, meta)
+            from app import petra_wa as _pwa_aviso
+            _pwa_aviso.send_text(telefono, _t(
+                "capacitacion.msg_completada_header",
+                fallback=(
+                    "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
+                    "Ya tenés las herramientas para arrancar como Agente "
+                    "Petra 💜\n\n"
+                    "Aquí tenés tu *panel de control* 👇"
+                ),
+            ))
+            _mostrar_panel_control(telefono, meta)
+            _log(telefono, texto, "[shortcut 'aviso' → fin capacitación + panel]",
+                 nota="shortcut aviso")
+            return True
+
         # ─── Shortcut de prueba (Fabricio): 'suerte' ──────────────────
         # Escribir 'suerte' desde el 3227057375 en cualquier estado
         # dispara el mensaje "¡Perfecto! Te deseamos mucha suerte..."
