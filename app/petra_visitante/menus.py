@@ -183,6 +183,31 @@ def pub_resumen(edificio, operacion, tipo, nro, m2, precio):
     }
 
 
+# -------- Home menu (sin QR / sin conjunto) --------------------------------
+def home_menu():
+    """Menú de bienvenida sin conjunto — 3 botones (al límite de WhatsApp)."""
+    return {
+        "type": "buttons",
+        "text": T.HOME_WELCOME,
+        "buttons": [
+            {"id": "HOME_MIS_INMUEBLES", "title": T.BTN_HOME_MIS_INMUEBLES},
+            {"id": "HOME_MIS_BUSQUEDAS", "title": T.BTN_HOME_MIS_BUSQUEDAS},
+            {"id": "HOME_AGENTES", "title": T.BTN_HOME_AGENTES},
+        ],
+    }
+
+
+def home_volver_boton(body):
+    """Un único botón '🏠 Menú' con el texto `body` arriba."""
+    return {
+        "type": "buttons",
+        "text": body,
+        "buttons": [
+            {"id": "HOME_MENU", "title": T.BTN_MENU},
+        ],
+    }
+
+
 # -------- Texto plano -------------------------------------------------------
 def texto(body):
     return {"type": "text", "text": body}
