@@ -372,6 +372,17 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
                                meta, base_vis, contacto_nombre)
                 return
 
+            # Saludo sin flow activo → HOME, aunque haya un conjunto sticky.
+            # Caso típico: alguien escaneó un QR hace días (Arrayanes queda
+            # pegado en meta) y hoy escribe "Hola quiero info" — queremos
+            # el home menu, no el menú de Arrayanes.
+            if (not vis_estado_raw and not qr_present
+                    and _es_saludo(texto)
+                    and not button_id and not list_id):
+                _dispatch_home(conn, telefono, texto, button_id, list_id,
+                               meta, "home_menu", contacto_nombre)
+                return
+
             # Resolver conjunto: QR en el texto, o el persistido.
             conjunto, meta = _resolver_conjunto(conn, telefono, texto, meta)
 
