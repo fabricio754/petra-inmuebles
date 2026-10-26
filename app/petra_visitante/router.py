@@ -27,6 +27,7 @@ wamid y mandó el typing indicator — no hace falta repetirlo acá.
 import json
 import logging
 import re
+import unicodedata
 
 from app import db as _db
 from app import petra_wa as _pwa
@@ -42,14 +43,32 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _GREETINGS = {
-    "hola", "holaa", "holaaa", "ola", "buenas", "buenos dias", "buenos días",
-    "buenas tardes", "buenas noches", "hey", "hi", "hello",
-    "menu", "menú", "hogar", "inicio",
+    "hola", "holaa", "holaaa", "ola", "buenas",
+    "buenos dias", "buenas tardes", "buenas noches",
+    "hey", "hi", "hello",
+    "menu", "hogar", "inicio",
 }
+
+# Frases/palabras que gatillan el HOME MENU cuando llegan sin QR y sin
+# flow activo. Match por substring o como palabra suelta — insensible a
+# mayúsculas y a acentos.
+_GREETINGS_HOME = (
+    "hola", "buenas", "buenos dias", "buenas tardes", "buenas noches",
+    "quiero info", "info", "me interesa", "hey", "hi",
+)
+
+
+def _strip_accents(s):
+    if not s:
+        return ""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s)
+        if unicodedata.category(c) != "Mn"
+    )
 
 
 def _normalize(texto):
-    return (texto or "").strip().lower()
+    return _strip_accents((texto or "").strip().lower())
 
 
 def _es_saludo(texto):
@@ -58,8 +77,19 @@ def _es_saludo(texto):
         return False
     if t in _GREETINGS:
         return True
-    primera = t.split()[0] if t.split() else ""
-    return primera in _GREETINGS
+    palabras = t.split()
+    primera = palabras[0] if palabras else ""
+    if primera in _GREETINGS:
+        return True
+    # Nuevo: frases/palabras del HOME menu (substring o palabra suelta).
+    tokens = set(re.findall(r"\w+", t))
+    for g in _GREETINGS_HOME:
+        if " " in g:
+            if g in t:
+                return True
+        elif g in tokens:
+            return True
+    return False
 
 
 def _hard_override_agente(texto):
@@ -317,6 +347,10 @@ _RE_NUM = re.compile(r"\d+")
 
 ESTADOS_MENU_RESET = {"menu", None}
 
+# Estados del HOME flow (sin conjunto). Son handleados por `_dispatch_home`
+# y no requieren resolver un conjunto.
+_HOME_STATES = {"home_menu", "home_mis_inmuebles", "home_mis_busquedas"}
+
 
 def handle_message(telefono, texto, button_id=None, list_id=None,
                    contacto_nombre=None, wa_msg_id=None):
@@ -326,6 +360,18 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
             _upsert_contacto(conn, telefono, nombre=contacto_nombre)
             _, meta = _leer_contacto(conn, telefono)
 
+            vis_estado_raw = (meta or {}).get("visitante_estado") or ""
+            base_vis = vis_estado_raw.split(":", 1)[0]
+            qr_present = _qr.tiene_marker_qr(texto)
+
+            # ---- HOME flow (sin QR, sin conjunto) ------------------------
+            # Si el usuario ya está en home_* y no mandó un QR nuevo, atiende
+            # el home dispatcher. Un QR hace fall-through al flow con conjunto.
+            if not qr_present and base_vis in _HOME_STATES:
+                _dispatch_home(conn, telefono, texto, button_id, list_id,
+                               meta, base_vis, contacto_nombre)
+                return
+
             # Resolver conjunto: QR en el texto, o el persistido.
             conjunto, meta = _resolver_conjunto(conn, telefono, texto, meta)
 
@@ -334,11 +380,16 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
                 return
 
             if not conjunto:
+                # Sin conjunto. Si no hay flow activo y parece saludo → HOME.
+                if not vis_estado_raw and _es_saludo(texto):
+                    _dispatch_home(conn, telefono, texto, button_id, list_id,
+                                   meta, "home_menu", contacto_nombre)
+                    return
                 _enviar(telefono, _menus.texto(T.SIN_CONJUNTO))
                 return
 
             # Si el texto trae QR nuevo, siempre reinicia al menú.
-            if _qr.tiene_marker_qr(texto):
+            if qr_present:
                 _guardar_meta(conn, telefono, meta)
                 _ir_a_menu(conn, telefono, conjunto, meta)
                 return
@@ -752,3 +803,171 @@ def _publicar_confirmar(conn, telefono, conjunto, meta):
     new_meta.pop("visitante_pub", None)
     _set_estado(conn, telefono, "menu", meta=new_meta)
     _enviar(telefono, _menus.menu_principal(conjunto["nombre"]))
+
+
+# ---------------------------------------------------------------------------
+# HOME flow (sin QR / sin conjunto)
+# ---------------------------------------------------------------------------
+
+def _dispatch_home(conn, telefono, texto, button_id, list_id,
+                   meta, estado_base, contacto_nombre):
+    """Dispatcher del flujo HOME (entry point cuando no hay QR).
+
+    Estados: home_menu, home_mis_inmuebles, home_mis_busquedas.
+    """
+    # Botón global para volver al home desde cualquier parte.
+    if button_id == "HOME_MENU":
+        _mostrar_home(conn, telefono, meta)
+        return
+
+    if estado_base == "home_menu":
+        if button_id == "HOME_MIS_INMUEBLES":
+            _mostrar_mis_inmuebles(conn, telefono, meta)
+            return
+        if button_id == "HOME_MIS_BUSQUEDAS":
+            _mostrar_mis_busquedas(conn, telefono, meta)
+            return
+        if button_id == "HOME_AGENTES":
+            _handle_home_agentes(conn, telefono, meta, contacto_nombre)
+            return
+        # Cualquier otro input desde home_menu → re-mostrar home.
+        _mostrar_home(conn, telefono, meta)
+        return
+
+    if estado_base in ("home_mis_inmuebles", "home_mis_busquedas"):
+        # Cualquier otro input que no sea HOME_MENU → re-mostrar home.
+        # (HOME_MENU ya se interceptó arriba).
+        _mostrar_home(conn, telefono, meta)
+        return
+
+    # Estado raro — fallback.
+    _mostrar_home(conn, telefono, meta)
+
+
+def _mostrar_home(conn, telefono, meta):
+    _set_estado(conn, telefono, "home_menu", meta=meta)
+    _enviar(telefono, _menus.home_menu())
+
+
+def _listar_mis_inmuebles(conn, telefono):
+    rows = conn.execute(
+        "SELECT i.id, i.tipo, i.nro, i.operacion, i.m2, i.precio, i.activo, "
+        "       c.nombre, c.codigo "
+        "FROM inmuebles_visitante i "
+        "JOIN conjuntos_visitante c ON c.id=i.conjunto_id "
+        "WHERE i.propietario_telefono = %s "
+        "ORDER BY i.creado_en DESC LIMIT 10",
+        (telefono,),
+    ).fetchall()
+    return [
+        {"id": r[0], "tipo": r[1], "nro": r[2], "operacion": r[3],
+         "m2": r[4], "precio": r[5], "activo": r[6],
+         "conjunto": r[7], "codigo": r[8]}
+        for r in rows
+    ]
+
+
+def _listar_mis_busquedas(conn, telefono):
+    rows = conn.execute(
+        "SELECT v.id, v.creado_en, i.tipo, i.nro, i.operacion, i.precio, "
+        "       c.nombre "
+        "FROM visitante_contactos v "
+        "JOIN inmuebles_visitante i ON i.id=v.inmueble_id "
+        "JOIN conjuntos_visitante c ON c.id=v.conjunto_id "
+        "WHERE v.telefono = %s "
+        "ORDER BY v.creado_en DESC LIMIT 10",
+        (telefono,),
+    ).fetchall()
+    return [
+        {"id": r[0], "fecha": r[1], "tipo": r[2], "nro": r[3],
+         "operacion": r[4], "precio": r[5], "conjunto": r[6]}
+        for r in rows
+    ]
+
+
+def _render_mis_inmuebles(rows):
+    partes = [T.HOME_MIS_INMUEBLES_HEADER.format(n=len(rows))]
+    for i, r in enumerate(rows, 1):
+        titulo = T.row_title(r.get("tipo"), r.get("nro") or r["id"])
+        op_label = "Arriendo" if r.get("operacion") == "arriendo" else "Venta"
+        precio_fmt = T.formatear_precio(r.get("precio"))
+        m2 = r.get("m2") if r.get("m2") is not None else "-"
+        estado = "Activo" if r.get("activo") else "Pausado"
+        partes.append(
+            f"{i}. {titulo} · {r.get('conjunto') or '-'}\n"
+            f"   {op_label} · {precio_fmt} · {m2}m² · {estado}"
+        )
+    return "\n\n".join(partes)
+
+
+def _render_mis_busquedas(rows):
+    partes = [T.HOME_MIS_BUSQUEDAS_HEADER.format(n=len(rows))]
+    for i, r in enumerate(rows, 1):
+        titulo = T.row_title(r.get("tipo"), r.get("nro") or r["id"])
+        op_label = "Arriendo" if r.get("operacion") == "arriendo" else "Venta"
+        precio_fmt = T.formatear_precio(r.get("precio"))
+        fecha = r.get("fecha")
+        try:
+            fecha_fmt = fecha.strftime("%d/%m/%Y") if fecha else "-"
+        except Exception:
+            fecha_fmt = "-"
+        partes.append(
+            f"{i}. {titulo} · {r.get('conjunto') or '-'}\n"
+            f"   {op_label} · {precio_fmt}\n"
+            f"   📅 {fecha_fmt}"
+        )
+    return "\n\n".join(partes)
+
+
+def _mostrar_mis_inmuebles(conn, telefono, meta):
+    try:
+        rows = _listar_mis_inmuebles(conn, telefono)
+    except Exception:
+        log.exception("[visitante] query mis_inmuebles fallo tel=%s", telefono)
+        rows = []
+    _set_estado(conn, telefono, "home_mis_inmuebles", meta=meta)
+    if not rows:
+        _enviar(telefono, _menus.home_volver_boton(T.HOME_MIS_INMUEBLES_VACIO))
+        return
+    _enviar(telefono, _menus.texto(_render_mis_inmuebles(rows)))
+    _enviar(telefono, _menus.home_volver_boton(T.HOME_VOLVER_PROMPT))
+
+
+def _mostrar_mis_busquedas(conn, telefono, meta):
+    try:
+        rows = _listar_mis_busquedas(conn, telefono)
+    except Exception:
+        log.exception("[visitante] query mis_busquedas fallo tel=%s", telefono)
+        rows = []
+    _set_estado(conn, telefono, "home_mis_busquedas", meta=meta)
+    if not rows:
+        _enviar(telefono, _menus.home_volver_boton(T.HOME_MIS_BUSQUEDAS_VACIO))
+        return
+    _enviar(telefono, _menus.texto(_render_mis_busquedas(rows)))
+    _enviar(telefono, _menus.home_volver_boton(T.HOME_VOLVER_PROMPT))
+
+
+def _handle_home_agentes(conn, telefono, meta, contacto_nombre):
+    """Clear visitante_estado y disparar el agent flow de reclutamiento."""
+    new_meta = dict(meta or {})
+    new_meta.pop("visitante_estado", None)
+    new_meta.pop("visitante_conjunto_id", None)
+    new_meta.pop("visitante_pub", None)
+    try:
+        _guardar_meta(conn, telefono, new_meta)
+    except Exception:
+        log.exception(
+            "[visitante] HOME_AGENTES clear meta fallo tel=%s", telefono,
+        )
+    try:
+        from app import petra_agents  # import local — evita ciclo
+        petra_agents.handle_message(
+            telefono=telefono, texto="hola",
+            button_id=None, list_id=None,
+            contacto_nombre=contacto_nombre, wa_msg_id=None,
+        )
+    except Exception:
+        log.exception(
+            "[visitante] HOME_AGENTES → petra_agents fallo tel=%s", telefono,
+        )
+        _enviar(telefono, _menus.texto(T.HOME_AGENTES_FALLBACK))

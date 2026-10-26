@@ -251,6 +251,37 @@ CODIGO_INVALIDO = (
 )
 
 
+# -------- Home menu (sin QR) -----------------------------------------------
+# Entrypoint cuando alguien escribe "hola" sin haber escaneado un QR.
+HOME_WELCOME = (
+    "¡Hola! 👋 Soy *Petra* ✨\n"
+    "Tu plataforma inmobiliaria.\n\n"
+    "¿En qué te ayudo?"
+)
+BTN_HOME_MIS_INMUEBLES = "🏘️ Mis inmuebles"
+BTN_HOME_MIS_BUSQUEDAS = "🔍 Mis búsquedas"
+BTN_HOME_AGENTES = "🤝 Agentes Petra"
+
+HOME_VOLVER_PROMPT = "¿Querés volver al inicio?"
+
+HOME_MIS_INMUEBLES_VACIO = (
+    "No tenés inmuebles publicados todavía. Para publicar uno, "
+    "escaneá el QR del edificio y seguí el flow 📱"
+)
+HOME_MIS_INMUEBLES_HEADER = "🏘️ *Tus inmuebles publicados* ({n})\n"
+
+HOME_MIS_BUSQUEDAS_VACIO = (
+    "Todavía no has contactado ningún inmueble. "
+    "Buscá en un edificio escaneando su QR 📱"
+)
+HOME_MIS_BUSQUEDAS_HEADER = "🔍 *Tus búsquedas* ({n})\n"
+
+HOME_AGENTES_FALLBACK = (
+    "Para ser agente Petra, escribinos a este número de nuevo y "
+    "te guiamos 💜"
+)
+
+
 # -------- Helpers de formato ------------------------------------------------
 def formatear_precio(valor):
     """Formatea un entero como pesos COP con separador de miles '.'.
