@@ -582,7 +582,13 @@ def _marcar_contactar(conn, telefono, conjunto, meta, operacion, inmueble_id):
             ("Watt.1",),
         ).fetchone()
         if row and row[0]:
-            _enviar(telefono, _menus.texto(row[0]))
+            _enviar(
+                telefono,
+                _menus.texto(
+                    "Aquí te paso el link de WhatsApp para que te "
+                    "comuniques con él 👇\n\n" + row[0]
+                ),
+            )
     except Exception:
         log.exception(
             "[visitante] fallo buscando Watt.1 tel=%s inm=%s", telefono, iid
