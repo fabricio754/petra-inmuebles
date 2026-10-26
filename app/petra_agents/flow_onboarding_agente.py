@@ -2046,8 +2046,10 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             _log(telefono, texto, "[panel-control abierto]")
             return True
         # También si pulsa un botón del list del panel.
-        if texto in ("ONBAG_PC_INMUEBLES", "ONBAG_PC_CITAS",
-                     "ONBAG_PC_CAPACITACION", "ONBAG_PC_AYUDA") \
+        if texto in ("ONBAG_PC_EDIFICIOS", "ONBAG_PC_INMUEBLES",
+                     "ONBAG_PC_CITAS", "ONBAG_PC_CAPACITACION",
+                     "ONBAG_PC_AYUDA",
+                     "ONBAG_ED_AUTORIZAR", "ONBAG_ED_ACTIVAR") \
                 or (texto and texto.startswith("ONBAG_REVID_")):
             if _handle_panel_control_boton(telefono, cid, meta, conn, texto):
                 _log(telefono, texto, f"[panel-control {texto}]")
@@ -2585,6 +2587,9 @@ def _mostrar_panel_control(telefono, meta):
     sections = [{
         "title": "Mi cuenta",
         "rows": [
+            {"id": "ONBAG_PC_EDIFICIOS",
+             "title": "🏢 Mis edificios",
+             "description": "Autorizar y activar tus conjuntos"},
             {"id": "ONBAG_PC_INMUEBLES",
              "title": "🏠 Mis inmuebles",
              "description": "Ver los inmuebles cargados en tu edificio"},
@@ -2594,9 +2599,6 @@ def _mostrar_panel_control(telefono, meta):
             {"id": "ONBAG_PC_CAPACITACION",
              "title": "🎓 Mi capacitación",
              "description": "Progreso y volver a ver videos"},
-            {"id": "ONBAG_PC_AYUDA",
-             "title": "💬 Pedir ayuda",
-             "description": "Hacer una pregunta o reportar algo"},
         ],
     }]
     try:
@@ -2605,10 +2607,10 @@ def _mostrar_panel_control(telefono, meta):
         log.exception("[panel-control] send fallo tel=%s", telefono)
         # Fallback a texto si falla el list
         petra_wa.send_text(telefono, body + (
-            "\n\n• 🏠 Escribí *mis inmuebles*\n"
+            "\n\n• 🏢 Escribí *mis edificios*\n"
+            "• 🏠 Escribí *mis inmuebles*\n"
             "• 📅 Escribí *mis citas*\n"
-            "• 🎓 Escribí *mi capacitación*\n"
-            "• 💬 Escribí *pedir ayuda*"
+            "• 🎓 Escribí *mi capacitación*"
         ))
 
 
@@ -2885,8 +2887,59 @@ def _mostrar_pedir_ayuda(telefono, cid=None, meta=None, conn=None):
     petra_wa.send_text(telefono, prompt)
 
 
+def _mostrar_mis_edificios(telefono, cid, conn, meta):
+    """Muestra el/los conjunto(s) del agente con botones Autorizar/Activar.
+
+    Hoy `meta['conjunto']` es un string único; cuando sea una lista, el
+    render se adapta. Si no hay conjunto cargado, mostramos texto plano
+    y volvemos.
+    """
+    from app import petra_wa
+    conjunto = meta.get("conjunto")
+    # Future-proof: soportar lista.
+    if isinstance(conjunto, (list, tuple)):
+        conjuntos = [c for c in conjunto if c]
+    elif conjunto:
+        conjuntos = [conjunto]
+    else:
+        conjuntos = []
+
+    if not conjuntos:
+        petra_wa.send_text(telefono, (
+            "🏢 *Mis edificios*\n\n"
+            "Aún no tenés edificios registrados. "
+            "Escribí *menú* para volver."
+        ))
+        return
+
+    estado_ag = (meta.get("estado_agente") or "").strip()
+    if estado_ag in ("autorizacion_pendiente", "autorizacion_rechazada",
+                     "inscrito", "en_capacitacion"):
+        estado_resumen = "Autorización pendiente"
+    elif estado_ag in ("autorizada", "kit_pendiente", "kit_enviado"):
+        estado_resumen = "Autorizada · falta activar"
+    elif estado_ag == "activa":
+        estado_resumen = "Autorizada y activa ✅"
+    else:
+        estado_resumen = "En proceso"
+
+    lineas = ["🏢 *Mis edificios*", ""]
+    for i, c in enumerate(conjuntos, 1):
+        lineas.append(f"{i}. {c}")
+        lineas.append(f"   Estado: {estado_resumen}")
+    body = "\n".join(lineas)
+
+    _send_buttons(telefono, body, [
+        {"id": "ONBAG_ED_AUTORIZAR", "title": "🏢 Autorizar"},
+        {"id": "ONBAG_ED_ACTIVAR", "title": "📸 Activar"},
+    ], estado_key=None)
+
+
 def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
     """Despacha los IDs del panel de control. Devuelve True si manejó algo."""
+    if boton_id == "ONBAG_PC_EDIFICIOS":
+        _mostrar_mis_edificios(telefono, cid, conn, meta)
+        return True
     if boton_id == "ONBAG_PC_INMUEBLES":
         _mostrar_mis_inmuebles(telefono, cid, conn)
         return True
@@ -2898,6 +2951,51 @@ def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
         return True
     if boton_id == "ONBAG_PC_AYUDA":
         _mostrar_pedir_ayuda(telefono, cid=cid, meta=meta, conn=conn)
+        return True
+    if boton_id == "ONBAG_ED_AUTORIZAR":
+        # Mismo efecto que ONBAG_INICIAR_AUTORIZACION: material + botones.
+        from app import petra_wa as _pwa_ed
+        import time as _t_ed
+        _pwa_ed.send_text(telefono, _t(
+            "autorizacion.msg_envio_material",
+            fallback=(
+                "Perfecto 💜 Acá te paso el material de apoyo para que "
+                "lo lleves a la reunión con el administrador:"
+            ),
+        ))
+        _t_ed.sleep(1)
+        _enviar_recordatorio_capacitacion(conn, telefono)
+        _enviar_material_autorizacion(conn, telefono)
+        _send_buttons(telefono, _t(
+            "autorizacion.msg_post_material",
+            fallback="Cuando tengas la autorización del administrador, pulsá el botón 👇",
+        ), [
+            {"id": "ONBAG_YA_TENGO_AUTORIZACION",
+             "title": _b("ONBAG_YA_TENGO_AUTORIZACION",
+                         "✅ Ya tengo autorización")},
+        ], estado_key="autorizacion_pendiente")
+        return True
+    if boton_id == "ONBAG_ED_ACTIVAR":
+        from app import petra_wa as _pwa_act
+        estado_ag = (meta.get("estado_agente") or "").strip()
+        if estado_ag == "activa":
+            _pwa_act.send_text(telefono, (
+                "Tu edificio ya está activo ✅\n\n"
+                "Escribí *menú* para volver al panel."
+            ))
+            return True
+        if estado_ag in ("kit_pendiente", "kit_enviado"):
+            _pwa_act.send_text(telefono, (
+                "📸 *Activar edificio*\n\n"
+                "Para activar tu conjunto, mandame una *foto del QR ya "
+                "instalado* en el edificio 💜"
+            ))
+            return True
+        _pwa_act.send_text(telefono, (
+            "📸 *Activar edificio*\n\n"
+            "Primero necesitás que el administrador te autorice. "
+            "Tocá *🏢 Autorizar* en Mis edificios para arrancar ese paso."
+        ))
         return True
     if boton_id and boton_id.startswith("ONBAG_REVID_"):
         return _reenviar_video_capacitacion(telefono, boton_id)
