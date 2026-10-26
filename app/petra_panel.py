@@ -2103,6 +2103,20 @@ def admin_run_evals():
     }, indent=2, ensure_ascii=False, default=str), 200, {"Content-Type": "application/json"})
 
 
+@petra_panel_bp.get("/_admin/briefing-valentina")
+def admin_briefing_valentina():
+    """Dispara el briefing diario a Valentina ahora, sin esperar al cron 8am."""
+    _check_token()
+    try:
+        from app.scheduler import _petra_briefing_valentina
+        _petra_briefing_valentina()
+        return "OK ✅ Briefing enviado a VALENTINA_PHONE.", 200
+    except Exception as e:
+        import traceback
+        return (f"❌ Error: {type(e).__name__}: {e}\n{traceback.format_exc()}",
+                500)
+
+
 @petra_panel_bp.get("/_admin/nudges-run")
 def admin_nudges_run():
     """Dispara la evaluación de todos los nudges manualmente, sin esperar
