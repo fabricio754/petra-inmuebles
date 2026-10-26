@@ -83,6 +83,12 @@ def iniciar():
                        hour=10, minute=0,
                        id="petra_nudge_autorizaciones",
                        max_instances=1, coalesce=True)
+    # Briefing diario a Valentina (8am Bogotá) — listado de agentes en flow
+    # agrupadas por estado para que sepa a quién ayudar hoy.
+    _scheduler.add_job(_petra_briefing_valentina, "cron",
+                       hour=8, minute=0,
+                       id="petra_briefing_valentina",
+                       max_instances=1, coalesce=True)
     # Capacitación de agentes: 2 videos por día x 6 días, 11am Bogotá.
     # Solo avanza al día siguiente si la agente confirmó los del anterior.
     _scheduler.add_job(_petra_enviar_capacitacion_diaria, "cron",
@@ -392,6 +398,93 @@ def _enviar_mensajes_programados():
 
 
 # Sprint 8 — control de calidad del inventario Petra (Flujo 9)
+def _petra_briefing_valentina():
+    """Resumen diario a Valentina (8am Bogota): todas las agentes que
+    están en algún estado activo del flow, agrupadas por estado."""
+    try:
+        import os as _os
+        vale_tel = (_os.environ.get("VALENTINA_PHONE") or "").strip()
+        if not vale_tel:
+            log.info("[Scheduler] briefing_valentina: sin VALENTINA_PHONE, skip")
+            return
+        from app import db as _db, petra_wa
+        with _db._conexion_directa(timeout=15) as conn:
+            rows = conn.execute(
+                "SELECT c.nombre, c.telefono, "
+                "       r.metadata->>'estado_agente' AS estado, "
+                "       r.metadata->>'conjunto' AS conjunto, "
+                "       r.metadata->>'ciudad' AS ciudad, "
+                "       (r.metadata->>'videos_vistos')::int AS vistos "
+                "FROM petra_contactos c "
+                "JOIN petra_contacto_roles r ON r.contacto_id=c.id "
+                "WHERE r.rol='agente_petra' "
+                "  AND COALESCE(r.metadata->>'estado_agente','desconocido') "
+                "      NOT IN ('desconocido','activa','pausada') "
+                "ORDER BY r.metadata->>'estado_agente', c.nombre NULLS LAST"
+            ).fetchall()
+        if not rows:
+            msg = (
+                "¡Hola Valentina! ☀️💜\n\n"
+                "Hoy no hay agentes esperando ayuda. "
+                "¡Qué buen día! 🚀"
+            )
+            petra_wa.send_text(vale_tel, msg)
+            log.info("[Scheduler] briefing_valentina: 0 agentes")
+            return
+
+        _ETIQUETAS = {
+            "recolectando": "📝 Recolectando datos",
+            "inscrito": "✅ Inscritas (falta arrancar capacitación)",
+            "bienvenida_enviada": "👋 Bienvenida enviada",
+            "en_capacitacion": "🎓 En capacitación",
+            "autorizacion_pendiente": "🏢 Esperando autorización",
+            "autorizacion_rechazada": "⚠️ Autorización rechazada",
+            "autorizada": "✨ Autorizadas (falta kit)",
+            "kit_pendiente": "📦 Kit pendiente",
+            "kit_enviado": "📬 Kit enviado (falta activar)",
+        }
+        por_estado = {}
+        for r in rows:
+            nombre, tel, estado, conjunto, ciudad, vistos = r
+            por_estado.setdefault(estado or "otro", []).append(
+                {"nombre": nombre, "tel": tel, "conjunto": conjunto,
+                 "ciudad": ciudad, "vistos": vistos}
+            )
+        total = len(rows)
+        partes = [
+            f"¡Hola Valentina! ☀️💜",
+            "",
+            f"Hoy tenemos que ayudar a *{total} agente"
+            f"{'s' if total != 1 else ''}* 🙌",
+            "",
+        ]
+        for est, lista in por_estado.items():
+            etiqueta = _ETIQUETAS.get(est, f"• {est}")
+            partes.append(f"*{etiqueta}* ({len(lista)})")
+            for a in lista[:10]:
+                linea = f"• {a['nombre'] or '(sin nombre)'}"
+                if a["tel"]:
+                    linea += f" · {a['tel']}"
+                if est == "en_capacitacion" and a["vistos"] is not None:
+                    dia = a["vistos"] // 2
+                    linea += f" · día {dia}/6"
+                if a["conjunto"] and est in (
+                    "autorizacion_pendiente", "autorizada",
+                    "kit_pendiente", "kit_enviado",
+                ):
+                    linea += f" · {a['conjunto']}"
+                partes.append(linea)
+            if len(lista) > 10:
+                partes.append(f"  … y {len(lista) - 10} más")
+            partes.append("")
+        partes.append("¡Vamos a por eso! 💜🚀")
+        msg = "\n".join(partes)
+        petra_wa.send_text(vale_tel, msg)
+        log.info("[Scheduler] briefing_valentina: enviado (%d agentes)", total)
+    except Exception:
+        log.exception("[Scheduler] briefing_valentina fallo")
+
+
 def _petra_control_calidad():
     try:
         from app import db as _db, petra_core
