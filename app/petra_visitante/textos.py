@@ -33,8 +33,8 @@ BTN_CONFIRM_NO = "No"
 BTN_OP_ARRIENDO = "Arriendo"
 BTN_OP_VENTA = "Venta"
 
-BTN_AUTORIZO = "Autorizo"
-BTN_NO_AUTORIZO = "No autorizo"
+BTN_AUTORIZO = "Publicar"
+BTN_NO_AUTORIZO = "Cancelar"
 
 
 # -------- Tipos de inmueble (nuevo flujo de publicar) -----------------------
@@ -215,14 +215,14 @@ PUB_RESUMEN = (
     "• Identificación: *{nro}*\n"
     "• Área: *{m2} m²*\n"
     "• {precio_label}: *{precio_fmt}*\n\n"
-    "{autorizacion}\n\n"
-    "¿Autorizás que publiquemos y compartamos tu contacto con interesados?"
+    "{autorizacion}"
 )
 
 TEXTO_AUTORIZACION = (
-    "Autorizo a Petra Inmuebles a compartir mi información de contacto "
-    "con las personas interesadas en este inmueble, exclusivamente para "
-    "facilitar el contacto relacionado con su arriendo o venta."
+    "Al publicar autorizás a Petra Plataforma Inmobiliaria a compartir "
+    "tu información de contacto con las personas interesadas en este "
+    "inmueble, exclusivamente para facilitar el contacto relacionado "
+    "con su arriendo o venta."
 )
 
 PUB_NO_AUTORIZO = (
