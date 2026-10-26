@@ -2464,6 +2464,37 @@ def visitante_conjunto_qr(cid):
     )
 
 
+@petra_panel_bp.get("/visitante/qrs/imprimir")
+def visitante_qrs_imprimir():
+    """Grilla imprimible con los QRs de todos los conjuntos activos."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    from urllib.parse import quote as _urlquote
+    wa_phone = (os.environ.get("WA_PILOT_PHONE") or "").strip()
+    wa_phone_clean = wa_phone.lstrip("+").replace(" ", "")
+    with _db._conexion_directa(timeout=10) as conn:
+        filas = _rows(conn,
+            "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
+            "ORDER BY codigo ASC")
+    conjuntos = []
+    for r in filas:
+        nombre = r["nombre"]
+        ciudad = r["ciudad"] or "Colombia"
+        texto = (
+            f"Estoy en el edificio {nombre} en {ciudad}. Cod: {r['codigo']}"
+        )
+        wa_link = (f"https://wa.me/{wa_phone_clean}?text={_urlquote(texto)}"
+                   if wa_phone_clean else "")
+        conjuntos.append({
+            "id": r["id"], "codigo": r["codigo"], "nombre": nombre,
+            "ciudad": r["ciudad"] or "", "wa_link": wa_link,
+        })
+    return render_template(
+        "petra_visitante_qrs_imprimir.html",
+        conjuntos=conjuntos, token=token, wa_phone=wa_phone,
+    )
+
+
 @petra_panel_bp.get("/visitante/conjuntos/<int:cid>/inmuebles")
 def visitante_inmuebles(cid):
     """Lista + alta de inmuebles para un conjunto."""

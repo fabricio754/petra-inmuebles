@@ -2067,3 +2067,60 @@ CREATE TABLE IF NOT EXISTS visitante_contactos (
 );
 CREATE INDEX IF NOT EXISTS idx_visitante_contactos_creado
   ON visitante_contactos(creado_en DESC);
+
+-- ============================================================================
+-- 50 conjuntos dummy para imprimir QRs de prueba. Idempotentes.
+-- Fabricio puede renombrarlos/eliminarlos desde el panel sin tocar schema.
+-- ============================================================================
+INSERT INTO conjuntos_visitante (codigo, nombre, ciudad) VALUES
+  ('1002', 'Hayuelos',            'Bogota'),
+  ('1003', 'Portón del Chicó',    'Bogota'),
+  ('1004', 'Castilla Real',       'Bogota'),
+  ('1005', 'Cedro Dorado',        'Bogota'),
+  ('1006', 'Mirador del Parque',  'Bogota'),
+  ('1007', 'Altos de Suba',       'Bogota'),
+  ('1008', 'Reserva de Niza',     'Bogota'),
+  ('1009', 'Balcones del Country','Bogota'),
+  ('1010', 'Villa Luz',           'Bogota'),
+  ('1011', 'Pontevedra',          'Bogota'),
+  ('1012', 'Fontanar del Río',    'Bogota'),
+  ('1013', 'Entrenubes',          'Bogota'),
+  ('1014', 'El Poblado Reservado','Medellin'),
+  ('1015', 'Loma del Indio',      'Medellin'),
+  ('1016', 'Laureles Village',    'Medellin'),
+  ('1017', 'Envigado Hills',      'Medellin'),
+  ('1018', 'Castropol',           'Medellin'),
+  ('1019', 'Las Palmas Residencial','Medellin'),
+  ('1020', 'El Tesoro',           'Medellin'),
+  ('1021', 'La Mota',             'Medellin'),
+  ('1022', 'Belén Rosales',       'Medellin'),
+  ('1023', 'Guayabal Country',    'Medellin'),
+  ('1024', 'San Fernando Alto',   'Cali'),
+  ('1025', 'Granada Reservado',   'Cali'),
+  ('1026', 'El Peñón',            'Cali'),
+  ('1027', 'Ciudad Jardín',       'Cali'),
+  ('1028', 'Pance Residencial',   'Cali'),
+  ('1029', 'Normandía',           'Cali'),
+  ('1030', 'Santa Teresita',      'Cali'),
+  ('1031', 'Capri',               'Cali'),
+  ('1032', 'Villa Country',       'Barranquilla'),
+  ('1033', 'El Golf',             'Barranquilla'),
+  ('1034', 'Alto Prado',          'Barranquilla'),
+  ('1035', 'Riomar Reservado',    'Barranquilla'),
+  ('1036', 'Buenavista Alto',     'Barranquilla'),
+  ('1037', 'Paraíso',             'Barranquilla'),
+  ('1038', 'Castillogrande',      'Cartagena'),
+  ('1039', 'Bocagrande Playa',    'Cartagena'),
+  ('1040', 'Manga Reservado',     'Cartagena'),
+  ('1041', 'Crespo Marino',       'Cartagena'),
+  ('1042', 'Prados 2',            'Zipaquira'),
+  ('1043', 'Prados 3',            'Zipaquira'),
+  ('1044', 'Villa Zipa',          'Zipaquira'),
+  ('1045', 'Hacienda Chía',       'Chia'),
+  ('1046', 'Fontanar Chía',       'Chia'),
+  ('1047', 'Villa Alejandría',    'Chia'),
+  ('1048', 'Cabecera Alta',       'Bucaramanga'),
+  ('1049', 'Floridablanca Gold',  'Bucaramanga'),
+  ('1050', 'Álamos del Río',      'Pereira'),
+  ('1051', 'Mirador Manizales',   'Manizales')
+ON CONFLICT (codigo) DO NOTHING;
