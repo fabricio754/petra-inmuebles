@@ -2951,10 +2951,22 @@ def _mostrar_mis_edificios(telefono, cid, conn, meta):
         lineas.append(f"   Estado: {estado_resumen}")
     body = "\n".join(lineas)
 
+    nombre = (meta.get("nombre") or "").split()[0] if meta.get("nombre") else ""
+    saludo = f"¡Hola {nombre}!" if nombre else "¡Hola!"
+    proximos = (
+        f"{saludo} 💜\n\n"
+        "Estos son los *próximos pasos* para tu edificio:\n\n"
+        "1. 🏢 *Autorizar* — hablá con el administrador de tu edificio "
+        "para que te autorice a representar a Petra ahí.\n\n"
+        "2. 📸 *Activar* — una vez autorizada, instalá el QR en el "
+        "edificio y mandanos la foto para activarlo.\n\n"
+        "¡Vamos! 💜"
+    )
     _send_buttons(telefono, body, [
         {"id": "ONBAG_ED_AUTORIZAR", "title": "🏢 Autorizar"},
         {"id": "ONBAG_ED_ACTIVAR", "title": "📸 Activar"},
     ], estado_key=None)
+    petra_wa.send_text(telefono, proximos)
 
 
 def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
