@@ -441,6 +441,34 @@ def _felicitar_y_marcar_inscrito(conn, cid, telefono, meta):
           "title": _b("ONBAG_VER_JOURNEY", "Próximos pasos")}],
         estado_key="inscrito")
 
+    # ── Notificar a Valentina (env VALENTINA_PHONE) ────────────────
+    # Avisamos a Valentina cuando una agente completa su registro.
+    # Best-effort: cualquier fallo acá no bloquea la inscripción.
+    try:
+        import os as _os
+        vale_tel = (_os.environ.get("VALENTINA_PHONE") or "").strip()
+        if vale_tel:
+            from app import petra_wa as _pwa_vale
+            panel_token = (_os.environ.get("PANEL_TOKEN") or "").strip()
+            host = (_os.environ.get("PUBLIC_HOST")
+                    or "https://petra-inmuebles.onrender.com")
+            link_panel = f"{host}/panel/petra/agente/{cid}"
+            if panel_token:
+                link_panel += f"?token={panel_token}"
+            aviso = (
+                "🆕 *Nueva agente registrada en Petra:*\n\n"
+                f"• Nombre: {meta.get('nombre') or '—'}\n"
+                f"• Cédula: {meta.get('cedula') or '—'}\n"
+                f"• Ciudad: {meta.get('ciudad') or '—'}\n"
+                f"• Barrio: {meta.get('barrio') or '—'}\n"
+                f"• Conjunto: {meta.get('conjunto') or '—'}\n"
+                f"• Teléfono: {telefono}\n\n"
+                f"Entra al panel: {link_panel}"
+            )
+            _pwa_vale.send_text(vale_tel, aviso)
+    except Exception:
+        log.exception("[v3] aviso Valentina fallo cid=%s", cid)
+
 
 def _rechazar_conjunto_duplicado(conn, cid, telefono, meta, conjunto):
     """M2.B: El conjunto ya tiene un QR activo (o kit en camino) en manos
