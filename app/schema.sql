@@ -2134,3 +2134,18 @@ ALTER TABLE petra_contactos ADD COLUMN IF NOT EXISTS username TEXT;
 ALTER TABLE contactos        ADD COLUMN IF NOT EXISTS username TEXT;
 CREATE INDEX IF NOT EXISTS idx_petra_contactos_username
   ON petra_contactos(username) WHERE username IS NOT NULL;
+
+-- ============================================================================
+-- Fix: 'capacitacion.msg_completada_header' queda sin referenciar al paso
+-- autorización, porque ahora el panel operativo abre directamente al terminar
+-- la capacitación. Idempotente: solo reemplaza si todavía tiene el texto viejo.
+-- ============================================================================
+UPDATE petra_textos
+   SET contenido = (
+         '🎓🎉 *¡Terminaste tu capacitación!* ✨' || E'\n\n' ||
+         'Ya tenés las herramientas para arrancar como Agente Petra 💜' || E'\n\n' ||
+         'Aquí tenés tu *panel de control* 👇'
+       ),
+       updated_at = NOW()
+ WHERE clave = 'capacitacion.msg_completada_header'
+   AND contenido LIKE '%Siguiente paso: Autorización del conjunto%';
