@@ -52,7 +52,7 @@ PREGUNTA_CAMPO = {
     "nombre": (
         "inscripcion.pedir_nombre",
         "👋 ¡Qué alegría que quieras ser Agente Petra!\n\n"
-        "Te voy a pedir 5 datos para registrarte. Empecemos:\n\n"
+        "Te voy a pedir 4 datos para registrarte. Empecemos:\n\n"
         "¿Cuál es tu *nombre completo*? 👤",
     ),
     "cedula": (
