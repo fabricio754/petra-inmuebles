@@ -1592,10 +1592,13 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             # queda en autorizacion_pendiente para que el modelo de datos
             # siga consistente, pero no mostramos el paso de autorización
             # en WA — la agente entra directo al panel de control.
-            _pwa_cap.send_text(telefono, _t(
+            _send_buttons(telefono, _t(
                 "capacitacion.msg_completada_header",
                 fallback=MSG_FIN_CAPACITACION,
-            ))
+            ), [
+                {"id": "ONBAG_INICIAR_AUTORIZACION",
+                 "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
+            ], estado_key="autorizacion_pendiente")
             _mostrar_panel_control(telefono, meta)
             _log(telefono, texto, "[capacitación completa → panel de control]",
                  nota="capacitacion_completa → panel de control")
@@ -1975,11 +1978,13 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         if (texto or "").lower().strip() == "aviso":
             _set_estado(meta, "autorizacion_pendiente")
             _save_meta(conn, cid, meta)
-            from app import petra_wa as _pwa_aviso
-            _pwa_aviso.send_text(telefono, _t(
+            _send_buttons(telefono, _t(
                 "capacitacion.msg_completada_header",
                 fallback=MSG_FIN_CAPACITACION,
-            ))
+            ), [
+                {"id": "ONBAG_INICIAR_AUTORIZACION",
+                 "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
+            ], estado_key="autorizacion_pendiente")
             _mostrar_panel_control(telefono, meta)
             _log(telefono, texto, "[shortcut 'aviso' → fin capacitación + panel]",
                  nota="shortcut aviso")
@@ -2222,11 +2227,13 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             # nuevo apenas mande cualquier mensaje.
             _set_estado(meta, "autorizacion_pendiente")
             _save_meta(conn, cid, meta)
-            from app import petra_wa as _pwa_cc
-            _pwa_cc.send_text(telefono, _t(
+            _send_buttons(telefono, _t(
                 "capacitacion.msg_completada_header",
                 fallback=MSG_FIN_CAPACITACION,
-            ))
+            ), [
+                {"id": "ONBAG_INICIAR_AUTORIZACION",
+                 "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
+            ], estado_key="autorizacion_pendiente")
             _mostrar_panel_control(telefono, meta)
             _log(telefono, texto,
                  "[capacitacion_completa legacy → panel de control]",
