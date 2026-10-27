@@ -2648,7 +2648,7 @@ MSG_FIN_CAPACITACION = (
 
 MSG_PROXIMOS_PASOS_PANEL = (
     "{nombre}, ahora debemos activar tu primer edificio.\n\n"
-    "1. Valentina la fundadora de Petra te va a contactar por "
+    "1. Del Mar la fundadora de Petra te va a contactar por "
     "WhatsApp para despejar dudas y para explicarte mejor los "
     "próximos pasos.\n"
     "2. 🏢 *Autorizar* — hablá con el administrador de tu edificio "
