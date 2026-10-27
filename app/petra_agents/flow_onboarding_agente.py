@@ -1597,7 +1597,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                 fallback=MSG_FIN_CAPACITACION,
             ), [
                 {"id": "ONBAG_IR_PANEL",
-                 "title": _b("ONBAG_IR_PANEL", "Ir al panel de control")},
+                 "title": _b("ONBAG_IR_PANEL", "Panel de control")},
             ], estado_key="autorizacion_pendiente")
             _log(telefono, texto, "[capacitación completa → esperando botón panel]",
                  nota="capacitacion_completa → fin_cap")
@@ -1982,7 +1982,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 fallback=MSG_FIN_CAPACITACION,
             ), [
                 {"id": "ONBAG_IR_PANEL",
-                 "title": _b("ONBAG_IR_PANEL", "Ir al panel de control")},
+                 "title": _b("ONBAG_IR_PANEL", "Panel de control")},
             ], estado_key="autorizacion_pendiente")
             _log(telefono, texto, "[shortcut 'aviso' → fin capacitación]",
                  nota="shortcut aviso")
@@ -2234,7 +2234,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 fallback=MSG_FIN_CAPACITACION,
             ), [
                 {"id": "ONBAG_IR_PANEL",
-                 "title": _b("ONBAG_IR_PANEL", "Ir al panel de control")},
+                 "title": _b("ONBAG_IR_PANEL", "Panel de control")},
             ], estado_key="autorizacion_pendiente")
             _log(telefono, texto,
                  "[capacitacion_completa legacy → fin_cap]",
