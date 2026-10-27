@@ -277,7 +277,7 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
             fallback=_MSG_FIN_CAP,
         ), [
             {"id": "ONBAG_IR_PANEL",
-             "title": _b("ONBAG_IR_PANEL", "Ir al panel de control")},
+             "title": _b("ONBAG_IR_PANEL", "Panel de control")},
         ], estado_key="autorizacion_pendiente")
         _log(telefono, texto,
              "[v3:auth capacitacion_completa legacy → panel]")
