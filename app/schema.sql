@@ -2217,3 +2217,14 @@ UPDATE petra_textos
        updated_at = NOW()
  WHERE clave = 'capacitacion.msg_completada_header'
    AND contenido LIKE '%próximos pasos%';
+
+-- ============================================================================
+-- Botón 'Ya tengo autorización' se truncaba en WhatsApp (>20 chars) → se
+-- veía 'Ya tengo autoriz'. Lo acortamos a '✅ Ya me autorizó' (16).
+-- Idempotente: solo actualiza si todavía trae el texto truncado o largo.
+-- ============================================================================
+UPDATE petra_textos
+   SET contenido = '✅ Ya me autorizó',
+       updated_at = NOW()
+ WHERE clave = 'boton.onbag_ya_tengo_autorizacion'
+   AND contenido IN ('✅ Ya tengo autorización', '✅ Ya tengo autoriz');

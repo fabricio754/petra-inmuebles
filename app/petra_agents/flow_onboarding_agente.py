@@ -3021,7 +3021,9 @@ def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
         ), [
             {"id": "ONBAG_YA_TENGO_AUTORIZACION",
              "title": _b("ONBAG_YA_TENGO_AUTORIZACION",
-                         "✅ Ya tengo autorización")},
+                         "✅ Ya me autorizó")},
+            {"id": "ONBAG_TENGO_DUDA",
+             "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
         ], estado_key="autorizacion_pendiente")
         return True
     if boton_id == "ONBAG_ED_ACTIVAR":
