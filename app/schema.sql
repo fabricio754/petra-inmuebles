@@ -2149,3 +2149,19 @@ UPDATE petra_textos
        updated_at = NOW()
  WHERE clave = 'capacitacion.msg_completada_header'
    AND contenido LIKE '%Siguiente paso: Autorización del conjunto%';
+
+-- ============================================================================
+-- Fix: 'inscripcion.msg_felicitaciones' no debe mencionar conjunto porque
+-- ya no se pide en la inscripción. Idempotente: solo actualiza si todavía
+-- contiene la línea del conjunto, para respetar ediciones posteriores.
+-- ============================================================================
+UPDATE petra_textos
+   SET contenido = (
+         '🎉✨ *¡Felicitaciones {nombre_corto}!* ✨🎉' || E'\n\n' ||
+         'Ya sos oficialmente *Agente Petra* 💜' || E'\n\n' ||
+         '📍 {barrio}, {ciudad}' || E'\n\n' ||
+         'Tocá el botón de abajo para ver los próximos pasos 👇'
+       ),
+       updated_at = NOW()
+ WHERE clave = 'inscripcion.msg_felicitaciones'
+   AND contenido LIKE '%Vas a representar a Petra en%';
