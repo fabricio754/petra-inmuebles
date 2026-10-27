@@ -2183,3 +2183,23 @@ UPDATE petra_textos
        updated_at = NOW()
  WHERE clave = 'capacitacion.msg_completada_header'
    AND contenido NOT LIKE '%*Autorizar*%';
+
+-- ============================================================================
+-- Fabricio: 'msg_completada_header' debe traer el texto viejo (Siguiente
+-- paso: Autorización del conjunto) + los próximos pasos + 'panel de control'.
+-- Idempotente: solo actualiza si no trae ya 'Siguiente paso: Autorización'.
+-- ============================================================================
+UPDATE petra_textos
+   SET contenido = (
+         '🎓🎉 *¡Terminaste tu capacitación completa!*' || E'\n\n' ||
+         'Ya tenés las herramientas para arrancar como Agente Petra 💜' || E'\n\n' ||
+         '*Siguiente paso: Autorización del conjunto* 🏢 📍' || E'\n\n' ||
+         'Ahora toca hablar con el administrador de tu edificio para que te autorice a representar a Petra ahí 👇' || E'\n\n' ||
+         'Estos son los *próximos pasos* para tu edificio:' || E'\n\n' ||
+         '1. 🏢 *Autorizar* — hablá con el administrador de tu edificio para que te autorice a representar a Petra ahí.' || E'\n\n' ||
+         '2. 📸 *Activar* — una vez autorizada, instalá el QR en el edificio y mandanos la foto para activarlo.' || E'\n\n' ||
+         'Aquí tenés tu *panel de control* 👇'
+       ),
+       updated_at = NOW()
+ WHERE clave = 'capacitacion.msg_completada_header'
+   AND contenido NOT LIKE '%Siguiente paso: Autorización del conjunto%';
