@@ -3017,11 +3017,15 @@ def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
         _enviar_material_autorizacion(conn, telefono)
         _send_buttons(telefono, _t(
             "autorizacion.msg_post_material",
-            fallback="Cuando tengas la autorización del administrador, pulsá el botón 👇",
+            fallback=(
+                "Perfecto, ya tenés todo lo que necesitás 🙌\n\n"
+                "Ahora el próximo paso es *hablar con el admin*. "
+                "Tomate tu tiempo — no hay apuro."
+            ),
         ), [
-            {"id": "ONBAG_YA_TENGO_AUTORIZACION",
-             "title": _b("ONBAG_YA_TENGO_AUTORIZACION",
-                         "✅ Ya me autorizó")},
+            {"id": "ONBAG_HABLAR_ADMIN",
+             "title": _b("ONBAG_HABLAR_ADMIN",
+                         "📅 Hablar con admin")},
             {"id": "ONBAG_TENGO_DUDA",
              "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
         ], estado_key="autorizacion_pendiente")
