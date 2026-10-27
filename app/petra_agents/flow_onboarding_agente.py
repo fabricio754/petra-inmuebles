@@ -2152,7 +2152,8 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                      "ONBAG_PC_CITAS", "ONBAG_PC_CAPACITACION",
                      "ONBAG_PC_AYUDA", "ONBAG_IR_PANEL",
                      "ONBAG_ED_AUTORIZAR", "ONBAG_ED_ACTIVAR",
-                     "ONBAG_ED_AGREGAR", "ONBAG_ED_VER_MATERIAL") \
+                     "ONBAG_ED_AGREGAR", "ONBAG_ED_VER_MATERIAL",
+                     "ONBAG_VOLVER_PANEL") \
                 or (texto and texto.startswith("ONBAG_REVID_")):
             if _handle_panel_control_boton(telefono, cid, meta, conn, texto):
                 _log(telefono, texto, f"[panel-control {texto}]")
@@ -2770,7 +2771,10 @@ def _mostrar_mis_inmuebles(telefono, cid, conn):
                 "*Mis edificios* 💜"
             ),
         )
-        petra_wa.send_text(telefono, texto)
+        _send_buttons(telefono, texto, [
+            {"id": "ONBAG_VOLVER_PANEL",
+             "title": _b("ONBAG_VOLVER_PANEL", "📋 Panel de control")},
+        ], estado_key=None)
         return
 
     # Agrupar por conjunto.
@@ -2847,6 +2851,10 @@ def _mostrar_mis_inmuebles(telefono, cid, conn):
 
     texto = "\n".join(lineas).rstrip()
     petra_wa.send_text(telefono, texto[:4000])
+    _send_buttons(telefono, "¿Querés hacer algo más?", [
+        {"id": "ONBAG_VOLVER_PANEL",
+         "title": _b("ONBAG_VOLVER_PANEL", "📋 Panel de control")},
+    ], estado_key=None)
 
 
 def _mostrar_mis_citas(telefono, cid, conn):
@@ -3156,6 +3164,9 @@ def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
         return True
     if boton_id == "ONBAG_PC_INMUEBLES":
         _mostrar_mis_inmuebles(telefono, cid, conn)
+        return True
+    if boton_id == "ONBAG_VOLVER_PANEL":
+        _mostrar_panel_control(telefono, meta)
         return True
     if boton_id == "ONBAG_PC_CITAS":
         _mostrar_mis_citas(telefono, cid, conn)
