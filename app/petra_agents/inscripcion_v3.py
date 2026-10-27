@@ -37,7 +37,7 @@ log = logging.getLogger("petra")
 
 # ─── Config ─────────────────────────────────────────────────────────────
 
-CAMPOS = ["nombre", "cedula", "ciudad", "barrio", "conjunto"]
+CAMPOS = ["nombre", "cedula", "ciudad", "barrio"]
 
 NOMBRE_CAMPO = {
     "nombre": "nombre completo",
@@ -417,22 +417,17 @@ def _felicitar_y_marcar_inscrito(conn, cid, telefono, meta):
         log.exception("[v3] update nombre fallo cid=%s", cid)
 
     nombre_corto = (meta.get("nombre") or "").split()[0] if meta.get("nombre") else ""
-    conjunto = (meta.get("conjunto") or "").strip()
-    if conjunto.lower().startswith(("onbag_", "custom_")):
-        conjunto = "tu edificio"
 
     felicitaciones = _t(
         "inscripcion.msg_felicitaciones",
         fallback=(
             "🎉✨ *¡Felicitaciones {nombre_corto}!* ✨🎉\n\n"
             "Ya sos oficialmente *Agente Petra* 💜\n\n"
-            "🏢 Vas a representar a Petra en *{conjunto}*\n"
             "📍 {barrio}, {ciudad}\n\n"
             "Vamos a arrancar con tu capacitación paso a paso 🚀\n"
             "Tocá el botón de abajo para ver los próximos pasos 👇"
         ),
         nombre_corto=nombre_corto,
-        conjunto=conjunto,
         barrio=meta.get("barrio") or "",
         ciudad=meta.get("ciudad") or "",
     )
