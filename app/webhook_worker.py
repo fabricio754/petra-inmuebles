@@ -984,6 +984,30 @@ def _procesar_media_in(phone, event, message):
     except Exception:
         log.exception("[Media IN] Error consultando esta_bloqueado(%s)", phone)
 
+    # Si el teléfono ya es un contacto de Petra (agente conocido), no
+    # mandamos ni la alerta LEAD CALIENTE ni la confirmación genérica
+    # 'Recibimos tu mensaje' — Fabricio pidió sacarlo porque confunde
+    # a las agentes y los flows propios ya responden lo que corresponde.
+    es_agente_petra = False
+    try:
+        with db._conexion_directa(timeout=3) as _conn_chk:
+            r = _conn_chk.execute(
+                "SELECT 1 FROM petra_contacto_roles r "
+                "JOIN petra_contactos c ON c.id = r.contacto_id "
+                "WHERE c.telefono = %s AND r.rol = 'agente_petra' LIMIT 1",
+                (phone,),
+            ).fetchone()
+            es_agente_petra = bool(r)
+    except Exception:
+        log.exception("[Media IN] chequeo agente_petra fallo tel=%s", phone)
+
+    if es_agente_petra:
+        log.info(
+            "[Media IN] tel=%s es agente_petra — skip alerta y confirmación",
+            phone,
+        )
+        return
+
     # Marcar como requiere_humano (idempotente) y disparar alerta si es
     # nuevo o si pasaron >= cooldown_minutos desde la última alerta —
     # reusa el canal de alerta WA que ya tiene bot.py.
