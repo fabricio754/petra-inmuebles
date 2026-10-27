@@ -2094,7 +2094,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                      "ONBAG_PC_CITAS", "ONBAG_PC_CAPACITACION",
                      "ONBAG_PC_AYUDA", "ONBAG_IR_PANEL",
                      "ONBAG_ED_AUTORIZAR", "ONBAG_ED_ACTIVAR",
-                     "ONBAG_ED_AGREGAR") \
+                     "ONBAG_ED_AGREGAR", "ONBAG_ED_VER_MATERIAL") \
                 or (texto and texto.startswith("ONBAG_REVID_")):
             if _handle_panel_control_boton(telefono, cid, meta, conn, texto):
                 _log(telefono, texto, f"[panel-control {texto}]")
@@ -3043,19 +3043,25 @@ def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
         _mostrar_pedir_ayuda(telefono, cid=cid, meta=meta, conn=conn)
         return True
     if boton_id == "ONBAG_ED_AUTORIZAR":
-        # Mismo efecto que ONBAG_INICIAR_AUTORIZACION: material + botones.
-        from app import petra_wa as _pwa_ed
-        import time as _t_ed
-        _pwa_ed.send_text(telefono, _t(
+        # Mensaje intro con botón "Ver material". El envío real de material
+        # ocurre cuando pulsa ONBAG_ED_VER_MATERIAL.
+        _send_buttons(telefono, _t(
             "autorizacion.msg_envio_material",
             fallback=(
-                "Perfecto 💜 Acá te paso el material de apoyo para que "
-                "lo lleves a la reunión con el administrador:"
+                "¡Qué bueno que vas con todo! 🙌✨\n\n"
+                "Preparé un combo con el material que te va a servir en "
+                "la reunión con el administrador 💜"
             ),
-        ))
-        _t_ed.sleep(1)
+        ), [
+            {"id": "ONBAG_ED_VER_MATERIAL",
+             "title": _b("ONBAG_ED_VER_MATERIAL", "📎 Ver material")},
+        ], estado_key="autorizacion_pendiente")
+        return True
+    if boton_id == "ONBAG_ED_VER_MATERIAL":
+        import time as _t_vm
         _enviar_recordatorio_capacitacion(conn, telefono)
         _enviar_material_autorizacion(conn, telefono)
+        _t_vm.sleep(1)
         _send_buttons(telefono, _t(
             "autorizacion.msg_post_material",
             fallback=(
