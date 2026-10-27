@@ -2016,8 +2016,12 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                     ),
                 ),
                 [
-                    {"id": "ONBAG_YA_TENGO_AUTORIZACION", "title": _b("ONBAG_YA_TENGO_AUTORIZACION", "✅ Autorización")},
-                    {"id": "ONBAG_TENGO_DUDA", "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
+                    {"id": "ONBAG_ADMIN_SI",
+                     "title": _b("ONBAG_ADMIN_SI", "✅ Me dijo que SÍ")},
+                    {"id": "ONBAG_ADMIN_NO",
+                     "title": _b("ONBAG_ADMIN_NO", "❌ Me dijo que NO")},
+                    {"id": "ONBAG_TENGO_DUDA",
+                     "title": _b("ONBAG_TENGO_DUDA", "❓ Tengo una duda")},
                 ],
                 estado_key="autorizacion_pendiente",
             )
