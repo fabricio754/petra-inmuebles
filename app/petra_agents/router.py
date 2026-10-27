@@ -181,13 +181,12 @@ _RECORDATORIOS_RETORNO = {
         "conseguir la autorización del administrador — ¿seguimos?"
     ),
     "autorizacion_pendiente": (
-        "¡Hola de nuevo! 💜 Estamos esperando que te autorice el "
-        "administrador del conjunto. Cuando te dé el ok, escribime "
-        "*ya me autorizó*."
+        "¡Hola de nuevo! 💜 Escribí *menú* para abrir tu panel y seguir "
+        "con *Autorizar* o *Activar* tu edificio."
     ),
     "autorizacion_rechazada": (
-        "¡Hola de nuevo! 💜 Cuando el administrador te apruebe, "
-        "escribime *ya me autorizó* y seguimos."
+        "¡Hola de nuevo! 💜 Escribí *menú* para abrir tu panel y "
+        "retomar la autorización de tu edificio."
     ),
     "kit_pendiente": (
         "¡Hola de nuevo! 💜 Para enviarte el kit necesito tu *dirección "

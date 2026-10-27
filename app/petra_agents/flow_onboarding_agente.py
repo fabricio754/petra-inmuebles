@@ -2938,7 +2938,7 @@ def _mostrar_mis_edificios(telefono, cid, conn, meta):
     render se adapta. Si no hay conjunto cargado, mostramos texto plano
     y volvemos.
     """
-    from app import petra_wa
+    from app import petra_wa  # noqa: F401 — usado en helpers
     conjunto = meta.get("conjunto")
     # Future-proof: soportar lista.
     if isinstance(conjunto, (list, tuple)):
@@ -2946,15 +2946,10 @@ def _mostrar_mis_edificios(telefono, cid, conn, meta):
     elif conjunto:
         conjuntos = [conjunto]
     else:
-        conjuntos = []
-
-    if not conjuntos:
-        petra_wa.send_text(telefono, (
-            "🏢 *Mis edificios*\n\n"
-            "Aún no tenés edificios registrados. "
-            "Escribí *menú* para volver."
-        ))
-        return
+        # Sin conjunto cargado (hoy la inscripción ya no lo pide). Mostramos
+        # un placeholder 'Tu primer edificio' para que la agente igualmente
+        # pueda arrancar Autorizar / Activar desde el panel.
+        conjuntos = ["Tu primer edificio"]
 
     estado_ag = (meta.get("estado_agente") or "").strip()
     if estado_ag in ("autorizacion_pendiente", "autorizacion_rechazada",
