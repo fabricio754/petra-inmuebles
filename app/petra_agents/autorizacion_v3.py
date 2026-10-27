@@ -269,15 +269,17 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
     if estado == "capacitacion_completa":
         _set_estado(meta, "autorizacion_pendiente")
         _save_meta(conn, cid, meta)
-        from app import petra_wa as _pwa_cc
         from app.petra_agents.flow_onboarding_agente import (
             _mostrar_panel_control as _mpc_cc,
             MSG_FIN_CAPACITACION as _MSG_FIN_CAP,
         )
-        _pwa_cc.send_text(telefono, _t(
+        _send_buttons(telefono, _t(
             "capacitacion.msg_completada_header",
             fallback=_MSG_FIN_CAP,
-        ))
+        ), [
+            {"id": "ONBAG_INICIAR_AUTORIZACION",
+             "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
+        ], estado_key="autorizacion_pendiente")
         _mpc_cc(telefono, meta)
         _log(telefono, texto,
              "[v3:auth capacitacion_completa legacy → panel]")
