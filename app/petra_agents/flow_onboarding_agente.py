@@ -1978,7 +1978,28 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                     and t_lc_ed not in ("menu", "menú", "panel",
                                         "panel de control")):
                 nombre_ed = texto.strip()[:120]
-                meta["conjunto"] = nombre_ed
+                # Acumular en lista (hasta 5). Si ya hay un string, lo
+                # promovemos a lista.
+                conj_prev = meta.get("conjunto")
+                if isinstance(conj_prev, (list, tuple)):
+                    lista_conj = [str(c) for c in conj_prev if c]
+                elif conj_prev:
+                    lista_conj = [str(conj_prev)]
+                else:
+                    lista_conj = []
+                if nombre_ed not in lista_conj:
+                    if len(lista_conj) >= 5:
+                        from app import petra_wa as _pwa_max
+                        _pwa_max.send_text(telefono, (
+                            "Ya tenés *5 edificios* cargados. Ese es el "
+                            "máximo por agente."
+                        ))
+                        meta.pop("edificio_agregar_pendiente", None)
+                        _save_meta(conn, cid, meta)
+                        _mostrar_mis_edificios(telefono, cid, conn, meta)
+                        return True
+                    lista_conj.append(nombre_ed)
+                meta["conjunto"] = lista_conj
                 meta.pop("edificio_agregar_pendiente", None)
                 # Insertar en conjuntos_visitante para que aparezca en el
                 # panel de Visitante QR y pueda imprimirse su QR.
@@ -3034,12 +3055,20 @@ def _mostrar_mis_edificios(telefono, cid, conn, meta):
     for i, c in enumerate(conjuntos, 1):
         lineas.append(f"{i}. {c}")
         lineas.append(f"   Estado: {estado_resumen}")
+    # Permite hasta 5 edificios por agente.
+    if len(conjuntos) >= 5:
+        lineas.append("")
+        lineas.append("Ya llegaste al máximo de *5 edificios* por agente.")
     body = "\n".join(lineas)
 
-    _send_buttons(telefono, body, [
+    botones = [
         {"id": "ONBAG_ED_AUTORIZAR", "title": "🏢 Autorizar"},
         {"id": "ONBAG_ED_ACTIVAR", "title": "📸 Activar"},
-    ], estado_key=None)
+    ]
+    if len(conjuntos) < 5:
+        botones.append({"id": "ONBAG_ED_AGREGAR",
+                        "title": "➕ Agregar edificio"})
+    _send_buttons(telefono, body, botones, estado_key=None)
 
 
 def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
