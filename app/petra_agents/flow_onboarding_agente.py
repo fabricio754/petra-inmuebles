@@ -1970,6 +1970,27 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                  nota=f"estado={estado}")
             return True
 
+        # ─── Captura del nombre del edificio después de "Agregar edificio" ─
+        if meta.get("edificio_agregar_pendiente") and texto and not es_handoff:
+            t_lc_ed = (texto or "").lower().strip()
+            # No capturar si es un botón de panel o un comando conocido.
+            if (not (texto or "").startswith("ONBAG_")
+                    and t_lc_ed not in ("menu", "menú", "panel",
+                                        "panel de control")):
+                nombre_ed = texto.strip()[:120]
+                meta["conjunto"] = nombre_ed
+                meta.pop("edificio_agregar_pendiente", None)
+                _save_meta(conn, cid, meta)
+                from app import petra_wa as _pwa_ed
+                _pwa_ed.send_text(telefono, (
+                    f"✅ Agregamos *{nombre_ed}* a tus edificios."
+                ))
+                _mostrar_mis_edificios(telefono, cid, conn, meta)
+                _log(telefono, texto,
+                     "[edificio agregado desde panel]",
+                     nota=f"conjunto={nombre_ed}")
+                return True
+
         # ─── Shortcut de prueba (Fabricio): 'aviso' ───────────────────
         # Simula el final de la capacitación: felicita y abre el panel
         # de control. Útil para probar el flujo post-capacitación sin
@@ -2068,7 +2089,8 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         if texto in ("ONBAG_PC_EDIFICIOS", "ONBAG_PC_INMUEBLES",
                      "ONBAG_PC_CITAS", "ONBAG_PC_CAPACITACION",
                      "ONBAG_PC_AYUDA", "ONBAG_IR_PANEL",
-                     "ONBAG_ED_AUTORIZAR", "ONBAG_ED_ACTIVAR") \
+                     "ONBAG_ED_AUTORIZAR", "ONBAG_ED_ACTIVAR",
+                     "ONBAG_ED_AGREGAR") \
                 or (texto and texto.startswith("ONBAG_REVID_")):
             if _handle_panel_control_boton(telefono, cid, meta, conn, texto):
                 _log(telefono, texto, f"[panel-control {texto}]")
@@ -2934,11 +2956,9 @@ def _mostrar_pedir_ayuda(telefono, cid=None, meta=None, conn=None):
 def _mostrar_mis_edificios(telefono, cid, conn, meta):
     """Muestra el/los conjunto(s) del agente con botones Autorizar/Activar.
 
-    Hoy `meta['conjunto']` es un string único; cuando sea una lista, el
-    render se adapta. Si no hay conjunto cargado, mostramos texto plano
-    y volvemos.
+    Si no hay conjunto cargado, mostramos 'No tienes edificios activados'
+    + botón 'Agregar edificio' para que la agente pueda cargar el nombre.
     """
-    from app import petra_wa  # noqa: F401 — usado en helpers
     conjunto = meta.get("conjunto")
     # Future-proof: soportar lista.
     if isinstance(conjunto, (list, tuple)):
@@ -2946,10 +2966,17 @@ def _mostrar_mis_edificios(telefono, cid, conn, meta):
     elif conjunto:
         conjuntos = [conjunto]
     else:
-        # Sin conjunto cargado (hoy la inscripción ya no lo pide). Mostramos
-        # un placeholder 'Tu primer edificio' para que la agente igualmente
-        # pueda arrancar Autorizar / Activar desde el panel.
-        conjuntos = ["Tu primer edificio"]
+        conjuntos = []
+
+    if not conjuntos:
+        _send_buttons(telefono, (
+            "🏢 *Mis edificios*\n\n"
+            "No tienes edificios activados."
+        ), [
+            {"id": "ONBAG_ED_AGREGAR",
+             "title": "➕ Agregar edificio"},
+        ], estado_key=None)
+        return
 
     estado_ag = (meta.get("estado_agente") or "").strip()
     if estado_ag in ("autorizacion_pendiente", "autorizacion_rechazada",
@@ -2988,6 +3015,16 @@ def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
         return True
     if boton_id == "ONBAG_PC_EDIFICIOS":
         _mostrar_mis_edificios(telefono, cid, conn, meta)
+        return True
+    if boton_id == "ONBAG_ED_AGREGAR":
+        from app import petra_wa as _pwa_ag
+        meta["edificio_agregar_pendiente"] = True
+        _save_meta(conn, cid, meta)
+        _pwa_ag.send_text(telefono, (
+            "🏢 *Agregar edificio*\n\n"
+            "¿Cómo se llama el edificio o conjunto que querés agregar?\n"
+            "Mandámelo en un mensaje (ej. *Conjunto Prados 1*)."
+        ))
         return True
     if boton_id == "ONBAG_PC_INMUEBLES":
         _mostrar_mis_inmuebles(telefono, cid, conn)
