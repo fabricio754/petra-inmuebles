@@ -2634,8 +2634,11 @@ def _mostrar_panel_control(telefono, meta):
 # mandar como PRIMER mensaje al terminar la capacitación. El panel va
 # después como segundo mensaje. Fabricio pidió 2 mensajes, no 3.
 MSG_FIN_CAPACITACION = (
-    "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
+    "🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
     "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
+    "*Siguiente paso: Autorización del conjunto* 🏢 📍\n\n"
+    "Ahora toca hablar con el administrador de tu edificio para que "
+    "te autorice a representar a Petra ahí 👇\n\n"
     "Estos son los *próximos pasos* para tu edificio:\n\n"
     "1. 🏢 *Autorizar* — hablá con el administrador de tu edificio "
     "para que te autorice a representar a Petra ahí.\n\n"
