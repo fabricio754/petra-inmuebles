@@ -688,7 +688,7 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         pregunta = _t(clave_q, fallback_q)
         _send_text(telefono, "\n\n".join(confirmaciones + [pregunta]))
     else:
-        if confirmaciones:
-            _send_text(telefono, "\n\n".join(confirmaciones))
+        # Último campo completado: saltamos la confirmación y vamos directo
+        # al resumen/felicitación — evitamos el "Anotado el ..." redundante.
         _enviar_resumen(telefono, meta)
     return True
