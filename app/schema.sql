@@ -2203,3 +2203,17 @@ UPDATE petra_textos
        updated_at = NOW()
  WHERE clave = 'capacitacion.msg_completada_header'
    AND contenido NOT LIKE '%Siguiente paso: Autorización del conjunto%';
+
+-- ============================================================================
+-- Fin de capacitación: el texto se acorta ya que el detalle y el panel vienen
+-- después (al picar 'Ir al panel de control'). Idempotente: solo si el
+-- override todavía trae la línea 'próximos pasos' larga.
+-- ============================================================================
+UPDATE petra_textos
+   SET contenido = (
+         '🎓🎉 *¡Terminaste tu capacitación completa!*' || E'\n\n' ||
+         'Ya tenés las herramientas para arrancar como Agente Petra 💜'
+       ),
+       updated_at = NOW()
+ WHERE clave = 'capacitacion.msg_completada_header'
+   AND contenido LIKE '%próximos pasos%';
