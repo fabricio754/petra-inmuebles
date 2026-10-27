@@ -2165,3 +2165,21 @@ UPDATE petra_textos
        updated_at = NOW()
  WHERE clave = 'inscripcion.msg_felicitaciones'
    AND contenido LIKE '%Vas a representar a Petra en%';
+
+-- ============================================================================
+-- Consolidar: 'capacitacion.msg_completada_header' incluye próximos pasos
+-- para que el fin de capacitación mande 2 mensajes (texto + panel) en vez
+-- de 3. Idempotente: solo actualiza si no contiene '*Autorizar*'.
+-- ============================================================================
+UPDATE petra_textos
+   SET contenido = (
+         '🎓🎉 *¡Terminaste tu capacitación!* ✨' || E'\n\n' ||
+         'Ya tenés las herramientas para arrancar como Agente Petra 💜' || E'\n\n' ||
+         'Estos son los *próximos pasos* para tu edificio:' || E'\n\n' ||
+         '1. 🏢 *Autorizar* — hablá con el administrador de tu edificio para que te autorice a representar a Petra ahí.' || E'\n\n' ||
+         '2. 📸 *Activar* — una vez autorizada, instalá el QR en el edificio y mandanos la foto para activarlo.' || E'\n\n' ||
+         'Aquí tenés tu *panel de control* 👇'
+       ),
+       updated_at = NOW()
+ WHERE clave = 'capacitacion.msg_completada_header'
+   AND contenido NOT LIKE '%*Autorizar*%';
