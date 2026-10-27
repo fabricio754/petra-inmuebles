@@ -1985,9 +1985,13 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 _pwa_ed.send_text(telefono, (
                     f"✅ Agregamos *{nombre_ed}* a tus edificios."
                 ))
-                _mostrar_mis_edificios(telefono, cid, conn, meta)
+                import time as _t_ed_add
+                _t_ed_add.sleep(1)
+                _handle_panel_control_boton(
+                    telefono, cid, meta, conn, "ONBAG_ED_AUTORIZAR"
+                )
                 _log(telefono, texto,
-                     "[edificio agregado desde panel]",
+                     "[edificio agregado → autorizar]",
                      nota=f"conjunto={nombre_ed}")
                 return True
 
