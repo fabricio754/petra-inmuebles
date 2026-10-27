@@ -272,15 +272,11 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         from app import petra_wa as _pwa_cc
         from app.petra_agents.flow_onboarding_agente import (
             _mostrar_panel_control as _mpc_cc,
+            MSG_FIN_CAPACITACION as _MSG_FIN_CAP,
         )
         _pwa_cc.send_text(telefono, _t(
             "capacitacion.msg_completada_header",
-            fallback=(
-                "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
-                "Ya tenés las herramientas para arrancar como Agente "
-                "Petra 💜\n\n"
-                "Aquí tenés tu *panel de control* 👇"
-            ),
+            fallback=_MSG_FIN_CAP,
         ))
         _mpc_cc(telefono, meta)
         _log(telefono, texto,

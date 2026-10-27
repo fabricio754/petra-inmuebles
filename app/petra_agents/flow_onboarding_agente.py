@@ -1594,12 +1594,7 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
             # en WA — la agente entra directo al panel de control.
             _pwa_cap.send_text(telefono, _t(
                 "capacitacion.msg_completada_header",
-                fallback=(
-                    "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
-                    "Ya tenés las herramientas para arrancar como Agente "
-                    "Petra 💜\n\n"
-                    "Aquí tenés tu *panel de control* 👇"
-                ),
+                fallback=MSG_FIN_CAPACITACION,
             ))
             _mostrar_panel_control(telefono, meta)
             _log(telefono, texto, "[capacitación completa → panel de control]",
@@ -1983,12 +1978,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             from app import petra_wa as _pwa_aviso
             _pwa_aviso.send_text(telefono, _t(
                 "capacitacion.msg_completada_header",
-                fallback=(
-                    "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
-                    "Ya tenés las herramientas para arrancar como Agente "
-                    "Petra 💜\n\n"
-                    "Aquí tenés tu *panel de control* 👇"
-                ),
+                fallback=MSG_FIN_CAPACITACION,
             ))
             _mostrar_panel_control(telefono, meta)
             _log(telefono, texto, "[shortcut 'aviso' → fin capacitación + panel]",
@@ -2235,12 +2225,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             from app import petra_wa as _pwa_cc
             _pwa_cc.send_text(telefono, _t(
                 "capacitacion.msg_completada_header",
-                fallback=(
-                    "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
-                    "Ya tenés las herramientas para arrancar como Agente "
-                    "Petra 💜\n\n"
-                    "Aquí tenés tu *panel de control* 👇"
-                ),
+                fallback=MSG_FIN_CAPACITACION,
             ))
             _mostrar_panel_control(telefono, meta)
             _log(telefono, texto,
@@ -2643,20 +2628,21 @@ def _mostrar_panel_control(telefono, meta):
             "• 📅 Escribí *mis citas*\n"
             "• 🎓 Escribí *mi capacitación*"
         ))
-    # Segundo mensaje con saludo + próximos pasos (pedido Fabricio).
-    proximos = (
-        f"{saludo} 💜\n\n"
-        "Estos son los *próximos pasos* para tu edificio:\n\n"
-        "1. 🏢 *Autorizar* — hablá con el administrador de tu edificio "
-        "para que te autorice a representar a Petra ahí.\n\n"
-        "2. 📸 *Activar* — una vez autorizada, instalá el QR en el "
-        "edificio y mandanos la foto para activarlo.\n\n"
-        "¡Vamos! 💜"
-    )
-    try:
-        petra_wa.send_text(telefono, proximos)
-    except Exception:
-        log.exception("[panel-control] send proximos fallo tel=%s", telefono)
+
+
+# Texto consolidado "Terminaste capacitación + próximos pasos" para
+# mandar como PRIMER mensaje al terminar la capacitación. El panel va
+# después como segundo mensaje. Fabricio pidió 2 mensajes, no 3.
+MSG_FIN_CAPACITACION = (
+    "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
+    "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
+    "Estos son los *próximos pasos* para tu edificio:\n\n"
+    "1. 🏢 *Autorizar* — hablá con el administrador de tu edificio "
+    "para que te autorice a representar a Petra ahí.\n\n"
+    "2. 📸 *Activar* — una vez autorizada, instalá el QR en el "
+    "edificio y mandanos la foto para activarlo.\n\n"
+    "Aquí tenés tu *panel de control* 👇"
+)
 
 
 def _mostrar_mis_inmuebles(telefono, cid, conn):
