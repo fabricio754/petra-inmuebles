@@ -270,17 +270,15 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _set_estado(meta, "autorizacion_pendiente")
         _save_meta(conn, cid, meta)
         from app.petra_agents.flow_onboarding_agente import (
-            _mostrar_panel_control as _mpc_cc,
             MSG_FIN_CAPACITACION as _MSG_FIN_CAP,
         )
         _send_buttons(telefono, _t(
             "capacitacion.msg_completada_header",
             fallback=_MSG_FIN_CAP,
         ), [
-            {"id": "ONBAG_INICIAR_AUTORIZACION",
-             "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
+            {"id": "ONBAG_IR_PANEL",
+             "title": _b("ONBAG_IR_PANEL", "Ir al panel de control")},
         ], estado_key="autorizacion_pendiente")
-        _mpc_cc(telefono, meta)
         _log(telefono, texto,
              "[v3:auth capacitacion_completa legacy → panel]")
         return True

@@ -1596,12 +1596,11 @@ def _fase_capacitacion(conn, telefono, cid, meta, texto, estado, sesion_id=None)
                 "capacitacion.msg_completada_header",
                 fallback=MSG_FIN_CAPACITACION,
             ), [
-                {"id": "ONBAG_INICIAR_AUTORIZACION",
-                 "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
+                {"id": "ONBAG_IR_PANEL",
+                 "title": _b("ONBAG_IR_PANEL", "Ir al panel de control")},
             ], estado_key="autorizacion_pendiente")
-            _mostrar_panel_control(telefono, meta)
-            _log(telefono, texto, "[capacitación completa → panel de control]",
-                 nota="capacitacion_completa → panel de control")
+            _log(telefono, texto, "[capacitación completa → esperando botón panel]",
+                 nota="capacitacion_completa → fin_cap")
             return True
         else:
             _save_meta(conn, cid, meta)
@@ -1982,11 +1981,10 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 "capacitacion.msg_completada_header",
                 fallback=MSG_FIN_CAPACITACION,
             ), [
-                {"id": "ONBAG_INICIAR_AUTORIZACION",
-                 "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
+                {"id": "ONBAG_IR_PANEL",
+                 "title": _b("ONBAG_IR_PANEL", "Ir al panel de control")},
             ], estado_key="autorizacion_pendiente")
-            _mostrar_panel_control(telefono, meta)
-            _log(telefono, texto, "[shortcut 'aviso' → fin capacitación + panel]",
+            _log(telefono, texto, "[shortcut 'aviso' → fin capacitación]",
                  nota="shortcut aviso")
             return True
 
@@ -2069,7 +2067,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
         # También si pulsa un botón del list del panel.
         if texto in ("ONBAG_PC_EDIFICIOS", "ONBAG_PC_INMUEBLES",
                      "ONBAG_PC_CITAS", "ONBAG_PC_CAPACITACION",
-                     "ONBAG_PC_AYUDA",
+                     "ONBAG_PC_AYUDA", "ONBAG_IR_PANEL",
                      "ONBAG_ED_AUTORIZAR", "ONBAG_ED_ACTIVAR") \
                 or (texto and texto.startswith("ONBAG_REVID_")):
             if _handle_panel_control_boton(telefono, cid, meta, conn, texto):
@@ -2235,12 +2233,11 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 "capacitacion.msg_completada_header",
                 fallback=MSG_FIN_CAPACITACION,
             ), [
-                {"id": "ONBAG_INICIAR_AUTORIZACION",
-                 "title": _b("ONBAG_INICIAR_AUTORIZACION", "🚀 Iniciar")},
+                {"id": "ONBAG_IR_PANEL",
+                 "title": _b("ONBAG_IR_PANEL", "Ir al panel de control")},
             ], estado_key="autorizacion_pendiente")
-            _mostrar_panel_control(telefono, meta)
             _log(telefono, texto,
-                 "[capacitacion_completa legacy → panel de control]",
+                 "[capacitacion_completa legacy → fin_cap]",
                  nota="auto-migración a autorizacion_pendiente")
             return True
 
@@ -2646,16 +2643,18 @@ def _mostrar_panel_control(telefono, meta):
 # después como segundo mensaje. Fabricio pidió 2 mensajes, no 3.
 MSG_FIN_CAPACITACION = (
     "🎓🎉 *¡Terminaste tu capacitación completa!*\n\n"
-    "Ya tenés las herramientas para arrancar como Agente Petra 💜\n\n"
-    "*Siguiente paso: Autorización del conjunto* 🏢 📍\n\n"
-    "Ahora toca hablar con el administrador de tu edificio para que "
-    "te autorice a representar a Petra ahí 👇\n\n"
-    "Estos son los *próximos pasos* para tu edificio:\n\n"
-    "1. 🏢 *Autorizar* — hablá con el administrador de tu edificio "
-    "para que te autorice a representar a Petra ahí.\n\n"
-    "2. 📸 *Activar* — una vez autorizada, instalá el QR en el "
-    "edificio y mandanos la foto para activarlo.\n\n"
-    "Aquí tenés tu *panel de control* 👇"
+    "Ya tenés las herramientas para arrancar como Agente Petra 💜"
+)
+
+MSG_PROXIMOS_PASOS_PANEL = (
+    "{nombre}, ahora debemos activar tu primer edificio.\n\n"
+    "1. Valentina la fundadora de Petra te va a contactar por "
+    "WhatsApp para despejar dudas y para explicarte mejor los "
+    "próximos pasos.\n"
+    "2. 🏢 *Autorizar* — hablá con el administrador de tu edificio "
+    "para que te autorice a instalar el QR de Petra.\n"
+    "3. 📸 *Instalar QR* — una vez autorizada, instalá el QR en el "
+    "edificio y mandanos la foto para activarlo."
 )
 
 
@@ -2982,6 +2981,16 @@ def _mostrar_mis_edificios(telefono, cid, conn, meta):
 
 def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
     """Despacha los IDs del panel de control. Devuelve True si manejó algo."""
+    if boton_id == "ONBAG_IR_PANEL":
+        # Fin de capacitación → muestra el panel + próximos pasos personales.
+        from app import petra_wa as _pwa_panel
+        _mostrar_panel_control(telefono, meta)
+        nombre = (meta.get("nombre") or "").split()[0] if meta.get("nombre") else "Hola"
+        _pwa_panel.send_text(
+            telefono,
+            MSG_PROXIMOS_PASOS_PANEL.format(nombre=nombre),
+        )
+        return True
     if boton_id == "ONBAG_PC_EDIFICIOS":
         _mostrar_mis_edificios(telefono, cid, conn, meta)
         return True
