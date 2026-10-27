@@ -2743,52 +2743,110 @@ MSG_PROXIMOS_PASOS_PANEL = (
 
 
 def _mostrar_mis_inmuebles(telefono, cid, conn):
+    """Lista las unidades cargadas en los edificios del agente, agrupadas
+    por conjunto. Lee de inmuebles_visitante filtrando por los conjuntos
+    cuyo creado_por_cid = cid (los que agregó esta agente)."""
     from app import petra_wa
     try:
         rows = conn.execute(
-            "SELECT id, modalidad, torre, piso, area_m2, "
-            "       COALESCE(precio_millones, precio_arriendo_mensual_millones) AS precio, "
-            "       estado "
-            "FROM petra_inmuebles WHERE contacto_id=%s "
-            "ORDER BY id DESC LIMIT 10", (cid,),
+            "SELECT cv.id, cv.nombre, cv.codigo, "
+            "       iv.nro, iv.operacion, iv.habitaciones, iv.banos, "
+            "       iv.m2, iv.precio "
+            "FROM conjuntos_visitante cv "
+            "LEFT JOIN inmuebles_visitante iv "
+            "       ON iv.conjunto_id = cv.id AND iv.activo = TRUE "
+            "WHERE cv.creado_por_cid = %s "
+            "ORDER BY cv.id, iv.operacion, iv.nro", (cid,),
         ).fetchall()
     except Exception:
-        log.exception("[panel-control] inmuebles query fallo cid=%s", cid)
+        log.exception("[panel-control] inmuebles_visitante query fallo cid=%s", cid)
         rows = []
     if not rows:
-        # M5.B: nunca mostramos vacío sin contexto. Si no hay inmuebles,
-        # el humano todavía no subió la data del libro.
         texto = _t(
             "panel.mis_inmuebles_vacio",
             fallback=(
                 "🏠 *Mis inmuebles*\n\n"
-                "Estamos cargando los inmuebles de tu edificio, te "
-                "avisamos cuando estén listos 💜"
+                "Todavía no tenés edificios cargados. Agregá uno desde "
+                "*Mis edificios* 💜"
             ),
         )
-    else:
-        lineas = [f"🏠 *Tus inmuebles ({len(rows)})*", ""]
-        for r in rows:
-            inm_id, modalidad, torre, piso, area, precio, estado = r
-            parts = []
-            if torre:
-                parts.append(f"Torre {torre}")
-            if piso:
-                parts.append(f"piso {piso}")
-            if area:
-                parts.append(f"{area}m²")
-            precio_txt = (f" · {precio}M" if precio else "")
-            modalidad_emoji = "💰" if modalidad == "venta" else "🔑"
-            lineas.append(
-                f"{modalidad_emoji} #{inm_id} — {modalidad or '-'}"
-                f"{(': ' + ', '.join(parts)) if parts else ''}"
-                f"{precio_txt}"
-                f" _[{estado}]_"
-            )
+        petra_wa.send_text(telefono, texto)
+        return
+
+    # Agrupar por conjunto.
+    por_conj = {}  # id → {"nombre","codigo","units":[...]}
+    for r in rows:
+        cv_id, cv_nombre, cv_codigo, nro, op, hab, ban, m2, precio = r
+        if cv_id not in por_conj:
+            por_conj[cv_id] = {"nombre": cv_nombre, "codigo": cv_codigo,
+                               "units": []}
+        if nro is None:
+            continue  # conjunto sin unidades aún
+        por_conj[cv_id]["units"].append(
+            {"nro": nro, "op": op, "hab": hab, "ban": ban,
+             "m2": m2, "precio": precio}
+        )
+
+    def _fmt_precio(op, p):
+        if not p:
+            return ""
+        try:
+            n = int(p)
+        except Exception:
+            return ""
+        if op == "venta":
+            millones = n / 1_000_000
+            return f"${millones:,.0f}M".replace(",", ".")
+        return f"${n:,.0f}".replace(",", ".")
+
+    lineas = ["🏠 *Mis inmuebles*", ""]
+    for conj_id, info in por_conj.items():
+        header = f"🏢 *{info['nombre']}*"
+        if info.get("codigo"):
+            header += f" (código {info['codigo']})"
+        lineas.append(header)
+        units = info["units"]
+        if not units:
+            lineas.append("   _Estamos cargando el inventario de este "
+                          "edificio, te avisamos 💜_")
+            lineas.append("")
+            continue
+        arr = [u for u in units if u["op"] == "arriendo"]
+        ven = [u for u in units if u["op"] == "venta"]
+        if arr:
+            lineas.append(f"   🔑 Arriendo ({len(arr)}):")
+            for u in arr:
+                extras = []
+                if u["hab"]:
+                    extras.append(f"{u['hab']}hab")
+                if u["ban"]:
+                    extras.append(f"{u['ban']}baños")
+                if u["m2"]:
+                    extras.append(f"{u['m2']}m²")
+                extra_txt = (" · " + ", ".join(extras)) if extras else ""
+                lineas.append(
+                    f"      #{u['nro']}{extra_txt} · "
+                    f"{_fmt_precio('arriendo', u['precio'])}"
+                )
+        if ven:
+            lineas.append(f"   💰 Venta ({len(ven)}):")
+            for u in ven:
+                extras = []
+                if u["hab"]:
+                    extras.append(f"{u['hab']}hab")
+                if u["ban"]:
+                    extras.append(f"{u['ban']}baños")
+                if u["m2"]:
+                    extras.append(f"{u['m2']}m²")
+                extra_txt = (" · " + ", ".join(extras)) if extras else ""
+                lineas.append(
+                    f"      #{u['nro']}{extra_txt} · "
+                    f"{_fmt_precio('venta', u['precio'])}"
+                )
         lineas.append("")
-        lineas.append("_Escribime *cargar inmueble* para sumar otro._")
-        texto = "\n".join(lineas)
-    petra_wa.send_text(telefono, texto)
+
+    texto = "\n".join(lineas).rstrip()
+    petra_wa.send_text(telefono, texto[:4000])
 
 
 def _mostrar_mis_citas(telefono, cid, conn):
