@@ -291,8 +291,10 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _log(telefono, texto, "[v3:auth iniciar → material + CTA paso2]")
         return True
 
-    # Paso 2 → Paso 3: "Voy a agendar" / "suerte" / palabras de preparada.
-    if texto == "ONBAG_VOY_AGENDAR_CITA" or t_lc in _PAL_SUERTE:
+    # Paso 2 → Paso 3: "Voy a agendar" / "Hablar con admin" / "suerte" /
+    # palabras de preparada. Todos disparan los 3 botones SÍ/NO/Duda.
+    if texto in ("ONBAG_VOY_AGENDAR_CITA", "ONBAG_HABLAR_ADMIN") \
+            or t_lc in _PAL_SUERTE:
         _enviar_paso3_3botones(telefono)
         _log(telefono, texto, "[v3:auth paso3: 3 botones]")
         return True

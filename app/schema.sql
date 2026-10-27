@@ -2228,3 +2228,18 @@ UPDATE petra_textos
        updated_at = NOW()
  WHERE clave = 'boton.onbag_ya_tengo_autorizacion'
    AND contenido IN ('✅ Ya tengo autorización', '✅ Ya tengo autoriz');
+
+-- ============================================================================
+-- Fabricio: el msg_post_material ya no debe traer las líneas finales
+-- ('Cuando el admin te dé el OK...' y 'Si te surge alguna duda...').
+-- Los dos CTAs ahora son botones separados en el mismo mensaje. Idempotente:
+-- solo actualiza si el contenido actual trae todavía las líneas viejas.
+-- ============================================================================
+UPDATE petra_textos
+   SET contenido = (
+         'Perfecto, ya tenés todo lo que necesitás 🙌' || E'\n\n' ||
+         'Ahora el próximo paso es *hablar con el admin*. Tomate tu tiempo — no hay apuro.'
+       ),
+       updated_at = NOW()
+ WHERE clave = 'autorizacion.msg_post_material'
+   AND contenido LIKE '%Cuando el admin te%';
