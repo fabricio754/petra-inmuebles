@@ -1982,20 +1982,38 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 meta.pop("edificio_agregar_pendiente", None)
                 # Insertar en conjuntos_visitante para que aparezca en el
                 # panel de Visitante QR y pueda imprimirse su QR.
+                # Código numérico de 4 dígitos ('0000'-'9999'): tomamos el
+                # mayor existente puramente numérico y sumamos 1.  Reintentamos
+                # si hay colisión (concurrencia).
                 try:
-                    import time as _t_cj
-                    codigo_ed = f"AG{cid}-{int(_t_cj.time())}"
                     ciudad_ed = (meta.get("ciudad") or "").strip() or None
-                    row_cj = conn.execute(
-                        "INSERT INTO conjuntos_visitante "
-                        "(codigo, nombre, ciudad, creado_por_cid, estado) "
-                        "VALUES (%s, %s, %s, %s, 'pendiente_autorizacion') "
-                        "ON CONFLICT (codigo) DO NOTHING RETURNING id",
-                        (codigo_ed, nombre_ed, ciudad_ed, cid),
-                    ).fetchone()
-                    if row_cj:
-                        meta["conjunto_id"] = int(row_cj[0])
-                        meta["conjunto_codigo"] = codigo_ed
+                    row_cj = None
+                    for _intento in range(5):
+                        # Menor número 1..9999 que no esté usado todavía.
+                        row_next = conn.execute(
+                            "SELECT n FROM generate_series(1, 9999) AS n "
+                            "WHERE LPAD(n::text, 4, '0') NOT IN ("
+                            "  SELECT codigo FROM conjuntos_visitante"
+                            ") "
+                            "ORDER BY n LIMIT 1"
+                        ).fetchone()
+                        if not row_next:
+                            break
+                        n_sig = int(row_next[0])
+                        if n_sig > 9999:
+                            break
+                        codigo_ed = f"{n_sig:04d}"
+                        row_cj = conn.execute(
+                            "INSERT INTO conjuntos_visitante "
+                            "(codigo, nombre, ciudad, creado_por_cid, estado) "
+                            "VALUES (%s, %s, %s, %s, 'pendiente_autorizacion') "
+                            "ON CONFLICT (codigo) DO NOTHING RETURNING id",
+                            (codigo_ed, nombre_ed, ciudad_ed, cid),
+                        ).fetchone()
+                        if row_cj:
+                            meta["conjunto_id"] = int(row_cj[0])
+                            meta["conjunto_codigo"] = codigo_ed
+                            break
                     conn.commit()
                 except Exception:
                     log.exception("[Agregar edif] insert conjuntos_visitante cid=%s", cid)
