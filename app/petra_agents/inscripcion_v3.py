@@ -347,8 +347,7 @@ def _resumen_texto(meta):
         f"• Nombre: {meta.get('nombre') or ''}\n"
         f"• Cédula: {meta.get('cedula') or ''}\n"
         f"• Ciudad: {meta.get('ciudad') or ''}\n"
-        f"• Barrio: {meta.get('barrio') or ''}\n"
-        f"• Conjunto: {meta.get('conjunto') or ''}\n\n"
+        f"• Barrio: {meta.get('barrio') or ''}\n\n"
         "¿Están correctos?"
     )
 
