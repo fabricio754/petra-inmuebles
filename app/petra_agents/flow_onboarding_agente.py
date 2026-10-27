@@ -1989,12 +1989,17 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                     ciudad_ed = (meta.get("ciudad") or "").strip() or None
                     row_cj = None
                     for _intento in range(5):
+                        # Menor número 1..9999 que no esté usado todavía.
                         row_next = conn.execute(
-                            "SELECT COALESCE(MAX(CAST(codigo AS INT)), 0) + 1 "
-                            "FROM conjuntos_visitante "
-                            "WHERE codigo ~ '^[0-9]{1,4}$'"
+                            "SELECT n FROM generate_series(1, 9999) AS n "
+                            "WHERE LPAD(n::text, 4, '0') NOT IN ("
+                            "  SELECT codigo FROM conjuntos_visitante"
+                            ") "
+                            "ORDER BY n LIMIT 1"
                         ).fetchone()
-                        n_sig = int(row_next[0]) if row_next else 1
+                        if not row_next:
+                            break
+                        n_sig = int(row_next[0])
                         if n_sig > 9999:
                             break
                         codigo_ed = f"{n_sig:04d}"
