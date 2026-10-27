@@ -353,6 +353,30 @@ _HOME_STATES = {"home_menu", "home_mis_inmuebles", "home_mis_busquedas",
                 "home_agentes_intro"}
 
 
+# Intent: "quiero ser agente petra" (y variantes).  Si el texto matchea,
+# arrancamos directo el flujo de inscripción, sin pasar por el home.
+_RE_QUIERO_SER_AGENTE = re.compile(
+    r"\b(quiero|me\s+quiero|me\s+gustar[ií]a|quisiera)\s+"
+    r"(ser|unir(me)?\s+a|hacer(me)?|trabajar\s+con|aplicar)"
+    r"[\w\s]{0,30}?"
+    r"(agente|asesora?|petra)",
+    re.IGNORECASE,
+)
+
+
+def _es_intent_quiero_agente(texto):
+    t = (texto or "").strip().lower()
+    if not t:
+        return False
+    if _RE_QUIERO_SER_AGENTE.search(t):
+        return True
+    # Matches explícitos cortos.
+    if ("ser agente petra" in t) or ("quiero ser agente" in t) \
+            or ("quiero ser asesora" in t) or ("ser agente de petra" in t):
+        return True
+    return False
+
+
 def handle_message(telefono, texto, button_id=None, list_id=None,
                    contacto_nombre=None, wa_msg_id=None):
     """Punto de entrada único del flujo visitante."""
@@ -364,6 +388,14 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
             vis_estado_raw = (meta or {}).get("visitante_estado") or ""
             base_vis = vis_estado_raw.split(":", 1)[0]
             qr_present = _qr.tiene_marker_qr(texto)
+
+            # ---- Intent "quiero ser agente petra" ------------------------
+            # Si el usuario escribe directamente esa intención (sin botón),
+            # saltamos todo el home y lo mandamos al flujo de inscripción.
+            if (not qr_present and not button_id and not list_id
+                    and _es_intent_quiero_agente(texto)):
+                _start_agent_flow(conn, telefono, meta, contacto_nombre)
+                return
 
             # ---- HOME flow (sin QR, sin conjunto) ------------------------
             # Si el usuario ya está en home_* y no mandó un QR nuevo, atiende
