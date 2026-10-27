@@ -1980,6 +1980,25 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                 nombre_ed = texto.strip()[:120]
                 meta["conjunto"] = nombre_ed
                 meta.pop("edificio_agregar_pendiente", None)
+                # Insertar en conjuntos_visitante para que aparezca en el
+                # panel de Visitante QR y pueda imprimirse su QR.
+                try:
+                    import time as _t_cj
+                    codigo_ed = f"AG{cid}-{int(_t_cj.time())}"
+                    ciudad_ed = (meta.get("ciudad") or "").strip() or None
+                    row_cj = conn.execute(
+                        "INSERT INTO conjuntos_visitante "
+                        "(codigo, nombre, ciudad, creado_por_cid, estado) "
+                        "VALUES (%s, %s, %s, %s, 'pendiente_autorizacion') "
+                        "ON CONFLICT (codigo) DO NOTHING RETURNING id",
+                        (codigo_ed, nombre_ed, ciudad_ed, cid),
+                    ).fetchone()
+                    if row_cj:
+                        meta["conjunto_id"] = int(row_cj[0])
+                        meta["conjunto_codigo"] = codigo_ed
+                    conn.commit()
+                except Exception:
+                    log.exception("[Agregar edif] insert conjuntos_visitante cid=%s", cid)
                 _save_meta(conn, cid, meta)
                 from app import petra_wa as _pwa_ed
                 _pwa_ed.send_text(telefono, (

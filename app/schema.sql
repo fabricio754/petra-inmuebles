@@ -2243,3 +2243,13 @@ UPDATE petra_textos
        updated_at = NOW()
  WHERE clave = 'autorizacion.msg_post_material'
    AND contenido LIKE '%Cuando el admin te%';
+
+-- ============================================================================
+-- Agregar edificio desde WA (agente Petra): columnas en conjuntos_visitante
+-- para trazabilidad y estado inicial.  Idempotente.
+-- ============================================================================
+ALTER TABLE conjuntos_visitante
+  ADD COLUMN IF NOT EXISTS creado_por_cid INT;
+
+ALTER TABLE conjuntos_visitante
+  ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'activo';
