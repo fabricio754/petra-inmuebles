@@ -2225,19 +2225,28 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                                       sesion_id=sesion_id)
 
         if estado == "capacitacion_completa":
-            # M3.B: motor v3 determinístico — maneja ONBAG_INICIAR.
-            if _os_tc.environ.get("PETRA_V3", "0") == "1":
-                try:
-                    from app.petra_agents import autorizacion_v3 as _autv3
-                    if _autv3.handle(telefono, texto, cid, meta, conn,
-                                     es_handoff=es_handoff):
-                        _log(telefono, texto, "[v3:autorizacion capacitacion_completa]",
-                             nota="PETRA_V3=1")
-                        return True
-                except Exception:
-                    log.exception("[flow:v3] excepcion autorizacion/completa → fallback")
-            _log(telefono, texto, "[delegado a LLM capacitacion_completa]")
-            return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
+            # Estado legacy — ya no se crea desde los flows nuevos (ambas
+            # rutas caen directo a autorizacion_pendiente). Migramos silen-
+            # ciosamente a autorizacion_pendiente y mostramos el panel, así
+            # cualquier agente que haya quedado atrapada acá entra al flow
+            # nuevo apenas mande cualquier mensaje.
+            _set_estado(meta, "autorizacion_pendiente")
+            _save_meta(conn, cid, meta)
+            from app import petra_wa as _pwa_cc
+            _pwa_cc.send_text(telefono, _t(
+                "capacitacion.msg_completada_header",
+                fallback=(
+                    "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
+                    "Ya tenés las herramientas para arrancar como Agente "
+                    "Petra 💜\n\n"
+                    "Aquí tenés tu *panel de control* 👇"
+                ),
+            ))
+            _mostrar_panel_control(telefono, meta)
+            _log(telefono, texto,
+                 "[capacitacion_completa legacy → panel de control]",
+                 nota="auto-migración a autorizacion_pendiente")
+            return True
 
         # ─── Fase 4b: autorización rechazada (pausada, M3.C) ───
         if estado == "autorizacion_rechazada":

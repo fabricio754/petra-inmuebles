@@ -259,25 +259,32 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         _log(telefono, texto, "[v3:auth rechazada: recordatorio]")
         return True
 
-    # ── Rama B: capacitacion_completa → al pulsar ONBAG_INICIAR arrancamos ─
+    # ── Rama B: capacitacion_completa (estado legacy) ──────────────────
+    # Ya no debería llegar nadie acá: tanto capacitacion_v3 como el flow
+    # legacy ahora pasan directo a autorizacion_pendiente al terminar los
+    # videos. flow_onboarding_agente._handle_core también intercepta este
+    # estado y migra silenciosamente al panel. Mantenemos este bloque
+    # como seguro: si una agente queda atrapada acá, la movemos y le
+    # mostramos el panel.
     if estado == "capacitacion_completa":
-        if texto in ("ONBAG_INICIAR", "ONBAG_INICIAR_AUTORIZACION") or \
-                t_lc in ("iniciar", "arrancar", "empezar"):
-            _set_estado(meta, "autorizacion_pendiente")
-            _save_meta(conn, cid, meta)
-            _enviar_material_y_cta_paso2(conn, telefono)
-            _log(telefono, texto, "[v3:auth iniciar → autorizacion_pendiente]")
-            return True
-        # Repetimos el CTA de iniciar como recordatorio.
-        _send_buttons(telefono, _t(
-            "capacitacion.msg_completada_recordatorio",
+        _set_estado(meta, "autorizacion_pendiente")
+        _save_meta(conn, cid, meta)
+        from app import petra_wa as _pwa_cc
+        from app.petra_agents.flow_onboarding_agente import (
+            _mostrar_panel_control as _mpc_cc,
+        )
+        _pwa_cc.send_text(telefono, _t(
+            "capacitacion.msg_completada_header",
             fallback=(
-                "Terminaste tu capacitación 🎓 — ahora falta la "
-                "autorización del admin. Apretá para arrancar 👇"
+                "🎓🎉 *¡Terminaste tu capacitación!* ✨\n\n"
+                "Ya tenés las herramientas para arrancar como Agente "
+                "Petra 💜\n\n"
+                "Aquí tenés tu *panel de control* 👇"
             ),
-        ), [{"id": "ONBAG_INICIAR",
-             "title": _b("ONBAG_INICIAR", "🚀 Iniciar")}],
-           estado_key="capacitacion_completa")
+        ))
+        _mpc_cc(telefono, meta)
+        _log(telefono, texto,
+             "[v3:auth capacitacion_completa legacy → panel]")
         return True
 
     # ── Rama C: estado `autorizacion_pendiente` ─────────────────────────
