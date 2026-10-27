@@ -2657,25 +2657,6 @@ def _mostrar_panel_control(telefono, meta):
         petra_wa.send_text(telefono, proximos)
     except Exception:
         log.exception("[panel-control] send proximos fallo tel=%s", telefono)
-    # Link Watt.1 (editable desde el panel de contenidos). Mandado como
-    # tercer mensaje — si falta o está inactivo, se omite silencioso.
-    try:
-        from app import db as _db_watt
-        with _db_watt._conexion_directa(timeout=5) as conn:
-            row = conn.execute(
-                "SELECT url FROM petra_contenidos "
-                "WHERE titulo=%s AND activo=TRUE "
-                "ORDER BY id DESC LIMIT 1",
-                ("Watt.1",),
-            ).fetchone()
-            if row and row[0]:
-                petra_wa.send_text(
-                    telefono,
-                    "¿Dudas o querés hablar con nosotros? Escribinos 👇\n\n"
-                    + row[0]
-                )
-    except Exception:
-        log.exception("[panel-control] send watt fallo tel=%s", telefono)
 
 
 def _mostrar_mis_inmuebles(telefono, cid, conn):
