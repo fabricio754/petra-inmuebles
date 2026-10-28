@@ -1535,13 +1535,19 @@ def _manejar_boton_cita(conn, telefono, cid, meta, texto):
     if accion == "PROPONER":
         meta["cita_esperando_propuesta_id"] = vid
         _save_meta(conn, cid, meta)
-        _sm(telefono, 
-            "citas.msg_pedir_contrapropuesta",
-            fallback=(
-                "Dale, decime qué día y hora te quedarían bien y yo le "
-                "paso tu propuesta al interesado 💜\n\n"
-                "(Ej: *jueves a las 3pm*, *mañana 10am*, etc.)"
+        _send_buttons(
+            telefono,
+            _t(
+                "citas.msg_pedir_contrapropuesta",
+                fallback=(
+                    "Dale, decime qué día y hora te quedarían bien y yo le "
+                    "paso tu propuesta al interesado 💜\n\n"
+                    "(Ej: *jueves a las 3pm*, *mañana 10am*, etc.)"
+                ),
             ),
+            [{"id": f"ONBAG_CITA_CANCEL_PROP_{vid}",
+              "title": "✗ Cancelar propuesta"}],
+            estado_key=None,
         )
         _log(telefono, texto, f"[cita {vid} → pide contrapropuesta]")
         return True
@@ -1553,7 +1559,17 @@ def _manejar_boton_cita(conn, telefono, cid, meta, texto):
 def _capturar_contrapropuesta_cita(conn, telefono, cid, meta, texto, vid):
     """La agente escribió su contrapropuesta tras pulsar 'Proponer otro día'.
     La guardamos en observaciones y marcamos la visita como 'cancelada' con
-    nota (el humano del panel decide si re-abrir con nueva fecha)."""
+    nota (el humano del panel decide si re-abrir con nueva fecha).
+
+    Botón de escape: si pulsa 'Cancelar propuesta' en vez de escribir una
+    fecha, limpiamos el flag y la dejamos sin acción pendiente."""
+    if texto and str(texto).startswith("ONBAG_CITA_CANCEL_PROP_"):
+        meta.pop("cita_esperando_propuesta_id", None)
+        _save_meta(conn, cid, meta)
+        _enviar(telefono, "Dale, cancelamos la propuesta. La cita queda como "
+                          "estaba. Si querés verla, escribí *menú*.")
+        _log(telefono, texto, f"[cita {vid} → propuesta cancelada por user]")
+        return True
     conn.execute(
         "UPDATE petra_visitas SET estado='cancelada', "
         "observaciones=COALESCE(observaciones,'') || "
@@ -2772,13 +2788,17 @@ def _mostrar_panel_control(telefono, meta):
         petra_wa.send_list(telefono, body, "Ver opciones", sections)
     except Exception:
         log.exception("[panel-control] send fallo tel=%s", telefono)
-        # Fallback a texto si falla el list
-        petra_wa.send_text(telefono, body + (
-            "\n\n• 🏢 Escribí *mis edificios*\n"
-            "• 🏠 Escribí *mis inmuebles*\n"
-            "• 📅 Escribí *mis citas*\n"
-            "• 🎓 Escribí *mi capacitación*"
-        ))
+        # Fallback con botones (max 3) — es más usable que pedirle a la
+        # agente que *escriba* comandos exactos. "💬 Ayuda" queda como
+        # válvula de escape si algo salió mal.
+        try:
+            _send_buttons(telefono, body, [
+                {"id": "ONBAG_PC_INMUEBLES", "title": "🏠 Mis inmuebles"},
+                {"id": "ONBAG_PC_CAPACITACION", "title": "🎓 Capacitación"},
+                {"id": "ONBAG_PC_AYUDA", "title": "💬 Pedir ayuda"},
+            ], estado_key=None)
+        except Exception:
+            log.exception("[panel-control] fallback botones fallo tel=%s", telefono)
 
 
 # Texto consolidado "Terminaste capacitación + próximos pasos" para
@@ -3222,10 +3242,40 @@ def _mostrar_mis_edificios(telefono, cid, conn, meta):
     else:
         estado_resumen = "En proceso"
 
+    # Conteo de inmuebles activos (arr/ven) por conjunto. Matcheamos por
+    # nombre (ILIKE) contra conjuntos_visitante.nombre. Si no hay match
+    # (edificio recién creado, nombre tipo distinto), se muestra "—".
+    conteos = {}
+    try:
+        rows_c = conn.execute(
+            """SELECT c.nombre,
+                      COALESCE(SUM(CASE WHEN i.activo AND i.operacion='arriendo'
+                                        THEN 1 ELSE 0 END), 0) AS arr,
+                      COALESCE(SUM(CASE WHEN i.activo AND i.operacion='venta'
+                                        THEN 1 ELSE 0 END), 0) AS ven
+                 FROM conjuntos_visitante c
+                 LEFT JOIN inmuebles_visitante i ON i.conjunto_id = c.id
+                WHERE LOWER(c.nombre) = ANY(%s)
+                GROUP BY c.nombre""",
+            ([str(x).strip().lower() for x in conjuntos],),
+        ).fetchall()
+        for nombre_c, arr, ven in rows_c:
+            conteos[(nombre_c or "").strip().lower()] = (int(arr), int(ven))
+    except Exception:
+        log.exception("[mis-edificios] conteo inmuebles fallo cid=%s", cid)
+
     lineas = ["🏢 *Mis edificios*", ""]
     for i, c in enumerate(conjuntos, 1):
+        clave = str(c).strip().lower()
+        arr, ven = conteos.get(clave, (None, None))
+        if arr is None:
+            conteo_str = ""
+        else:
+            conteo_str = f"   📊 Arr {arr} · Ven {ven}"
         lineas.append(f"{i}. {c}")
         lineas.append(f"   Estado: {estado_resumen}")
+        if conteo_str:
+            lineas.append(conteo_str)
     # Permite hasta 5 edificios por agente.
     if len(conjuntos) >= 5:
         lineas.append("")
