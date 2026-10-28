@@ -15,7 +15,7 @@ import os
 
 log = logging.getLogger("petra")
 
-INACTIVIDAD_MIN = int(os.environ.get("PETRA_SESION_INACTIVIDAD_MIN", "5"))
+INACTIVIDAD_MIN = int(os.environ.get("PETRA_SESION_INACTIVIDAD_MIN", "60"))
 
 
 def obtener_o_abrir(telefono):
@@ -150,7 +150,9 @@ def cerrar_inactivas_y_avisar():
                     log.exception("[sesion] cerrar id=%s fallo", sid)
     except Exception:
         log.exception("[sesion] cerrar_inactivas query fallo")
-    # Al cerrar por inactividad mandamos el mensaje de despedida.
+    # Al cerrar por inactividad mandamos el mensaje de despedida CON botón
+    # "🔄 Seguir donde quedé" para que la agente pueda retomar en 1 toque,
+    # sin tener que escribir "hola" ni descifrar qué hacer.
     # Idempotencia: razon_cierre='inactividad' solo se setea 1 vez por
     # sesión (NULL check en el WHERE arriba), así que no re-notificamos.
     from app.petra_agents.textos import t as _t_textos
@@ -158,14 +160,17 @@ def cerrar_inactivas_y_avisar():
         "sesion.msg_cierre_inactividad",
         fallback=(
             "Voy a cerrar esta conversación por ahora 👋 "
-            "Vuelvenos a escribir cuando nos necesites — siempre acá "
-            "para ayudarte. ❤️"
+            "Cuando quieras seguir, tocá el botón de abajo ❤️"
         ),
     )
     for sid, tel in cerradas:
         try:
-            petra_wa.send_text(tel, mensaje)
-            log.info("[sesion] cerrada por inactividad sid=%s tel=%s + aviso",
+            petra_wa.send_buttons(
+                tel, mensaje,
+                [{"id": "ONBAG_SEGUIR_DONDE_QUEDE",
+                  "title": "🔄 Seguir donde quedé"}],
+            )
+            log.info("[sesion] cerrada por inactividad sid=%s tel=%s + aviso+botón",
                      sid, tel)
         except Exception:
             log.exception("[sesion] enviar aviso cierre sid=%s tel=%s fallo",
