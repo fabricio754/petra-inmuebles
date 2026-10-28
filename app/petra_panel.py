@@ -2821,6 +2821,58 @@ def visitante_inmueble_toggle_gestion(iid):
                             cid=cid_conj, token=token, flash="gestion_toggled"))
 
 
+@petra_panel_bp.get("/visitante/interesados")
+def visitante_interesados_vista():
+    """Dashboard de interesados que llegaron vía el QR, usaron el Flow
+    multi-select y pidieron contacto por N inmuebles a la vez.
+
+    Alimentado por el flujo visitante cuando llega el nfm_reply del Flow
+    (ver PR #65 — pendiente). Mientras tanto, la tabla puede estar vacía
+    sin ser un bug."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    conj_filtro = (request.args.get("conjunto") or "").strip()
+    estado_filtro = (request.args.get("estado") or "").strip()
+    where = []
+    params = []
+    if conj_filtro.isdigit():
+        where.append("i.conjunto_id = %s")
+        params.append(int(conj_filtro))
+    if estado_filtro in ("enviado", "respondido", "cerrado"):
+        where.append("i.estado = %s")
+        params.append(estado_filtro)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    with _db._conexion_directa(timeout=10) as conn:
+        rows = _rows(conn,
+            "SELECT i.id, i.creado_en, i.interesado_telefono, "
+            "       i.interesado_nombre, i.interesado_username, "
+            "       i.interesado_wa_id, i.conjunto_id, "
+            "       cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre, "
+            "       i.inmueble_ids, i.propietarios_notificados, "
+            "       i.estado, i.actualizado_en, "
+            "       (SELECT array_agg(iv.nro ORDER BY iv.nro) "
+            "          FROM inmuebles_visitante iv "
+            "         WHERE iv.id = ANY(i.inmueble_ids)) AS inmueble_nros, "
+            "       (SELECT bool_or(iv.gestionado_por_petra) "
+            "          FROM inmuebles_visitante iv "
+            "         WHERE iv.id = ANY(i.inmueble_ids)) AS hay_petra_gestionados "
+            "  FROM petra_interesados_qr i "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = i.conjunto_id "
+            + where_sql +
+            " ORDER BY i.creado_en DESC LIMIT 500",
+            tuple(params))
+        conjuntos = _rows(conn,
+            "SELECT id, codigo, nombre FROM conjuntos_visitante "
+            " WHERE id IN (SELECT DISTINCT conjunto_id FROM petra_interesados_qr "
+            "              WHERE conjunto_id IS NOT NULL) "
+            " ORDER BY codigo")
+    return render_template(
+        "petra_visitante_interesados.html",
+        interesados=rows, conjuntos=conjuntos, token=token,
+        conj_filtro=conj_filtro, estado_filtro=estado_filtro,
+    )
+
+
 @petra_panel_bp.get("/visitante/contactos")
 def visitante_contactos_vista():
     """Solicitudes de contacto generadas desde el flujo visitante."""

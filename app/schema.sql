@@ -2370,3 +2370,29 @@ ALTER TABLE inmuebles_visitante
 
 ALTER TABLE inmuebles_visitante
   ADD COLUMN IF NOT EXISTS propietario_telefono_original TEXT;
+
+-- ============================================================================
+-- Interesados QR: registro de personas que vieron inmuebles vía el QR del
+-- edificio y pidieron contacto.  Alimentado por el flujo visitante (cuando
+-- #65 se implemente) y leído por el dashboard /panel/petra/visitante/interesados.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS petra_interesados_qr (
+  id SERIAL PRIMARY KEY,
+  interesado_telefono TEXT NOT NULL,
+  interesado_nombre TEXT,
+  interesado_username TEXT,
+  interesado_wa_id TEXT,
+  conjunto_id INT REFERENCES conjuntos_visitante(id) ON DELETE SET NULL,
+  inmueble_ids INT[] NOT NULL DEFAULT '{}',
+  propietarios_notificados JSONB NOT NULL DEFAULT '[]'::jsonb,
+  estado TEXT NOT NULL DEFAULT 'enviado',
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pi_qr_creado_en
+  ON petra_interesados_qr(creado_en DESC);
+CREATE INDEX IF NOT EXISTS idx_pi_qr_conjunto
+  ON petra_interesados_qr(conjunto_id);
+CREATE INDEX IF NOT EXISTS idx_pi_qr_tel
+  ON petra_interesados_qr(interesado_telefono);
