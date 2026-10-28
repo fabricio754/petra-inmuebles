@@ -2154,7 +2154,8 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                      "ONBAG_ED_AUTORIZAR", "ONBAG_ED_ACTIVAR",
                      "ONBAG_ED_AGREGAR", "ONBAG_ED_VER_MATERIAL",
                      "ONBAG_VOLVER_PANEL") \
-                or (texto and texto.startswith("ONBAG_REVID_")):
+                or (texto and texto.startswith("ONBAG_REVID_")) \
+                or (texto and texto.startswith("ONBAG_CAP_VER_MAS_")):
             if _handle_panel_control_boton(telefono, cid, meta, conn, texto):
                 _log(telefono, texto, f"[panel-control {texto}]")
                 return True
@@ -2905,11 +2906,12 @@ def _mostrar_mis_citas(telefono, cid, conn):
     petra_wa.send_text(telefono, texto)
 
 
-def _mostrar_mi_capacitacion(telefono, meta):
-    """M5.B — Panel Fase 7: muestra el summary + lista interactiva con
-    los 14 videos iniciales (bienvenida + proximos_pasos + 12 videos
-    diarios de los 7 días) y espacio para 'Nuevos' si hay. Al clickear
-    una row (ONBAG_REVID_<idx>) se re-envía ese video."""
+def _mostrar_mi_capacitacion(telefono, meta, page=0):
+    """M5.B — Panel Fase 7: muestra el summary + lista interactiva con los
+    videos iniciales + espacio para 'Nuevos'.  WA limita interactive lists
+    a 10 rows totales, entonces paginamos de a 10 (page=0 primeros 10,
+    page=1 siguientes, etc.).  Si hay más allá del page actual se manda
+    un 2do mensaje chico con botón 'Ver siguientes'."""
     from app import db as _db
     from app import petra_wa
     vistos = int(meta.get("videos_vistos", 0) or 0)
@@ -2969,34 +2971,74 @@ def _mostrar_mi_capacitacion(telefono, meta):
         petra_wa.send_text(telefono,
                            header + "_Los videos están cargándose._")
         return
-    petra_wa.send_text(telefono, header +
-                       "Elegí un video para volver a verlo 👇")
-    sections = []
-    rows_iniciales = []
+    # Armar lista total [ (kind, i_dentro_de_su_grupo, titulo, url) ... ]
+    # kind ∈ {'INI', 'NUEVO'} para preservar el id original de reenvío.
+    todos = []
     for i, (titulo, _url) in enumerate(iniciales):
-        rows_iniciales.append({
-            "id": f"ONBAG_REVID_INI_{i}",
+        todos.append(("INI", i, titulo[:24]))
+    for i, (titulo, _url) in enumerate(nuevos_pack):
+        todos.append(("NUEVO", i, titulo[:24]))
+    total_videos = len(todos)
+    if total_videos == 0:
+        petra_wa.send_text(telefono, header +
+                           "_Aún no hay videos cargados._")
+        return
+
+    # Paginar de a 10 (límite de WA interactive list).
+    page = max(0, int(page or 0))
+    PAGE_SIZE = 10
+    i_desde = page * PAGE_SIZE
+    i_hasta = i_desde + PAGE_SIZE
+    chunk = todos[i_desde:i_hasta]
+    if not chunk:
+        petra_wa.send_text(telefono,
+                           "No hay más videos en esta página 💜")
+        return
+
+    if page == 0:
+        petra_wa.send_text(telefono, header +
+                           "Elegí un video para volver a verlo 👇")
+    else:
+        n_desde = i_desde + 1
+        n_hasta = min(i_hasta, total_videos)
+        petra_wa.send_text(telefono,
+                           f"🎓 *Más videos ({n_desde}-{n_hasta} de "
+                           f"{total_videos})* — tocá uno para volver a verlo 👇")
+
+    # Secciones: separar iniciales de nuevos dentro del chunk.
+    sec_ini_rows = []
+    sec_nuevo_rows = []
+    for kind, idx, titulo in chunk:
+        row = {
+            "id": f"ONBAG_REVID_{kind}_{idx}",
             "title": titulo[:24],
-            "description": "Volver a ver",
-        })
-    if rows_iniciales:
+            "description": "Volver a ver" if kind == "INI" else "Nuevo",
+        }
+        if kind == "INI":
+            sec_ini_rows.append(row)
+        else:
+            sec_nuevo_rows.append(row)
+    sections = []
+    if sec_ini_rows:
         sections.append({"title": "Capacitación inicial",
-                         "rows": rows_iniciales[:10]})
-    if nuevos_pack:
-        rows_nuevos = []
-        for i, (titulo, _url) in enumerate(nuevos_pack):
-            rows_nuevos.append({
-                "id": f"ONBAG_REVID_NUEVO_{i}",
-                "title": titulo[:24],
-                "description": "Nuevo",
-            })
-        sections.append({"title": "Nuevos",
-                         "rows": rows_nuevos[:10]})
+                         "rows": sec_ini_rows})
+    if sec_nuevo_rows:
+        sections.append({"title": "Nuevos", "rows": sec_nuevo_rows})
     try:
         petra_wa.send_list(telefono, "Tocá un video para volver a verlo",
                            "Ver videos", sections)
     except Exception:
         log.exception("[panel-control] send_list capacitacion fallo tel=%s", telefono)
+
+    # Si quedan más videos más allá del chunk actual, mandamos mensaje chico
+    # con botón para pasar a la siguiente página.
+    if i_hasta < total_videos:
+        n_restantes = total_videos - i_hasta
+        _send_buttons(telefono,
+                      f"Quedan *{n_restantes}* videos más.", [
+                        {"id": f"ONBAG_CAP_VER_MAS_{page + 1}",
+                         "title": "▶ Ver siguientes"},
+                      ], estado_key=None)
 
 
 def _reenviar_video_capacitacion(telefono, boton_id):
@@ -3238,6 +3280,13 @@ def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
             "Primero necesitás que el administrador te autorice. "
             "Tocá *🏢 Autorizar* en Mis edificios para arrancar ese paso."
         ))
+        return True
+    if boton_id and boton_id.startswith("ONBAG_CAP_VER_MAS_"):
+        try:
+            next_page = int(boton_id.split("_")[-1])
+        except Exception:
+            next_page = 1
+        _mostrar_mi_capacitacion(telefono, meta, page=next_page)
         return True
     if boton_id and boton_id.startswith("ONBAG_REVID_"):
         return _reenviar_video_capacitacion(telefono, boton_id)
