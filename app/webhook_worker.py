@@ -403,8 +403,18 @@ def _invocar_logica(payload):
                 and str(pref.get("value", "")).lower() == "stop"):
             wa_id = pref.get("wa_id")
             if wa_id:
-                from app import state
-                state.set_no_contactar(wa_id, True)
+                try:
+                    with db._conexion_directa(timeout=5) as _conn_optout:
+                        _conn_optout.execute(
+                            "UPDATE petra_contactos SET opt_out=TRUE, "
+                            "opt_out_motivo=COALESCE(opt_out_motivo,'marketing_stop'), "
+                            "opt_out_at=COALESCE(opt_out_at, NOW()), "
+                            "updated_at=NOW() WHERE telefono=%s",
+                            (wa_id,),
+                        )
+                        _conn_optout.commit()
+                except Exception:
+                    log.exception("[WebhookQueue] fallo opt-out %s", wa_id)
                 log.info("Opt-out de marketing recibido de %s (botón Stop).", wa_id)
 
     # Statuses de WhatsApp (sent/delivered/read/failed): Meta los manda
@@ -745,10 +755,10 @@ def _procesar_llamada_entrante(call):
         return
 
     try:
-        from app import bot, whatsapp as wa
+        from app import whatsapp as wa
         panel_url = os.environ.get("PANEL_URL", "").strip().rstrip("/")
         panel_token = os.environ.get("PANEL_TOKEN", "").strip()
-        asesores_csv = os.environ.get("ALERTAS_WHATSAPP", bot.ALERTAS_WHATSAPP).strip()
+        asesores_csv = os.environ.get("ALERTAS_WHATSAPP", "").strip()
         asesores = [n.strip() for n in asesores_csv.split(",") if n.strip()]
         if not asesores:
             log.info("[WebhookQueue] ALERTAS_WHATSAPP no seteado; sin ping WA por llamada de %s",
@@ -799,28 +809,12 @@ def _procesar_mensaje(phone, event, message=None):
     except Exception:
         log.exception("No se pudo registrar mensaje entrante.")
 
-    # Bot pausado por un asesor humano para este lead (take-over humano):
-    # el bot sigue corriendo toda su lógica interna (clasificación,
-    # requiere_humano, cambios de sesión, filtros, remarketing marks) pero
-    # NO envía respuestas al cliente. Esto lo hacemos envolviendo el
-    # handle_incoming con `whatsapp.pausar_sends_temporalmente()`, un
-    # context manager thread-local que apaga `whatsapp._dispatch` solo en
-    # este thread.
-    pausado = False
-    try:
-        pausado = db.bot_esta_pausado(phone)
-    except Exception:
-        log.exception("[WebhookQueue] Error consultando bot_esta_pausado(%s)",
-                      phone)
-
-    from app import bot
-    if pausado:
-        log.info("[bot pausado] skip autoreply for %s", phone)
-        from app import whatsapp as _wa
-        with _wa.pausar_sends_temporalmente():
-            bot.handle_incoming(phone, event)
-    else:
-        bot.handle_incoming(phone, event)
+    # Massi eliminado: si llegamos acá significa que el mensaje no fue
+    # capturado por ningún router Petra (visitante QR, agente, orchestrator,
+    # petra_router). Silencio total — no respondemos a números que no
+    # están en ningún flujo Petra. El mensaje IN quedó logueado arriba
+    # para que un humano lo revise en el panel admin si hace falta.
+    log.info("[WebhookQueue] mensaje no capturado por Petra, silencio: %s", phone)
 
 
 # ----------------------------------------------------------------------------
@@ -1003,36 +997,11 @@ def _procesar_media_in(phone, event, message):
         )
         return
 
-    # Marcar como requiere_humano (idempotente) y disparar alerta si es
-    # nuevo o si pasaron >= cooldown_minutos desde la última alerta —
-    # reusa el canal de alerta WA que ya tiene bot.py.
-    motivo = f"envio {subtipo}: {(caption or '')[:100]}"
-    debe_alertar = False
-    try:
-        resultado = db.marcar_requiere_humano(phone, motivo)
-        # Compat: `marcar_requiere_humano` ahora devuelve dict; en los tests
-        # un stub puede devolver bool. Normalizamos.
-        if isinstance(resultado, dict):
-            debe_alertar = bool(resultado.get("debe_alertar"))
-        else:
-            debe_alertar = bool(resultado)
-    except Exception:
-        log.exception("[Media IN] Error marcando requiere_humano para %s", phone)
-
-    try:
-        from app import bot
-        if debe_alertar:
-            bot._enviar_alerta_lead_caliente(phone, resumen)
-    except Exception:
-        log.exception("[Media IN] Error disparando alerta lead caliente para %s", phone)
-
-    # Confirmación corta al cliente. Sin tildes en el mensaje para mantener
-    # consistencia con el resto de outs del bot al usuario.
-    try:
-        from app import whatsapp as wa
-        wa.send_text(
-            phone,
-            "Recibimos tu mensaje! Un asesor te respondera por este chat.",
-        )
-    except Exception:
-        log.exception("[Media IN] Error enviando confirmacion a %s", phone)
+    # Massi eliminado: para números NO agente_petra (desconocidos), silencio
+    # total. El media quedó logueado + descargado; un humano puede revisarlo
+    # en el panel admin si hace falta. No marcamos requiere_humano ni
+    # mandamos la confirmación 'Recibimos tu mensaje'.
+    log.info(
+        "[Media IN] tel=%s desconocido (no agente_petra), silencio",
+        phone,
+    )
