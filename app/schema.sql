@@ -2313,37 +2313,8 @@ WHERE NOT EXISTS (
 -- SIM_PETRA_01 (25), mamá (28).
 -- Idempotente: segunda corrida es no-op porque metadata ya queda '{}'.
 -- ============================================================================
--- NOTA: `estado` es NOT NULL; usamos 'inscrito' como estado inicial
--- (consistente con el flujo de inscripción fresh).
-UPDATE petra_contacto_roles
-   SET metadata = '{}'::jsonb,
-       estado = 'inscrito',
-       estado_desde = NOW()
- WHERE contacto_id IN (3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,21,22,23,24,26,27,29,30)
-   AND rol = 'agente_petra'
-   AND metadata IS DISTINCT FROM '{}'::jsonb;
-
-UPDATE contactos
-   SET meta = '{}'::jsonb,
-       estado_agente = NULL
- WHERE telefono IN (
-   SELECT telefono FROM petra_contactos
-    WHERE id IN (3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,21,22,23,24,26,27,29,30)
- ) AND (meta <> '{}'::jsonb OR estado_agente IS NOT NULL);
-
--- Fabricio Zabala (id=2): su propio record quedó corrompido con
--- "Quiero ser Agente Petra" como nombre y estado=recolectando por un
--- bug anterior. Limpiarlo también para que pueda probar de cero.
-UPDATE petra_contacto_roles
-   SET metadata = '{}'::jsonb,
-       estado = 'inscrito',
-       estado_desde = NOW()
- WHERE contacto_id = 2
-   AND rol = 'agente_petra'
-   AND metadata IS DISTINCT FROM '{}'::jsonb;
-
-UPDATE contactos
-   SET meta = '{}'::jsonb,
-       estado_agente = NULL
- WHERE telefono = '573166951021'
-   AND (meta <> '{}'::jsonb OR estado_agente IS NOT NULL);
+-- NOTA (2026-10-28): el bloque de reset vivía acá adentro, pero schema.sql
+-- se re-ejecuta en cada reinicio del pool DB → cada vez que una agente
+-- completaba datos, el UPDATE la volvía a vaciar.  Removido.  El reset
+-- original ya se ejecutó exitosamente el 28/10/2026 03:35 UTC.
+-- NUNCA volver a poner un UPDATE con efectos no idempotentes acá.
