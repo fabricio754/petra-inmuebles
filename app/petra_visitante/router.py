@@ -750,14 +750,19 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
     truncado = len(inmuebles) > _FLOW_MAX_ITEMS
     inmuebles = inmuebles[:_FLOW_MAX_ITEMS]
 
+    # Nota: el CheckboxGroup de WhatsApp Flows SOLO acepta {id, title} por
+    # item — rechaza cualquier otra propiedad (incluido subtitle). Por eso
+    # concatenamos el subtítulo con separador " · " dentro del title.
+    # Meta limita cada title a ~30 chars; truncamos si se pasa.
     items = []
     for inm in inmuebles:
         tipo = (inm.get("tipo") or "inmueble").capitalize()
         nro = inm.get("nro") or inm["id"]
+        sub = _subtitulo_inm_flow(inm, operacion)
+        title_full = f"#{nro} — {tipo}" + (f" · {sub}" if sub else "")
         items.append({
             "id": str(inm["id"]),
-            "title": f"#{nro} — {tipo}"[:30],
-            "subtitle": _subtitulo_inm_flow(inm, operacion),
+            "title": title_full[:30],
         })
 
     # Guardamos el contexto del Flow en meta para interpretar el nfm_reply
