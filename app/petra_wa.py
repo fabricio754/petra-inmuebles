@@ -199,6 +199,25 @@ def send_text(to, body):
     })
 
 
+def send_template(to, template_name, language="es_CO", components=None):
+    """Envía un template Meta pre-aprobado.
+    - to: teléfono E.164 o BSUID (CO.xxxx). _post detecta y usa `recipient`.
+    - template_name: nombre del template tal como fue aprobado.
+    - language: BCP-47, por defecto es_CO.
+    - components: lista opcional de componentes con parámetros (body/header
+      variables). Si el template no tiene variables, se omite.
+    """
+    tpl = {"name": template_name, "language": {"code": language}}
+    if components:
+        tpl["components"] = components
+    return _post({
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "template",
+        "template": tpl,
+    })
+
+
 def _normalizar_url_publica(url):
     """Convierte rutas relativas ('/petra/media/xxx.png') a URL absoluta.
     Meta WhatsApp requiere URL completa accesible pública."""

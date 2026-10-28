@@ -2302,3 +2302,29 @@ WHERE NOT EXISTS (
      AND iv.nro = v.nro
      AND iv.operacion = v.operacion
 );
+
+-- ============================================================================
+-- Reset de datos de agentes Petra para reactivación (one-shot).
+-- Vacía metadata/estado del rol y meta/estado_agente en contactos para que
+-- cuando vuelvan a responder al template de "volvemos", el flujo las trate
+-- como fresh y arranque la inscripción desde cero.  No borra las filas de
+-- petra_contactos (ahí vive teléfono/BSUID para poder contactarlas).
+-- Excluye: Fabricio Zabala (2), Del Mar (1), Sebastian Zamarra (18),
+-- SIM_PETRA_01 (25), mamá (28).
+-- Idempotente: segunda corrida es no-op porque metadata ya queda '{}'.
+-- ============================================================================
+UPDATE petra_contacto_roles
+   SET metadata = '{}'::jsonb,
+       estado = NULL,
+       estado_desde = NULL
+ WHERE contacto_id IN (3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,21,22,23,24,26,27,29,30)
+   AND rol = 'agente_petra'
+   AND (metadata IS DISTINCT FROM '{}'::jsonb OR estado IS NOT NULL);
+
+UPDATE contactos
+   SET meta = '{}'::jsonb,
+       estado_agente = NULL
+ WHERE telefono IN (
+   SELECT telefono FROM petra_contactos
+    WHERE id IN (3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,21,22,23,24,26,27,29,30)
+ ) AND (meta <> '{}'::jsonb OR estado_agente IS NOT NULL);
