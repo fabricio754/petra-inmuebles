@@ -179,32 +179,10 @@ def _preparar(pool):
 
 
 def _cargar_datos_iniciales(conn):
-    """Carga el inventario base de data/inventario.seed.json.
-
-    La importación desde Google Sheets se omite intencionalmente en el arranque
-    para evitar bloqueos de red que cuelgan el worker de gunicorn."""
-    from app import state  # import tardío: state importa este módulo
-
-    inventario = state.inventario_seed()
-    sesiones: dict = {}
-    leads: list = []
-
-    for apto in inventario:
-        conn.execute(
-            "INSERT INTO inventario (id, datos) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
-            (apto["id"], Jsonb(apto)),
-        )
-    for telefono, datos in sesiones.items():
-        conn.execute(
-            "INSERT INTO sesiones (telefono, estado, datos) VALUES (%s, %s, %s) "
-            "ON CONFLICT (telefono) DO NOTHING",
-            (telefono, datos.get("flow"), Jsonb(datos)),
-        )
-    for lead in leads:
-        conn.execute(
-            "INSERT INTO leads (telefono, operacion, datos) VALUES (%s, %s, %s)",
-            (lead.get("telefono"), lead.get("operacion"), Jsonb(lead)),
-        )
+    """No-op post-Massi. El bootstrap de inventario/sesiones/leads legacy
+    quedó en 0; sólo se escribe el flag `meta.datos_iniciales` arriba
+    para que esta función no se vuelva a invocar."""
+    return
 
 
 def load_inventario():
