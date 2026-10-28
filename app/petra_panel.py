@@ -2119,12 +2119,19 @@ def admin_briefing_valentina():
 
 @petra_panel_bp.get("/_admin/enviar-plantilla-volvemos")
 def admin_enviar_plantilla_volvemos():
-    """Dispara el envío del template petra_volvemos_v1 a las 25 agentes
-    seleccionadas (sin incluir Fabricio, Del Mar, Sebastian, SIM, mamá).
-
-    Útil para la reactivación one-shot después de los problemas técnicos.
-    Devuelve un reporte con quién recibió / quién falló.
+    """INHABILITADO. El envío one-shot ya se hizo el 2026-10-28.
+    La URL quedó expuesta a prefetch/preview del navegador y disparó
+    envíos duplicados; se bloquea para que no vuelva a pasar.
     """
+    return ("Endpoint inhabilitado. El envío del template volvemos ya se "
+            "ejecutó el 28/10/2026. Para una nueva campaña, hablar con "
+            "ingeniería y crear una ruta nueva con lock de concurrencia.",
+            410, {"Content-Type": "text/plain; charset=utf-8"})
+
+    # ------------------------------------------------------------------
+    # Código original preservado abajo (muerto) por si hace falta
+    # resucitarlo manualmente. NO se ejecuta: el return de arriba corta.
+    # ------------------------------------------------------------------
     _check_token()
     from app import petra_wa as _pwa_tpl
     IDS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20,
