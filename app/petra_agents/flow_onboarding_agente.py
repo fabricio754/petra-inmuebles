@@ -1290,14 +1290,68 @@ def _iniciar_inventario(conn, telefono, cid, meta):
     return True
 
 
+_INV_CAMPO_LABEL = {
+    "modalidad":           "Modalidad",
+    "torre":               "Torre",
+    "apto":                "Apto / Nro",
+    "area_m2":             "Área (m²)",
+    "habitaciones":        "Habitaciones",
+    "banos":               "Baños",
+    "parqueadero":         "Parqueadero",
+    "precio":              "Precio",
+    "propietario_nombre":  "Nombre propietario",
+    "propietario_tel":     "Teléfono propietario",
+}
+
+
 def _capturar_paso_inventario(conn, telefono, cid, meta, texto, paso):
     """Procesa la respuesta a la pregunta del paso actual.
-    Valida, guarda y avanza al próximo. Al terminar, inserta en DB."""
+    Valida, guarda y avanza al próximo (o al resumen si estábamos corrigiendo
+    un campo puntual)."""
     t_lc = texto.lower().strip()
-    # Cancelación
+
+    # Botones del resumen final — pueden llegar en cualquier momento mientras
+    # el inventario está activo (el resumen vive en el mismo estado).
+    if texto == "ONBAG_INV_GUARDAR":
+        datos = meta.get("inventario_datos") or {}
+        return _guardar_inmueble_visitante(conn, telefono, cid, meta, datos)
+    if texto == "ONBAG_INV_CORREGIR":
+        _mostrar_lista_correccion_inv(telefono, meta)
+        _log(telefono, texto, "[inventario: lista corrección]")
+        return True
+    if texto == "ONBAG_INV_CANCELAR":
+        meta.pop("inventario_paso", None)
+        meta.pop("inventario_datos", None)
+        meta.pop("inventario_corrigiendo", None)
+        _save_meta(conn, cid, meta)
+        _enviar(telefono, "Ok, cancelo la carga del inmueble. "
+                "Cuando quieras arrancar de nuevo decime *registrar inmueble*.")
+        _log(telefono, texto, "[inventario cancelado por user]")
+        return True
+    if texto == "ONBAG_INV_FIX_NADA":
+        _mostrar_resumen_inmueble(telefono, meta)
+        _log(telefono, texto, "[inventario: 'nada que corregir' → resumen]")
+        return True
+    if texto and texto.startswith("ONBAG_INV_FIX_"):
+        campo_fix = texto.replace("ONBAG_INV_FIX_", "")
+        if campo_fix in INVENTARIO_PASOS:
+            datos = meta.get("inventario_datos") or {}
+            datos.pop(campo_fix, None)
+            meta["inventario_datos"] = datos
+            meta["inventario_paso"] = campo_fix
+            meta["inventario_corrigiendo"] = True
+            _save_meta(conn, cid, meta)
+            clave, fallback = INVENTARIO_PREGUNTAS[campo_fix]
+            _enviar(telefono, f"Dale, corrijamos *{_INV_CAMPO_LABEL.get(campo_fix, campo_fix)}*.")
+            _sm(telefono, clave, fallback=fallback)
+            _log(telefono, texto, f"[inventario: corregir {campo_fix}]")
+            return True
+
+    # Cancelación por texto libre
     if t_lc in ("cancelar inmueble", "cancelar", "cancelo", "stop"):
         meta.pop("inventario_paso", None)
         meta.pop("inventario_datos", None)
+        meta.pop("inventario_corrigiendo", None)
         _save_meta(conn, cid, meta)
         _enviar(telefono, "Ok, cancelo la carga del inmueble. "
                 "Cuando quieras arrancar de nuevo decime *registrar inmueble*.")
@@ -1312,7 +1366,17 @@ def _capturar_paso_inventario(conn, telefono, cid, meta, texto, paso):
     datos[paso] = valor
     meta["inventario_datos"] = datos
 
-    # Próximo paso
+    # Si estábamos corrigiendo un campo puntual, volvemos al resumen final
+    # en vez de avanzar linealmente.
+    if meta.get("inventario_corrigiendo"):
+        meta.pop("inventario_corrigiendo", None)
+        meta.pop("inventario_paso", None)
+        _save_meta(conn, cid, meta)
+        _mostrar_resumen_inmueble(telefono, meta)
+        _log(telefono, texto, f"[inventario: corrigió {paso}, vuelve a resumen]")
+        return True
+
+    # Flow lineal: próximo paso, o resumen final si era el último.
     idx = INVENTARIO_PASOS.index(paso)
     if idx + 1 < len(INVENTARIO_PASOS):
         prox = INVENTARIO_PASOS[idx + 1]
@@ -1323,8 +1387,125 @@ def _capturar_paso_inventario(conn, telefono, cid, meta, texto, paso):
         _log(telefono, texto, f"[inventario: capturó {paso}, pide {prox}]")
         return True
 
-    # Terminó la captura → insertar en DB
-    return _finalizar_inventario(conn, telefono, cid, meta, datos)
+    # Terminó los 10 pasos → mostrar resumen con botones Guardar/Corregir/Cancelar.
+    _save_meta(conn, cid, meta)
+    _mostrar_resumen_inmueble(telefono, meta)
+    _log(telefono, texto, "[inventario: resumen final]")
+    return True
+
+
+def _mostrar_resumen_inmueble(telefono, meta):
+    """Resumen final con botones Guardar / Corregir / Cancelar."""
+    datos = meta.get("inventario_datos") or {}
+    resumen = _formatear_resumen_inmueble(datos)
+    _send_buttons(
+        telefono,
+        "📋 *Revisá los datos del inmueble:*\n\n" + resumen +
+        "\n\n¿Está todo bien?",
+        [
+            {"id": "ONBAG_INV_GUARDAR",  "title": "✅ Guardar"},
+            {"id": "ONBAG_INV_CORREGIR", "title": "✏️ Corregir"},
+            {"id": "ONBAG_INV_CANCELAR", "title": "❌ Cancelar"},
+        ],
+        estado_key=None,
+    )
+
+
+def _mostrar_lista_correccion_inv(telefono, meta):
+    """Lista interactiva con los 10 campos para elegir cuál corregir."""
+    from app import petra_wa
+    datos = meta.get("inventario_datos") or {}
+    rows = []
+    for campo in INVENTARIO_PASOS:
+        valor_actual = datos.get(campo, "")
+        if campo == "parqueadero":
+            valor_actual = "sí" if valor_actual else "no" if valor_actual is False else "—"
+        desc = str(valor_actual)[:70] if valor_actual not in (None, "") else "— falta —"
+        rows.append({
+            "id":          f"ONBAG_INV_FIX_{campo}",
+            "title":       _INV_CAMPO_LABEL.get(campo, campo)[:24],
+            "description": desc,
+        })
+    rows.append({
+        "id":          "ONBAG_INV_FIX_NADA",
+        "title":       "✓ Nada, volver",
+        "description": "Volver al resumen sin cambiar",
+    })
+    petra_wa.send_list(
+        telefono, "¿Qué dato querés corregir?", "Ver campos",
+        [{"title": "Datos del inmueble", "rows": rows}],
+    )
+
+
+def _guardar_inmueble_visitante(conn, telefono, cid, meta, datos):
+    """Inserta en inmuebles_visitante enlazado al conjunto de la agente.
+    Reemplaza el insert viejo en petra_inmuebles (tabla legacy que no ve
+    el visitante QR). Si no se puede resolver conjunto, cae al legacy."""
+    try:
+        conjunto_nombre = (meta.get("conjunto") or "").strip()
+        # Matcheamos por nombre (ILIKE) contra conjuntos_visitante.nombre.
+        conj_row = None
+        if conjunto_nombre:
+            conj_row = conn.execute(
+                "SELECT id FROM conjuntos_visitante "
+                "WHERE LOWER(nombre) = LOWER(%s) LIMIT 1",
+                (conjunto_nombre,),
+            ).fetchone()
+        if not conj_row:
+            # Fallback: tabla legacy petra_edificios (visitante no la ve
+            # pero mantenemos el camino original para no perder el dato).
+            return _finalizar_inventario(conn, telefono, cid, meta, datos)
+
+        conjunto_id = conj_row[0]
+        modalidad = datos.get("modalidad") or "arriendo"
+        # precio: guardamos pesos (BIGINT), el usuario ingresó en millones.
+        precio_num = datos.get("precio")
+        try:
+            precio_pesos = int(round(float(precio_num) * 1_000_000)) if precio_num else 0
+        except Exception:
+            precio_pesos = 0
+
+        apto = str(datos.get("apto") or "").strip() or "—"
+
+        conn.execute(
+            "INSERT INTO inmuebles_visitante "
+            "(conjunto_id, tipo, nro, operacion, habitaciones, banos, "
+            " m2, precio, propietario_telefono, fuente, "
+            " gestionado_por_petra, propietario_telefono_original) "
+            "VALUES (%s, 'apartamento', %s, %s, %s, %s, %s, %s, %s, "
+            "        'petra', TRUE, %s)",
+            (
+                conjunto_id, apto, modalidad,
+                datos.get("habitaciones"), datos.get("banos"),
+                datos.get("area_m2"), precio_pesos,
+                datos.get("propietario_tel"),  # propietario_telefono = tel real
+                datos.get("propietario_tel"),  # original (igual, por si luego lo reemplazan por tel Petra)
+            ),
+        )
+    except Exception:
+        log.exception("[inventario-vis] insert fallo tel=%s datos=%s",
+                      telefono, datos)
+        _enviar(telefono,
+            "Perdón, hubo un error guardando el inmueble 😔. "
+            "Un asesor te contacta pronto.")
+        meta.pop("inventario_paso", None)
+        meta.pop("inventario_datos", None)
+        meta.pop("inventario_corrigiendo", None)
+        _save_meta(conn, cid, meta)
+        return True
+
+    meta.pop("inventario_paso", None)
+    meta.pop("inventario_datos", None)
+    meta.pop("inventario_corrigiendo", None)
+    _save_meta(conn, cid, meta)
+    resumen = _formatear_resumen_inmueble(datos)
+    _enviar(telefono,
+        "✅ *¡Inmueble registrado!*\n\n"
+        f"{resumen}\n\n"
+        "Ya aparece en el inventario de tu edificio. Si querés cargar "
+        "otro, decime *registrar inmueble*.")
+    _log(telefono, "", "[inventario: guardado en inmuebles_visitante]")
+    return True
 
 
 def _validar_paso_inventario(paso, texto):
