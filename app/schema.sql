@@ -2358,3 +2358,15 @@ BEGIN
       VALUES ('2026-10-28_recuperar_diana_cid10');
   END IF;
 END $$;
+
+-- ============================================================================
+-- Flag gestionado_por_petra en inmuebles_visitante.
+-- Cuando una unidad es gestionada por Petra, su propietario_telefono se
+-- reemplaza por el número operador (env PETRA_OPERADOR_PHONE) y el teléfono
+-- original queda guardado en propietario_telefono_original.
+-- ============================================================================
+ALTER TABLE inmuebles_visitante
+  ADD COLUMN IF NOT EXISTS gestionado_por_petra BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE inmuebles_visitante
+  ADD COLUMN IF NOT EXISTS propietario_telefono_original TEXT;

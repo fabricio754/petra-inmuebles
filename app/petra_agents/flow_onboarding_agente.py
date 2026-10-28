@@ -2756,6 +2756,7 @@ def _mostrar_mis_inmuebles(telefono, cid, conn):
             "FROM conjuntos_visitante cv "
             "LEFT JOIN inmuebles_visitante iv "
             "       ON iv.conjunto_id = cv.id AND iv.activo = TRUE "
+            "          AND iv.gestionado_por_petra = TRUE "
             "WHERE cv.creado_por_cid = %s "
             "ORDER BY cv.id, iv.operacion, iv.nro", (cid,),
         ).fetchall()

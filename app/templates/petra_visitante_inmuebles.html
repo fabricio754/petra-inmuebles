@@ -162,7 +162,7 @@
       <thead>
         <tr>
           <th>Nro</th><th>Op</th><th>Hab</th><th>Baños</th><th>m²</th>
-          <th>Precio</th><th>Fuente</th><th>Estado</th><th>Creado</th><th></th>
+          <th>Precio</th><th>Fuente</th><th>Gestión</th><th>Estado</th><th>Creado</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -175,6 +175,21 @@
           <td>{{ i.m2 if i.m2 is not none else '—' }}</td>
           <td class="mono">{{ i.precio_fmt }}</td>
           <td><span class="pill src-{{ i.fuente }}">{{ i.fuente }}</span></td>
+          <td>
+            <form class="inline" method="POST" action="{{ url_for('petra_panel.visitante_inmueble_toggle_gestion', iid=i.id) }}">
+              <input type="hidden" name="token" value="{{ token }}">
+              {% if i.gestionado_por_petra %}
+                <button type="submit" title="Click para dejar de gestionar">💜 Petra</button>
+                {% if i.propietario_telefono_original %}
+                  <div class="mono" style="font-size:0.75em;color:var(--muted)">
+                    real: {{ i.propietario_telefono_original }}
+                  </div>
+                {% endif %}
+              {% else %}
+                <button type="submit" title="Click para flaggear como gestionado">○ No gestionado</button>
+              {% endif %}
+            </form>
+          </td>
           <td>
             {% if i.activo %}<span class="pill ok">activo</span>
             {% else %}<span class="pill off">inactivo</span>{% endif %}
@@ -189,7 +204,7 @@
           </td>
         </tr>
         <tr id="edit-{{ i.id }}" class="edit-row">
-          <td colspan="10">
+          <td colspan="11">
             <form method="POST" action="{{ url_for('petra_panel.visitante_inmueble_editar', iid=i.id) }}">
               <input type="hidden" name="token" value="{{ token }}">
               <div class="form-grid">
