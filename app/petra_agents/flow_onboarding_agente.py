@@ -3128,14 +3128,18 @@ def _mostrar_mis_edificios(telefono, cid, conn, meta):
         lineas.append("Ya llegaste al máximo de *5 edificios* por agente.")
     body = "\n".join(lineas)
 
-    botones = [
-        {"id": "ONBAG_ED_AUTORIZAR", "title": "🏢 Autorizar"},
-        {"id": "ONBAG_ED_ACTIVAR", "title": "📸 Activar"},
-    ]
+    # Botones: sólo "Agregar edificio" si queda cupo.  Autorizar/Activar
+    # ya no van acá — se gatillan automático al agregar un edificio y por
+    # el flujo del kit respectivamente.
+    botones = []
     if len(conjuntos) < 5:
         botones.append({"id": "ONBAG_ED_AGREGAR",
                         "title": "➕ Agregar edificio"})
-    _send_buttons(telefono, body, botones, estado_key=None)
+    if botones:
+        _send_buttons(telefono, body, botones, estado_key=None)
+    else:
+        from app import petra_wa as _pwa_me
+        _pwa_me.send_text(telefono, body)
 
 
 def _handle_panel_control_boton(telefono, cid, meta, conn, boton_id):
