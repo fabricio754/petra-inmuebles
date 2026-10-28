@@ -81,6 +81,60 @@ def lista_inmuebles(edificio, operacion, inmuebles):
     }
 
 
+# -------- Carrito multi-select (PR #65 — "camino B" nativo) ----------------
+def carrito_estado(operacion, carrito_items, hay_mas_disponibles):
+    """Muestra el carrito actual + opciones.
+
+    carrito_items: lista de dicts con keys 'nro' y 'tipo' (ya resueltas por
+    el router). Longitud > 0 esperada.
+    hay_mas_disponibles: True si quedan inmuebles no seleccionados que la
+    agente podría añadir.
+    """
+    emoji_op = "🏠" if operacion == "arriendo" else "💰"
+    lineas = [f"🛒 *Tu lista ({len(carrito_items)} inmueble{'s' if len(carrito_items)!=1 else ''})*", ""]
+    for inm in carrito_items[:10]:
+        tipo_lbl = (inm.get("tipo") or "Inmueble").capitalize()
+        lineas.append(f"  • {emoji_op} {tipo_lbl} #{inm.get('nro') or inm.get('id')}")
+    if len(carrito_items) > 10:
+        lineas.append(f"  …y {len(carrito_items) - 10} más")
+    lineas.append("")
+    lineas.append("¿Qué querés hacer?")
+
+    buttons = []
+    pedir_label = f"📤 Contactar ({len(carrito_items)})"
+    buttons.append({"id": "VIS_CART_PEDIR", "title": pedir_label})
+    if hay_mas_disponibles:
+        buttons.append({"id": "VIS_CART_AGREGAR", "title": "➕ Agregar otro"})
+    buttons.append({"id": "VIS_CART_VACIAR", "title": "🗑 Vaciar"})
+    return {
+        "type": "buttons",
+        "text": "\n".join(lineas),
+        "buttons": buttons[:3],
+    }
+
+
+def carrito_item_agregado(operacion, inm, total_carrito, hay_mas_disponibles):
+    """Confirmación corta tras agregar un item + mismo set de acciones."""
+    tipo_lbl = (inm.get("tipo") or "Inmueble").capitalize()
+    emoji_op = "🏠" if operacion == "arriendo" else "💰"
+    body = (
+        f"✅ Agregaste {emoji_op} *{tipo_lbl} #{inm.get('nro') or inm.get('id')}* "
+        f"a tu lista.\n\n"
+        f"🛒 Llevás *{total_carrito}* en total."
+    )
+    buttons = []
+    buttons.append({"id": "VIS_CART_PEDIR",
+                    "title": f"📤 Contactar ({total_carrito})"})
+    if hay_mas_disponibles:
+        buttons.append({"id": "VIS_CART_AGREGAR", "title": "➕ Agregar otro"})
+    buttons.append({"id": "VIS_CART_VACIAR", "title": "🗑 Vaciar"})
+    return {
+        "type": "buttons",
+        "text": body,
+        "buttons": buttons[:3],
+    }
+
+
 # -------- Detalle de inmueble ----------------------------------------------
 def detalle_inmueble(edificio, operacion, inm):
     """Texto largo + botones Contactar / Volver."""

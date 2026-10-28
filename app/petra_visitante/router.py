@@ -276,19 +276,68 @@ def _resolver_conjunto(conn, telefono, texto, meta):
 # Query de inmuebles
 # ---------------------------------------------------------------------------
 
-def _listar_inmuebles(conn, conjunto_id, operacion, limite=10):
-    rows = conn.execute(
+def _listar_inmuebles(conn, conjunto_id, operacion, limite=10, excluir_ids=None):
+    """Lista inmuebles activos. `excluir_ids` evita mostrar los ya elegidos
+    en el carrito (multi-select PR #65 camino B)."""
+    excluir_ids = list(excluir_ids or [])
+    sql = (
         "SELECT id, nro, habitaciones, banos, m2, precio, fuente, tipo "
         "FROM inmuebles_visitante "
-        "WHERE conjunto_id=%s AND operacion=%s AND activo=TRUE "
-        "ORDER BY creado_en DESC LIMIT %s",
-        (conjunto_id, operacion, limite),
-    ).fetchall()
+        "WHERE conjunto_id=%s AND operacion=%s AND activo=TRUE"
+    )
+    params = [conjunto_id, operacion]
+    if excluir_ids:
+        sql += " AND NOT (id = ANY(%s))"
+        params.append(excluir_ids)
+    sql += " ORDER BY creado_en DESC LIMIT %s"
+    params.append(limite)
+    rows = conn.execute(sql, tuple(params)).fetchall()
     return [
         {"id": r[0], "nro": r[1], "hab": r[2], "banos": r[3],
          "m2": r[4], "precio": r[5], "fuente": r[6], "tipo": r[7]}
         for r in rows
     ]
+
+
+def _get_inmuebles_batch(conn, conjunto_id, ids):
+    """Trae {id: dict} para una lista de ids. Útil para render del carrito."""
+    if not ids:
+        return {}
+    try:
+        rows = conn.execute(
+            "SELECT id, nro, tipo FROM inmuebles_visitante "
+            "WHERE conjunto_id=%s AND id = ANY(%s) AND activo=TRUE",
+            (conjunto_id, list(ids)),
+        ).fetchall()
+    except Exception:
+        log.exception("[visitante] get_inmuebles_batch fallo")
+        return {}
+    return {r[0]: {"id": r[0], "nro": r[1], "tipo": r[2]} for r in rows}
+
+
+# --- Carrito multi-select (PR #65 camino B) --------------------------------
+_CARRITO_KEY = {"arriendo": "carrito_arr", "venta": "carrito_ven"}
+
+
+def _carrito_ids(meta, operacion):
+    key = _CARRITO_KEY[operacion]
+    val = meta.get(key) or []
+    # Normaliza por si vino de JSONB como lista de str o mixto.
+    out = []
+    for v in val:
+        try:
+            out.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _carrito_set(meta, operacion, ids):
+    meta[_CARRITO_KEY[operacion]] = list({int(i) for i in ids})
+
+
+def _carrito_vacio(meta, operacion):
+    meta.pop(_CARRITO_KEY[operacion], None)
 
 
 def _get_inmueble(conn, inmueble_id, conjunto_id):
@@ -484,50 +533,41 @@ def _dispatch(conn, telefono, texto, button_id, list_id,
         _ir_a_menu(conn, telefono, conjunto, meta)
         return
 
-    # ---------- ARRIENDO / VENTA — lista ------------------------------
-    if base == "arriendo_lista":
-        if list_id and list_id.startswith("VIS_ARR_DET:"):
-            _mostrar_detalle(conn, telefono, conjunto, meta, "arriendo",
-                             list_id.split(":", 1)[1])
-            return
-        _mostrar_lista(conn, telefono, conjunto, meta, "arriendo")
-        return
-
-    if base == "venta_lista":
-        if list_id and list_id.startswith("VIS_VEN_DET:"):
-            _mostrar_detalle(conn, telefono, conjunto, meta, "venta",
-                             list_id.split(":", 1)[1])
-            return
-        _mostrar_lista(conn, telefono, conjunto, meta, "venta")
-        return
-
-    # ---------- Detalle ----------------------------------------------
-    if base in ("arriendo_detalle", "venta_detalle"):
+    # ---------- ARRIENDO / VENTA — lista + carrito --------------------
+    if base in ("arriendo_lista", "venta_lista", "arriendo_carrito",
+                "venta_carrito"):
         op = "arriendo" if base.startswith("arriendo") else "venta"
-        if button_id and (button_id.startswith("VIS_ARR_CT:") or
-                          button_id.startswith("VIS_VEN_CT:")):
-            inmueble_id = button_id.split(":", 1)[1]
-            _mostrar_confirmar_contactar(conn, telefono, conjunto, meta, op,
-                                         inmueble_id)
-            return
-        # Caen cosas raras — reintentamos el detalle actual.
-        sid = estado.split(":", 1)[1] if ":" in estado else None
-        if sid:
-            _mostrar_detalle(conn, telefono, conjunto, meta, op, sid)
-            return
-        _ir_a_menu(conn, telefono, conjunto, meta)
-        return
 
-    # ---------- Contactar — confirmación ------------------------------
-    if base in ("arriendo_contactar", "venta_contactar"):
-        op = "arriendo" if base.startswith("arriendo") else "venta"
-        if button_id and (button_id.startswith("VIS_ARR_CT_OK:") or
-                          button_id.startswith("VIS_VEN_CT_OK:")):
-            inmueble_id = button_id.split(":", 1)[1]
-            _marcar_contactar(conn, telefono, conjunto, meta, op, inmueble_id)
+        # Elegir item desde la lista → agregar al carrito.
+        prefix_det = "VIS_ARR_DET:" if op == "arriendo" else "VIS_VEN_DET:"
+        if list_id and list_id.startswith(prefix_det):
+            try:
+                iid = int(list_id.split(":", 1)[1])
+            except (TypeError, ValueError):
+                iid = None
+            if iid is not None:
+                _agregar_carrito(conn, telefono, conjunto, meta, op, iid)
+                return
+
+        # Botones del carrito.
+        if button_id == "VIS_CART_AGREGAR":
+            _mostrar_lista(conn, telefono, conjunto, meta, op)
             return
-        _enviar(telefono, _menus.texto(T.CONTACTAR_CANCEL))
-        _ir_a_menu(conn, telefono, conjunto, meta)
+        if button_id == "VIS_CART_VACIAR":
+            _carrito_vacio(meta, op)
+            _guardar_meta(conn, telefono, meta)
+            _ir_a_menu(conn, telefono, conjunto, meta)
+            return
+        if button_id == "VIS_CART_PEDIR":
+            _pedir_contactos_carrito(conn, telefono, conjunto, meta, op)
+            return
+
+        # Si no reconocemos el botón, re-mostrar carrito o lista según
+        # tenga items o no.
+        if _carrito_ids(meta, op):
+            _mostrar_carrito(conn, telefono, conjunto, meta, op)
+        else:
+            _mostrar_lista(conn, telefono, conjunto, meta, op)
         return
 
     # ---------- PUBLICAR ---------------------------------------------
@@ -587,8 +627,16 @@ def _dispatch(conn, telefono, texto, button_id, list_id,
 # ---------------------------------------------------------------------------
 
 def _mostrar_lista(conn, telefono, conjunto, meta, operacion):
-    inmuebles = _listar_inmuebles(conn, conjunto["id"], operacion)
+    # Excluye los inmuebles ya elegidos en el carrito así no re-aparecen.
+    ya_en_carrito = _carrito_ids(meta, operacion)
+    inmuebles = _listar_inmuebles(conn, conjunto["id"], operacion,
+                                  excluir_ids=ya_en_carrito)
     if not inmuebles:
+        # Si quedan items en carrito, el "fin de lista" lleva al carrito,
+        # no al menú. Si no hay carrito y la lista era vacía, menú.
+        if ya_en_carrito:
+            _mostrar_carrito(conn, telefono, conjunto, meta, operacion)
+            return
         vacio = (T.LISTA_VACIA_ARRIENDO if operacion == "arriendo"
                  else T.LISTA_VACIA_VENTA).format(edificio=conjunto["nombre"])
         _enviar(telefono, _menus.solo_menu_boton(vacio))
@@ -598,6 +646,146 @@ def _mostrar_lista(conn, telefono, conjunto, meta, operacion):
     _set_estado(conn, telefono, nuevo_estado, meta=meta)
     _enviar(telefono, _menus.lista_inmuebles(conjunto["nombre"],
                                              operacion, inmuebles))
+
+
+def _agregar_carrito(conn, telefono, conjunto, meta, operacion, iid):
+    """Agrega un inmueble al carrito del visitante y muestra confirmación."""
+    inm = _get_inmueble(conn, iid, conjunto["id"])
+    if not inm:
+        _mostrar_carrito(conn, telefono, conjunto, meta, operacion)
+        return
+    ids = _carrito_ids(meta, operacion)
+    if iid not in ids:
+        ids.append(iid)
+    _carrito_set(meta, operacion, ids)
+    _guardar_meta(conn, telefono, meta)
+    estado_nuevo = "arriendo_carrito" if operacion == "arriendo" else "venta_carrito"
+    _set_estado(conn, telefono, estado_nuevo, meta=meta)
+    disponibles = _listar_inmuebles(conn, conjunto["id"], operacion,
+                                    excluir_ids=ids)
+    _enviar(telefono, _menus.carrito_item_agregado(
+        operacion, inm, len(ids), bool(disponibles),
+    ))
+
+
+def _mostrar_carrito(conn, telefono, conjunto, meta, operacion):
+    ids = _carrito_ids(meta, operacion)
+    if not ids:
+        _ir_a_menu(conn, telefono, conjunto, meta)
+        return
+    items_map = _get_inmuebles_batch(conn, conjunto["id"], ids)
+    items = [items_map[i] for i in ids if i in items_map]
+    # Si todos los items quedaron huerfanos (desactivados), vaciamos
+    # carrito y volvemos al menú — mejor que mostrar un carrito vacío
+    # con botón Contactar(0).
+    if not items:
+        _carrito_vacio(meta, operacion)
+        _guardar_meta(conn, telefono, meta)
+        _ir_a_menu(conn, telefono, conjunto, meta)
+        return
+    disponibles = _listar_inmuebles(conn, conjunto["id"], operacion,
+                                    excluir_ids=ids)
+    estado_nuevo = "arriendo_carrito" if operacion == "arriendo" else "venta_carrito"
+    _set_estado(conn, telefono, estado_nuevo, meta=meta)
+    _enviar(telefono, _menus.carrito_estado(operacion, items,
+                                            bool(disponibles)))
+
+
+def _pedir_contactos_carrito(conn, telefono, conjunto, meta, operacion):
+    """Procesa el carrito completo: guarda la solicitud en petra_interesados_qr
+    + visitante_contactos (una fila por inmueble) y responde al visitante con
+    el link del contacto Watt.1 (igual que _marcar_contactar hoy)."""
+    ids = _carrito_ids(meta, operacion)
+    if not ids:
+        _ir_a_menu(conn, telefono, conjunto, meta)
+        return
+    items_map = _get_inmuebles_batch(conn, conjunto["id"], ids)
+    items = [items_map[i] for i in ids if i in items_map]
+    if not items:
+        _carrito_vacio(meta, operacion)
+        _guardar_meta(conn, telefono, meta)
+        _ir_a_menu(conn, telefono, conjunto, meta)
+        return
+
+    nombre_in = None
+    username_in = None
+    try:
+        r = conn.execute(
+            "SELECT nombre, username FROM petra_contactos WHERE telefono=%s",
+            (telefono,),
+        ).fetchone()
+        if r:
+            nombre_in = r[0]
+            username_in = r[1]
+    except Exception:
+        log.exception("[visitante] carrito: lectura nombre fallo tel=%s",
+                      telefono)
+
+    # 1) petra_interesados_qr: una sola fila con todos los inmueble_ids.
+    try:
+        conn.execute(
+            "INSERT INTO petra_interesados_qr "
+            "(interesado_telefono, interesado_nombre, interesado_username, "
+            " conjunto_id, inmueble_ids) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (telefono, nombre_in, username_in,
+             conjunto["id"], [int(i["id"]) for i in items]),
+        )
+    except Exception:
+        log.exception("[visitante] carrito: insert interesados_qr fallo tel=%s",
+                      telefono)
+
+    # 2) visitante_contactos: una fila por inmueble (compat con lo existente).
+    for inm in items:
+        try:
+            conn.execute(
+                "INSERT INTO visitante_contactos "
+                "(telefono, contacto_nombre, conjunto_id, inmueble_id) "
+                "VALUES (%s, %s, %s, %s)",
+                (telefono, nombre_in, conjunto["id"], int(inm["id"])),
+            )
+        except Exception:
+            log.exception(
+                "[visitante] carrito: insert visitante_contactos fallo tel=%s inm=%s",
+                telefono, inm.get("id"),
+            )
+    log.info("[visitante] CARRITO_SUBMIT tel=%s conjunto=%s op=%s ids=%s",
+             telefono, conjunto["codigo"], operacion, ids)
+
+    # 3) Confirmación al visitante.
+    emoji_op = "🏠" if operacion == "arriendo" else "💰"
+    tipos_resumen = ", ".join(
+        f"{emoji_op} {(x.get('tipo') or 'Inmueble').capitalize()} #{x.get('nro') or x['id']}"
+        for x in items
+    )
+    _enviar(telefono, _menus.texto(
+        f"¡Listo! Guardamos tu solicitud por *{len(items)} inmueble"
+        f"{'s' if len(items) != 1 else ''}*:\n{tipos_resumen}"
+    ))
+
+    # 4) Link único del contacto Watt.1 — como hoy; el equipo Petra se
+    # encarga del handoff con el/los propietario(s). Si no hay link
+    # activo, silencio (mejor que un link roto).
+    try:
+        row = conn.execute(
+            "SELECT url FROM petra_contenidos "
+            "WHERE titulo=%s AND activo=TRUE "
+            "ORDER BY id DESC LIMIT 1",
+            ("Watt.1",),
+        ).fetchone()
+        if row and row[0]:
+            _enviar(telefono, _menus.texto(
+                "Para avanzar con los propietarios, escribinos acá 👇\n\n"
+                + row[0]
+            ))
+    except Exception:
+        log.exception("[visitante] carrito: buscar Watt.1 fallo tel=%s",
+                      telefono)
+
+    _carrito_vacio(meta, operacion)
+    _guardar_meta(conn, telefono, meta)
+    _set_estado(conn, telefono, "menu", meta=meta)
+    _enviar(telefono, _menus.menu_principal(conjunto["nombre"]))
 
 
 def _mostrar_detalle(conn, telefono, conjunto, meta, operacion, inmueble_id):
