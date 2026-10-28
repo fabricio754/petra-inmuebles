@@ -975,9 +975,24 @@ def _procesar_flow_submit(conn, telefono, meta, flow_response):
                 f"del edificio {conjunto['nombre']}."
             )
             url = f"https://wa.me/{prop_clean}?text={quote(saludo)}"
-            _enviar(telefono, _menus.texto(
-                f"{cabecera}\n👉 Hablar sobre este inmueble: {url}"
-            ))
+            # Mensaje interactivo con un solo botón CTA que abre wa.me del
+            # propietario directo. Mucho más limpio que mandar el URL
+            # pelado en el texto. "Hablar propietario" cabe en 20 chars
+            # (límite Meta para display_text).
+            try:
+                _pwa.send_cta_url(
+                    to=telefono,
+                    body=cabecera,
+                    display_text="Hablar propietario",
+                    url=url,
+                )
+            except Exception:
+                log.exception("[visitante] flow: send_cta_url fallo "
+                              "tel=%s inm=%s", telefono, inm.get("id"))
+                # Fallback: texto plano con el URL si el CTA fallara.
+                _enviar(telefono, _menus.texto(
+                    f"{cabecera}\n👉 Hablar sobre este inmueble: {url}"
+                ))
         else:
             _enviar(telefono, _menus.texto(
                 f"{cabecera}\n_(sin contacto de propietario registrado — "

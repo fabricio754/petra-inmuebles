@@ -323,6 +323,35 @@ def send_buttons(to, body, buttons):
     })
 
 
+def send_cta_url(to, body, display_text, url, header=None, footer=None):
+    """Envía un mensaje interactivo con UN SOLO botón 'Call to Action' que
+    abre una URL externa (ej. wa.me del propietario). display_text ≤ 20
+    chars, url ≤ 2000 chars. Opcionales: header (texto corto arriba) y
+    footer (texto chico abajo).
+    """
+    inter = {
+        "type": "cta_url",
+        "body": {"text": str(body)[:1024]},
+        "action": {
+            "name": "cta_url",
+            "parameters": {
+                "display_text": str(display_text)[:20],
+                "url": str(url)[:2000],
+            },
+        },
+    }
+    if header:
+        inter["header"] = {"type": "text", "text": str(header)[:60]}
+    if footer:
+        inter["footer"] = {"text": str(footer)[:60]}
+    return _post({
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": inter,
+    })
+
+
 def send_list(to, body, button_label, sections):
     """sections: lista de dicts {title, rows:[{id, title, description?}]}."""
     secs = []
