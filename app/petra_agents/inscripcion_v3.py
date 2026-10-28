@@ -659,6 +659,16 @@ def handle(telefono, texto, cid, meta, conn, es_handoff=False):
         campo = faltantes[0]
         ok, valor, err = _validar(campo, texto)
         if not ok:
+            # Si el user re-tipeó el intent "quiero ser agente petra" en
+            # medio de la inscripción, no es un error de nombre — ya está
+            # en el flow.  Le respondemos sin confundirlo con "falta apellido".
+            if campo == "nombre" and err == "intent, no nombre":
+                _send_text(telefono, (
+                    "¡Ya estamos arrancando! 💜 Para registrarte necesito "
+                    "tu *nombre completo* (nombre + apellido). "
+                    "Mandámelo así: *Juana Pérez* 👤"
+                ))
+                return True
             # Para campos con validación dura (nombre, cédula) mandamos
             # el mensaje de rechazo específico.
             rechazo = RECHAZO_CAMPO.get(campo)
