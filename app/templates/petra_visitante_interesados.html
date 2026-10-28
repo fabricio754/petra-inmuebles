@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Interesados QR · Visitante | Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff; --panel: #ffffff; --border: #e8e4f0;
+    --text: #2a2440; --muted: #76708a; --accent: #7c5cff;
+    --accent-soft: #ece6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background: #fff;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  .topbar .brand { color: var(--accent); }
+  .topbar a.back { color: var(--accent); text-decoration: none; font-size: 13px; }
+  main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+  .panel { background: var(--panel); border-radius: 10px;
+           border: 1px solid var(--border); overflow: hidden; }
+  .panel-head { padding: 14px 18px; border-bottom: 1px solid var(--border);
+                display: flex; align-items: center; justify-content: space-between;
+                flex-wrap: wrap; gap: 12px; }
+  .panel-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count { color: var(--muted); font-size: 13px; }
+  .filters { display: flex; gap: 10px; font-size: 13px; }
+  .filters label { color: var(--muted); margin-right: 4px; }
+  .filters select, .filters button {
+    padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: #fff; color: var(--text); font-size: 13px;
+  }
+  .filters button { background: var(--accent); color: #fff;
+                    border-color: var(--accent); cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; padding: 10px 14px; background: #f5f2fb;
+             color: var(--muted); font-weight: 500; text-transform: uppercase;
+             font-size: 11px; letter-spacing: 0.5px;
+             border-bottom: 1px solid var(--border); }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid #f1eef7;
+             vertical-align: top; }
+  tbody tr:hover { background: #fcfaff; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px;
+          font-size: 11px; font-weight: 600; }
+  .pill.enviado   { background: #e4edff; color: #2a4a8a; }
+  .pill.respondido { background: #d6f5de; color: #156626; }
+  .pill.cerrado    { background: #efefef; color: #666; }
+  .pill.petra      { background: #ece6ff; color: #5533cc; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-size: 12px; }
+  .wa-link { color: var(--accent); text-decoration: none; font-size: 12px;
+             display: inline-flex; align-items: center; gap: 4px; }
+  .wa-link:hover { text-decoration: underline; }
+  .empty-state { padding: 60px 24px; text-align: center; color: var(--muted); }
+  .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+  .empty-state h3 { margin: 0 0 8px; color: var(--text); font-size: 16px;
+                    font-weight: 600; }
+  .empty-state p { margin: 0; max-width: 420px; margin-inline: auto; }
+  .nros-list { display: flex; flex-wrap: wrap; gap: 4px; }
+  .nros-list span { background: #f5f2fb; border-radius: 4px;
+                    padding: 2px 6px; font-size: 11px; }
+  .nombre { font-weight: 600; }
+  .meta-row { color: var(--muted); font-size: 11px; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="back" href="{{ url_for('petra_panel.visitante_conjuntos') }}?token={{ token }}">← Visitante QR</a>
+  <h1>📩 <span class="brand">Interesados QR</span></h1>
+</div>
+
+<main>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Solicitudes del Flow multi-select</h2>
+      <span class="count">{{ interesados|length }} solicitudes</span>
+      <form method="GET" action="{{ url_for('petra_panel.visitante_interesados_vista') }}" class="filters">
+        <input type="hidden" name="token" value="{{ token }}">
+        <label>Conjunto:</label>
+        <select name="conjunto">
+          <option value="">Todos</option>
+          {% for c in conjuntos %}
+            <option value="{{ c.id }}" {% if conj_filtro == c.id|string %}selected{% endif %}>
+              {{ c.codigo }} · {{ c.nombre }}
+            </option>
+          {% endfor %}
+        </select>
+        <label>Estado:</label>
+        <select name="estado">
+          <option value="">Todos</option>
+          <option value="enviado"    {% if estado_filtro == 'enviado'    %}selected{% endif %}>Enviado</option>
+          <option value="respondido" {% if estado_filtro == 'respondido' %}selected{% endif %}>Respondido</option>
+          <option value="cerrado"    {% if estado_filtro == 'cerrado'    %}selected{% endif %}>Cerrado</option>
+        </select>
+        <button type="submit">Filtrar</button>
+      </form>
+    </div>
+
+    {% if interesados %}
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Interesado</th>
+          <th>Conjunto</th>
+          <th>Inmuebles</th>
+          <th>Gestión Petra</th>
+          <th>Estado</th>
+          <th>Contactar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in interesados %}
+        <tr>
+          <td class="mono">{{ i.creado_en.strftime('%Y-%m-%d %H:%M') if i.creado_en else '' }}</td>
+          <td>
+            <div class="nombre">{{ i.interesado_nombre or '(sin nombre)' }}</div>
+            {% if i.interesado_username %}
+              <div class="meta-row">@{{ i.interesado_username }}</div>
+            {% endif %}
+            <div class="meta-row mono">{{ i.interesado_telefono }}</div>
+          </td>
+          <td>
+            {% if i.conjunto_codigo %}
+              <strong>{{ i.conjunto_codigo }}</strong><br>
+              <span class="meta-row">{{ i.conjunto_nombre }}</span>
+            {% else %}
+              <span class="meta-row">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if i.inmueble_nros %}
+              <div class="nros-list">
+                {% for n in i.inmueble_nros %}<span>#{{ n }}</span>{% endfor %}
+              </div>
+            {% else %}
+              <span class="meta-row">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if i.hay_petra_gestionados %}
+              <span class="pill petra">💜 Hay gestionados</span>
+            {% else %}
+              <span class="meta-row">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="pill {{ i.estado }}">{{ i.estado }}</span>
+          </td>
+          <td>
+            {% if not i.interesado_telefono.startswith('CO.') %}
+              <a class="wa-link" href="https://wa.me/{{ i.interesado_telefono }}?text={{ 'Hola! Vi tu interés en Petra Inmuebles.' | urlencode }}" target="_blank">
+                💬 Escribirle
+              </a>
+            {% else %}
+              <span class="meta-row">BSUID — buscar por @{{ i.interesado_username or '?' }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="icon">📬</div>
+      <h3>Todavía no hay interesados</h3>
+      <p>Cuando una persona escanee el QR de un edificio y use el Flow multi-select para pedir contacto por uno o más inmuebles, cada solicitud va a aparecer acá — con sus datos de contacto, qué inmuebles pidió y si alguno es gestionado por Petra.</p>
+    </div>
+    {% endif %}
+  </div>
+</main>
+
+</body>
+</html>
