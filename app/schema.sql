@@ -8,23 +8,23 @@
 -- El valor "canónico" se guarda dentro de `datos` JSONB (campo
 -- veces_mensaje_libre) junto con el resto de la sesión; esta columna queda
 -- disponible para consultas SQL directas si en el futuro hace falta.
-ALTER TABLE sesiones ADD COLUMN IF NOT EXISTS veces_mensaje_libre INT DEFAULT 0;
+ALTER TABLE IF EXISTS sesiones ADD COLUMN IF NOT EXISTS veces_mensaje_libre INT DEFAULT 0;
 
 -- === Tablas del flujo de crédito (Hitos 6 a 10, docs/PLAN.md) ===========
 
 -- Los usuarios con nombre de usuario de WhatsApp llegan con un ID tipo
 -- "CO.1107512575300980" (hasta 128 caracteres), no con teléfono.
-ALTER TABLE contactos ALTER COLUMN telefono TYPE VARCHAR(150);
+ALTER TABLE IF EXISTS contactos ALTER COLUMN telefono TYPE VARCHAR(150);
 -- Captación (Hito 7): foto del anuncio y monto "hasta" que se le ofreció.
-ALTER TABLE contactos ADD COLUMN IF NOT EXISTS foto_url TEXT;
-ALTER TABLE contactos ADD COLUMN IF NOT EXISTS monto_hasta_millones INTEGER;
-ALTER TABLE contactos ADD COLUMN IF NOT EXISTS barrio TEXT;
+ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS foto_url TEXT;
+ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS monto_hasta_millones INTEGER;
+ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS barrio TEXT;
 
 -- Lead caliente: el contacto pidió explícitamente que lo llamen / hablar con
 -- un humano. Se setea cuando `filtros.es_pedido_llamada()` matchea un IN de
 -- texto. Idempotente (ver `db.marcar_requiere_humano`): la marca ocurre una
 -- sola vez por contacto, para que la alerta externa no se dispare dos veces.
-ALTER TABLE contactos
+ALTER TABLE IF EXISTS contactos
     ADD COLUMN IF NOT EXISTS requiere_humano boolean NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS requiere_humano_motivo text,
     ADD COLUMN IF NOT EXISTS requiere_humano_at timestamptz;
@@ -32,13 +32,13 @@ ALTER TABLE contactos
 -- Resultado de cierre de conversación (acción humana post-contacto).
 -- `resultado_contacto` ya existe arriba como VARCHAR(50); los otros tres
 -- campos registran cuándo, quién y una nota libre asociada al cierre.
-ALTER TABLE contactos
+ALTER TABLE IF EXISTS contactos
     ADD COLUMN IF NOT EXISTS resultado_contacto text,
     ADD COLUMN IF NOT EXISTS resultado_contacto_at timestamptz,
     ADD COLUMN IF NOT EXISTS resultado_contacto_por text,
     ADD COLUMN IF NOT EXISTS resultado_contacto_nota text;
 
-ALTER TABLE pipeline ADD COLUMN IF NOT EXISTS requires_human BOOLEAN DEFAULT FALSE;
+ALTER TABLE IF EXISTS pipeline ADD COLUMN IF NOT EXISTS requires_human BOOLEAN DEFAULT FALSE;
 
 -- Marcas internas (ej. si ya se importaron los datos de la Sheet).
 CREATE TABLE IF NOT EXISTS meta (
@@ -84,14 +84,14 @@ CREATE INDEX IF NOT EXISTS idx_mensajes_wa_msg_id
 -- pausado hasta ese momento. Un TIMESTAMP pasado = la pausa expiró y el bot
 -- vuelve a responder.
 -- Para pausa indefinida se usa el sentinel '2999-01-01'.
-ALTER TABLE contactos
+ALTER TABLE IF EXISTS contactos
     ADD COLUMN IF NOT EXISTS bot_pausado_hasta TIMESTAMPTZ;
 
 -- Marcar leído/no leído del lead en el panel. NULL (default) o
 -- visto_at < última_actividad del contacto → no leído. visto_at >= última
 -- actividad → leído. La última actividad se obtiene de
 -- sesiones.ultima_actividad por telefono (o del último mensaje).
-ALTER TABLE contactos
+ALTER TABLE IF EXISTS contactos
     ADD COLUMN IF NOT EXISTS visto_at TIMESTAMPTZ;
 
 -- Eventos del timeline del lead. Mezcla acciones humanas, estados del bot
@@ -124,19 +124,19 @@ CREATE INDEX IF NOT EXISTS webhook_queue_pendientes_idx
 -- los endpoints de `app/tools.py` via HTTP tools de ElevenLabs.
 
 -- Campos extra para calificación completa de Sureti (chat + voz).
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS direccion TEXT;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS apto TEXT;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS barrio TEXT;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS estrato INTEGER;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS es_ph BOOLEAN;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS hipoteca BOOLEAN;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS patrimonio_familia TEXT;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS propietario_mayor_75 BOOLEAN;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS paz_salvo BOOLEAN;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS tipo_persona TEXT;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS cedula_nit TEXT;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS edad INTEGER;
-ALTER TABLE pilot_leads ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS direccion TEXT;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS apto TEXT;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS barrio TEXT;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS estrato INTEGER;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS es_ph BOOLEAN;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS hipoteca BOOLEAN;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS patrimonio_familia TEXT;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS propietario_mayor_75 BOOLEAN;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS paz_salvo BOOLEAN;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS tipo_persona TEXT;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS cedula_nit TEXT;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS edad INTEGER;
+ALTER TABLE IF EXISTS pilot_leads ADD COLUMN IF NOT EXISTS email TEXT;
 
 -- === PETRA plataforma inmobiliaria — Sprint 1 (oct 2026) =====================
 -- Modelo multi-rol: contacto único con N roles acumulativos (interesado,
@@ -588,9 +588,9 @@ CREATE TABLE IF NOT EXISTS petra_agente_link_hits (
 CREATE INDEX IF NOT EXISTS petra_agente_link_hits_created_idx
   ON petra_agente_link_hits (created_at DESC);
 -- Next step / próxima acción por lead
-ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
-ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_fecha DATE;
-ALTER TABLE contactos ADD COLUMN IF NOT EXISTS next_step_at TIMESTAMPTZ;
+ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS next_step_texto TEXT;
+ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS next_step_fecha DATE;
+ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS next_step_at TIMESTAMPTZ;
 
 -- =============================================================================
 -- Contenidos del piloto Petra: videos de capacitación, PDFs, scripts,
@@ -1716,8 +1716,8 @@ ON CONFLICT (clave) DO NOTHING;
 -- `estado_agente` es el mirror explícito del estado del flow de agentes
 -- (que vive canónicamente en petra_contacto_roles.metadata); se usa en el
 -- hook de ruteo para distinguir visitante de agente en un solo SELECT.
-ALTER TABLE contactos ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE contactos ADD COLUMN IF NOT EXISTS estado_agente TEXT;
+ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS estado_agente TEXT;
 
 CREATE TABLE IF NOT EXISTS conjuntos_visitante (
   id SERIAL PRIMARY KEY,
@@ -1873,7 +1873,7 @@ ON CONFLICT (codigo) DO NOTHING;
 -- Lo guardamos para poder buscarlas en la app WA cuando no tenemos su número.
 -- ============================================================================
 ALTER TABLE petra_contactos ADD COLUMN IF NOT EXISTS username TEXT;
-ALTER TABLE contactos        ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE IF EXISTS contactos        ADD COLUMN IF NOT EXISTS username TEXT;
 CREATE INDEX IF NOT EXISTS idx_petra_contactos_username
   ON petra_contactos(username) WHERE username IS NOT NULL;
 
