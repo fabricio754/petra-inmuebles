@@ -2117,6 +2117,75 @@ def admin_briefing_valentina():
                 500)
 
 
+@petra_panel_bp.get("/_admin/enviar-plantilla-volvemos")
+def admin_enviar_plantilla_volvemos():
+    """Dispara el envío del template petra_volvemos_v1 a las 25 agentes
+    seleccionadas (sin incluir Fabricio, Del Mar, Sebastian, SIM, mamá).
+
+    Útil para la reactivación one-shot después de los problemas técnicos.
+    Devuelve un reporte con quién recibió / quién falló.
+    """
+    _check_token()
+    from app import petra_wa as _pwa_tpl
+    IDS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21,
+           22, 23, 24, 26, 27, 29, 30]
+    dry = (request.args.get("dry") or "").lower() in ("1", "true", "yes")
+    enviados = []
+    fallos = []
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            rows = conn.execute(
+                "SELECT id, telefono, nombre FROM petra_contactos "
+                "WHERE id = ANY(%s) ORDER BY id",
+                (IDS,),
+            ).fetchall()
+    except Exception as e:
+        return f"❌ Error leyendo contactos: {type(e).__name__}: {e}", 500
+
+    for cid, tel, nombre in rows:
+        if dry:
+            enviados.append(f"[DRY] #{cid} {nombre or '(sin nombre)'} → {tel}")
+            continue
+        try:
+            r = _pwa_tpl.send_template(
+                to=tel,
+                template_name="petra_volvemos_v1",
+                language="es_CO",
+            )
+            if r.get("ok"):
+                nota = ""
+                if r.get("stub"):
+                    nota = " [STUB — sin credenciales]"
+                elif r.get("whitelist_skip"):
+                    nota = " [SKIP whitelist]"
+                elif r.get("simulated"):
+                    nota = " [SIM]"
+                enviados.append(
+                    f"#{cid} {nombre or '(sin nombre)'} → {tel}{nota}"
+                )
+            else:
+                fallos.append(
+                    f"#{cid} {nombre or '(sin nombre)'} → {tel} "
+                    f"ERROR {r.get('status')}: {str(r.get('body', ''))[:200]}"
+                )
+        except Exception as e:
+            fallos.append(
+                f"#{cid} {nombre or '(sin nombre)'} → {tel} "
+                f"EXCEPTION: {type(e).__name__}: {e}"
+            )
+
+    out = []
+    out.append(f"Enviados ({len(enviados)}):")
+    out.extend(enviados)
+    out.append("")
+    out.append(f"Fallos ({len(fallos)}):")
+    out.extend(fallos)
+    if dry:
+        out.append("")
+        out.append("(dry-run: no se envió nada. Pasá ?dry=0 para enviar.)")
+    return "\n".join(out), 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @petra_panel_bp.get("/_admin/nudges-run")
 def admin_nudges_run():
     """Dispara la evaluación de todos los nudges manualmente, sin esperar

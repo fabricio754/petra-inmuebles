@@ -159,6 +159,13 @@ def _validar(campo, texto):
         return True, digitos, None
 
     if campo == "nombre":
+        # Rechazar frases-intent tipo "quiero ser agente petra" que la gente
+        # vuelve a tipear como texto (botón del template, atajo, re-saludo).
+        v_lc = v.lower()
+        if (("quiero ser" in v_lc or "quisiera ser" in v_lc
+             or "me gustar" in v_lc or "ser agente" in v_lc)
+                and ("petra" in v_lc or "agente" in v_lc or "asesora" in v_lc)):
+            return False, None, "intent, no nombre"
         palabras = [p for p in v.split()
                     if len(p) >= 2 and _RE_PALABRA_ALFA.match(p)]
         if len(palabras) < 2:
