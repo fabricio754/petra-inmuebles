@@ -100,24 +100,28 @@ def _hard_override_agente(texto):
 def _leer_contacto(conn, telefono):
     """Devuelve (estado_agente, meta_dict). Si el contacto no existe, (None, {}).
 
-    Estado y metadata del agente viven en petra_contacto_roles.metadata
-    (la tabla legacy `contactos` fue eliminada en la limpieza Massi).
+    - estado_agente viene de petra_contacto_roles.metadata (donde el flow
+      agente lo guarda canónicamente).
+    - meta es petra_contactos.meta (jsonb) donde el flow visitante guarda su
+      estado efímero: visitante_estado, visitante_conjunto_id, carrito_arr,
+      carrito_ven, etc. La tabla legacy `contactos` fue eliminada en la
+      limpieza Massi.
     """
     estado_c = None
     meta = {}
     try:
         row = conn.execute(
-            "SELECT r.metadata->>'estado_agente', r.metadata "
+            "SELECT c.meta, r.metadata->>'estado_agente' "
             "FROM petra_contactos c "
-            "JOIN petra_contacto_roles r "
+            "LEFT JOIN petra_contacto_roles r "
             "  ON r.contacto_id = c.id AND r.rol = 'agente_petra' "
             "WHERE c.telefono = %s",
             (telefono,),
         ).fetchone()
         if row:
-            estado_c = row[0]
-            if row[1]:
-                meta = dict(row[1]) if isinstance(row[1], dict) else dict(row[1])
+            if row[0]:
+                meta = dict(row[0]) if isinstance(row[0], dict) else dict(row[0])
+            estado_c = row[1]
     except Exception:
         pass
     return estado_c, meta
@@ -180,18 +184,18 @@ def es_visitante(telefono, texto):
 
 def _upsert_contacto(conn, telefono, nombre=None):
     row = conn.execute(
-        "SELECT id FROM contactos WHERE telefono=%s", (telefono,),
+        "SELECT id FROM petra_contactos WHERE telefono=%s", (telefono,),
     ).fetchone()
     if row:
         if nombre:
             conn.execute(
-                "UPDATE contactos SET nombre=COALESCE(nombre, %s) "
+                "UPDATE petra_contactos SET nombre=COALESCE(nombre, %s) "
                 "WHERE telefono=%s",
                 (nombre, telefono),
             )
         return row[0]
     r = conn.execute(
-        "INSERT INTO contactos (telefono, nombre) VALUES (%s, %s) RETURNING id",
+        "INSERT INTO petra_contactos (telefono, nombre) VALUES (%s, %s) RETURNING id",
         (telefono, nombre),
     ).fetchone()
     return r[0]
@@ -199,7 +203,7 @@ def _upsert_contacto(conn, telefono, nombre=None):
 
 def _guardar_meta(conn, telefono, meta):
     conn.execute(
-        "UPDATE contactos SET meta=%s::jsonb WHERE telefono=%s",
+        "UPDATE petra_contactos SET meta=%s::jsonb WHERE telefono=%s",
         (json.dumps(meta or {}), telefono),
     )
 
@@ -829,7 +833,7 @@ def _marcar_contactar(conn, telefono, conjunto, meta, operacion, inmueble_id):
         nombre = None
         try:
             r = conn.execute(
-                "SELECT nombre FROM contactos WHERE telefono=%s", (telefono,)
+                "SELECT nombre FROM petra_contactos WHERE telefono=%s", (telefono,)
             ).fetchone()
             if r:
                 nombre = r[0]

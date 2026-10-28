@@ -1718,6 +1718,9 @@ ON CONFLICT (clave) DO NOTHING;
 -- hook de ruteo para distinguir visitante de agente en un solo SELECT.
 ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE IF EXISTS contactos ADD COLUMN IF NOT EXISTS estado_agente TEXT;
+-- Post-Massi: el flow visitante guarda su estado efímero (visitante_estado,
+-- visitante_conjunto_id, carrito_arr, carrito_ven, etc.) en petra_contactos.meta.
+ALTER TABLE petra_contactos ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS conjuntos_visitante (
   id SERIAL PRIMARY KEY,
