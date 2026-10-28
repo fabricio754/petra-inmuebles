@@ -791,7 +791,7 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
             flow_token=flow_token,
             flow_cta="📋 Ver inmuebles",
             flow_action_payload={
-                "screen": "SELECT_PROPERTIES",
+                "screen": "WELCOME_SCREEN",
                 "data": {
                     "edificio": conjunto["nombre"],
                     "operacion_label": operacion_label,
