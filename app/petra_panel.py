@@ -2717,6 +2717,50 @@ def admin_recordatorios_auto_run():
                 500)
 
 
+@petra_panel_bp.post("/_admin/sembrar-propietarios-dummy")
+def admin_sembrar_propietarios_dummy():
+    """Setea un teléfono dummy en inmuebles_visitante.propietario_telefono
+    para los inmuebles activos que no tienen uno. Útil para probar el flow
+    end-to-end del wa.me del propietario sin tener propietarios reales.
+
+    Query params:
+      telefono (requerido): E164 sin + (ej. 573227057375).
+      solo_vacios (opcional, default=1): si 1, solo pisa los inmuebles sin
+        propietario_telefono. Si 0, pisa TODOS los activos.
+    """
+    _check_token()
+    tel = (request.args.get("telefono") or "").strip().lstrip("+")
+    if not tel.isdigit() or len(tel) < 10:
+        return "❌ Falta ?telefono=<E164 sin +>", 400
+    solo_vacios = (request.args.get("solo_vacios") or "1").lower() in ("1", "true", "yes")
+
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            if solo_vacios:
+                cur = conn.execute(
+                    "UPDATE inmuebles_visitante SET propietario_telefono=%s "
+                    "WHERE activo=TRUE AND (propietario_telefono IS NULL "
+                    "   OR propietario_telefono='') "
+                    "RETURNING id",
+                    (tel,),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE inmuebles_visitante SET propietario_telefono=%s "
+                    "WHERE activo=TRUE RETURNING id",
+                    (tel,),
+                )
+            filas = cur.fetchall()
+            n = len(filas)
+        return (f"OK ✅ {n} inmueble(s) actualizados con "
+                f"propietario_telefono={tel} "
+                f"(solo_vacios={solo_vacios}).\n"), 200
+    except Exception as e:
+        import traceback
+        return (f"❌ Error: {type(e).__name__}: {e}\n{traceback.format_exc()}",
+                500)
+
+
 @petra_panel_bp.get("/_admin/enviar-nudge")
 def admin_enviar_nudge_manual():
     """Envía UN nudge específico a UN teléfono, sin importar hace cuánto
