@@ -2313,13 +2313,15 @@ WHERE NOT EXISTS (
 -- SIM_PETRA_01 (25), mamá (28).
 -- Idempotente: segunda corrida es no-op porque metadata ya queda '{}'.
 -- ============================================================================
+-- NOTA: `estado` es NOT NULL; usamos 'inscrito' como estado inicial
+-- (consistente con el flujo de inscripción fresh).
 UPDATE petra_contacto_roles
    SET metadata = '{}'::jsonb,
-       estado = NULL,
-       estado_desde = NULL
+       estado = 'inscrito',
+       estado_desde = NOW()
  WHERE contacto_id IN (3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,21,22,23,24,26,27,29,30)
    AND rol = 'agente_petra'
-   AND (metadata IS DISTINCT FROM '{}'::jsonb OR estado IS NOT NULL);
+   AND metadata IS DISTINCT FROM '{}'::jsonb;
 
 UPDATE contactos
    SET meta = '{}'::jsonb,
@@ -2334,11 +2336,11 @@ UPDATE contactos
 -- bug anterior. Limpiarlo también para que pueda probar de cero.
 UPDATE petra_contacto_roles
    SET metadata = '{}'::jsonb,
-       estado = NULL,
-       estado_desde = NULL
+       estado = 'inscrito',
+       estado_desde = NOW()
  WHERE contacto_id = 2
    AND rol = 'agente_petra'
-   AND (metadata IS DISTINCT FROM '{}'::jsonb OR estado IS NOT NULL);
+   AND metadata IS DISTINCT FROM '{}'::jsonb;
 
 UPDATE contactos
    SET meta = '{}'::jsonb,
