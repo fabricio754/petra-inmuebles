@@ -507,11 +507,6 @@ def _procesar_webhook_petra(payload):
                     "WHERE telefono=%s AND (username IS NULL OR username <> %s)",
                     (username, phone, username),
                 )
-                conn.execute(
-                    "UPDATE contactos SET username=%s "
-                    "WHERE telefono=%s AND (username IS NULL OR username <> %s)",
-                    (username, phone, username),
-                )
                 conn.commit()
         except Exception:
             log.exception("[petra] guardar username fallo tel=%s", phone)
