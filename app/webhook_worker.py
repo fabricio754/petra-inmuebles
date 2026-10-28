@@ -537,22 +537,6 @@ def _procesar_webhook_petra(payload):
         btn = message.get("button") or {}
         button_id = btn.get("payload") or btn.get("text")
         texto = btn.get("text") or ""
-        # Template petra_volvemos_v1 → además del flujo normal de
-        # inscripción (que se dispara por el texto "Quiero ser Agente
-        # Petra"), mandamos primero el link del grupo WA que no pudimos
-        # incluir como botón URL (Meta bloquea chat.whatsapp.com).
-        if (texto or "").strip().lower() == "quiero ser agente petra":
-            try:
-                from app import petra_wa as _pwa_grp
-                _pwa_grp.send_text(phone, (
-                    "¡Qué bueno que volvés! 💜\n\n"
-                    "Antes de arrancar, te comparto el link de nuestro "
-                    "*grupo de WhatsApp* donde resolvemos dudas al toque:\n\n"
-                    "https://chat.whatsapp.com/FApU3yOafsv79xGpOaTcKX?s=cl&p=a&mlu=4&ilr=4&iam=2\n\n"
-                    "Ahora sí, arrancamos con tu inscripción 👇"
-                ))
-            except Exception:
-                log.exception("[petra] enviar link grupo volvemos fallo tel=%s", phone)
 
     # Log del IN en la tabla `mensajes` para que el panel renderice el chat.
     # No depende del dispatch posterior — si el handler falla, igual queda
