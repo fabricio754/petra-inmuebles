@@ -25,6 +25,13 @@ _RE_EDIFICIO = re.compile(
     re.IGNORECASE,
 )
 
+# Palabra mágica para pruebas internas: simula un QR del edificio
+# conjuntos_visitante.codigo=1001 (Arrayanes). Útil para probar el flow
+# visitante sin tener un QR físico. Debe ser el único texto del mensaje
+# (ignorando espacios y signos) para evitar falsos positivos.
+_RE_DEMO = re.compile(r"^\s*like\s*[!.?]*\s*$", re.IGNORECASE)
+_DEMO_CODIGO = "1001"
+
 
 def parsear_qr(texto):
     """Devuelve dict con `codigo`, `edificio`, `ciudad` o None si no hay
@@ -32,6 +39,8 @@ def parsear_qr(texto):
     texto no sigue el formato completo."""
     if not texto:
         return None
+    if _RE_DEMO.match(texto):
+        return {"codigo": _DEMO_CODIGO, "edificio": None, "ciudad": None}
     m_cod = _RE_COD.search(texto)
     if not m_cod:
         return None
@@ -48,9 +57,11 @@ def parsear_qr(texto):
 
 
 def tiene_marker_qr(texto):
-    """Chequeo barato: ¿este texto parece venir de un QR? Solo mira el
-    marker `Cod:`. Se usa en `es_visitante()` para rutear sin parsear
-    el resto."""
+    """Chequeo barato: ¿este texto parece venir de un QR? Mira el marker
+    `Cod:` o la palabra mágica de prueba `like`. Se usa en `es_visitante()`
+    para rutear sin parsear el resto."""
     if not texto:
         return False
+    if _RE_DEMO.match(texto):
+        return True
     return bool(_RE_COD.search(texto))
