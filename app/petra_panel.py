@@ -2149,7 +2149,7 @@ def admin_enviar_plantilla_volvemos():
         try:
             r = _pwa_tpl.send_template(
                 to=tel,
-                template_name="petra_volvemos_v1",
+                template_name="petra_volvemos_v2",
                 language="es_CO",
             )
             if r.get("ok"):
