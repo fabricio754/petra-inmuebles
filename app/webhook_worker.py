@@ -558,6 +558,14 @@ def _procesar_webhook_petra(payload):
     except Exception:
         log.exception("[petra] log_mensaje in fallo (no crítico)")
 
+    # ---- Intercept: botón "No, gracias" del template petra_pregunta_dos_opciones
+    # Si la agente pulsó el botón de opt-out del template de reactivación,
+    # marcamos petra_contactos.opt_out=TRUE, pausamos el bot para ella y
+    # respondemos un acuse corto. No continuamos a los routers de abajo.
+    if _es_opt_out_pregunta(mtype, button_id, texto, phone):
+        _marcar_opt_out_pregunta(phone)
+        return
+
     # Media (image/audio/video/document/sticker) va al handler propio de
     # Petra: descarga el archivo + capturar_foto_qr se encarga de hacer
     # avanzar el flow del kit cuando corresponde. Sin esta rama, el
@@ -771,6 +779,76 @@ def _procesar_llamada_entrante(call):
                               asesor, telefono)
     except Exception:
         log.exception("[WebhookQueue] Error disparando alerta de llamada para %s", telefono)
+
+
+def _es_opt_out_pregunta(mtype, button_id, texto, phone):
+    """True si este mensaje es el botón 'No, gracias' del template
+    petra_pregunta_dos_opciones (o un texto equivalente escrito a mano,
+    siempre que haya un OUT reciente de ese template al mismo teléfono)."""
+    t = (texto or "").strip().lower()
+    bid = (button_id or "").strip().lower()
+    if not t and not bid:
+        return False
+    # Match contra textos típicos de rechazo que el usuario pueda escribir
+    # o botón. "No, gracias" es el único literal del template, pero
+    # aceptamos variantes razonables como escape si escribió a mano.
+    phrases = {"no, gracias", "no gracias", "no me interesa", "no, no me interesa"}
+    es_matching = (t in phrases) or (bid in phrases)
+    if not es_matching:
+        return False
+    # Verificamos que haya un OUT del template petra_pregunta_dos_opciones
+    # al mismo teléfono en últimos 7 días. Así este intercept solo aplica
+    # para quienes efectivamente recibieron la pregunta.
+    try:
+        with db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM mensajes "
+                "WHERE telefono=%s AND direccion='out' AND tipo='template' "
+                "AND fecha > NOW() - INTERVAL '7 days' "
+                "AND payload::text LIKE %s LIMIT 1",
+                (phone, "%petra_pregunta_dos_opciones%"),
+            ).fetchone()
+            return bool(row)
+    except Exception:
+        log.exception("[opt_out_pregunta] query fallo tel=%s", phone)
+        return False
+
+
+def _marcar_opt_out_pregunta(phone):
+    """Marca opt_out en petra_contactos + pausa el bot + manda ack corto."""
+    try:
+        with db._conexion_directa(timeout=5) as conn:
+            # 1) opt_out a nivel contacto.
+            conn.execute(
+                "UPDATE petra_contactos SET opt_out=TRUE, "
+                "opt_out_motivo=COALESCE(opt_out_motivo, 'no_gracias_pregunta'), "
+                "opt_out_at=COALESCE(opt_out_at, NOW()), "
+                "updated_at=NOW() WHERE telefono=%s",
+                (phone,),
+            )
+            # 2) bot_pausado a nivel rol agente_petra (si existe el rol).
+            conn.execute(
+                "UPDATE petra_contacto_roles SET "
+                "metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), "
+                "                     '{bot_pausado}', 'true'::jsonb), "
+                "updated_at = NOW() "
+                "WHERE rol='agente_petra' AND contacto_id = "
+                "  (SELECT id FROM petra_contactos WHERE telefono=%s LIMIT 1)",
+                (phone,),
+            )
+            conn.commit()
+    except Exception:
+        log.exception("[opt_out_pregunta] marcar fallo tel=%s", phone)
+    try:
+        from app import petra_wa as _pwa_ack
+        _pwa_ack.send_text(
+            phone,
+            "Dale, no te escribo más. Si en algún momento querés retomar, "
+            "respondé *HOLA* y arrancamos de cero. 💜",
+        )
+    except Exception:
+        log.exception("[opt_out_pregunta] ack fallo tel=%s", phone)
+    log.info("[opt_out_pregunta] tel=%s marcado opt_out + bot_pausado", phone)
 
 
 def _procesar_mensaje(phone, event, message=None):
