@@ -774,13 +774,11 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
     _set_estado(conn, telefono, nuevo_estado, meta=meta_nuevo)
 
     operacion_label = "Arriendos" if operacion == "arriendo" else "Ventas"
-    emoji_op = "🔑" if operacion == "arriendo" else "💰"
     cuenta = f"{len(inmuebles)}+" if truncado else str(len(inmuebles))
     body_lines = [
-        f"{emoji_op} *{operacion_label} en {conjunto['nombre']}*",
-        "",
-        f"Hay *{cuenta} inmuebles* disponibles. "
-        "Tocá abajo para verlos y seleccionar los que te interesen.",
+        f"🏠 *{operacion_label} en {conjunto['nombre']}*",
+        f"{cuenta} inmuebles disponibles ↓",
+        "Elegí los que te interesen y te conecto con cada propietario",
     ]
     if truncado:
         body_lines.append("")
