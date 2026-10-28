@@ -279,9 +279,13 @@ def _resumen_estados_agentes(conn):
             "       COUNT(*) "
             "FROM petra_contacto_roles r "
             "WHERE r.rol = 'agente_petra' "
-            "GROUP BY estado"
+            "GROUP BY COALESCE(r.metadata->>'estado_agente', '—')"
         ).fetchall()
     except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         return []
     conteo = {r[0] or "—": r[1] for r in rows}
     # Orden consistente: estados conocidos en el orden del flow, resto al final.

@@ -100,36 +100,25 @@ def _hard_override_agente(texto):
 def _leer_contacto(conn, telefono):
     """Devuelve (estado_agente, meta_dict). Si el contacto no existe, (None, {}).
 
-    - estado_agente se mira primero en `contactos.estado_agente` (nuevo),
-      y como fallback en `petra_contacto_roles.metadata->>'estado_agente'`
-      (que es donde `petra_agents` guarda el estado real hoy).
-    - meta es `contactos.meta` (jsonb), o {} si no existe fila o está vacío.
+    Estado y metadata del agente viven en petra_contacto_roles.metadata
+    (la tabla legacy `contactos` fue eliminada en la limpieza Massi).
     """
-    cur = conn.execute(
-        "SELECT estado_agente, meta FROM contactos WHERE telefono=%s",
-        (telefono,),
-    )
-    row = cur.fetchone()
     estado_c = None
     meta = {}
-    if row:
-        estado_c = row[0]
-        if row[1]:
-            meta = dict(row[1]) if not isinstance(row[1], dict) else dict(row[1])
-    # Fallback: estado real del agent flow vive en petra_contacto_roles.
     try:
-        r2 = conn.execute(
-            "SELECT r.metadata->>'estado_agente' FROM petra_contactos c "
+        row = conn.execute(
+            "SELECT r.metadata->>'estado_agente', r.metadata "
+            "FROM petra_contactos c "
             "JOIN petra_contacto_roles r "
-            "  ON r.contacto_id=c.id AND r.rol='agente_petra' "
-            "WHERE c.telefono=%s",
+            "  ON r.contacto_id = c.id AND r.rol = 'agente_petra' "
+            "WHERE c.telefono = %s",
             (telefono,),
         ).fetchone()
-        if r2 and r2[0]:
-            estado_c = estado_c or r2[0]
+        if row:
+            estado_c = row[0]
+            if row[1]:
+                meta = dict(row[1]) if isinstance(row[1], dict) else dict(row[1])
     except Exception:
-        # Si petra_contactos no está lista en esta DB, seguimos solo con
-        # contactos.estado_agente — no es fatal.
         pass
     return estado_c, meta
 
