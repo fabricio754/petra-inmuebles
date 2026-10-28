@@ -117,6 +117,101 @@ def _metricas_piloto(conn):
     return kpis
 
 
+_ESTADOS_AGENTE_ORDEN = [
+    "recolectando", "inscrito", "bienvenida_enviada",
+    "esperando_capacitacion_dia1", "en_capacitacion",
+    "capacitacion_completa", "autorizacion_pendiente",
+    "autorizacion_rechazada", "kit_pendiente", "kit_enviado",
+    "activa", "pausada", "certificado",
+]
+
+_ESTADOS_LABEL = {
+    "recolectando": "Recolectando datos",
+    "inscrito": "Inscrito",
+    "bienvenida_enviada": "Bienvenida enviada",
+    "esperando_capacitacion_dia1": "Esperando día 1",
+    "en_capacitacion": "En capacitación",
+    "capacitacion_completa": "Capacitación OK",
+    "autorizacion_pendiente": "Autorización pendiente",
+    "autorizacion_rechazada": "Autorización rechazada",
+    "kit_pendiente": "Kit pendiente",
+    "kit_enviado": "Kit enviado",
+    "activa": "Activa",
+    "pausada": "Pausada",
+    "certificado": "Certificada",
+}
+
+
+def _cargar_agentes(conn, estado=None, q=None):
+    """Lista enriquecida de agentes con filtros opcionales:
+      - estado: filtra por metadata.estado_agente exacto
+      - q: substring (case-insensitive) de nombre o teléfono
+    Trae conteos de edificios/inmuebles y última actividad IN.
+    """
+    where = ["r.rol = 'agente_petra'"]
+    params = []
+    if estado:
+        where.append("r.metadata->>'estado_agente' = %s")
+        params.append(estado)
+    if q:
+        where.append("(LOWER(c.nombre) LIKE %s OR c.telefono LIKE %s)")
+        qlike = f"%{q.lower()}%"
+        params.extend([qlike, f"%{q}%"])
+    where_sql = " AND ".join(where)
+    sql = f"""
+        SELECT r.contacto_id, c.telefono, c.nombre, c.username,
+               r.metadata->>'estado_agente' AS estado_agente,
+               r.metadata->>'ciudad'       AS ciudad,
+               COALESCE((r.metadata->>'videos_vistos')::int, 0) AS videos_vistos,
+               r.metadata->>'origen'       AS origen,
+               r.metadata->>'bot_pausado'  AS bot_pausado,
+               r.metadata->>'inscrito_at'  AS inscrito_at,
+               r.updated_at,
+               (SELECT MAX(fecha) FROM mensajes
+                 WHERE telefono = c.telefono AND direccion = 'in') AS ultimo_in,
+               (SELECT COUNT(*) FROM conjuntos_visitante
+                 WHERE creado_por_cid = c.id)                      AS n_edificios,
+               (SELECT COUNT(*) FROM inmuebles_visitante iv
+                  JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id
+                 WHERE cv.creado_por_cid = c.id
+                   AND iv.activo = TRUE)                            AS n_inmuebles
+          FROM petra_contacto_roles r
+          JOIN petra_contactos c ON c.id = r.contacto_id
+         WHERE {where_sql}
+         ORDER BY r.updated_at DESC
+         LIMIT 200
+    """
+    return _rows(conn, sql, tuple(params))
+
+
+def _resumen_estados_agentes(conn):
+    """Devuelve {estado: count} para pills tipo kanban arriba del listado."""
+    try:
+        rows = conn.execute(
+            "SELECT COALESCE(r.metadata->>'estado_agente', '—') AS estado, "
+            "       COUNT(*) "
+            "FROM petra_contacto_roles r "
+            "WHERE r.rol = 'agente_petra' "
+            "GROUP BY estado"
+        ).fetchall()
+    except Exception:
+        return []
+    conteo = {r[0] or "—": r[1] for r in rows}
+    # Orden consistente: estados conocidos en el orden del flow, resto al final.
+    conocidos = [(e, conteo.pop(e, 0)) for e in _ESTADOS_AGENTE_ORDEN]
+    extras = sorted(conteo.items(), key=lambda x: -x[1])
+    out = []
+    for e, n in conocidos + extras:
+        if n == 0:
+            continue
+        out.append({
+            "estado": e,
+            "label": _ESTADOS_LABEL.get(e, e),
+            "count": n,
+        })
+    return out
+
+
 @petra_panel_bp.get("")
 def panel_home():
     _check_token()
@@ -153,17 +248,12 @@ def panel_home():
                    LEFT JOIN petra_contactos ca ON ca.id = v.agente_id
                    LEFT JOIN petra_contactos ci ON ci.id = v.interesado_id
                    ORDER BY v.programada_at DESC NULLS LAST LIMIT 100"""),
-            "agentes": _rows(conn,
-                """SELECT r.contacto_id, c.telefono, c.nombre, c.username,
-                          r.metadata->>'estado_agente' AS estado_agente,
-                          r.metadata->>'ciudad' AS ciudad,
-                          (r.metadata->>'videos_vistos')::int AS videos_vistos,
-                          r.metadata->>'origen' AS origen,
-                          r.updated_at
-                   FROM petra_contacto_roles r
-                   JOIN petra_contactos c ON c.id = r.contacto_id
-                   WHERE r.rol = 'agente_petra'
-                   ORDER BY r.updated_at DESC LIMIT 100"""),
+            "agentes": _cargar_agentes(
+                conn,
+                estado=request.args.get("estado_f", "").strip(),
+                q=request.args.get("q", "").strip(),
+            ),
+            "agentes_resumen": _resumen_estados_agentes(conn),
             "errores": _rows(conn,
                 """SELECT id, proveedor, operacion, entidad_tipo, entidad_id,
                           error_mensaje, error_codigo, intentos, max_intentos,
@@ -939,6 +1029,37 @@ def accion_agente_reactivar_bot(cid):
     return redirect(url_for("petra_panel.ficha_agente", cid=cid,
                             token=request.form.get("token", ""),
                             flash="bot_reactivado"))
+
+
+@petra_panel_bp.post("/agente/<int:cid>/reenviar_ultimo_paso")
+def accion_agente_reenviar_ultimo_paso(cid):
+    """Dispara _enviar_recordatorio_retorno del router: manda a la agente
+    el call-to-action del paso del flow en el que está, para destrabarla
+    si quedó parada sin saber qué hacer."""
+    _check_token()
+    token = request.form.get("token", "")
+    volver = (request.form.get("volver") or "detalle").strip()
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT telefono FROM petra_contactos WHERE id = %s", (cid,)
+            ).fetchone()
+    except Exception:
+        row = None
+    if row and row[0]:
+        try:
+            from app.petra_agents.router import _enviar_recordatorio_retorno
+            _enviar_recordatorio_retorno(row[0])
+        except Exception as exc:  # noqa: BLE001
+            import logging as _lg
+            _lg.getLogger("petra").exception(
+                "[panel] reenviar_ultimo_paso cid=%s fallo", cid)
+    if volver == "home":
+        return redirect(url_for("petra_panel.panel_home",
+                                tab="agentes", token=token,
+                                flash="recordatorio_enviado"))
+    return redirect(url_for("petra_panel.ficha_agente", cid=cid,
+                            token=token, flash="recordatorio_enviado"))
 
 
 # =============================================================================
