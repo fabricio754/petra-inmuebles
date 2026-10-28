@@ -2278,3 +2278,27 @@ WHERE NOT EXISTS (
      AND iv.nro = v.nro
      AND iv.operacion = v.operacion
 );
+
+-- ============================================================================
+-- Dummy inventario para Condominio Monaco (id=2469, codigo=0002).
+-- Como si una agente hubiera mandado la foto del libro.  Idempotente por
+-- (conjunto_id, nro, operacion).
+-- ============================================================================
+INSERT INTO inmuebles_visitante
+  (conjunto_id, tipo, nro, operacion, habitaciones, banos, m2, precio, fuente, activo)
+SELECT * FROM (VALUES
+  (2469, 'casa',        '12',  'arriendo', 3, 2,  95,  2200000::bigint,  'petra', TRUE),
+  (2469, 'casa',        '24',  'arriendo', 4, 3, 140,  3100000::bigint,  'petra', TRUE),
+  (2469, 'apartamento', '201', 'arriendo', 2, 2,  70,  1900000::bigint,  'petra', TRUE),
+  (2469, 'apartamento', '305', 'arriendo', 3, 2,  88,  2600000::bigint,  'petra', TRUE),
+  (2469, 'casa',        '18',  'venta',    3, 2, 110,  420000000::bigint,'petra', TRUE),
+  (2469, 'casa',        '49',  'venta',    4, 3, 155,  620000000::bigint,'petra', TRUE),
+  (2469, 'apartamento', '402', 'venta',    2, 2,  72,  295000000::bigint,'petra', TRUE),
+  (2469, 'apartamento', '506', 'venta',    3, 2,  90,  380000000::bigint,'petra', TRUE)
+) AS v(conjunto_id, tipo, nro, operacion, habitaciones, banos, m2, precio, fuente, activo)
+WHERE NOT EXISTS (
+  SELECT 1 FROM inmuebles_visitante iv
+   WHERE iv.conjunto_id = v.conjunto_id
+     AND iv.nro = v.nro
+     AND iv.operacion = v.operacion
+);
