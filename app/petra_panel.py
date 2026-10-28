@@ -2526,6 +2526,143 @@ def admin_enviar_plantilla_volvemos():
     return "\n".join(out), 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
+@petra_panel_bp.post("/_admin/enviar-pregunta-reactivacion")
+def admin_enviar_pregunta_reactivacion():
+    """Envía el template `petra_pregunta_dos_opciones` a las 10 agentes que
+    leyeron pero no respondieron el template `petra_volvemos_v2` del 28/10.
+
+    POST only (evita prefetch del navegador que nos duplicó envíos la vez
+    anterior). Protección adicional: NO re-envía a quienes ya tengan un
+    mensaje OUT de este mismo template en últimos 7 días.
+
+    Params:
+      ?dry=1        → preview sin enviar
+      ?cids=6,14    → sólo a esos CIDs (default: los 10 pre-aprobados)
+      ?limit=N      → corta después de N envíos (para probar con 1)
+      ?offset=N     → salta los primeros N
+    """
+    _check_token()
+    from app import petra_wa as _pwa_tpl
+    import time as _time
+
+    TEMPLATE = "petra_pregunta_dos_opciones"
+    # Las 10 agentes que leyeron pero no respondieron el petra_volvemos_v2
+    # (query ejecutada el 28/10/2026 — ver conversación con Fabricio).
+    IDS_DEFAULT = [6, 14, 8, 26, 20, 23, 21, 3, 30, 15]
+
+    dry = (request.args.get("dry") or "").lower() in ("1", "true", "yes")
+
+    def _int_arg(name, default=0):
+        v = (request.args.get(name) or "").strip()
+        try:
+            return int(v) if v else default
+        except ValueError:
+            return default
+    limit = _int_arg("limit", 0)
+    offset = _int_arg("offset", 0)
+
+    cids_param = (request.args.get("cids") or "").strip()
+    if cids_param:
+        try:
+            ids = [int(x) for x in cids_param.split(",") if x.strip()]
+        except ValueError:
+            return ("Param cids inválido. Formato: cids=1,2,3",
+                    400, {"Content-Type": "text/plain; charset=utf-8"})
+    else:
+        ids = list(IDS_DEFAULT)
+
+    enviados, fallos, skipped = [], [], []
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            rows = conn.execute(
+                "SELECT id, telefono, nombre FROM petra_contactos "
+                "WHERE id = ANY(%s) ORDER BY id",
+                (ids,),
+            ).fetchall()
+            # Protección anti-duplicado: cualquier OUT template a este
+            # mismo telefono en los últimos 7 días cuyo payload mencione
+            # el nombre del template.
+            ya_enviados = conn.execute(
+                "SELECT DISTINCT telefono FROM mensajes "
+                "WHERE direccion='out' AND tipo='template' "
+                "AND fecha > NOW() - INTERVAL '7 days' "
+                "AND payload::text LIKE %s",
+                (f"%{TEMPLATE}%",),
+            ).fetchall()
+            ya_set = {r[0] for r in ya_enviados}
+    except Exception as e:
+        return (f"❌ Error leyendo contactos: {type(e).__name__}: {e}",
+                500, {"Content-Type": "text/plain; charset=utf-8"})
+
+    if offset:
+        rows = rows[offset:]
+    if limit:
+        rows = rows[:limit]
+
+    for cid, tel, nombre in rows:
+        primer_nombre = ((nombre or "").split() or ["amiga"])[0]
+        if tel in ya_set:
+            skipped.append(
+                f"#{cid} {nombre or '(sin nombre)'} → {tel} [YA ENVIADO en últimos 7d]"
+            )
+            continue
+        if dry:
+            enviados.append(
+                f"[DRY] #{cid} {nombre or '(sin nombre)'} → {tel} · {{1}}={primer_nombre}"
+            )
+            continue
+        try:
+            r = _pwa_tpl.send_template(
+                to=tel,
+                template_name=TEMPLATE,
+                language="es_CO",
+                components=[{
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": primer_nombre}],
+                }],
+            )
+            if r.get("ok"):
+                nota = ""
+                if r.get("stub"):
+                    nota = " [STUB]"
+                elif r.get("whitelist_skip"):
+                    nota = " [SKIP whitelist]"
+                enviados.append(
+                    f"#{cid} {nombre or '(sin nombre)'} → {tel}{nota}"
+                )
+                # Rate-limit entre envíos reales para no fundir el número.
+                _time.sleep(2)
+            else:
+                fallos.append(
+                    f"#{cid} {nombre or '(sin nombre)'} → {tel} "
+                    f"ERROR {r.get('status')}: {str(r.get('body', ''))[:200]}"
+                )
+        except Exception as e:
+            fallos.append(
+                f"#{cid} {nombre or '(sin nombre)'} → {tel} "
+                f"EXCEPTION: {type(e).__name__}: {e}"
+            )
+
+    out = []
+    out.append(f"Template: {TEMPLATE}")
+    out.append(f"Total CIDs considerados: {len(ids)}")
+    out.append("")
+    out.append(f"✅ Enviados ({len(enviados)}):")
+    out.extend(enviados)
+    if skipped:
+        out.append("")
+        out.append(f"⏭  Skipped — ya enviados en 7d ({len(skipped)}):")
+        out.extend(skipped)
+    if fallos:
+        out.append("")
+        out.append(f"❌ Fallos ({len(fallos)}):")
+        out.extend(fallos)
+    if dry:
+        out.append("")
+        out.append("(dry-run: no se envió nada. POST sin ?dry para enviar.)")
+    return ("\n".join(out), 200, {"Content-Type": "text/plain; charset=utf-8"})
+
+
 @petra_panel_bp.get("/_admin/nudges-run")
 def admin_nudges_run():
     """Dispara la evaluación de todos los nudges manualmente, sin esperar
