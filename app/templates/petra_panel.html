@@ -185,12 +185,109 @@
   .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 24px 0 8px; }
 </style>
 
-<div class="section-title">🏢 Red Petra</div>
+<div class="section-title">👥 Agentes Petra</div>
 <div class="kpi-grid">
-  <div class="kpi-card"><div class="kpi-label">Edificios activos</div><div class="kpi-value">{{ kpis.edificios_activos }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Agentes operativos</div><div class="kpi-value ok">{{ kpis.agentes_operativos }}</div><div class="kpi-sub">de {{ kpis.agentes_total }} totales</div></div>
-  <div class="kpi-card"><div class="kpi-label">Inmuebles activos</div><div class="kpi-value">{{ kpis.inmuebles_activos }}</div><div class="kpi-sub">{{ kpis.inmuebles_borrador }} en borrador</div></div>
-  <div class="kpi-card"><div class="kpi-label">Cerrados (7d)</div><div class="kpi-value ok">{{ kpis.inmuebles_cerrados_7d }}</div><div class="kpi-sub">ventas + arriendos</div></div>
+  <div class="kpi-card">
+    <div class="kpi-label">Total</div>
+    <div class="kpi-value">{{ kpis.agentes_total }}</div>
+    <div class="kpi-sub">+{{ kpis.agentes_7d }} esta semana</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Activas</div>
+    <div class="kpi-value ok">{{ kpis.agentes_activas }}</div>
+    <div class="kpi-sub">QR instalado + operando</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">En capacitación</div>
+    <div class="kpi-value">{{ kpis.agentes_capacitacion }}</div>
+    <div class="kpi-sub">viendo videos / esperando día</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Autorización + Kit</div>
+    <div class="kpi-value warn">{{ kpis.agentes_autorizando }}</div>
+    <div class="kpi-sub">entre capacitación y activa</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Recolectando datos</div>
+    <div class="kpi-value">{{ kpis.agentes_recolectando }}</div>
+    <div class="kpi-sub">no completó inscripción</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Pausadas / rechazadas</div>
+    <div class="kpi-value {% if kpis.agentes_pausadas > 0 %}danger{% endif %}">{{ kpis.agentes_pausadas }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Tasa inscripción</div>
+    <div class="kpi-value {% if kpis.tasa_inscripcion_pct >= 70 %}ok{% elif kpis.tasa_inscripcion_pct >= 40 %}warn{% else %}danger{% endif %}">{{ kpis.tasa_inscripcion_pct }}%</div>
+    <div class="kpi-sub">completó registro</div>
+  </div>
+</div>
+
+<div class="section-title">🏢 Red Petra (inventario)</div>
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">Edificios</div>
+    <div class="kpi-value">{{ kpis.conjuntos_total }}</div>
+    <div class="kpi-sub">+{{ kpis.conjuntos_7d }} esta semana</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Inmuebles activos</div>
+    <div class="kpi-value">{{ kpis.inmuebles_vis_activos }}</div>
+    <div class="kpi-sub">+{{ kpis.inmuebles_vis_7d }} esta semana</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">🏠 Arriendo</div>
+    <div class="kpi-value">{{ kpis.inmuebles_vis_arr }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">💰 Venta</div>
+    <div class="kpi-value">{{ kpis.inmuebles_vis_ven }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">💜 Petra gestiona</div>
+    <div class="kpi-value">{{ kpis.inmuebles_vis_petra }}</div>
+    <div class="kpi-sub">captados por Petra directo</div>
+  </div>
+</div>
+
+<div class="section-title">📱 Visitantes QR</div>
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">Solicitudes (24h)</div>
+    <div class="kpi-value">{{ kpis.interesados_qr_24h }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Solicitudes (7d)</div>
+    <div class="kpi-value">{{ kpis.interesados_qr_7d }}</div>
+    <div class="kpi-sub">{{ kpis.interesados_qr_total }} total histórico</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Inmuebles por solicitud</div>
+    <div class="kpi-value">{{ kpis.interesados_avg_items }}</div>
+    <div class="kpi-sub">promedio 30d — multi-select</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Interesados únicos (7d)</div>
+    <div class="kpi-value">{{ kpis.visitante_contactos_7d }}</div>
+    <div class="kpi-sub">por teléfono distinto</div>
+  </div>
+</div>
+
+<div class="section-title">💬 Conversaciones (24h)</div>
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">Mensajes IN</div>
+    <div class="kpi-value">{{ kpis.msgs_in_24h }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Mensajes OUT</div>
+    <div class="kpi-value">{{ kpis.msgs_out_24h }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Tasa de fallo</div>
+    <div class="kpi-value {% if kpis.msgs_failed_24h_pct >= 10 %}danger{% elif kpis.msgs_failed_24h_pct >= 3 %}warn{% else %}ok{% endif %}">{{ kpis.msgs_failed_24h_pct }}%</div>
+    <div class="kpi-sub">{{ kpis.msgs_failed_24h }} failed · health signal</div>
+  </div>
 </div>
 
 <div class="section-title">💼 Pipeline comercial</div>
