@@ -274,13 +274,17 @@ def _validar(campo, texto):
 
     if campo == "nombre":
         if _parece_saludo(t_lc):
-            return False, None, "Eso parece un saludo 😊. Mandame tu nombre y apellido completos."
+            return False, None, "Eso parece un saludo 😊. Mandame tu nombre completo."
         palabras_alfa = [p for p in t.split()
                          if len(p) >= 2 and _RE_PALABRA_ALFA.match(p)]
-        if len(palabras_alfa) < 2:
-            return False, None, "Por favor mandame tu nombre y apellido completos (al menos 2 palabras, solo letras) 🙏"
+        # Aceptamos 1 palabra si es un nombre válido de ≥3 letras (ej. "Diana").
+        # El apellido lo podemos pedir aparte si falta. Rechazamos sólo cuando
+        # no hay ni una palabra alfa plausible.
+        if not palabras_alfa or (len(palabras_alfa) == 1
+                                 and len(palabras_alfa[0]) < 3):
+            return False, None, "Mandame tu nombre, por favor — por ejemplo *Diana* o *Diana Botero* 🙏"
         if len(t) > 80:
-            return False, None, "Ese nombre es muy largo. Mandame solo nombre y apellido 🙏"
+            return False, None, "Ese nombre es muy largo. Mandame solo tu nombre y apellido 🙏"
         return True, t, None
 
     if campo == "conjunto":
@@ -340,7 +344,8 @@ def _enviar_resumen(telefono, meta):
 
 
 def _enviar_lista_correccion(telefono, meta):
-    """Envía una lista interactiva con los 5 campos para elegir cuál corregir."""
+    """Envía una lista interactiva con los campos para elegir cuál corregir,
+    y una fila final para salir sin tocar nada (volver al resumen)."""
     from app import petra_wa
     petra_wa.send_list(
         telefono,
@@ -361,6 +366,8 @@ def _enviar_lista_correccion(telefono, meta):
                  "description": meta.get("conjunto", "")[:70]},
                 {"id": "ONBAG_FIX_torre_apto", "title": "Torre / Apto",
                  "description": meta.get("torre_apto", "")[:70]},
+                {"id": "ONBAG_FIX_NADA",     "title": "✓ Nada, confirmar",
+                 "description": "Volver al resumen y confirmar"},
             ],
         }],
     )
@@ -1180,7 +1187,21 @@ def _fase_activa(conn, telefono, cid, meta, texto, sesion_id=None):
     if texto and any(p in t_lc for p in PALABRAS_INVENTARIO):
         return _iniciar_inventario(conn, telefono, cid, meta)
 
-    # 5. Pregunta libre → LLM
+    # 5. Si es un mensaje muy corto o solo emoji ("ok", "ya", "✅", "gracias",
+    # etc.), silencio: el LLM responde cualquier cosa random y confunde.
+    # Umbral: ≤3 chars alfanum. "gracias" (7 chars) también se filtra como
+    # ACK genérico. Esto reemplaza llamadas al LLM en reacciones conversacionales
+    # neutras — para preguntas reales la agente escribe algo más largo.
+    import re as _re_act
+    utiles_act = _re_act.sub(r"[^a-záéíóúñA-ZÁÉÍÓÚÑ0-9]", "", texto or "")
+    acks = {"ok", "oki", "okis", "okay", "dale", "listo", "ya", "si", "sip",
+            "sí", "va", "bueno", "bien", "👍", "🙏", "💜", "❤", "❤️",
+            "✅", "gracias", "grax", "graciass"}
+    if (len(utiles_act) <= 3) or (t_lc in acks):
+        _log(telefono, texto, "[activa → silencio por ACK/emoji corto]")
+        return True
+
+    # 6. Pregunta libre → LLM
     _log(telefono, texto, "[activa → LLM]")
     return _responder_con_llm(telefono, texto, sesion_id=sesion_id)
 
@@ -2558,6 +2579,12 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             intent_store.cerrar(telefono)
             sesion.cerrar(telefono, razon="cancelado_por_user")
             return True
+        if texto == "ONBAG_FIX_NADA":
+            # "✓ Nada, confirmar" — no corregir nada, volver al resumen.
+            _enviar_resumen(telefono, meta)
+            _log(telefono, texto, "[resumen re-enviado]",
+                 nota="user eligió 'nada que corregir'")
+            return True
         if texto.startswith("ONBAG_FIX_"):
             campo_fix = texto.replace("ONBAG_FIX_", "")
             if campo_fix in CAMPOS:
@@ -2707,6 +2734,8 @@ def _es_keyword_panel(texto):
     return t in (
         "menu", "menú", "panel", "panel de control", "mi info",
         "mi menu", "mi menú", "opciones", "ver menu", "ver menú",
+        "ayuda", "help", "ayudame", "ayudáme", "ayudar", "pedir ayuda",
+        "/menu", "/panel", "/ayuda", "/help",
     )
 
 
@@ -2734,6 +2763,9 @@ def _mostrar_panel_control(telefono, meta):
             {"id": "ONBAG_PC_CAPACITACION",
              "title": "🎓 Mi capacitación",
              "description": "Progreso y volver a ver videos"},
+            {"id": "ONBAG_PC_AYUDA",
+             "title": "💬 Pedir ayuda",
+             "description": "Hablá con una persona del equipo Petra"},
         ],
     }]
     try:
