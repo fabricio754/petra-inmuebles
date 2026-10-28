@@ -261,6 +261,23 @@ def _bot_pausado(telefono):
 def _handle_locked(telefono, texto, button_id, list_id, contacto_nombre):
     texto_efectivo = button_id or list_id or texto or ""
 
+    # Botón "🔄 Seguir donde quedé" (del mensaje de cierre por inactividad).
+    # Abrimos sesión nueva y mandamos el recordatorio del paso actual.
+    # El recordatorio ya responde con el call-to-action correcto (ver
+    # _RECORDATORIOS_RETORNO), así que no hace falta nada más en este turno.
+    if button_id == "ONBAG_SEGUIR_DONDE_QUEDE":
+        try:
+            sesion.obtener_o_abrir(telefono)
+        except Exception:
+            log.exception("[router] seguir-donde-quedé: abrir sesión fallo tel=%s",
+                          telefono)
+        try:
+            _enviar_recordatorio_retorno(telefono)
+        except Exception:
+            log.exception("[router] seguir-donde-quedé: recordatorio fallo tel=%s",
+                          telefono)
+        return {"ok": True, "retomar": True}
+
     # Pausa manual desde el panel: el humano está hablando con la agente,
     # el bot auto se queda callado. El IN ya quedó logueado en el webhook.
     # Se mantiene la sesión abierta para que el chat del panel vea la
@@ -310,6 +327,18 @@ def _handle_locked(telefono, texto, button_id, list_id, contacto_nombre):
                     telefono, estado, (texto_efectivo or "")[:80])
         return {"ok": True, "flow": "onboarding_agente", "estado": estado,
                 "no_manejado": True}
+
+    # 4.b Botones ONBAG_* (del flow onboarding agente): siempre al flow, aún
+    # si no hay rol agente registrado todavía o el estado no está en
+    # ESTADOS_FLOW_PYTHON. Esto evita que el LLM de bienvenida trate como
+    # contacto nuevo a alguien que toca un botón viejo de capacitación o
+    # panel de control.
+    if button_id and str(button_id).startswith("ONBAG_"):
+        flow_onboarding_agente.handle(
+            telefono, texto_efectivo, es_handoff=True,
+            sesion_id=sesion_id,
+        )
+        return {"ok": True, "flow": "onboarding_agente", "boton_onbag": True}
 
     # 5. Intent activo → delegar al sub-agente del intent sin re-clasificar.
     activo = intent_store.leer(telefono)
