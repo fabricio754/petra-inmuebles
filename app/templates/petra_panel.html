@@ -449,12 +449,51 @@
 
 {% if tab == 'agentes' %}
 <div class="panel">
-  <div class="panel-head"><h2>🤝 Agentes Petra</h2>
-    <span class="count">{{ agentes|length }} (últ 100)</span></div>
+  <div class="panel-head">
+    <h2>🤝 Agentes Petra</h2>
+    <span class="count">{{ agentes|length }} de {{ (agentes_resumen|sum(attribute='count')) if agentes_resumen else agentes|length }}</span>
+  </div>
+
+  {# Pills de resumen por estado — click para filtrar #}
+  {% if agentes_resumen %}
+  <div style="padding:12px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid #eee">
+    <a class="pill info" style="text-decoration:none"
+       href="?tab=agentes&token={{ token }}">
+      Todas ({{ agentes_resumen|sum(attribute='count') }})
+    </a>
+    {% for r in agentes_resumen %}
+      {% set active = request.args.get('estado_f','') == r.estado %}
+      <a class="pill {{ 'warn' if active else 'info' }}" style="text-decoration:none"
+         href="?tab=agentes&token={{ token }}&estado_f={{ r.estado }}">
+        {{ r.label }} <strong>({{ r.count }})</strong>
+      </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# Buscador #}
+  <form method="get" style="padding:10px 16px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #eee">
+    <input type="hidden" name="tab" value="agentes">
+    <input type="hidden" name="token" value="{{ token }}">
+    {% if request.args.get('estado_f') %}
+      <input type="hidden" name="estado_f" value="{{ request.args.get('estado_f') }}">
+    {% endif %}
+    <input type="text" name="q" placeholder="🔍 Nombre o teléfono…"
+           value="{{ request.args.get('q','') }}"
+           style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px">
+    <button type="submit">Buscar</button>
+    {% if request.args.get('q') %}
+      <a class="pill" href="?tab=agentes&token={{ token }}{% if request.args.get('estado_f') %}&estado_f={{ request.args.get('estado_f') }}{% endif %}">Limpiar</a>
+    {% endif %}
+  </form>
+
   {% if agentes %}
   <table>
-    <thead><tr><th>#</th><th>Agente</th><th>Ciudad</th><th>Estado</th>
-      <th>Videos</th><th>Origen</th><th>Actualizado</th><th>Avanzar</th><th></th></tr></thead>
+    <thead><tr>
+      <th>#</th><th>Agente</th><th>Ciudad</th><th>Estado</th>
+      <th>Videos</th><th>Edif · Inm</th>
+      <th>Últ. actividad</th><th>Acciones</th>
+    </tr></thead>
     <tbody>
     {% for a in agentes %}
     <tr>
@@ -466,28 +505,38 @@
       </td>
       <td>{{ a.ciudad or '—' }}</td>
       <td>
-        {% set cls = 'ok' if a.estado_agente == 'operativo' else 'warn' if a.estado_agente in ('kit_asignado','certificado') else 'info' %}
-        <span class="pill {{ cls }}">{{ a.estado_agente or 'lead' }}</span>
+        {% set est = a.estado_agente or 'lead' %}
+        {% set cls = 'ok' if est == 'activa' else 'warn' if est in ('autorizacion_pendiente','kit_pendiente','kit_enviado') else 'err' if est in ('autorizacion_rechazada','pausada') else 'info' %}
+        <span class="pill {{ cls }}">{{ est }}</span>
+        {% if a.bot_pausado == 'true' %}<br><span class="pill err">⏸ bot pausado</span>{% endif %}
       </td>
-      <td class="mono">{{ a.videos_vistos or 0 }}/12</td>
-      <td class="muted">{{ a.origen or '—' }}</td>
-      <td class="muted nowrap">{{ a.updated_at.strftime('%d/%m %H:%M') if a.updated_at else '—' }}</td>
-      <td>
-        <form class="inline" method="post" action="/panel/petra/agente/{{ a.contacto_id }}/avanzar">
+      <td class="mono">{{ a.videos_vistos or 0 }}/14</td>
+      <td class="mono">{{ a.n_edificios or 0 }} · {{ a.n_inmuebles or 0 }}</td>
+      <td class="muted nowrap">
+        {% if a.ultimo_in %}
+          {{ a.ultimo_in.strftime('%d/%m %H:%M') }}
+          <br><span style="font-size:11px">(in)</span>
+        {% else %}
+          <span style="font-size:11px">sin mensajes IN</span>
+        {% endif %}
+      </td>
+      <td class="nowrap">
+        <form class="inline" method="post" action="/panel/petra/agente/{{ a.contacto_id }}/reenviar_ultimo_paso">
           <input type="hidden" name="token" value="{{ token }}">
-          <select name="estado">
-            <option value="inscrito">→ inscrito</option>
-            <option value="en_capacitacion">→ en capacitación</option>
-            <option value="certificado">→ certificado</option>
-            <option value="kit_asignado">→ kit asignado</option>
-            <option value="operativo">→ operativo</option>
-            <option value="pausado">⏸ pausar</option>
-            <option value="descartado">❌ descartar</option>
-          </select>
-          <button type="submit">Ir</button>
+          <input type="hidden" name="volver" value="home">
+          <button type="submit" title="Reenvía el call-to-action del paso actual del flow">📣 Recordar</button>
         </form>
-      </td>
-      <td>
+        {% if a.bot_pausado == 'true' %}
+          <form class="inline" method="post" action="/panel/petra/agente/{{ a.contacto_id }}/reactivar_bot">
+            <input type="hidden" name="token" value="{{ token }}">
+            <button type="submit" title="Reactivar bot">▶</button>
+          </form>
+        {% else %}
+          <form class="inline" method="post" action="/panel/petra/agente/{{ a.contacto_id }}/pausar_bot">
+            <input type="hidden" name="token" value="{{ token }}">
+            <button type="submit" title="Pausar bot (hablás vos)">⏸</button>
+          </form>
+        {% endif %}
         <form class="inline" method="post" action="/panel/petra/agente/{{ a.contacto_id }}/eliminar"
               onsubmit="return confirm('¿Eliminar a {{ a.nombre or a.telefono }} como agente Petra? El contacto queda, solo deja de ser agente.');">
           <input type="hidden" name="token" value="{{ token }}">
@@ -498,7 +547,7 @@
     {% endfor %}
     </tbody>
   </table>
-  {% else %}<div class="empty">No hay agentes registrados.</div>{% endif %}
+  {% else %}<div class="empty">Sin agentes para este filtro.</div>{% endif %}
 </div>
 {% endif %}
 
