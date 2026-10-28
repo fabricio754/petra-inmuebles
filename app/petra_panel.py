@@ -2689,6 +2689,30 @@ def admin_nudges_run():
         return f"❌ Error: {type(e).__name__}: {e}\n{traceback.format_exc()}", 500
 
 
+@petra_panel_bp.post("/_admin/recordatorios-auto-run")
+def admin_recordatorios_auto_run():
+    """Dispara manualmente la pasada de recordatorios automáticos del paso
+    actual (equivalente al 📣 Recordar del panel para cada agente atascada
+    >72h sin OUT reciente). El cron corre cada 4h; este endpoint es para
+    forzar una pasada ad-hoc. POST only, respeta la ventana horaria por
+    default; pasá ?forzar=1 para ignorarla."""
+    _check_token()
+    from app.petra_agents import nudges as _n
+    forzar = (request.args.get("forzar") or "").lower() in ("1", "true", "yes")
+    try:
+        candidatas, enviados = _n.evaluar_recordatorios_automaticos(
+            forzar_horario=forzar)
+        return (f"OK ✅ Recordatorios automáticos: {candidatas} candidatas "
+                f"evaluadas → {enviados} enviados.\n"
+                f"(Las no-enviadas están en cooldown 72h, o el bot ya les habló "
+                f"en últimas 48h, o estamos fuera de horario laboral — "
+                f"usá ?forzar=1 para ignorar el horario.)"), 200
+    except Exception as e:
+        import traceback
+        return (f"❌ Error: {type(e).__name__}: {e}\n{traceback.format_exc()}",
+                500)
+
+
 @petra_panel_bp.get("/_admin/enviar-nudge")
 def admin_enviar_nudge_manual():
     """Envía UN nudge específico a UN teléfono, sin importar hace cuánto

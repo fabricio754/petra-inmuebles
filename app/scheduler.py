@@ -100,6 +100,14 @@ def iniciar():
                        minutes=2,
                        id="petra_tc_queue",
                        max_instances=1, coalesce=True)
+    # Recordatorios automáticos del paso actual: cada 4h, para agentes
+    # atascadas >72h en una fase accionable sin que el bot les haya
+    # hablado en las últimas 48h. Equivalente a pulsar "📣 Recordar" del
+    # panel admin para cada una. Cooldown 72h por agente.
+    _scheduler.add_job(_petra_recordatorios_automaticos, "interval",
+                       hours=4,
+                       id="petra_recordatorios_auto",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min, "
              "nudges/citas/kit/tc_queue Petra.")
@@ -409,6 +417,19 @@ def _petra_evaluar_citas_pendientes():
             log.info("[Scheduler] nudges:cita: %d enviados", enviados)
     except Exception:
         log.exception("[Scheduler] evaluar_citas_pendientes fallo")
+
+
+def _petra_recordatorios_automaticos():
+    """Dispara _enviar_recordatorio_retorno (= 📣 Recordar del panel)
+    para agentes atascadas >72h en fase accionable sin OUT reciente."""
+    try:
+        from app.petra_agents import nudges
+        candidatas, enviados = nudges.evaluar_recordatorios_automaticos()
+        if enviados:
+            log.info("[Scheduler] recordatorios-auto: %d candidatas → %d enviados",
+                     candidatas, enviados)
+    except Exception:
+        log.exception("[Scheduler] recordatorios_automaticos fallo")
 
 
 def _petra_tc_queue_procesar():
