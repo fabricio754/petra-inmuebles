@@ -2328,3 +2328,20 @@ UPDATE contactos
    SELECT telefono FROM petra_contactos
     WHERE id IN (3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,21,22,23,24,26,27,29,30)
  ) AND (meta <> '{}'::jsonb OR estado_agente IS NOT NULL);
+
+-- Fabricio Zabala (id=2): su propio record quedó corrompido con
+-- "Quiero ser Agente Petra" como nombre y estado=recolectando por un
+-- bug anterior. Limpiarlo también para que pueda probar de cero.
+UPDATE petra_contacto_roles
+   SET metadata = '{}'::jsonb,
+       estado = NULL,
+       estado_desde = NULL
+ WHERE contacto_id = 2
+   AND rol = 'agente_petra'
+   AND (metadata IS DISTINCT FROM '{}'::jsonb OR estado IS NOT NULL);
+
+UPDATE contactos
+   SET meta = '{}'::jsonb,
+       estado_agente = NULL
+ WHERE telefono = '573166951021'
+   AND (meta <> '{}'::jsonb OR estado_agente IS NOT NULL);
