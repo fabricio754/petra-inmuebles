@@ -422,6 +422,9 @@ def _petra_evaluar_citas_pendientes():
 def _petra_recordatorios_automaticos():
     """Dispara _enviar_recordatorio_retorno (= 📣 Recordar del panel)
     para agentes atascadas >72h en fase accionable sin OUT reciente."""
+    if os.environ.get("PETRA_NUDGES_AUTO_PAUSADO", "").lower() in ("1", "true", "yes"):
+        log.info("[Scheduler] recordatorios-auto: PAUSADO via env PETRA_NUDGES_AUTO_PAUSADO")
+        return
     try:
         from app.petra_agents import nudges
         candidatas, enviados = nudges.evaluar_recordatorios_automaticos()
