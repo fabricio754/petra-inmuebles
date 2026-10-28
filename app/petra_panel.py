@@ -2641,7 +2641,8 @@ def visitante_inmuebles(cid):
             where.append("activo=FALSE")
         sql = (
             "SELECT id, nro, operacion, habitaciones, banos, m2, precio, "
-            "       fuente, activo, creado_en, propietario_telefono "
+            "       fuente, activo, creado_en, propietario_telefono, "
+            "       gestionado_por_petra, propietario_telefono_original "
             "  FROM inmuebles_visitante "
             " WHERE " + " AND ".join(where) +
             " ORDER BY activo DESC, creado_en DESC"
@@ -2764,6 +2765,60 @@ def visitante_inmueble_toggle(iid):
             "petra_panel.visitante_conjuntos", token=token))
     return redirect(url_for("petra_panel.visitante_inmuebles",
                             cid=cid, token=token, flash="toggled"))
+
+
+@petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle-gestion")
+def visitante_inmueble_toggle_gestion(iid):
+    """Toggle del flag gestionado_por_petra.
+    - FALSE → TRUE: guarda propietario_telefono actual en
+      propietario_telefono_original y lo reemplaza por PETRA_OPERADOR_PHONE.
+    - TRUE → FALSE: restaura propietario_telefono desde el original y
+      limpia la columna de backup.
+    """
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    operador = (os.environ.get("PETRA_OPERADOR_PHONE") or "").strip()
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT conjunto_id, gestionado_por_petra, propietario_telefono, "
+                "       propietario_telefono_original "
+                "FROM inmuebles_visitante WHERE id=%s", (iid,),
+            ).fetchone()
+            if not row:
+                abort(404)
+            cid_conj, gestionado, prop_actual, prop_orig = row
+            if not gestionado:
+                # FALSE → TRUE
+                if not operador:
+                    return redirect(url_for(
+                        "petra_panel.visitante_inmuebles",
+                        cid=cid_conj, token=token,
+                        flash="falta_operador_env"))
+                conn.execute(
+                    "UPDATE inmuebles_visitante "
+                    "   SET gestionado_por_petra = TRUE, "
+                    "       propietario_telefono_original = COALESCE(propietario_telefono_original, propietario_telefono), "
+                    "       propietario_telefono = %s "
+                    " WHERE id = %s",
+                    (operador, iid),
+                )
+            else:
+                # TRUE → FALSE: restaurar el original si lo hay
+                conn.execute(
+                    "UPDATE inmuebles_visitante "
+                    "   SET gestionado_por_petra = FALSE, "
+                    "       propietario_telefono = COALESCE(propietario_telefono_original, propietario_telefono), "
+                    "       propietario_telefono_original = NULL "
+                    " WHERE id = %s",
+                    (iid,),
+                )
+            conn.commit()
+    except Exception:
+        return redirect(request.referrer or url_for(
+            "petra_panel.visitante_conjuntos", token=token))
+    return redirect(url_for("petra_panel.visitante_inmuebles",
+                            cid=cid_conj, token=token, flash="gestion_toggled"))
 
 
 @petra_panel_bp.get("/visitante/contactos")
