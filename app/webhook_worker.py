@@ -524,6 +524,7 @@ def _procesar_webhook_petra(payload):
     texto = ""
     button_id = None
     list_id = None
+    flow_response = None
     mtype = message.get("type")
     if mtype == "text":
         texto = (message.get("text") or {}).get("body", "") or ""
@@ -537,6 +538,25 @@ def _procesar_webhook_petra(payload):
             lr = inter.get("list_reply") or {}
             list_id = lr.get("id")
             texto = lr.get("title") or ""
+        elif inter.get("type") == "nfm_reply":
+            # Respuesta de un WhatsApp Flow (navflow). response_json es un
+            # string JSON con los datos que el Flow devolvió al confirmar.
+            nfm = inter.get("nfm_reply") or {}
+            raw = nfm.get("response_json") or "{}"
+            try:
+                flow_response = json.loads(raw) if isinstance(raw, str) else dict(raw)
+            except Exception:
+                log.exception("[petra] nfm_reply response_json malformado tel=%s", phone)
+                flow_response = {}
+            # Resumen compacto para el log del panel.
+            n_items = 0
+            if isinstance(flow_response, dict):
+                for k in ("selected_ids", "selected_items", "ids", "items"):
+                    v = flow_response.get(k)
+                    if isinstance(v, list):
+                        n_items = len(v)
+                        break
+            texto = f"[flow: {n_items} items]"
     elif mtype == "button":
         # Botón de template (quick reply)
         btn = message.get("button") or {}
@@ -549,10 +569,12 @@ def _procesar_webhook_petra(payload):
     wamid_in = message.get("id") if isinstance(message, dict) else None
     try:
         resumen_in = texto or f"[{mtype or 'unknown'}]"
+        tipo_log = "nfm_reply" if flow_response is not None else (mtype or "unknown")
         db.log_mensaje(
-            phone, "in", mtype or "unknown", resumen_in[:500],
+            phone, "in", tipo_log, resumen_in[:500],
             {"wa_msg_id": wamid_in, "button_id": button_id,
-             "list_id": list_id, "message": message},
+             "list_id": list_id, "flow_response": flow_response,
+             "message": message},
             wa_msg_id=wamid_in,
         )
     except Exception:
@@ -588,7 +610,10 @@ def _procesar_webhook_petra(payload):
     # registrados tienen prioridad sobre el flujo visitante.
     try:
         from app import petra_visitante, petra_wa
-        if petra_visitante.es_visitante(phone, texto):
+        # Un nfm_reply del Flow de inmuebles siempre pertenece al flow
+        # visitante — forzamos la rama aunque es_visitante() falle (p.ej.
+        # porque el estado sticky expiró entre el envío del Flow y el submit).
+        if petra_visitante.es_visitante(phone, texto) or flow_response is not None:
             wamid = message.get("id") if isinstance(message, dict) else None
             if wamid:
                 try:
@@ -599,6 +624,7 @@ def _procesar_webhook_petra(payload):
                 telefono=phone, texto=texto,
                 button_id=button_id, list_id=list_id,
                 contacto_nombre=nombre, wa_msg_id=wamid,
+                flow_response=flow_response,
             )
             return
     except Exception:
