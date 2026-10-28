@@ -2130,6 +2130,17 @@ def admin_enviar_plantilla_volvemos():
     IDS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20,
            21, 22, 23, 24, 26, 27, 29, 30]
     dry = (request.args.get("dry") or "").lower() in ("1", "true", "yes")
+    # ?limit=N → corta después de N envíos.  ?offset=N → salta los primeros N.
+    # Útil para mandar primero sólo al que querés probar (limit=1) y después
+    # al resto (offset=1).
+    def _int_arg(name, default=0):
+        v = (request.args.get(name) or "").strip()
+        try:
+            return int(v) if v else default
+        except ValueError:
+            return default
+    limit = _int_arg("limit", 0)
+    offset = _int_arg("offset", 0)
     enviados = []
     fallos = []
     try:
@@ -2141,6 +2152,12 @@ def admin_enviar_plantilla_volvemos():
             ).fetchall()
     except Exception as e:
         return f"❌ Error leyendo contactos: {type(e).__name__}: {e}", 500
+
+    # Aplicar offset + limit
+    if offset:
+        rows = rows[offset:]
+    if limit:
+        rows = rows[:limit]
 
     for cid, tel, nombre in rows:
         if dry:
