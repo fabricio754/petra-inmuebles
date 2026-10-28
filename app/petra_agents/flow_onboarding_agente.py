@@ -746,8 +746,11 @@ def _fase_kit_pendiente(conn, telefono, cid, meta, texto, sesion_id=None):
     # chars útiles (letras/dígitos). Rechaza "?", "ok", emoji suelto.
     v = texto.strip()
     utiles = _re.sub(r"[^a-záéíóúñA-ZÁÉÍÓÚÑ0-9]", "", v)
+    # "?" solo cuenta si TODO el texto es básicamente la pregunta — no
+    # queremos rechazar direcciones legítimas tipo "Torre 3 apto 702?"
+    # donde el "?" es solo un gesto de incertidumbre al final.
     sospechoso = any(s in t_lc for s in (
-        "?", "ya te", "ya les", "cuanto", "cuándo", "cómo", "dónde",
+        "ya te", "ya les", "cuanto", "cuándo", "cómo", "dónde",
         "disculp", "olvid", "no sé", "no se", "mandame"))
     if len(v) < 6 or len(utiles) < 8 or sospechoso:
         _sm(telefono,
@@ -2519,7 +2522,29 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
                      nota="pulsó corregir")
                 return True
         if texto == "ONBAG_CANCELAR" or texto_lc in ("cancelar", "cancelo"):
-            # Borrar rol + cerrar sesión
+            # Confirmación intermedia: cancelar es destructivo (borra TODO el
+            # rol + progreso). Un clic accidental no debería ser suficiente.
+            _send_buttons(
+                telefono,
+                "⚠️ ¿Seguro que querés cancelar tu registro como Agente Petra?\n\n"
+                "Vas a perder los datos que ya cargaste.",
+                [
+                    {"id": "ONBAG_CANCELAR_CONFIRMAR", "title": "🗑️ Sí, cancelar"},
+                    {"id": "ONBAG_CANCELAR_VOLVER", "title": "↩️ Volver"},
+                ],
+                estado_key=None,
+            )
+            _log(telefono, texto, "[pedí confirmación de cancelar]",
+                 nota="confirmación cancelar enviada")
+            return True
+        if texto == "ONBAG_CANCELAR_VOLVER":
+            # Re-mostrar el resumen de los datos actuales + botones.
+            _enviar_resumen(telefono, meta)
+            _log(telefono, texto, "[resumen re-enviado]",
+                 nota="user volvió, no canceló")
+            return True
+        if texto == "ONBAG_CANCELAR_CONFIRMAR":
+            # Ahora sí: borrar rol + cerrar sesión.
             conn.execute(
                 "DELETE FROM petra_contacto_roles "
                 "WHERE contacto_id=%s AND rol='agente_petra'",
@@ -2528,7 +2553,7 @@ def _handle_core(telefono, texto, es_handoff=False, sesion_id=None):
             resp = ("Dale, cancelamos tu registro. Si cambiás de idea, "
                     "volvenos a escribir cuando quieras. 👋")
             _enviar(telefono, resp)
-            _log(telefono, texto, resp, nota="cancelado por user")
+            _log(telefono, texto, resp, nota="cancelado por user (confirmado)")
             from app.petra_agents import sesion, intent_store
             intent_store.cerrar(telefono)
             sesion.cerrar(telefono, razon="cancelado_por_user")
@@ -2900,10 +2925,15 @@ def _mostrar_mis_citas(telefono, cid, conn):
                 f"   📆 {fecha} · _{estado}_"
                 + (f" · inm#{inm_id}" if inm_id else "")
             )
-        lineas.append("")
-        lineas.append("_Para responder una cita puntual, escribime el número ej. 'cita 7'._")
         texto = "\n".join(lineas)
-    petra_wa.send_text(telefono, texto)
+    # Siempre dejar un botón de regreso al panel — antes era un dead-end;
+    # también sacamos la promesa "escribime 'cita 7'" porque ese handler
+    # no existe y la agente escribía al vacío.
+    _send_buttons(
+        telefono, texto,
+        [{"id": "ONBAG_VOLVER_PANEL", "title": "⬅️ Volver al panel"}],
+        estado_key=None,
+    )
 
 
 def _mostrar_mi_capacitacion(telefono, meta, page=0):
