@@ -165,7 +165,10 @@ a:hover { text-decoration: underline; }
   {% endif %}
   <div class="chips">
     {% set estado = meta.get('estado_agente') or 'lead' %}
-    {% set cls = 'ok' if estado == 'operativo' else 'warn' if estado in ('kit_asignado','certificado') else 'info' %}
+    {% set cls = 'ok' if estado == 'activa'
+                 else 'warn' if estado in ('autorizacion_pendiente','kit_pendiente','kit_enviado')
+                 else 'danger' if estado in ('autorizacion_rechazada','pausada')
+                 else 'info' %}
     <span class="pill {{ cls }}">{{ estado }}</span>
     {% if bot_pausado %}<span class="pill danger">⏸ bot pausado</span>{% endif %}
     {% if agente.opt_out %}<span class="pill muted">opt-out</span>{% endif %}
@@ -173,6 +176,10 @@ a:hover { text-decoration: underline; }
     {% if meta.get('conjunto') %}<span class="pill muted">🏢 {{ meta.get('conjunto') }}</span>{% endif %}
   </div>
   <div class="acciones">
+    <form method="post" action="/panel/petra/agente/{{ agente.id }}/reenviar_ultimo_paso">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn primary" title="Dispara el call-to-action del paso actual del flow — ideal si quedó parada">📣 Reenviar último paso</button>
+    </form>
     {% if bot_pausado %}
       <form method="post" action="/panel/petra/agente/{{ agente.id }}/reactivar_bot">
         <input type="hidden" name="token" value="{{ token }}">
@@ -190,6 +197,22 @@ a:hover { text-decoration: underline; }
       <button type="submit" class="btn danger">🗑 Eliminar como agente</button>
     </form>
   </div>
+</div>
+
+{# ========== ¿Qué sigue? — call-to-action del paso actual ========== #}
+<div class="card" style="border-left:4px solid var(--accent)">
+  <h2 style="margin:0 0 6px">📍 ¿En qué está?</h2>
+  <div style="font-weight:600; color:var(--text); margin-bottom:4px">
+    {{ siguiente_paso.titulo }}
+  </div>
+  <div style="font-size:13px; color:var(--muted)">
+    {{ siguiente_paso.texto }}
+  </div>
+  {% if flash == 'recordatorio_enviado' %}
+    <div class="aviso ok" style="margin-top:10px">
+      📣 Recordatorio enviado. La agente debería ver el call-to-action en WhatsApp en segundos.
+    </div>
+  {% endif %}
 </div>
 
 {# ========== Datos del agente ========== #}
@@ -222,21 +245,50 @@ a:hover { text-decoration: underline; }
 {# ========== Progreso de capacitación ========== #}
 <div class="card">
   <h2>📊 Progreso de capacitación</h2>
-  {% set pct = (videos_vistos * 100 // 12) if videos_vistos else 0 %}
+  {% set pct = (videos_vistos * 100 // 14) if videos_vistos else 0 %}
   <div class="progreso-barra"><div style="width: {{ pct }}%"></div></div>
-  <div class="progreso-sub">{{ videos_vistos }} / 12 videos vistos ({{ pct }}%)</div>
+  <div class="progreso-sub">{{ videos_vistos }} / 14 videos vistos ({{ pct }}%)</div>
 
   {% if flash == 'cap_reseteada' %}
-    <div class="aviso ok" style="margin-top:10px">↩ Capacitación reseteada. La agente vuelve a esperando_capacitacion_dia1 con 0/12 videos.</div>
+    <div class="aviso ok" style="margin-top:10px">↩ Capacitación reseteada. La agente vuelve a esperando_capacitacion_dia1 con 0/14 videos.</div>
   {% endif %}
 
   <div class="acciones" style="margin-top:12px">
     <form method="post" action="/panel/petra/agente/{{ agente.id }}/revertir_cap"
-          onsubmit="return confirm('Resetear la capacitación de {{ agente.nombre or agente.telefono }}? Volverá a esperando_capacitacion_dia1 con 0/12 videos. Útil si un envío falló por ventana 24h.');">
+          onsubmit="return confirm('Resetear la capacitación de {{ agente.nombre or agente.telefono }}? Volverá a esperando_capacitacion_dia1 con 0/14 videos. Útil si un envío falló por ventana 24h.');">
       <input type="hidden" name="token" value="{{ token }}">
       <button type="submit" class="btn warn">↩ Resetear capacitación</button>
     </form>
   </div>
+</div>
+
+{# ========== Edificios + inmuebles del agente ========== #}
+<div class="card">
+  <h2>🏢 Edificios registrados ({{ edificios|length }})</h2>
+  {% if edificios %}
+    <div class="datos-grid" style="grid-template-columns:1fr">
+    {% for e in edificios %}
+      <div class="fila" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f1eef7">
+        <div>
+          <strong>{{ e.nombre }}</strong>
+          <span class="pill muted" style="margin-left:6px">#{{ e.codigo }}</span>
+          {% if e.ciudad %}<br><span style="font-size:12px;color:var(--muted)">📍 {{ e.ciudad }}</span>{% endif %}
+        </div>
+        <div style="text-align:right">
+          <span class="pill info">🏠 Arr {{ e.arr_activos }}</span>
+          <span class="pill info">💰 Ven {{ e.ven_activos }}</span>
+          {% if e.petra_gestiona > 0 %}
+            <br><span class="pill" style="background:#ece6ff;color:#5533cc;margin-top:4px;display:inline-block">💜 Petra gestiona {{ e.petra_gestiona }}</span>
+          {% endif %}
+          <br><a href="/panel/petra/visitante/inmuebles?cid={{ e.id }}&token={{ token }}"
+                 style="font-size:12px;color:var(--accent)">Ver inmuebles →</a>
+        </div>
+      </div>
+    {% endfor %}
+    </div>
+  {% else %}
+    <div class="vacio">Esta agente todavía no agregó edificios.</div>
+  {% endif %}
 </div>
 
 {# ========== Chat ========== #}

@@ -954,6 +954,30 @@ def _cargar_ficha_agente(conn, cid):
     meta = agente.get("metadata") or {}
     bot_pausado = str(meta.get("bot_pausado", "")).lower() == "true"
 
+    # Edificios + inmuebles del agente (vive en conjuntos_visitante.creado_por_cid).
+    edificios = _rows(conn,
+        """SELECT cv.id, cv.codigo, cv.nombre, cv.ciudad, cv.creado_en,
+                  COALESCE(SUM(CASE WHEN iv.activo AND iv.operacion='arriendo'
+                                    THEN 1 ELSE 0 END), 0) AS arr_activos,
+                  COALESCE(SUM(CASE WHEN iv.activo AND iv.operacion='venta'
+                                    THEN 1 ELSE 0 END), 0) AS ven_activos,
+                  COALESCE(SUM(CASE WHEN iv.activo AND iv.gestionado_por_petra
+                                    THEN 1 ELSE 0 END), 0) AS petra_gestiona
+             FROM conjuntos_visitante cv
+             LEFT JOIN inmuebles_visitante iv ON iv.conjunto_id = cv.id
+            WHERE cv.creado_por_cid = %s
+            GROUP BY cv.id
+            ORDER BY cv.creado_en DESC""",
+        (cid,))
+
+    # "¿Qué sigue?" — call-to-action humano del paso actual del flow.
+    estado_actual = (meta.get("estado_agente") or "").strip()
+    sig = _SIGUIENTE_PASO.get(estado_actual) or {
+        "titulo": "— sin estado —",
+        "texto": "La agente todavía no está en el flow determinístico.",
+        "accion": None,
+    }
+
     return {
         "agente": agente,
         "meta": meta,
@@ -964,7 +988,82 @@ def _cargar_ficha_agente(conn, cid):
         "videos_vistos": videos_vistos,
         "timeline": timeline,
         "bot_pausado": bot_pausado,
+        "edificios": edificios,
+        "estado_actual": estado_actual,
+        "siguiente_paso": sig,
     }
+
+
+# Mapa estado→descripción humana + call-to-action para el panel admin.
+# Usado por la ficha /agente/<cid> para mostrar "¿Qué le falta?" sin que
+# el humano tenga que recordar en qué fase cae cada estado.
+_SIGUIENTE_PASO = {
+    "recolectando": {
+        "titulo": "Recolectando datos de inscripción",
+        "texto": "Le estamos pidiendo nombre/cédula/ciudad/barrio/conjunto. Si lleva mucho parada acá, revisá si abandonó.",
+        "accion": "Reenviar último paso",
+    },
+    "inscrito": {
+        "titulo": "Inscrita — esperando empezar capacitación",
+        "texto": "Ya terminó inscripción. Le mostramos los próximos pasos; falta que pulse 'Empezar ahora'.",
+        "accion": "Reenviar último paso",
+    },
+    "bienvenida_enviada": {
+        "titulo": "Bienvenida enviada — esperando 'Empezar ahora'",
+        "texto": "Vio el journey. Tiene que pulsar 'Empezar ahora' para arrancar los videos del día 1.",
+        "accion": "Reenviar último paso",
+    },
+    "esperando_capacitacion_dia1": {
+        "titulo": "Esperando día 1 de capacitación",
+        "texto": "El cron de las 11am Bogotá le va a mandar el día 1. Si no quiere esperar, forzá con 'Reenviar último paso'.",
+        "accion": "Reenviar último paso",
+    },
+    "en_capacitacion": {
+        "titulo": "En capacitación",
+        "texto": "Está viendo los videos. El cron sigue avanzando los días. 'Reenviar' manda otra vez el día actual si quedó parada.",
+        "accion": "Reenviar último paso",
+    },
+    "capacitacion_completa": {
+        "titulo": "Capacitación completa — falta activar edificio",
+        "texto": "Terminó los 14 videos. Ahora tiene que agregar su edificio para que arranque la autorización.",
+        "accion": "Reenviar último paso",
+    },
+    "autorizacion_pendiente": {
+        "titulo": "Autorización pendiente del administrador",
+        "texto": "Está hablando con el admin del edificio para pegar el QR. Esperamos foto del QR instalado.",
+        "accion": "Reenviar último paso",
+    },
+    "autorizacion_rechazada": {
+        "titulo": "Autorización rechazada por admin",
+        "texto": "El admin dijo que no. Decidimos si re-intentamos en otro momento o pausamos la agente.",
+        "accion": None,
+    },
+    "kit_pendiente": {
+        "titulo": "Esperando dirección para enviar kit",
+        "texto": "Tiene que mandar su dirección completa (torre, apto, barrio, ciudad).",
+        "accion": "Reenviar último paso",
+    },
+    "kit_enviado": {
+        "titulo": "Kit en camino — esperando foto del QR instalado",
+        "texto": "El kit salió. Cuando reciba, tiene que pegar el QR y mandar foto.",
+        "accion": "Reenviar último paso",
+    },
+    "activa": {
+        "titulo": "Activa — operativa 🎉",
+        "texto": "Ya está recibiendo citas y gestionando inventario. Panel operativo disponible desde WA.",
+        "accion": None,
+    },
+    "pausada": {
+        "titulo": "Pausada",
+        "texto": "Pausada manualmente desde panel. Reactivá cuando corresponda.",
+        "accion": None,
+    },
+    "certificado": {
+        "titulo": "Certificada",
+        "texto": "Capacitación cerrada con certificación formal.",
+        "accion": None,
+    },
+}
 
 
 @petra_panel_bp.get("/agente/<int:cid>")
