@@ -2151,6 +2151,15 @@ def admin_enviar_plantilla_volvemos():
                 to=tel,
                 template_name="petra_volvemos_v2",
                 language="es_CO",
+                components=[{
+                    "type": "header",
+                    "parameters": [{
+                        "type": "image",
+                        "image": {
+                            "link": "https://petra-inmuebles.onrender.com/static/petra_volvemos.png",
+                        },
+                    }],
+                }],
             )
             if r.get("ok"):
                 nota = ""
