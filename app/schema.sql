@@ -2318,3 +2318,43 @@ WHERE NOT EXISTS (
 -- completaba datos, el UPDATE la volvía a vaciar.  Removido.  El reset
 -- original ya se ejecutó exitosamente el 28/10/2026 03:35 UTC.
 -- NUNCA volver a poner un UPDATE con efectos no idempotentes acá.
+
+-- ============================================================================
+-- Tabla de migraciones one-shot para que un bloque corra UNA SOLA vez,
+-- sin importar cuántas veces se re-inicialice el pool.
+-- Ver lección aprendida en el comentario del bloque de reset de arriba.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS one_shot_migrations (
+  nombre TEXT PRIMARY KEY,
+  ejecutado_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Recuperación de datos de Diana Sofia Botero Muñoz (contacto_id=10).
+-- Los capturó por chat 2026-10-28 03:57-03:59 UTC y mi bug previo le vació
+-- metadata en el pool restart.  Datos tomados del log de mensajes IN.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM one_shot_migrations
+                  WHERE nombre = '2026-10-28_recuperar_diana_cid10') THEN
+    UPDATE petra_contacto_roles
+       SET metadata = jsonb_build_object(
+             'nombre',   'Diana Sofia Botero Muñoz',
+             'cedula',   '1019985587',
+             'ciudad',   'Bogotá',
+             'barrio',   'Bosques de Mariana',
+             'cap_version', 2,
+             'inscrito_at', '2026-10-28T03:59:57Z',
+             'recuperado_at', NOW()::text
+           ),
+           estado = 'inscrito',
+           updated_at = NOW()
+     WHERE contacto_id = 10
+       AND rol = 'agente_petra';
+    UPDATE petra_contactos
+       SET nombre = 'Diana Sofia Botero Muñoz'
+     WHERE id = 10
+       AND (nombre IS DISTINCT FROM 'Diana Sofia Botero Muñoz');
+    INSERT INTO one_shot_migrations (nombre)
+      VALUES ('2026-10-28_recuperar_diana_cid10');
+  END IF;
+END $$;
