@@ -4,6 +4,22 @@ Estado persistido en `contactos.meta->>'visitante_estado'` (jsonb).
 Datos auxiliares (conjunto_id, borrador de publicación, inmueble en
 foco, etc.) se guardan en el mismo `contactos.meta`.
 
+Multi-select de inmuebles — camino A' (WhatsApp Flow)
+-----------------------------------------------------
+Si la env `PETRA_FLOW_INMUEBLES_ID` está seteada (= flow_id publicado
+en Meta), `_mostrar_lista` envía un `interactive.type=flow` con los
+items en `flow_action_payload.data.items`. El visitante abre la
+pantalla nativa, marca los que le interesan, confirma y el webhook
+recibe un `nfm_reply` que vuelve acá como `flow_response` en
+`handle_message`. Entonces `_procesar_flow_submit` persiste la
+selección en `petra_interesados_qr` + `visitante_contactos` y manda UN
+mensaje por inmueble con el link wa.me del propietario — sin resumen
+intermedio.
+
+Si la env NO está seteada, `_mostrar_lista` cae al carrito nativo
+(camino B, PR #328) que sigue siendo el default por compat.
+Setup Meta del Flow: ver `docs/WHATSAPP_FLOW_INMUEBLES.md`.
+
 Estados (string, el router hace split por ':' para extraer sub-id):
     menu
     arriendo_lista
@@ -26,8 +42,11 @@ wamid y mandó el typing indicator — no hace falta repetirlo acá.
 """
 import json
 import logging
+import os
 import re
+import time
 import unicodedata
+from urllib.parse import quote
 
 from app import db as _db
 from app import petra_wa as _pwa
@@ -36,6 +55,19 @@ from app.petra_visitante import qr_parser as _qr
 from app.petra_visitante import textos as T
 
 log = logging.getLogger(__name__)
+
+
+def _petra_flow_inmuebles_id():
+    """ID del WhatsApp Flow (Meta Business Manager) para el multi-select
+    de inmuebles. Se lee en cada invocación — así cambia sin redeploy
+    cuando Fabricio lo setea en Render. Vacío = flow deshabilitado y
+    cae al carrito nativo (camino B)."""
+    return (os.environ.get("PETRA_FLOW_INMUEBLES_ID") or "").strip()
+
+
+# Límite duro de items en una pantalla de WhatsApp Flow (CheckboxGroup).
+# Meta rechaza payloads con más — truncamos y avisamos en el body.
+_FLOW_MAX_ITEMS = 30
 
 
 # ---------------------------------------------------------------------------
@@ -420,12 +452,24 @@ def _es_intent_quiero_agente(texto):
 
 
 def handle_message(telefono, texto, button_id=None, list_id=None,
-                   contacto_nombre=None, wa_msg_id=None):
-    """Punto de entrada único del flujo visitante."""
+                   contacto_nombre=None, wa_msg_id=None,
+                   flow_response=None):
+    """Punto de entrada único del flujo visitante.
+
+    `flow_response` llega cuando el usuario completó un WhatsApp Flow
+    (nfm_reply). Si viene, se procesa primero y se corta el resto del
+    dispatch — el Flow es la fuente de verdad del turno.
+    """
     try:
         with _db._conexion_directa(timeout=5) as conn:
             _upsert_contacto(conn, telefono, nombre=contacto_nombre)
             _, meta = _leer_contacto(conn, telefono)
+
+            # ---- Submit de WhatsApp Flow (nfm_reply) ---------------------
+            # El Flow trae su propio contexto; no dispatcheamos por estado.
+            if flow_response is not None:
+                _procesar_flow_submit(conn, telefono, meta, flow_response)
+                return
 
             vis_estado_raw = (meta or {}).get("visitante_estado") or ""
             base_vis = vis_estado_raw.split(":", 1)[0]
@@ -620,6 +664,14 @@ def _dispatch(conn, telefono, texto, button_id, list_id,
 # ---------------------------------------------------------------------------
 
 def _mostrar_lista(conn, telefono, conjunto, meta, operacion):
+    # Camino A' — WhatsApp Flow multi-select nativo (feature flag).
+    # Si el env PETRA_FLOW_INMUEBLES_ID está seteado, usamos la pantalla
+    # in-app de WhatsApp (checkboxes) en vez del carrito tradicional.
+    if _petra_flow_inmuebles_id():
+        _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion)
+        return
+
+    # Camino B — carrito nativo (PR #328), default por compat.
     # Excluye los inmuebles ya elegidos en el carrito así no re-aparecen.
     ya_en_carrito = _carrito_ids(meta, operacion)
     inmuebles = _listar_inmuebles(conn, conjunto["id"], operacion,
@@ -639,6 +691,299 @@ def _mostrar_lista(conn, telefono, conjunto, meta, operacion):
     _set_estado(conn, telefono, nuevo_estado, meta=meta)
     _enviar(telefono, _menus.lista_inmuebles(conjunto["nombre"],
                                              operacion, inmuebles))
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp Flow multi-select — camino A' (PR #65)
+# ---------------------------------------------------------------------------
+
+def _fmt_precio(inm, operacion):
+    """Formatea el precio para mostrar en el chat. inm['precio'] en pesos."""
+    p = inm.get("precio") or 0
+    try:
+        p = int(p)
+    except (TypeError, ValueError):
+        return ""
+    if p <= 0:
+        return ""
+    if operacion == "venta" and p >= 1_000_000:
+        # Ventas se expresan en millones (ej. $650M).
+        return f"${p // 1_000_000}M"
+    if p >= 1_000_000:
+        return f"${p/1_000_000:.1f}M".replace(".0M", "M")
+    if p >= 1_000:
+        return f"${p/1_000:.0f}k"
+    return f"${p}"
+
+
+def _subtitulo_inm_flow(inm, operacion):
+    """Línea secundaria del item en la pantalla del Flow (habitaciones,
+    baños, m², precio). Max 80 chars porque algunos themes de Flow
+    truncan agresivo."""
+    partes = []
+    hab = inm.get("hab") or inm.get("habitaciones")
+    banos = inm.get("banos")
+    m2 = inm.get("m2")
+    if hab:
+        partes.append(f"{hab} hab")
+    if banos:
+        partes.append(f"{banos} baños")
+    if m2:
+        partes.append(f"{m2} m²")
+    precio = _fmt_precio(inm, operacion)
+    if precio:
+        partes.append(precio)
+    return " · ".join(partes)[:80]
+
+
+def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
+    """Envía el mensaje con botón que abre el WhatsApp Flow multi-select."""
+    inmuebles = _listar_inmuebles(conn, conjunto["id"], operacion,
+                                  limite=_FLOW_MAX_ITEMS + 1)
+    if not inmuebles:
+        vacio = (T.LISTA_VACIA_ARRIENDO if operacion == "arriendo"
+                 else T.LISTA_VACIA_VENTA).format(edificio=conjunto["nombre"])
+        _enviar(telefono, _menus.solo_menu_boton(vacio))
+        _set_estado(conn, telefono, "menu", meta=meta)
+        return
+
+    truncado = len(inmuebles) > _FLOW_MAX_ITEMS
+    inmuebles = inmuebles[:_FLOW_MAX_ITEMS]
+
+    items = []
+    for inm in inmuebles:
+        tipo = (inm.get("tipo") or "inmueble").capitalize()
+        nro = inm.get("nro") or inm["id"]
+        items.append({
+            "id": str(inm["id"]),
+            "title": f"#{nro} — {tipo}"[:30],
+            "subtitle": _subtitulo_inm_flow(inm, operacion),
+        })
+
+    # Guardamos el contexto del Flow en meta para interpretar el nfm_reply
+    # cuando vuelva (puede tardar segundos si el visitante lee despacio).
+    meta_nuevo = dict(meta or {})
+    meta_nuevo["flow_operacion"] = operacion
+    meta_nuevo["flow_conjunto_id"] = conjunto["id"]
+    nuevo_estado = "arriendo_flow" if operacion == "arriendo" else "venta_flow"
+    _set_estado(conn, telefono, nuevo_estado, meta=meta_nuevo)
+
+    operacion_label = "Arriendos" if operacion == "arriendo" else "Ventas"
+    emoji_op = "🔑" if operacion == "arriendo" else "💰"
+    cuenta = f"{len(inmuebles)}+" if truncado else str(len(inmuebles))
+    body_lines = [
+        f"{emoji_op} *{operacion_label} en {conjunto['nombre']}*",
+        "",
+        f"Hay *{cuenta} inmuebles* disponibles. "
+        "Tocá abajo para verlos y seleccionar los que te interesen.",
+    ]
+    if truncado:
+        body_lines.append("")
+        body_lines.append(
+            f"_(mostrando los primeros {_FLOW_MAX_ITEMS} más recientes)_"
+        )
+
+    flow_token = f"inm:{conjunto['id']}:{operacion}:{telefono}:{int(time.time())}"
+    try:
+        _pwa.send_flow(
+            to=telefono,
+            flow_id=_petra_flow_inmuebles_id(),
+            flow_token=flow_token,
+            flow_cta="📋 Ver inmuebles",
+            flow_action_payload={
+                "screen": "SELECT_PROPERTIES",
+                "data": {
+                    "edificio": conjunto["nombre"],
+                    "operacion_label": operacion_label,
+                    "items": items,
+                },
+            },
+            body="\n".join(body_lines),
+        )
+    except Exception:
+        log.exception("[visitante] send_flow fallo tel=%s conjunto=%s",
+                      telefono, conjunto.get("codigo"))
+        # Fallback: carrito normal, para no dejar al visitante colgado.
+        _enviar(telefono, _menus.lista_inmuebles(conjunto["nombre"],
+                                                 operacion, inmuebles))
+
+
+def _flow_response_extraer_ids(flow_response):
+    """Normaliza las keys que el Flow puede devolver a una lista de ints.
+    Soporta `selected_ids`, `selected_items`, `ids`, `items`. Si viene
+    como lista de dicts (p.ej. [{id: "12", ...}]) extrae el id."""
+    if not isinstance(flow_response, dict):
+        return []
+    seleccion = None
+    for k in ("selected_ids", "selected_items", "ids", "items"):
+        v = flow_response.get(k)
+        if isinstance(v, list):
+            seleccion = v
+            break
+    if not seleccion:
+        return []
+    ids = []
+    for s in seleccion:
+        if isinstance(s, dict):
+            s = s.get("id")
+        if s is None:
+            continue
+        try:
+            ids.append(int(s))
+        except (TypeError, ValueError):
+            continue
+    # Preserva orden y elimina duplicados.
+    vistos = set()
+    out = []
+    for i in ids:
+        if i not in vistos:
+            vistos.add(i)
+            out.append(i)
+    return out
+
+
+def _procesar_flow_submit(conn, telefono, meta, flow_response):
+    """Submit del WhatsApp Flow multi-select de inmuebles.
+
+    Persiste la selección en petra_interesados_qr + visitante_contactos
+    y manda UN mensaje por inmueble seleccionado con el link wa.me del
+    propietario pre-cargado. Según el mockup del user, NO envía resumen
+    intermedio entre el Flow y los N mensajes individuales.
+    """
+    operacion = (meta or {}).get("flow_operacion") or "arriendo"
+    conjunto_id = (meta or {}).get("flow_conjunto_id")
+
+    seleccion_ids = _flow_response_extraer_ids(flow_response)
+    if not seleccion_ids:
+        _enviar(telefono, _menus.texto(
+            "No seleccionaste ningún inmueble. "
+            "Escribí *menú* para volver al inicio. 💜"
+        ))
+        return
+
+    conjunto = _conjunto_por_id(conn, conjunto_id) if conjunto_id else None
+    if not conjunto:
+        log.warning("[visitante] flow submit sin conjunto en meta tel=%s "
+                    "flow_response=%s", telefono, flow_response)
+        _enviar(telefono, _menus.texto(
+            "Se me perdió el contexto del edificio. "
+            "Escribí *like* o escaneá el QR de nuevo para empezar. 💜"
+        ))
+        return
+
+    # Carga completa de los items seleccionados (con propietario_telefono).
+    rows = []
+    try:
+        rows = conn.execute(
+            "SELECT id, nro, tipo, habitaciones, banos, m2, precio, "
+            "       propietario_telefono "
+            "FROM inmuebles_visitante "
+            "WHERE conjunto_id=%s AND id = ANY(%s) AND activo=TRUE",
+            (conjunto["id"], list(seleccion_ids)),
+        ).fetchall()
+    except Exception:
+        log.exception("[visitante] flow submit: query items fallo tel=%s",
+                      telefono)
+    items_map = {
+        r[0]: {
+            "id": r[0], "nro": r[1], "tipo": r[2],
+            "hab": r[3], "banos": r[4], "m2": r[5], "precio": r[6],
+            "propietario_telefono": r[7],
+        }
+        for r in rows
+    }
+    # Respeta el orden en que el visitante los eligió en la pantalla.
+    items = [items_map[i] for i in seleccion_ids if i in items_map]
+    if not items:
+        _enviar(telefono, _menus.texto(
+            "Los inmuebles que elegiste ya no están disponibles. "
+            "Escribí *menú* para ver lo nuevo. 💜"
+        ))
+        return
+
+    # Nombre + username del interesado (para petra_interesados_qr).
+    nombre_in = None
+    username_in = None
+    try:
+        r = conn.execute(
+            "SELECT nombre, username FROM petra_contactos WHERE telefono=%s",
+            (telefono,),
+        ).fetchone()
+        if r:
+            nombre_in = r[0]
+            username_in = r[1]
+    except Exception:
+        log.exception("[visitante] flow submit: nombre fallo tel=%s", telefono)
+
+    # 1) petra_interesados_qr: una fila con todos los inmueble_ids.
+    try:
+        conn.execute(
+            "INSERT INTO petra_interesados_qr "
+            "(interesado_telefono, interesado_nombre, interesado_username, "
+            " conjunto_id, inmueble_ids) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (telefono, nombre_in, username_in,
+             conjunto["id"], [int(i["id"]) for i in items]),
+        )
+    except Exception:
+        log.exception("[visitante] flow submit: insert interesados_qr fallo tel=%s",
+                      telefono)
+
+    # 2) visitante_contactos: una fila por inmueble (compat con lo existente).
+    for inm in items:
+        try:
+            conn.execute(
+                "INSERT INTO visitante_contactos "
+                "(telefono, contacto_nombre, conjunto_id, inmueble_id) "
+                "VALUES (%s, %s, %s, %s)",
+                (telefono, nombre_in, conjunto["id"], int(inm["id"])),
+            )
+        except Exception:
+            log.exception(
+                "[visitante] flow submit: insert visitante_contactos fallo "
+                "tel=%s inm=%s", telefono, inm.get("id"),
+            )
+
+    log.info("[visitante] FLOW_SUBMIT tel=%s conjunto=%s op=%s ids=%s",
+             telefono, conjunto["codigo"], operacion, seleccion_ids)
+
+    # 3) UN mensaje por inmueble — directo, sin resumen previo (según mockup).
+    emoji_op = "🔑" if operacion == "arriendo" else "💰"
+    for inm in items:
+        tipo = (inm.get("tipo") or "inmueble").capitalize()
+        nro = inm.get("nro") or inm["id"]
+        precio = _fmt_precio(inm, operacion)
+        hab = inm.get("hab")
+        meta_bits = []
+        if hab:
+            meta_bits.append(f"{hab}hab")
+        if precio:
+            meta_bits.append(precio)
+        cabecera = f"{emoji_op} #{nro} — {tipo}"
+        if meta_bits:
+            cabecera += " · " + " · ".join(meta_bits)
+        prop_tel = (inm.get("propietario_telefono") or "").strip()
+        prop_clean = re.sub(r"\D", "", prop_tel)
+        if prop_clean:
+            saludo = (
+                f"Hola, me interesa el inmueble #{nro} "
+                f"del edificio {conjunto['nombre']}."
+            )
+            url = f"https://wa.me/{prop_clean}?text={quote(saludo)}"
+            _enviar(telefono, _menus.texto(
+                f"{cabecera}\n👉 Hablar sobre este inmueble: {url}"
+            ))
+        else:
+            _enviar(telefono, _menus.texto(
+                f"{cabecera}\n_(sin contacto de propietario registrado — "
+                f"el equipo Petra te contactará)_"
+            ))
+
+    # 4) Cerramos el estado del Flow — próximo mensaje va al menú del edificio.
+    meta_fin = dict(meta or {})
+    meta_fin.pop("flow_operacion", None)
+    meta_fin.pop("flow_conjunto_id", None)
+    _set_estado(conn, telefono, "menu", meta=meta_fin)
 
 
 def _agregar_carrito(conn, telefono, conjunto, meta, operacion, iid):

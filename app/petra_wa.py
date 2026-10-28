@@ -353,6 +353,53 @@ def send_list(to, body, button_label, sections):
     })
 
 
+def send_flow(to, flow_id, flow_token, flow_cta, flow_action_payload,
+              body, header=None):
+    """Envía un mensaje tipo WhatsApp Flow (navflow).
+
+    Al tap del botón flow_cta, el usuario entra a una pantalla in-app
+    hosteada por WhatsApp (definida en Meta Business Manager → Flows).
+    Al confirmar, se recibe un `nfm_reply` en el webhook con el JSON de
+    respuesta del Flow.
+
+    Args:
+      flow_id: ID del Flow publicado en Meta.
+      flow_token: identificador único de esta sesión del Flow (lo elegís).
+      flow_cta: label del botón que abre el Flow (max 20 chars).
+      flow_action_payload: {"screen": str, "data": dict} - datos pasados
+        a la primera pantalla del Flow (p.ej. lista dinámica de items).
+      body: texto del mensaje que acompaña el botón (max 1024 chars).
+      header: opcional, texto corto arriba del body (max 60 chars).
+
+    Mode viene de env PETRA_FLOW_MODE (default "published"). Para probar
+    un Flow en estado draft, setear PETRA_FLOW_MODE=draft.
+    """
+    mode = (os.environ.get("PETRA_FLOW_MODE") or "published").strip()
+    params = {
+        "flow_message_version": "3",
+        "flow_token": str(flow_token)[:1000],
+        "flow_id": str(flow_id),
+        "flow_cta": str(flow_cta)[:20],
+        "flow_action": "navigate",
+        "flow_action_payload": flow_action_payload or {},
+    }
+    if mode and mode != "published":
+        params["mode"] = mode
+    interactive = {
+        "type": "flow",
+        "body": {"text": body[:1024]},
+        "action": {"name": "flow", "parameters": params},
+    }
+    if header:
+        interactive["header"] = {"type": "text", "text": str(header)[:60]}
+    return _post({
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": interactive,
+    })
+
+
 def send_message(to, msg):
     """Despacha un dict de mensaje producido por petra_router."""
     t = msg.get("type")
