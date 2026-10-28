@@ -403,3 +403,117 @@ def seed_reglas(forzar=False):
     except Exception:
         log.exception("[nudges] seed fallo")
         return 0, 0, 0
+
+
+# ---------------------------------------------------------------------------
+# Recordatorios automáticos del paso actual (complementa los nudges-texto).
+#
+# A diferencia de evaluar_y_enviar() que manda textos genéricos, esta función
+# dispara el call-to-action REAL del paso en que está la agente (equivalente
+# a pulsar "📣 Recordar" del panel admin para cada agente atascada), usando
+# `_enviar_recordatorio_retorno` del router.
+#
+# Diseño anti-spam:
+#   - Solo estados determinísticos del flow (ESTADOS_FLOW).
+#   - Mínimo 72h sin cambio en estado_desde (le damos tiempo real).
+#   - Mínimo 48h desde el último OUT del bot (evita apilarse con nudges-texto).
+#   - Máximo 1 recordatorio automático por agente cada 72h
+#     (tracking en metadata.ultimo_recordatorio_auto_at).
+#   - Respeta la misma ventana horaria que los nudges existentes.
+# ---------------------------------------------------------------------------
+ESTADOS_RECORDATORIO_AUTO = (
+    "recolectando",
+    "inscrito",
+    "bienvenida_enviada",
+    "esperando_capacitacion_dia1",
+    "en_capacitacion",
+    "capacitacion_completa",
+    "autorizacion_pendiente",
+    "kit_pendiente",
+)
+HORAS_SIN_AVANZAR_MIN = 72
+HORAS_SIN_OUT_BOT_MIN = 48
+COOLDOWN_RECORDATORIO_HORAS = 72
+
+
+def evaluar_recordatorios_automaticos(forzar_horario=False):
+    """Pasada periódica: busca agentes atascadas y dispara
+    `_enviar_recordatorio_retorno` del router (= botón "📣 Recordar" del panel).
+
+    Devuelve (candidatas_evaluadas, recordatorios_enviados)."""
+    if not forzar_horario and not _horario_valido_para_nudge():
+        log.info("[recordatorio-auto] saltado — fuera de horario")
+        return 0, 0
+
+    from app import db as _db
+    from app.petra_agents.router import _enviar_recordatorio_retorno
+    import datetime as _dt
+    ahora = _dt.datetime.now(_dt.timezone.utc)
+    corte_estado = ahora - _dt.timedelta(hours=HORAS_SIN_AVANZAR_MIN)
+    corte_cooldown = ahora - _dt.timedelta(hours=COOLDOWN_RECORDATORIO_HORAS)
+    corte_out_bot = ahora - _dt.timedelta(hours=HORAS_SIN_OUT_BOT_MIN)
+
+    enviados = 0
+    candidatas = 0
+    try:
+        with _db._conexion_directa(timeout=20) as conn:
+            # Agentes en estados accionables con tiempo suficiente sin avanzar.
+            rows = conn.execute(
+                """
+                SELECT c.id, c.telefono, c.nombre,
+                       rol.metadata->>'estado_agente' AS estado,
+                       rol.metadata->>'ultimo_recordatorio_auto_at' AS ult_rec,
+                       (SELECT MAX(fecha) FROM mensajes
+                         WHERE telefono=c.telefono AND direccion='out') AS ult_out,
+                       rol.metadata AS meta
+                  FROM petra_contacto_roles rol
+                  JOIN petra_contactos c ON c.id = rol.contacto_id
+                 WHERE rol.rol = 'agente_petra'
+                   AND rol.metadata->>'estado_agente' = ANY(%s)
+                   AND COALESCE(
+                         (rol.metadata->>'estado_desde')::timestamptz,
+                         rol.updated_at
+                       ) <= %s
+                """,
+                (list(ESTADOS_RECORDATORIO_AUTO), corte_estado),
+            ).fetchall()
+
+            for cid, tel, nombre, estado, ult_rec_raw, ult_out, meta in rows:
+                candidatas += 1
+
+                # Cooldown: no mandar si ya se mandó recordatorio en últimas 72h.
+                if ult_rec_raw:
+                    try:
+                        ult_rec = _dt.datetime.fromisoformat(ult_rec_raw)
+                        if ult_rec.tzinfo is None:
+                            ult_rec = ult_rec.replace(tzinfo=_dt.timezone.utc)
+                        if ult_rec > corte_cooldown:
+                            continue
+                    except Exception:
+                        pass
+
+                # Si el bot le habló recién, no insistir todavía.
+                if ult_out and ult_out > corte_out_bot:
+                    continue
+
+                try:
+                    _enviar_recordatorio_retorno(tel)
+                    nueva_meta = dict(meta or {})
+                    nueva_meta["ultimo_recordatorio_auto_at"] = ahora.isoformat()
+                    conn.execute(
+                        "UPDATE petra_contacto_roles SET metadata=%s::jsonb, "
+                        "updated_at=NOW() "
+                        "WHERE contacto_id=%s AND rol='agente_petra'",
+                        (_json.dumps(nueva_meta), cid),
+                    )
+                    enviados += 1
+                    log.info("[recordatorio-auto] enviado tel=%s estado=%s",
+                             tel, estado)
+                except Exception:
+                    log.exception("[recordatorio-auto] fallo tel=%s", tel)
+    except Exception:
+        log.exception("[recordatorio-auto] query/loop fallo")
+
+    log.info("[recordatorio-auto] %d candidatas evaluadas → %d recordatorios",
+             candidatas, enviados)
+    return candidatas, enviados
