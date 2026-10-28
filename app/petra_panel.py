@@ -40,18 +40,105 @@ def _metricas_piloto(conn):
             return 0
 
     kpis = {}
-    # Edificios y agentes
-    kpis["edificios_activos"] = scalar("SELECT COUNT(*) FROM petra_edificios WHERE activo=TRUE")
+    # ---- Red Petra (tablas reales en uso: conjuntos_visitante,
+    #     inmuebles_visitante, petra_contacto_roles) --------------------
+    kpis["conjuntos_total"] = scalar("SELECT COUNT(*) FROM conjuntos_visitante")
+    kpis["conjuntos_7d"] = scalar(
+        "SELECT COUNT(*) FROM conjuntos_visitante "
+        "WHERE creado_en > NOW() - interval '7 days'")
+    kpis["inmuebles_vis_activos"] = scalar(
+        "SELECT COUNT(*) FROM inmuebles_visitante WHERE activo=TRUE")
+    kpis["inmuebles_vis_arr"] = scalar(
+        "SELECT COUNT(*) FROM inmuebles_visitante "
+        "WHERE activo=TRUE AND operacion='arriendo'")
+    kpis["inmuebles_vis_ven"] = scalar(
+        "SELECT COUNT(*) FROM inmuebles_visitante "
+        "WHERE activo=TRUE AND operacion='venta'")
+    kpis["inmuebles_vis_7d"] = scalar(
+        "SELECT COUNT(*) FROM inmuebles_visitante "
+        "WHERE creado_en > NOW() - interval '7 days'")
+    kpis["inmuebles_vis_petra"] = scalar(
+        "SELECT COUNT(*) FROM inmuebles_visitante "
+        "WHERE activo=TRUE AND gestionado_por_petra=TRUE")
+
+    # ---- Agentes Petra ---------------------------------------------------
     kpis["agentes_total"] = scalar(
         "SELECT COUNT(*) FROM petra_contacto_roles WHERE rol='agente_petra'")
-    kpis["agentes_operativos"] = scalar(
+    kpis["agentes_activas"] = scalar(
         "SELECT COUNT(*) FROM petra_contacto_roles "
-        "WHERE rol='agente_petra' AND metadata->>'estado_agente'='operativo'")
-    # Inventario
-    kpis["inmuebles_activos"] = scalar(
-        "SELECT COUNT(*) FROM petra_inmuebles WHERE estado='activo'")
-    kpis["inmuebles_borrador"] = scalar(
-        "SELECT COUNT(*) FROM petra_inmuebles WHERE estado='borrador'")
+        "WHERE rol='agente_petra' AND metadata->>'estado_agente'='activa'")
+    kpis["agentes_recolectando"] = scalar(
+        "SELECT COUNT(*) FROM petra_contacto_roles "
+        "WHERE rol='agente_petra' AND metadata->>'estado_agente'='recolectando'")
+    kpis["agentes_capacitacion"] = scalar(
+        "SELECT COUNT(*) FROM petra_contacto_roles "
+        "WHERE rol='agente_petra' "
+        "AND metadata->>'estado_agente' IN "
+        "   ('inscrito','bienvenida_enviada','esperando_capacitacion_dia1',"
+        "    'en_capacitacion')")
+    kpis["agentes_autorizando"] = scalar(
+        "SELECT COUNT(*) FROM petra_contacto_roles "
+        "WHERE rol='agente_petra' "
+        "AND metadata->>'estado_agente' IN "
+        "   ('capacitacion_completa','autorizacion_pendiente','kit_pendiente',"
+        "    'kit_enviado')")
+    kpis["agentes_pausadas"] = scalar(
+        "SELECT COUNT(*) FROM petra_contacto_roles "
+        "WHERE rol='agente_petra' AND metadata->>'estado_agente' IN "
+        "('pausada','autorizacion_rechazada')")
+    kpis["agentes_7d"] = scalar(
+        "SELECT COUNT(*) FROM petra_contacto_roles "
+        "WHERE rol='agente_petra' AND created_at > NOW() - interval '7 days'")
+    # Tasa de inscripción = agentes con estado >= 'inscrito' / total
+    completadas = (kpis["agentes_total"] - kpis["agentes_recolectando"])
+    kpis["tasa_inscripcion_pct"] = int(
+        round(100 * completadas / kpis["agentes_total"])
+    ) if kpis["agentes_total"] else 0
+
+    # ---- Visitantes QR / Interesados -------------------------------------
+    kpis["interesados_qr_total"] = scalar(
+        "SELECT COUNT(*) FROM petra_interesados_qr")
+    kpis["interesados_qr_7d"] = scalar(
+        "SELECT COUNT(*) FROM petra_interesados_qr "
+        "WHERE creado_en > NOW() - interval '7 days'")
+    kpis["interesados_qr_24h"] = scalar(
+        "SELECT COUNT(*) FROM petra_interesados_qr "
+        "WHERE creado_en > NOW() - interval '24 hours'")
+    # Promedio de inmuebles por solicitud (señal multi-select).
+    try:
+        r = conn.execute(
+            "SELECT ROUND(AVG(COALESCE(ARRAY_LENGTH(inmueble_ids, 1), 0))::numeric, 1) "
+            "FROM petra_interesados_qr "
+            "WHERE creado_en > NOW() - interval '30 days'"
+        ).fetchone()
+        kpis["interesados_avg_items"] = float(r[0]) if r and r[0] is not None else 0.0
+    except Exception:
+        kpis["interesados_avg_items"] = 0.0
+    kpis["visitante_contactos_7d"] = scalar(
+        "SELECT COUNT(DISTINCT telefono) FROM visitante_contactos "
+        "WHERE created_at > NOW() - interval '7 days'")
+
+    # ---- Conversaciones (salud WhatsApp) ---------------------------------
+    kpis["msgs_in_24h"] = scalar(
+        "SELECT COUNT(*) FROM mensajes "
+        "WHERE direccion='in' AND fecha > NOW() - interval '24 hours'")
+    kpis["msgs_out_24h"] = scalar(
+        "SELECT COUNT(*) FROM mensajes "
+        "WHERE direccion='out' AND fecha > NOW() - interval '24 hours'")
+    kpis["msgs_failed_24h"] = scalar(
+        "SELECT COUNT(*) FROM mensajes "
+        "WHERE direccion='out' AND estado_entrega='failed' "
+        "AND fecha > NOW() - interval '24 hours'")
+    out24 = kpis["msgs_out_24h"] or 0
+    kpis["msgs_failed_24h_pct"] = int(
+        round(100 * kpis["msgs_failed_24h"] / out24)) if out24 else 0
+
+    # ---- Legacy "pipeline comercial" (tablas que casi no se usan todavía)
+    # Conservado por si en un futuro arrancan las oportunidades formales.
+    kpis["edificios_activos"] = scalar("SELECT COUNT(*) FROM petra_edificios WHERE activo=TRUE")
+    kpis["agentes_operativos"] = kpis["agentes_activas"]  # alias por compat con template
+    kpis["inmuebles_activos"] = kpis["inmuebles_vis_activos"]  # alias
+    kpis["inmuebles_borrador"] = 0  # tabla legacy
     kpis["inmuebles_cerrados_7d"] = scalar(
         "SELECT COUNT(*) FROM petra_inmuebles "
         "WHERE estado IN ('vendido','arrendado') "
