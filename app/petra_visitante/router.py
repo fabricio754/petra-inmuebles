@@ -1000,7 +1000,16 @@ def _normalizar_precio_pesos(raw):
 def _normalizar_precio_millones(raw):
     """Precio del Flow (input number) expresado en MILLONES → BIGINT pesos.
     Ejemplo: visitante tipea "2.5" para 2.500.000, o "650" para
-    650.000.000. Devuelve None si no se puede parsear."""
+    650.000.000. Devuelve None si no se puede parsear.
+
+    Heurística anti-tipeo: si el visitante tipea un número tan grande
+    que al multiplicarlo por millones daría un valor absurdo (>50B COP),
+    asumimos que ya tipeó pesos y NO multiplicamos. Casos:
+      1.5        → 1.500.000   (millones correcto)
+      650        → 650.000.000 (millones correcto)
+      1500000    → 1.500.000   (ya era pesos; literal)
+      150000     → 150.000.000 (ambiguo pero más cerca)
+    """
     if raw is None:
         return None
     s = str(raw).strip().replace(",", ".")
@@ -1014,6 +1023,10 @@ def _normalizar_precio_millones(raw):
         return None
     if v <= 0:
         return None
+    # Si el número ya parece pesos (>= 1 millón), devolvemos literal.
+    # Un arriendo o venta real no se expresa en millones con un valor >=1M.
+    if v >= 1_000_000:
+        return int(round(v))
     return int(round(v * 1_000_000))
 
 
