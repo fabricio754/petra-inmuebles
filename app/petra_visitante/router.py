@@ -856,23 +856,34 @@ def _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta, operacion):
         "fotos e inventario, y se encarga de mostrarlo."
     ))
 
-    # Guardamos el contexto del Flow en meta — operación y conjunto
-    # los necesitamos cuando llegue el submit (puede tardar minutos si
-    # el visitante llena el form despacio).
+    # Guardamos el contexto del Flow en meta — conjunto es imprescindible;
+    # operación puede venir dentro del Flow si no la elegimos antes.
     meta_nuevo = dict(meta or {})
-    meta_nuevo["flow_publicar_operacion"] = operacion
+    if operacion:
+        meta_nuevo["flow_publicar_operacion"] = operacion
+    else:
+        meta_nuevo.pop("flow_publicar_operacion", None)
     meta_nuevo["flow_publicar_conjunto_id"] = conjunto["id"]
     nuevo_estado = ("publicar_arriendo_flow" if operacion == "arriendo"
-                    else "publicar_venta_flow")
+                    else "publicar_venta_flow" if operacion == "venta"
+                    else "publicar_flow")
     _set_estado(conn, telefono, nuevo_estado, meta=meta_nuevo)
 
-    op_label = "arriendo" if operacion == "arriendo" else "venta"
-    body = (
-        f"📋 *Publicar inmueble en {conjunto['nombre']}*\n"
-        f"Operación: *{op_label}*\n\n"
-        "Tocá el botón de abajo para completar los datos del inmueble "
-        "(dirección, tipo, precio, habitaciones y baños)."
-    )
+    if operacion:
+        op_label = "arriendo" if operacion == "arriendo" else "venta"
+        body = (
+            f"📋 *Publicar inmueble en {conjunto['nombre']}*\n"
+            f"Operación: *{op_label}*\n\n"
+            "Tocá el botón de abajo para completar los datos del inmueble "
+            "(dirección, tipo, precio, habitaciones y baños)."
+        )
+    else:
+        body = (
+            f"📋 *Publicar inmueble en {conjunto['nombre']}*\n\n"
+            "Tocá el botón de abajo para completar los datos del inmueble "
+            "(operación, dirección, tipo, precio, habitaciones y baños). "
+            "Una agente Petra te contactará para tomar fotos y mostrarlo 💜"
+        )
 
     flow_token = (f"pub:{conjunto['id']}:{operacion}:{telefono}:"
                   f"{int(time.time())}")
@@ -961,7 +972,18 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
     con `gestionado_por_petra=TRUE`, `fuente='petra'`, `activo=TRUE`,
     `propietario_telefono=<el que publicó>`.
     """
-    operacion = (meta or {}).get("flow_publicar_operacion") or "arriendo"
+    # Operación: primero vemos el response del Flow (si tiene el campo
+    # porque el nuevo JSON incluye el Dropdown operación), sino caemos
+    # al meta (chat previo). Default arriendo si todo falla.
+    _resp_pre = flow_response if isinstance(flow_response, dict) else {}
+    if "operacion" not in _resp_pre and isinstance(_resp_pre.get("response"), dict):
+        _resp_pre = _resp_pre["response"]
+    op_del_flow = (_resp_pre.get("operacion") or "").strip().lower()
+    operacion = (op_del_flow
+                 or (meta or {}).get("flow_publicar_operacion")
+                 or "arriendo")
+    if operacion not in ("arriendo", "venta"):
+        operacion = "arriendo"
     conjunto_id = (meta or {}).get("flow_publicar_conjunto_id")
 
     if not conjunto_id:
@@ -1485,6 +1507,15 @@ def _marcar_contactar(conn, telefono, conjunto, meta, operacion, inmueble_id):
 def _publicar_inicio(conn, telefono, conjunto, meta):
     meta = dict(meta or {})
     meta["visitante_pub"] = {}
+
+    # Si el Flow nativo está habilitado, abrir el formulario directo
+    # (el Dropdown de operación va dentro del Flow — no hace falta
+    # preguntar arriendo/venta en el chat primero).
+    if _petra_flow_publicar_id():
+        _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta,
+                                        operacion=None)
+        return
+
     _set_estado(conn, telefono, "publicar_operacion", meta=meta)
     _enviar(telefono, _menus.pub_operacion(conjunto["nombre"]))
 
