@@ -770,13 +770,7 @@ def _subtitulo_inm_flow(inm, operacion):
     precio = _fmt_precio(inm, operacion)
     if precio:
         partes.append(precio)
-    hab = inm.get("hab") or inm.get("habitaciones")
-    banos = inm.get("banos")
     m2 = inm.get("m2")
-    if hab:
-        partes.append(f"{hab}h")
-    if banos:
-        partes.append(f"{banos}b")
     if m2:
         partes.append(f"{m2}m²")
     return " · ".join(partes)[:80]
