@@ -890,9 +890,11 @@ def _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta, operacion):
             flow_id=_petra_flow_publicar_id(),
             flow_token=flow_token,
             flow_cta="Completar datos",  # 15 chars, dentro del límite 20.
+            # Nota: Meta rechaza `data: {}` con "must be of type
+            # dynamic_object". Como este Flow no necesita data inicial
+            # (el form captura todo), omitimos la key `data` del payload.
             flow_action_payload={
                 "screen": "WELCOME_SCREEN",
-                "data": {},  # El form pide todo, no hay data dinámica.
             },
             body=body,
         )
