@@ -1047,6 +1047,17 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
     habitaciones = _normalizar_entero_dropdown(resp.get("habitaciones"), 0)
     banos = _normalizar_entero_dropdown(resp.get("banos"), 1)
     m2 = _normalizar_entero_dropdown(resp.get("m2"), 0) or None
+    # Administración: solo aplica a arriendos. En venta se descarta.
+    admin_valor = None
+    admin_incluida = None
+    if operacion == "arriendo":
+        av = _normalizar_precio_pesos(resp.get("admin_valor"))
+        admin_valor = av if av and av > 0 else None
+        ai_raw = (resp.get("admin_incluida") or "").strip().lower()
+        if ai_raw in ("si", "sí", "incluida", "true", "1"):
+            admin_incluida = True
+        elif ai_raw in ("no", "aparte", "false", "0"):
+            admin_incluida = False
     # "Dirección" ahora se compone de torre + apto. Si no viene nada,
     # placeholder visible en el panel para que la agente lo complete al
     # ir a fotos.
@@ -1070,12 +1081,14 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
         row = conn.execute(
             "INSERT INTO inmuebles_visitante "
             "(conjunto_id, tipo, nro, operacion, habitaciones, banos, m2, "
-            " precio, propietario_telefono, fuente, activo, "
-            " gestionado_por_petra) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'petra', TRUE, TRUE) "
+            " precio, admin_valor, admin_incluida, "
+            " propietario_telefono, fuente, activo, gestionado_por_petra) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+            "        'petra', TRUE, TRUE) "
             "RETURNING id",
             (conjunto["id"], tipo, nro_db, operacion,
-             habitaciones, banos, m2, precio, telefono),
+             habitaciones, banos, m2, precio,
+             admin_valor, admin_incluida, telefono),
         ).fetchone()
         if row:
             inm_id = row[0]
@@ -1109,6 +1122,14 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
         resumen += f"*Precio:* {precio_txt}\n"
     if m2:
         resumen += f"*Área:* {m2} m²\n"
+    if operacion == "arriendo" and admin_valor:
+        incl_txt = ("incluida" if admin_incluida
+                    else "aparte" if admin_incluida is False
+                    else "")
+        if incl_txt:
+            resumen += f"*Administración:* ${admin_valor:,} ({incl_txt})\n"
+        else:
+            resumen += f"*Administración:* ${admin_valor:,}\n"
     resumen += (
         "\nTe contacta una agente Petra en las próximas horas para "
         "coordinar las fotos y los detalles. 💜"
