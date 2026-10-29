@@ -484,10 +484,27 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
             # "Publicar inmueble" (formulario). Ramificamos por el flag
             # que dejamos en meta cuando enviamos cada uno.
             if flow_response is not None:
-                # Routing: el Flow Publicar deja marca `flow_publicar_conjunto_id`
-                # en meta cuando se envía (con o sin operación pre-elegida).
-                # Si no está esa marca, es respuesta del Flow de Ver inmuebles.
-                if (meta or {}).get("flow_publicar_conjunto_id"):
+                # Routing por CONTENIDO del response (más robusto que meta,
+                # que puede quedar stale si el visitante abre uno y después
+                # el otro sin terminar el primero).
+                # Publicar manda tipo/precio_millones/torre/apto/... en el
+                # response (payload del submit del formulario).
+                # Ver inmuebles manda selected_ids/selected_items/ids/items.
+                _rp = flow_response if isinstance(flow_response, dict) else {}
+                if "response" in _rp and isinstance(_rp.get("response"), dict):
+                    _rp = _rp["response"]
+                _es_ver = any(k in _rp for k in
+                              ("selected_ids", "selected_items",
+                               "ids", "items"))
+                _es_publicar = any(k in _rp for k in
+                                   ("tipo", "precio_millones", "precio",
+                                    "torre", "apto", "operacion"))
+                if _es_ver and not _es_publicar:
+                    _procesar_flow_submit(conn, telefono, meta, flow_response)
+                elif _es_publicar:
+                    _procesar_flow_publicar_submit(conn, telefono, meta,
+                                                   flow_response)
+                elif (meta or {}).get("flow_publicar_conjunto_id"):
                     _procesar_flow_publicar_submit(conn, telefono, meta,
                                                    flow_response)
                 else:
@@ -929,6 +946,10 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
     meta_nuevo = dict(meta or {})
     meta_nuevo["flow_operacion"] = operacion
     meta_nuevo["flow_conjunto_id"] = conjunto["id"]
+    # Limpiamos marcas de Publicar por si quedó stale.
+    meta_nuevo.pop("flow_publicar_operacion", None)
+    meta_nuevo.pop("flow_publicar_conjunto_id", None)
+    meta_nuevo.pop("publicar_pending", None)
     nuevo_estado = "arriendo_flow" if operacion == "arriendo" else "venta_flow"
     _set_estado(conn, telefono, nuevo_estado, meta=meta_nuevo)
 
@@ -992,6 +1013,9 @@ def _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta, operacion):
     else:
         meta_nuevo.pop("flow_publicar_operacion", None)
     meta_nuevo["flow_publicar_conjunto_id"] = conjunto["id"]
+    # Limpiamos marcas de Ver inmuebles por si quedó stale.
+    meta_nuevo.pop("flow_operacion", None)
+    meta_nuevo.pop("flow_conjunto_id", None)
     nuevo_estado = ("publicar_arriendo_flow" if operacion == "arriendo"
                     else "publicar_venta_flow" if operacion == "venta"
                     else "publicar_flow")
