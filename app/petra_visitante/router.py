@@ -798,11 +798,8 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
         "",
         f"✨ Hay *{cuenta} inmuebles disponibles* esperándote.",
         "",
-        "Tocá el botón de abajo para verlos todos con fotos y detalles. "
-        "Marcá los que te gusten — podés elegir varios a la vez — y "
-        "en segundos te paso el *WhatsApp del propietario de cada uno* 💜",
-        "",
-        "_Hablás directo con el dueño, sin intermediarios._",
+        "Marcá los inmuebles que te interesen y te contacto "
+        "inmediato con el anunciante.",
     ]
     if truncado:
         body_lines.append("")
