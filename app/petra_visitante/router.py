@@ -482,7 +482,10 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
             # "Publicar inmueble" (formulario). Ramificamos por el flag
             # que dejamos en meta cuando enviamos cada uno.
             if flow_response is not None:
-                if (meta or {}).get("flow_publicar_operacion"):
+                # Routing: el Flow Publicar deja marca `flow_publicar_conjunto_id`
+                # en meta cuando se envía (con o sin operación pre-elegida).
+                # Si no está esa marca, es respuesta del Flow de Ver inmuebles.
+                if (meta or {}).get("flow_publicar_conjunto_id"):
                     _procesar_flow_publicar_submit(conn, telefono, meta,
                                                    flow_response)
                 else:
@@ -877,15 +880,12 @@ def _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta, operacion):
         body = (
             f"📋 *Publicar inmueble en {conjunto['nombre']}*\n"
             f"Operación: *{op_label}*\n\n"
-            "Tocá el botón de abajo para completar los datos del inmueble "
-            "(dirección, tipo, precio, habitaciones y baños)."
+            "Tocá el botón para completar los datos."
         )
     else:
         body = (
             f"📋 *Publicar inmueble en {conjunto['nombre']}*\n\n"
-            "Tocá el botón de abajo para completar los datos del inmueble "
-            "(operación, dirección, tipo, precio, habitaciones y baños). "
-            "Una agente Petra te contactará para tomar fotos y mostrarlo 💜"
+            "Tocá el botón para completar los datos."
         )
 
     flow_token = (f"pub:{conjunto['id']}:{operacion}:{telefono}:"
