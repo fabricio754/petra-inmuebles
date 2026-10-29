@@ -716,7 +716,11 @@ def _mostrar_lista(conn, telefono, conjunto, meta, operacion):
 # ---------------------------------------------------------------------------
 
 def _fmt_precio(inm, operacion):
-    """Formatea el precio para mostrar en el chat. inm['precio'] en pesos."""
+    """Formatea el precio para mostrar en el chat. inm['precio'] en pesos.
+
+    - Arriendo: formato con comas (ej. $1,500,000) — más legible.
+    - Venta: formato compacto en millones (ej. $650M) — valores grandes.
+    """
     p = inm.get("precio") or 0
     try:
         p = int(p)
@@ -725,13 +729,8 @@ def _fmt_precio(inm, operacion):
     if p <= 0:
         return ""
     if operacion == "venta" and p >= 1_000_000:
-        # Ventas se expresan en millones (ej. $650M).
         return f"${p // 1_000_000}M"
-    if p >= 1_000_000:
-        return f"${p/1_000_000:.1f}M".replace(".0M", "M")
-    if p >= 1_000:
-        return f"${p/1_000:.0f}k"
-    return f"${p}"
+    return f"${p:,}"
 
 
 def _subtitulo_inm_flow(inm, operacion):
@@ -1101,11 +1100,20 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
              telefono, conjunto["codigo"], operacion, tipo, precio,
              habitaciones, banos, m2, inm_id)
 
-    _enviar(telefono, _menus.texto(
-        "✅ ¡Listo! Registramos tu inmueble.\n\n"
-        "Te contacta una agente Petra en las próximas horas para "
+    precio_txt = _fmt_precio({"precio": precio}, operacion) if precio else ""
+    op_txt = "arriendo" if operacion == "arriendo" else "venta"
+    resumen = f"✅ ¡Listo! Registramos tu inmueble.\n\n"
+    resumen += f"*Tipo:* {tipo.capitalize()}\n"
+    resumen += f"*Operación:* {op_txt}\n"
+    if precio_txt:
+        resumen += f"*Precio:* {precio_txt}\n"
+    if m2:
+        resumen += f"*Área:* {m2} m²\n"
+    resumen += (
+        "\nTe contacta una agente Petra en las próximas horas para "
         "coordinar las fotos y los detalles. 💜"
-    ))
+    )
+    _enviar(telefono, _menus.texto(resumen))
 
     # Cerramos el estado del Flow — próximo mensaje va al menú del edificio.
     meta_fin = dict(meta or {})
