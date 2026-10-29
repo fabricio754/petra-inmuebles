@@ -1161,17 +1161,17 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
     habitaciones = _normalizar_entero_dropdown(resp.get("habitaciones"), 0)
     banos = _normalizar_entero_dropdown(resp.get("banos"), 1)
     m2 = _normalizar_entero_dropdown(resp.get("m2"), 0) or None
-    # Administración: solo aplica a arriendos. En venta se descarta.
-    admin_valor = None
+    # Administración: aplica típicamente a arriendo pero algunos propietarios
+    # también la informan en venta — parseamos siempre, el panel decide qué
+    # hacer con ella.
+    av = _normalizar_precio_pesos(resp.get("admin_valor"))
+    admin_valor = av if av and av > 0 else None
     admin_incluida = None
-    if operacion == "arriendo":
-        av = _normalizar_precio_pesos(resp.get("admin_valor"))
-        admin_valor = av if av and av > 0 else None
-        ai_raw = (resp.get("admin_incluida") or "").strip().lower()
-        if ai_raw in ("si", "sí", "incluida", "true", "1"):
-            admin_incluida = True
-        elif ai_raw in ("no", "aparte", "false", "0"):
-            admin_incluida = False
+    ai_raw = (resp.get("admin_incluida") or "").strip().lower()
+    if ai_raw in ("si", "sí", "incluida", "true", "1"):
+        admin_incluida = True
+    elif ai_raw in ("no", "aparte", "false", "0"):
+        admin_incluida = False
     # "Dirección" ahora se compone de torre + apto. Si no viene nada,
     # placeholder visible en el panel para que la agente lo complete al
     # ir a fotos.
@@ -1225,7 +1225,7 @@ def _preview_publicar(p):
         resumen += f"*Precio:* {precio_txt}\n"
     if p.get("m2"):
         resumen += f"*Área:* {p['m2']} m²\n"
-    if p["operacion"] == "arriendo" and (p.get("admin_valor") or p.get("admin_incluida") is not None):
+    if p.get("admin_valor") or p.get("admin_incluida") is not None:
         incl_txt = ("incluida en el canon" if p.get("admin_incluida")
                     else "aparte del canon" if p.get("admin_incluida") is False
                     else "")
