@@ -1331,20 +1331,29 @@ def _procesar_flow_submit(conn, telefono, meta, flow_response):
              telefono, conjunto["codigo"], operacion, seleccion_ids)
 
     # 3) UN mensaje por inmueble — directo, sin resumen previo (según mockup).
-    emoji_op = "🏢"
+    # Emoji + nombre por tipo para que la tarjeta se lea de un vistazo.
+    _TIPO_EMOJI_TARJETA = {
+        "apartamento": "🏢 Apartamento",
+        "apto": "🏢 Apartamento",
+        "casa": "🏡 Casa",
+        "oficina": "🏬 Oficina",
+        "parqueadero": "🚗 Parqueadero",
+        "deposito": "📦 Depósito",
+        "habitacion": "🛏️ Habitación",
+        "local": "🏪 Local",
+    }
     for inm in items:
-        tipo = (inm.get("tipo") or "inmueble").capitalize()
+        tipo_raw = (inm.get("tipo") or "inmueble").lower()
+        tipo = _TIPO_EMOJI_TARJETA.get(tipo_raw, f"🏢 {tipo_raw.capitalize()}")
         nro = inm.get("nro") or inm["id"]
         precio = _fmt_precio(inm, operacion)
         m2 = inm.get("m2")
-        meta_bits = []
+        meta_bits = [f"#{nro}"]
         if m2:
             meta_bits.append(f"{m2}m²")
         if precio:
             meta_bits.append(precio)
-        cabecera = f"{emoji_op} #{nro} — {tipo}"
-        if meta_bits:
-            cabecera += " · " + " · ".join(meta_bits)
+        cabecera = f"*{tipo}*\n" + " · ".join(meta_bits)
         prop_tel = (inm.get("propietario_telefono") or "").strip()
         prop_clean = re.sub(r"\D", "", prop_tel)
         if prop_clean:
