@@ -1022,6 +1022,7 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
     precio = _normalizar_precio_pesos(resp.get("precio"))
     habitaciones = _normalizar_entero_dropdown(resp.get("habitaciones"), 0)
     banos = _normalizar_entero_dropdown(resp.get("banos"), 1)
+    m2 = _normalizar_entero_dropdown(resp.get("m2"), 0) or None
     # La dirección es opcional desde el Flow — si viene vacía, la agente
     # Petra la captura cuando va a hacer las fotos. Guardamos un
     # placeholder visible en el panel.
@@ -1031,13 +1032,13 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
     try:
         row = conn.execute(
             "INSERT INTO inmuebles_visitante "
-            "(conjunto_id, tipo, nro, operacion, habitaciones, banos, "
+            "(conjunto_id, tipo, nro, operacion, habitaciones, banos, m2, "
             " precio, propietario_telefono, fuente, activo, "
             " gestionado_por_petra) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'petra', TRUE, TRUE) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'petra', TRUE, TRUE) "
             "RETURNING id",
             (conjunto["id"], tipo, nro_db, operacion,
-             habitaciones, banos, precio, telefono),
+             habitaciones, banos, m2, precio, telefono),
         ).fetchone()
         if row:
             inm_id = row[0]
@@ -1058,9 +1059,9 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
         return
 
     log.info("[visitante] FLOW_PUBLICAR_SUBMIT tel=%s conjunto=%s op=%s "
-             "tipo=%s precio=%s hab=%s banos=%s inm_id=%s",
+             "tipo=%s precio=%s hab=%s banos=%s m2=%s inm_id=%s",
              telefono, conjunto["codigo"], operacion, tipo, precio,
-             habitaciones, banos, inm_id)
+             habitaciones, banos, m2, inm_id)
 
     _enviar(telefono, _menus.texto(
         "✅ ¡Listo! Registramos tu inmueble.\n\n"
