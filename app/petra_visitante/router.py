@@ -1322,7 +1322,7 @@ def _procesar_flow_submit(conn, telefono, meta, flow_response):
              telefono, conjunto["codigo"], operacion, seleccion_ids)
 
     # 3) UN mensaje por inmueble — directo, sin resumen previo (según mockup).
-    emoji_op = "🔑" if operacion == "arriendo" else "💰"
+    emoji_op = "🏢"
     for inm in items:
         tipo = (inm.get("tipo") or "inmueble").capitalize()
         nro = inm.get("nro") or inm["id"]
