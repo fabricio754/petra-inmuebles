@@ -1016,13 +1016,10 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
     precio = _normalizar_precio_pesos(resp.get("precio"))
     habitaciones = _normalizar_entero_dropdown(resp.get("habitaciones"), 0)
     banos = _normalizar_entero_dropdown(resp.get("banos"), 1)
-
-    if not direccion:
-        _enviar(telefono, _menus.texto(
-            "No recibí la dirección. ¿Podés intentar de nuevo? "
-            "Escribí *menú* y toca *Publicar inmueble*. 💜"
-        ))
-        return
+    # La dirección es opcional desde el Flow — si viene vacía, la agente
+    # Petra la captura cuando va a hacer las fotos. Guardamos un
+    # placeholder visible en el panel.
+    nro_db = direccion[:200] if direccion else "(sin especificar)"
 
     inm_id = None
     try:
@@ -1033,7 +1030,7 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
             " gestionado_por_petra) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'petra', TRUE, TRUE) "
             "RETURNING id",
-            (conjunto["id"], tipo, direccion[:200], operacion,
+            (conjunto["id"], tipo, nro_db, operacion,
              habitaciones, banos, precio, telefono),
         ).fetchone()
         if row:
