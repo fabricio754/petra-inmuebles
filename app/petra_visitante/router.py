@@ -317,7 +317,8 @@ def _listar_inmuebles(conn, conjunto_id, operacion, limite=10, excluir_ids=None)
     en el carrito (multi-select PR #65 camino B)."""
     excluir_ids = list(excluir_ids or [])
     sql = (
-        "SELECT id, nro, habitaciones, banos, m2, precio, fuente, tipo "
+        "SELECT id, nro, habitaciones, banos, m2, precio, fuente, tipo, "
+        "       admin_valor, admin_incluida "
         "FROM inmuebles_visitante "
         "WHERE conjunto_id=%s AND operacion=%s AND activo=TRUE"
     )
@@ -330,7 +331,8 @@ def _listar_inmuebles(conn, conjunto_id, operacion, limite=10, excluir_ids=None)
     rows = conn.execute(sql, tuple(params)).fetchall()
     return [
         {"id": r[0], "nro": r[1], "hab": r[2], "banos": r[3],
-         "m2": r[4], "precio": r[5], "fuente": r[6], "tipo": r[7]}
+         "m2": r[4], "precio": r[5], "fuente": r[6], "tipo": r[7],
+         "admin_valor": r[8], "admin_incluida": r[9]}
         for r in rows
     ]
 
@@ -834,6 +836,25 @@ def _subtitulo_inm_flow(inm, operacion):
     precio = _fmt_precio(inm, operacion)
     if precio:
         partes.append(precio)
+    # Admin: solo tiene sentido en arriendo. Compactamos para que entre
+    # en el title (CheckboxGroup tiene ~50 chars).
+    if operacion == "arriendo":
+        av = inm.get("admin_valor")
+        ai = inm.get("admin_incluida")
+        if av and ai is False:
+            # Aparte: muestra el valor compacto "+$450k"
+            if av >= 1_000_000:
+                partes.append(f"+${av/1_000_000:.1f}M".replace(".0M", "M"))
+            elif av >= 1_000:
+                partes.append(f"+${av//1_000}k")
+            else:
+                partes.append(f"+${av}")
+        elif av and ai:
+            partes.append("adm incl.")
+        elif ai is True:
+            partes.append("adm incl.")
+        elif ai is False and not av:
+            partes.append("+adm")
     m2 = inm.get("m2")
     if m2:
         partes.append(f"{m2}m²")
