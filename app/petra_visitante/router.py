@@ -918,7 +918,7 @@ def _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta, operacion):
 
 
 _TIPOS_PUBLICAR_VALIDOS = {
-    "apartamento", "casa", "local", "oficina", "parqueadero",
+    "apartamento", "casa", "oficina", "parqueadero", "deposito", "habitacion",
 }
 
 
@@ -973,6 +973,26 @@ def _normalizar_precio_pesos(raw):
     return v
 
 
+def _normalizar_precio_millones(raw):
+    """Precio del Flow (input number) expresado en MILLONES → BIGINT pesos.
+    Ejemplo: visitante tipea "2.5" para 2.500.000, o "650" para
+    650.000.000. Devuelve None si no se puede parsear."""
+    if raw is None:
+        return None
+    s = str(raw).strip().replace(",", ".")
+    # Deja dígitos y un posible punto decimal.
+    s = re.sub(r"[^\d.]", "", s)
+    if not s:
+        return None
+    try:
+        v = float(s)
+    except ValueError:
+        return None
+    if v <= 0:
+        return None
+    return int(round(v * 1_000_000))
+
+
 def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
     """Submit del Flow de publicar inmueble. Inserta en inmuebles_visitante
     con `gestionado_por_petra=TRUE`, `fuente='petra'`, `activo=TRUE`,
@@ -1017,16 +1037,34 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
     if "direccion" not in resp and isinstance(resp.get("response"), dict):
         resp = resp["response"]
 
-    direccion = (resp.get("direccion") or "").strip()
     tipo = _normalizar_tipo_publicar(resp.get("tipo"))
-    precio = _normalizar_precio_pesos(resp.get("precio"))
+    # Precio viene en MILLONES desde el Flow (campo "precio_millones").
+    # Legacy: si llega "precio" en pesos tal cual, lo aceptamos también.
+    precio_m = resp.get("precio_millones")
+    if precio_m is not None and str(precio_m).strip():
+        precio = _normalizar_precio_millones(precio_m)
+    else:
+        precio = _normalizar_precio_pesos(resp.get("precio"))
     habitaciones = _normalizar_entero_dropdown(resp.get("habitaciones"), 0)
     banos = _normalizar_entero_dropdown(resp.get("banos"), 1)
     m2 = _normalizar_entero_dropdown(resp.get("m2"), 0) or None
-    # La dirección es opcional desde el Flow — si viene vacía, la agente
-    # Petra la captura cuando va a hacer las fotos. Guardamos un
-    # placeholder visible en el panel.
-    nro_db = direccion[:200] if direccion else "(sin especificar)"
+    # "Dirección" ahora se compone de torre + apto. Si no viene nada,
+    # placeholder visible en el panel para que la agente lo complete al
+    # ir a fotos.
+    torre = (resp.get("torre") or "").strip()
+    apto_num = (resp.get("apto") or resp.get("apto_num") or "").strip()
+    direccion = (resp.get("direccion") or "").strip()
+    if torre or apto_num:
+        partes_dir = []
+        if torre:
+            partes_dir.append(f"Torre/Bloque {torre}")
+        if apto_num:
+            partes_dir.append(f"Apto {apto_num}")
+        nro_db = " · ".join(partes_dir)[:200]
+    elif direccion:
+        nro_db = direccion[:200]
+    else:
+        nro_db = "(sin especificar)"
 
     inm_id = None
     try:
