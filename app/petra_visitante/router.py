@@ -846,13 +846,6 @@ def _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta, operacion):
 
     Doc Meta: docs/WHATSAPP_FLOW_PUBLICAR_INMUEBLE.md
     """
-    # Pre-mensaje introductorio para que el visitante entienda qué pasa
-    # después (tomar fotos, mostrarlo).
-    _enviar(telefono, _menus.texto(
-        "¡Hola! Te ayudo a publicarlo. Una agente Petra irá a tomar "
-        "fotos e inventario, y se encarga de mostrarlo."
-    ))
-
     # Guardamos el contexto del Flow en meta — conjunto es imprescindible;
     # operación puede venir dentro del Flow si no la elegimos antes.
     meta_nuevo = dict(meta or {})
