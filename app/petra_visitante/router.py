@@ -1321,10 +1321,10 @@ def _procesar_flow_submit(conn, telefono, meta, flow_response):
         tipo = (inm.get("tipo") or "inmueble").capitalize()
         nro = inm.get("nro") or inm["id"]
         precio = _fmt_precio(inm, operacion)
-        hab = inm.get("hab")
+        m2 = inm.get("m2")
         meta_bits = []
-        if hab:
-            meta_bits.append(f"{hab}hab")
+        if m2:
+            meta_bits.append(f"{m2}m²")
         if precio:
             meta_bits.append(precio)
         cabecera = f"{emoji_op} #{nro} — {tipo}"
