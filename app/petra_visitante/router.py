@@ -616,6 +616,34 @@ def _dispatch(conn, telefono, texto, button_id, list_id,
         _ir_a_menu(conn, telefono, conjunto, meta)
         return
 
+    # ---------- PUBLICAR — preview con 3 botones ---------------------
+    if base == "publicar_confirmar":
+        if button_id == "VIS_PUB_CONFIRMAR":
+            _publicar_insertar_pendiente(conn, telefono, conjunto, meta)
+            return
+        if button_id == "VIS_PUB_CORREGIR":
+            # Reabre el Flow para que corrija los datos.
+            meta_c = dict(meta or {})
+            meta_c.pop("publicar_pending", None)
+            _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta_c,
+                                             operacion=None)
+            return
+        if button_id == "VIS_PUB_CANCELAR":
+            meta_c = dict(meta or {})
+            meta_c.pop("publicar_pending", None)
+            _enviar(telefono, _menus.texto(
+                "Cancelado. Tu inmueble no se publicó. 💜"
+            ))
+            _ir_a_menu(conn, telefono, conjunto, meta_c)
+            return
+        # Botón no reconocido: re-mostramos el preview.
+        p = (meta or {}).get("publicar_pending") or {}
+        if p:
+            _enviar(telefono, _preview_publicar(p))
+        else:
+            _ir_a_menu(conn, telefono, conjunto, meta)
+        return
+
     # ---------- ARRIENDO / VENTA — lista + carrito --------------------
     if base in ("arriendo_lista", "venta_lista", "arriendo_carrito",
                 "venta_carrito"):
@@ -1120,6 +1148,68 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
     else:
         nro_db = "(sin especificar)"
 
+    # NO insertamos todavía: guardamos pendiente en meta y mostramos preview
+    # con botones Confirmar / Corregir / Cancelar.
+    meta_prev = dict(meta or {})
+    meta_prev["publicar_pending"] = {
+        "conjunto_id": conjunto["id"],
+        "tipo": tipo,
+        "nro": nro_db,
+        "operacion": operacion,
+        "habitaciones": habitaciones,
+        "banos": banos,
+        "m2": m2,
+        "precio": precio,
+        "admin_valor": admin_valor,
+        "admin_incluida": admin_incluida,
+    }
+    # Limpiamos marcas del Flow (ya no estamos esperando el nfm_reply).
+    meta_prev.pop("flow_publicar_operacion", None)
+    meta_prev.pop("flow_publicar_conjunto_id", None)
+    _set_estado(conn, telefono, "publicar_confirmar", meta=meta_prev)
+    _enviar(telefono, _preview_publicar(meta_prev["publicar_pending"]))
+
+
+def _preview_publicar(p):
+    """Mensaje de preview con botones Confirmar / Corregir / Cancelar."""
+    precio_txt = _fmt_precio({"precio": p["precio"]}, p["operacion"]) if p.get("precio") else ""
+    op_txt = "arriendo" if p["operacion"] == "arriendo" else "venta"
+    resumen = "📝 *Revisá los datos antes de publicar:*\n\n"
+    resumen += f"*Tipo:* {p['tipo'].capitalize()}\n"
+    resumen += f"*Operación:* {op_txt}\n"
+    if p.get("nro") and p["nro"] != "(sin especificar)":
+        resumen += f"*Ubicación:* {p['nro']}\n"
+    if precio_txt:
+        resumen += f"*Precio:* {precio_txt}\n"
+    if p.get("m2"):
+        resumen += f"*Área:* {p['m2']} m²\n"
+    if p["operacion"] == "arriendo" and p.get("admin_valor"):
+        incl_txt = ("incluida" if p.get("admin_incluida")
+                    else "aparte" if p.get("admin_incluida") is False
+                    else "")
+        if incl_txt:
+            resumen += f"*Administración:* ${p['admin_valor']:,} ({incl_txt})\n"
+        else:
+            resumen += f"*Administración:* ${p['admin_valor']:,}\n"
+    resumen += "\n¿Todo correcto?"
+    return {
+        "type": "buttons",
+        "text": resumen,
+        "buttons": [
+            {"id": "VIS_PUB_CONFIRMAR", "title": "✅ Confirmar"},
+            {"id": "VIS_PUB_CORREGIR", "title": "✏️ Corregir"},
+            {"id": "VIS_PUB_CANCELAR", "title": "❌ Cancelar"},
+        ],
+    }
+
+
+def _publicar_insertar_pendiente(conn, telefono, conjunto, meta):
+    """Inserta en DB el inmueble guardado en meta.publicar_pending."""
+    p = (meta or {}).get("publicar_pending") or {}
+    if not p:
+        _ir_a_menu(conn, telefono, conjunto, meta)
+        return
+
     inm_id = None
     try:
         row = conn.execute(
@@ -1130,61 +1220,42 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
             "        'petra', TRUE, TRUE) "
             "RETURNING id",
-            (conjunto["id"], tipo, nro_db, operacion,
-             habitaciones, banos, m2, precio,
-             admin_valor, admin_incluida, telefono),
+            (p["conjunto_id"], p["tipo"], p["nro"], p["operacion"],
+             p.get("habitaciones"), p.get("banos"), p.get("m2"), p.get("precio"),
+             p.get("admin_valor"), p.get("admin_incluida"), telefono),
         ).fetchone()
         if row:
             inm_id = row[0]
     except Exception:
         log.exception(
-            "[visitante] flow publicar: insert inmuebles_visitante fallo "
-            "tel=%s conjunto=%s", telefono, conjunto.get("codigo"),
+            "[visitante] flow publicar: insert fallo tel=%s conjunto=%s",
+            telefono, conjunto.get("codigo") if conjunto else None,
         )
         _enviar(telefono, _menus.texto(
             "Tuve un problema guardando tu inmueble. "
-            "Una agente Petra te contactará pronto. 🙏"
+            "Volvé a intentar en unos minutos. 🙏"
         ))
-        # Igual limpio el meta para no quedar en loop.
         meta_err = dict(meta or {})
-        meta_err.pop("flow_publicar_operacion", None)
-        meta_err.pop("flow_publicar_conjunto_id", None)
+        meta_err.pop("publicar_pending", None)
         _set_estado(conn, telefono, "menu", meta=meta_err)
         return
 
-    log.info("[visitante] FLOW_PUBLICAR_SUBMIT tel=%s conjunto=%s op=%s "
-             "tipo=%s precio=%s hab=%s banos=%s m2=%s inm_id=%s",
-             telefono, conjunto["codigo"], operacion, tipo, precio,
-             habitaciones, banos, m2, inm_id)
+    log.info("[visitante] FLOW_PUBLICAR_INSERT tel=%s conjunto=%s op=%s "
+             "tipo=%s precio=%s m2=%s inm_id=%s",
+             telefono, (conjunto or {}).get("codigo"), p["operacion"],
+             p["tipo"], p.get("precio"), p.get("m2"), inm_id)
 
-    precio_txt = _fmt_precio({"precio": precio}, operacion) if precio else ""
-    op_txt = "arriendo" if operacion == "arriendo" else "venta"
-    resumen = f"✅ ¡Listo! Registramos tu inmueble.\n\n"
-    resumen += f"*Tipo:* {tipo.capitalize()}\n"
-    resumen += f"*Operación:* {op_txt}\n"
-    if precio_txt:
-        resumen += f"*Precio:* {precio_txt}\n"
-    if m2:
-        resumen += f"*Área:* {m2} m²\n"
-    if operacion == "arriendo" and admin_valor:
-        incl_txt = ("incluida" if admin_incluida
-                    else "aparte" if admin_incluida is False
-                    else "")
-        if incl_txt:
-            resumen += f"*Administración:* ${admin_valor:,} ({incl_txt})\n"
-        else:
-            resumen += f"*Administración:* ${admin_valor:,}\n"
-    resumen += "\n¡Gracias! Tu inmueble ya está publicado. 💜"
     _enviar(telefono, {
         "type": "buttons",
-        "text": resumen,
+        "text": ("✅ *¡Listo! Tu inmueble ya está publicado.* 💜\n\n"
+                 "Pronto empezarás a recibir contactos de interesados."),
         "buttons": [
             {"id": "VIS_MENU", "title": "🏠 Menú"},
         ],
     })
 
-    # Cerramos el estado del Flow — próximo mensaje va al menú del edificio.
     meta_fin = dict(meta or {})
+    meta_fin.pop("publicar_pending", None)
     meta_fin.pop("flow_publicar_operacion", None)
     meta_fin.pop("flow_publicar_conjunto_id", None)
     meta_fin.pop("visitante_pub", None)
