@@ -838,9 +838,6 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
         f"🏠 *{operacion_label} en {conjunto['nombre']}*",
         "",
         f"✨ Hay *{cuenta} inmuebles disponibles* esperándote.",
-        "",
-        "Marcá los inmuebles que te interesen y te contacto "
-        "inmediato con el anunciante.",
     ]
     if truncado:
         body_lines.append("")
