@@ -798,6 +798,18 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
     for inm in inmuebles:
         # Tipo abreviado para que entre el precio en el title (CheckboxGroup
         # trunca títulos largos; algunos clientes a 30, otros a 50).
+        # Emojis + nombre completo para que el visitante vea de un vistazo
+        # qué tipo de inmueble está mirando (los QRs mezclan tipos).
+        _TIPO_EMOJI = {
+            "apartamento": "🏢 Apto",
+            "apto": "🏢 Apto",
+            "casa": "🏡 Casa",
+            "oficina": "🏬 Oficina",
+            "parqueadero": "🚗 Parq.",
+            "deposito": "📦 Depósito",
+            "habitacion": "🛏️ Hab.",
+            "local": "🏪 Local",
+        }
         _TIPO_ABREV = {
             "apartamento": "Apto", "apto": "Apto",
             "casa": "Casa",
@@ -806,10 +818,13 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
             "parqueadero": "Parq",
         }
         tipo_raw = (inm.get("tipo") or "inmueble").lower()
-        tipo = _TIPO_ABREV.get(tipo_raw, tipo_raw.capitalize())
+        tipo = _TIPO_EMOJI.get(tipo_raw,
+                                _TIPO_ABREV.get(tipo_raw, tipo_raw.capitalize()))
         nro = inm.get("nro") or inm["id"]
         sub = _subtitulo_inm_flow(inm, operacion)
-        title_full = f"#{nro} {tipo}" + (f" · {sub}" if sub else "")
+        # Tipo PRIMERO (con emoji) para que se lea de un vistazo qué es;
+        # después el nro y el subtítulo (precio · m²).
+        title_full = tipo + (f" · {sub}" if sub else "")
         items.append({
             "id": str(inm["id"]),
             # Meta oficialmente limita item title del CheckboxGroup a 30
