@@ -1131,7 +1131,13 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
         else:
             resumen += f"*Administración:* ${admin_valor:,}\n"
     resumen += "\n¡Gracias! Tu inmueble ya está publicado. 💜"
-    _enviar(telefono, _menus.texto(resumen))
+    _enviar(telefono, {
+        "type": "buttons",
+        "text": resumen,
+        "buttons": [
+            {"id": "VIS_MENU", "title": "🏠 Menú"},
+        ],
+    })
 
     # Cerramos el estado del Flow — próximo mensaje va al menú del edificio.
     meta_fin = dict(meta or {})
