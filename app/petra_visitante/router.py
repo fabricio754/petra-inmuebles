@@ -777,8 +777,14 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
     cuenta = f"{len(inmuebles)}+" if truncado else str(len(inmuebles))
     body_lines = [
         f"🏠 *{operacion_label} en {conjunto['nombre']}*",
-        f"{cuenta} inmuebles disponibles ↓",
-        "Elegí los que te interesen y te conecto con cada propietario",
+        "",
+        f"✨ Hay *{cuenta} inmuebles disponibles* esperándote.",
+        "",
+        "Tocá el botón de abajo para verlos todos con fotos y detalles. "
+        "Marcá los que te gusten — podés elegir varios a la vez — y "
+        "en segundos te paso el *WhatsApp del propietario de cada uno* 💜",
+        "",
+        "_Hablás directo con el dueño, sin intermediarios._",
     ]
     if truncado:
         body_lines.append("")
