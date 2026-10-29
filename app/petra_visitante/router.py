@@ -735,22 +735,23 @@ def _fmt_precio(inm, operacion):
 
 
 def _subtitulo_inm_flow(inm, operacion):
-    """Línea secundaria del item en la pantalla del Flow (habitaciones,
-    baños, m², precio). Max 80 chars porque algunos themes de Flow
-    truncan agresivo."""
+    """Línea secundaria del item en la pantalla del Flow. Formato COMPACTO
+    (hab, baños abreviados) para que el precio quepa aunque el title del
+    CheckboxGroup se trunque. Orden: precio primero (más importante),
+    después hab/baños/m²."""
     partes = []
+    precio = _fmt_precio(inm, operacion)
+    if precio:
+        partes.append(precio)
     hab = inm.get("hab") or inm.get("habitaciones")
     banos = inm.get("banos")
     m2 = inm.get("m2")
     if hab:
-        partes.append(f"{hab} hab")
+        partes.append(f"{hab}h")
     if banos:
-        partes.append(f"{banos} baños")
+        partes.append(f"{banos}b")
     if m2:
-        partes.append(f"{m2} m²")
-    precio = _fmt_precio(inm, operacion)
-    if precio:
-        partes.append(precio)
+        partes.append(f"{m2}m²")
     return " · ".join(partes)[:80]
 
 
@@ -774,13 +775,26 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
     # Meta limita cada title a ~30 chars; truncamos si se pasa.
     items = []
     for inm in inmuebles:
-        tipo = (inm.get("tipo") or "inmueble").capitalize()
+        # Tipo abreviado para que entre el precio en el title (CheckboxGroup
+        # trunca títulos largos; algunos clientes a 30, otros a 50).
+        _TIPO_ABREV = {
+            "apartamento": "Apto", "apto": "Apto",
+            "casa": "Casa",
+            "local": "Local",
+            "oficina": "Oficina",
+            "parqueadero": "Parq",
+        }
+        tipo_raw = (inm.get("tipo") or "inmueble").lower()
+        tipo = _TIPO_ABREV.get(tipo_raw, tipo_raw.capitalize())
         nro = inm.get("nro") or inm["id"]
         sub = _subtitulo_inm_flow(inm, operacion)
-        title_full = f"#{nro} — {tipo}" + (f" · {sub}" if sub else "")
+        title_full = f"#{nro} {tipo}" + (f" · {sub}" if sub else "")
         items.append({
             "id": str(inm["id"]),
-            "title": title_full[:30],
+            # Meta oficialmente limita item title del CheckboxGroup a 30
+            # chars, pero algunos clientes aceptan hasta 50-80. Pasamos 50
+            # para que el precio quepa; si Meta rechaza, baja a 30.
+            "title": title_full[:50],
         })
 
     # Guardamos el contexto del Flow en meta para interpretar el nfm_reply
