@@ -65,6 +65,17 @@ def _petra_flow_inmuebles_id():
     return (os.environ.get("PETRA_FLOW_INMUEBLES_ID") or "").strip()
 
 
+def _petra_flow_publicar_id():
+    """ID del WhatsApp Flow (Meta Business Manager) para publicar inmueble
+    (formulario de 1 pantalla). Se lee en cada invocación. Vacío = flow
+    deshabilitado y cae al chat-by-chat (publicar_tipo → publicar_identificador
+    → publicar_area → publicar_precio → publicar_autorizacion).
+
+    Doc: docs/WHATSAPP_FLOW_PUBLICAR_INMUEBLE.md
+    """
+    return (os.environ.get("PETRA_FLOW_PUBLICAR_ID") or "").strip()
+
+
 # Límite duro de items en una pantalla de WhatsApp Flow (CheckboxGroup).
 # Meta rechaza payloads con más — truncamos y avisamos en el body.
 _FLOW_MAX_ITEMS = 30
@@ -467,8 +478,15 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
 
             # ---- Submit de WhatsApp Flow (nfm_reply) ---------------------
             # El Flow trae su propio contexto; no dispatcheamos por estado.
+            # Hay 2 Flows posibles: "Ver inmuebles" (multi-select) y
+            # "Publicar inmueble" (formulario). Ramificamos por el flag
+            # que dejamos en meta cuando enviamos cada uno.
             if flow_response is not None:
-                _procesar_flow_submit(conn, telefono, meta, flow_response)
+                if (meta or {}).get("flow_publicar_operacion"):
+                    _procesar_flow_publicar_submit(conn, telefono, meta,
+                                                   flow_response)
+                else:
+                    _procesar_flow_submit(conn, telefono, meta, flow_response)
                 return
 
             vis_estado_raw = (meta or {}).get("visitante_estado") or ""
@@ -815,6 +833,222 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
         # Fallback: carrito normal, para no dejar al visitante colgado.
         _enviar(telefono, _menus.lista_inmuebles(conjunto["nombre"],
                                                  operacion, inmuebles))
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp Flow — Publicar inmueble (formulario 1 pantalla)
+# ---------------------------------------------------------------------------
+
+def _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta, operacion):
+    """Envía el Flow nativo (1 pantalla con form) para publicar un inmueble.
+
+    El visitante ya eligió operación (arriendo/venta) en el chat previo —
+    acá sólo mandamos el formulario con dirección, tipo, precio,
+    habitaciones y baños. Al confirmar en el Flow, el nfm_reply vuelve
+    al webhook y lo procesa `_procesar_flow_publicar_submit`.
+
+    Doc Meta: docs/WHATSAPP_FLOW_PUBLICAR_INMUEBLE.md
+    """
+    # Pre-mensaje introductorio para que el visitante entienda qué pasa
+    # después (tomar fotos, mostrarlo).
+    _enviar(telefono, _menus.texto(
+        "¡Hola! Te ayudo a publicarlo. Una agente Petra irá a tomar "
+        "fotos e inventario, y se encarga de mostrarlo."
+    ))
+
+    # Guardamos el contexto del Flow en meta — operación y conjunto
+    # los necesitamos cuando llegue el submit (puede tardar minutos si
+    # el visitante llena el form despacio).
+    meta_nuevo = dict(meta or {})
+    meta_nuevo["flow_publicar_operacion"] = operacion
+    meta_nuevo["flow_publicar_conjunto_id"] = conjunto["id"]
+    nuevo_estado = ("publicar_arriendo_flow" if operacion == "arriendo"
+                    else "publicar_venta_flow")
+    _set_estado(conn, telefono, nuevo_estado, meta=meta_nuevo)
+
+    op_label = "arriendo" if operacion == "arriendo" else "venta"
+    body = (
+        f"📋 *Publicar inmueble en {conjunto['nombre']}*\n"
+        f"Operación: *{op_label}*\n\n"
+        "Tocá el botón de abajo para completar los datos del inmueble "
+        "(dirección, tipo, precio, habitaciones y baños)."
+    )
+
+    flow_token = (f"pub:{conjunto['id']}:{operacion}:{telefono}:"
+                  f"{int(time.time())}")
+    try:
+        _pwa.send_flow(
+            to=telefono,
+            flow_id=_petra_flow_publicar_id(),
+            flow_token=flow_token,
+            flow_cta="Completar datos",  # 15 chars, dentro del límite 20.
+            flow_action_payload={
+                "screen": "WELCOME_SCREEN",
+                "data": {},  # El form pide todo, no hay data dinámica.
+            },
+            body=body,
+        )
+    except Exception:
+        log.exception("[visitante] send_flow publicar fallo tel=%s conjunto=%s",
+                      telefono, conjunto.get("codigo"))
+        # Fallback: caer al chat-by-chat clásico — más lento pero no deja
+        # al visitante colgado.
+        meta_fb = dict(meta_nuevo)
+        meta_fb.pop("flow_publicar_operacion", None)
+        meta_fb.pop("flow_publicar_conjunto_id", None)
+        _set_estado(conn, telefono, "publicar_tipo", meta=meta_fb)
+        _enviar(telefono, _menus.lista_tipos_publicar())
+
+
+_TIPOS_PUBLICAR_VALIDOS = {
+    "apartamento", "casa", "local", "oficina", "parqueadero",
+}
+
+
+def _normalizar_tipo_publicar(raw):
+    """Acepta el ID del dropdown del Flow y devuelve un tipo válido para
+    inmuebles_visitante.tipo. Fallback: 'apartamento'."""
+    if not raw:
+        return "apartamento"
+    t = str(raw).strip().lower()
+    # Quita acentos simples.
+    t = (t.replace("á", "a").replace("é", "e").replace("í", "i")
+          .replace("ó", "o").replace("ú", "u"))
+    return t if t in _TIPOS_PUBLICAR_VALIDOS else "apartamento"
+
+
+def _normalizar_entero_dropdown(raw, default=0):
+    """Dropdown de hab/baños manda IDs como "0".."5". Fallback: default."""
+    if raw is None:
+        return default
+    try:
+        return int(str(raw).strip())
+    except (ValueError, TypeError):
+        return default
+
+
+def _normalizar_precio_pesos(raw):
+    """Precio del Flow (input number) → BIGINT pesos. Acepta números con
+    o sin separadores de miles, con o sin decimales. Devuelve None si no
+    se puede parsear."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    # Deja solo dígitos — descarta separadores de miles, símbolos de peso, etc.
+    digitos = re.sub(r"\D", "", s)
+    if not digitos:
+        return None
+    try:
+        v = int(digitos)
+    except ValueError:
+        return None
+    # Si parece venir en millones (ej. el visitante tipeó "650" para 650M),
+    # convertimos. Umbral: valores menores a 1 millón se interpretan como
+    # millones si tienen menos de 7 dígitos y mayores a 50 (arbitrario pero
+    # funciona: 2.5M arriendo = 2500000 queda igual; 650M venta tipeado
+    # como "650" pasa a 650_000_000).
+    #
+    # Nota: en el Flow pedimos "precio en pesos" explícitamente, así que
+    # el visitante típicamente va a tipear el valor completo. Esta
+    # heurística es solo para no romper si tipea en millones.
+    if v > 0 and v < 10_000:
+        v = v * 1_000_000
+    return v
+
+
+def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
+    """Submit del Flow de publicar inmueble. Inserta en inmuebles_visitante
+    con `gestionado_por_petra=TRUE`, `fuente='petra'`, `activo=TRUE`,
+    `propietario_telefono=<el que publicó>`.
+    """
+    operacion = (meta or {}).get("flow_publicar_operacion") or "arriendo"
+    conjunto_id = (meta or {}).get("flow_publicar_conjunto_id")
+
+    if not conjunto_id:
+        log.warning("[visitante] flow publicar: sin conjunto en meta tel=%s "
+                    "flow_response=%s", telefono, flow_response)
+        _enviar(telefono, _menus.texto(
+            "Se me perdió el contexto del edificio. "
+            "Escribí *like* o escaneá el QR de nuevo para empezar. 💜"
+        ))
+        return
+
+    conjunto = _conjunto_por_id(conn, conjunto_id)
+    if not conjunto:
+        log.warning("[visitante] flow publicar: conjunto %s no encontrado "
+                    "tel=%s", conjunto_id, telefono)
+        _enviar(telefono, _menus.texto(
+            "No encontré el edificio. "
+            "Escribí *like* o escaneá el QR de nuevo. 💜"
+        ))
+        return
+
+    # El nfm_reply trae `response` o directamente dict con las keys del form.
+    resp = flow_response if isinstance(flow_response, dict) else {}
+    # El payload puede venir anidado bajo "response" (según el handler).
+    if "direccion" not in resp and isinstance(resp.get("response"), dict):
+        resp = resp["response"]
+
+    direccion = (resp.get("direccion") or "").strip()
+    tipo = _normalizar_tipo_publicar(resp.get("tipo"))
+    precio = _normalizar_precio_pesos(resp.get("precio"))
+    habitaciones = _normalizar_entero_dropdown(resp.get("habitaciones"), 0)
+    banos = _normalizar_entero_dropdown(resp.get("banos"), 1)
+
+    if not direccion:
+        _enviar(telefono, _menus.texto(
+            "No recibí la dirección. ¿Podés intentar de nuevo? "
+            "Escribí *menú* y toca *Publicar inmueble*. 💜"
+        ))
+        return
+
+    inm_id = None
+    try:
+        row = conn.execute(
+            "INSERT INTO inmuebles_visitante "
+            "(conjunto_id, tipo, nro, operacion, habitaciones, banos, "
+            " precio, propietario_telefono, fuente, activo, "
+            " gestionado_por_petra) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'petra', TRUE, TRUE) "
+            "RETURNING id",
+            (conjunto["id"], tipo, direccion[:200], operacion,
+             habitaciones, banos, precio, telefono),
+        ).fetchone()
+        if row:
+            inm_id = row[0]
+    except Exception:
+        log.exception(
+            "[visitante] flow publicar: insert inmuebles_visitante fallo "
+            "tel=%s conjunto=%s", telefono, conjunto.get("codigo"),
+        )
+        _enviar(telefono, _menus.texto(
+            "Tuve un problema guardando tu inmueble. "
+            "Una agente Petra te contactará pronto. 🙏"
+        ))
+        # Igual limpio el meta para no quedar en loop.
+        meta_err = dict(meta or {})
+        meta_err.pop("flow_publicar_operacion", None)
+        meta_err.pop("flow_publicar_conjunto_id", None)
+        _set_estado(conn, telefono, "menu", meta=meta_err)
+        return
+
+    log.info("[visitante] FLOW_PUBLICAR_SUBMIT tel=%s conjunto=%s op=%s "
+             "tipo=%s precio=%s hab=%s banos=%s inm_id=%s",
+             telefono, conjunto["codigo"], operacion, tipo, precio,
+             habitaciones, banos, inm_id)
+
+    _enviar(telefono, _menus.texto(
+        "✅ ¡Listo! Registramos tu inmueble.\n\n"
+        "Te contacta una agente Petra en las próximas horas para "
+        "coordinar las fotos y los detalles. 💜"
+    ))
+
+    # Cerramos el estado del Flow — próximo mensaje va al menú del edificio.
+    meta_fin = dict(meta or {})
+    meta_fin.pop("flow_publicar_operacion", None)
+    meta_fin.pop("flow_publicar_conjunto_id", None)
+    meta_fin.pop("visitante_pub", None)
+    _set_estado(conn, telefono, "menu", meta=meta_fin)
 
 
 def _flow_response_extraer_ids(flow_response):
@@ -1260,6 +1494,17 @@ def _publicar_set_operacion(conn, telefono, conjunto, meta, operacion):
     pub = dict(meta.get("visitante_pub") or {})
     pub["operacion"] = operacion
     meta["visitante_pub"] = pub
+
+    # Si el env PETRA_FLOW_PUBLICAR_ID está seteado, saltamos el chat-by-chat
+    # (publicar_tipo → publicar_identificador → publicar_area → publicar_precio
+    # → publicar_autorizacion) y mandamos el Flow nativo con un formulario de
+    # 1 pantalla. El sub-flow chat sigue como fallback cuando la env está
+    # vacía — no se eliminó.
+    if _petra_flow_publicar_id():
+        _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta,
+                                         operacion)
+        return
+
     _set_estado(conn, telefono, "publicar_tipo", meta=meta)
     _enviar(telefono, _menus.lista_tipos_publicar())
 
