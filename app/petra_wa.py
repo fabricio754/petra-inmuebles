@@ -329,13 +329,17 @@ def send_cta_url(to, body, display_text, url, header=None, footer=None):
     chars, url ≤ 2000 chars. Opcionales: header (texto corto arriba) y
     footer (texto chico abajo).
     """
+    # Nota: Meta documenta display_text con límite 20 chars, pero en
+    # algunos clientes se renderiza más largo. Lo truncamos a 30 chars
+    # para dar margen; si Meta rechaza, los logs lo mostrarán y hay que
+    # bajar a 20.
     inter = {
         "type": "cta_url",
         "body": {"text": str(body)[:1024]},
         "action": {
             "name": "cta_url",
             "parameters": {
-                "display_text": str(display_text)[:20],
+                "display_text": str(display_text)[:30],
                 "url": str(url)[:2000],
             },
         },
