@@ -1523,7 +1523,16 @@ def _procesar_flow_submit(conn, telefono, meta, flow_response):
                 f"el equipo Petra te contactará)_"
             ))
 
-    # 4) Cerramos el estado del Flow — próximo mensaje va al menú del edificio.
+    # 4) Mensaje final con botón Menú para que pueda volver fácil.
+    _enviar(telefono, {
+        "type": "buttons",
+        "text": "¿Querés hacer algo más? 💜",
+        "buttons": [
+            {"id": "VIS_MENU", "title": "🏠 Menú"},
+        ],
+    })
+
+    # 5) Cerramos el estado del Flow — próximo mensaje va al menú del edificio.
     meta_fin = dict(meta or {})
     meta_fin.pop("flow_operacion", None)
     meta_fin.pop("flow_conjunto_id", None)
