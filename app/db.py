@@ -168,6 +168,7 @@ def _preparar(pool):
         with open(SCHEMA_PATH, encoding="utf-8") as f:
             conn.execute(f.read())
         _sembrar_propietarios_dummy_al_boot(conn)
+        _corregir_precios_inmuebles_al_boot(conn)
         ya = conn.execute("SELECT 1 FROM meta WHERE clave = 'datos_iniciales'").fetchone()
         if ya:
             return
@@ -206,6 +207,41 @@ def _sembrar_propietarios_dummy_al_boot(conn):
                      "propietario_telefono=%s", n, tel)
     except Exception:
         log.exception("[boot] sembrar propietarios dummy fallo")
+
+
+def _corregir_precios_inmuebles_al_boot(conn):
+    """One-shot: corrige precios mal cargados en inmuebles_visitante.
+
+    Formato de la env PETRA_FIX_PRECIO_INM:
+        "id1:precio1,id2:precio2,..."
+    Ejemplo: "31:1500000,32:1500000,33:1500000"
+
+    Idempotente: el UPDATE deja los valores como están si ya corren.
+    Para desactivar: borrá la env.
+    """
+    raw = (os.environ.get("PETRA_FIX_PRECIO_INM") or "").strip()
+    if not raw:
+        return
+    pares = []
+    for parte in raw.split(","):
+        if ":" not in parte:
+            continue
+        iid, pr = parte.split(":", 1)
+        try:
+            pares.append((int(iid.strip()), int(pr.strip())))
+        except ValueError:
+            continue
+    if not pares:
+        return
+    try:
+        for iid, pr in pares:
+            conn.execute(
+                "UPDATE inmuebles_visitante SET precio=%s WHERE id=%s",
+                (pr, iid),
+            )
+        log.info("[boot] precios corregidos: %s", pares)
+    except Exception:
+        log.exception("[boot] fix precios inmuebles fallo")
 
 
 def _cargar_datos_iniciales(conn):
