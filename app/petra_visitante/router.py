@@ -987,7 +987,7 @@ def _procesar_flow_submit(conn, telefono, meta, flow_response):
                 _pwa.send_cta_url(
                     to=telefono,
                     body=cabecera,
-                    display_text="Hablar al propietario",
+                    display_text="Hablar al dueño",
                     url=url,
                 )
             except Exception:
