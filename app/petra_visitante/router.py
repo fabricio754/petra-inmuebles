@@ -1130,10 +1130,7 @@ def _procesar_flow_publicar_submit(conn, telefono, meta, flow_response):
             resumen += f"*Administración:* ${admin_valor:,} ({incl_txt})\n"
         else:
             resumen += f"*Administración:* ${admin_valor:,}\n"
-    resumen += (
-        "\nTe contacta una agente Petra en las próximas horas para "
-        "coordinar las fotos y los detalles. 💜"
-    )
+    resumen += "\n¡Gracias! Tu inmueble ya está publicado. 💜"
     _enviar(telefono, _menus.texto(resumen))
 
     # Cerramos el estado del Flow — próximo mensaje va al menú del edificio.
