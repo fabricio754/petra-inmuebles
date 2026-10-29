@@ -1507,15 +1507,9 @@ def _marcar_contactar(conn, telefono, conjunto, meta, operacion, inmueble_id):
 def _publicar_inicio(conn, telefono, conjunto, meta):
     meta = dict(meta or {})
     meta["visitante_pub"] = {}
-
-    # Si el Flow nativo está habilitado, abrir el formulario directo
-    # (el Dropdown de operación va dentro del Flow — no hace falta
-    # preguntar arriendo/venta en el chat primero).
-    if _petra_flow_publicar_id():
-        _mostrar_flow_publicar_inmueble(conn, telefono, conjunto, meta,
-                                        operacion=None)
-        return
-
+    # Siempre preguntamos operación primero (chat), aunque el Flow nativo
+    # esté habilitado — así el visitante entiende qué está por hacer.
+    # Al elegir arriendo/venta, _publicar_set_operacion abre el Flow.
     _set_estado(conn, telefono, "publicar_operacion", meta=meta)
     _enviar(telefono, _menus.pub_operacion(conjunto["nombre"]))
 
