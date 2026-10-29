@@ -1225,14 +1225,17 @@ def _preview_publicar(p):
         resumen += f"*Precio:* {precio_txt}\n"
     if p.get("m2"):
         resumen += f"*Área:* {p['m2']} m²\n"
-    if p["operacion"] == "arriendo" and p.get("admin_valor"):
-        incl_txt = ("incluida" if p.get("admin_incluida")
-                    else "aparte" if p.get("admin_incluida") is False
+    if p["operacion"] == "arriendo" and (p.get("admin_valor") or p.get("admin_incluida") is not None):
+        incl_txt = ("incluida en el canon" if p.get("admin_incluida")
+                    else "aparte del canon" if p.get("admin_incluida") is False
                     else "")
-        if incl_txt:
-            resumen += f"*Administración:* ${p['admin_valor']:,} ({incl_txt})\n"
-        else:
-            resumen += f"*Administración:* ${p['admin_valor']:,}\n"
+        av = p.get("admin_valor")
+        if av and incl_txt:
+            resumen += f"*Administración:* ${av:,} ({incl_txt})\n"
+        elif av:
+            resumen += f"*Administración:* ${av:,}\n"
+        elif incl_txt:
+            resumen += f"*Administración:* {incl_txt}\n"
     resumen += "\n¿Todo correcto?"
     return {
         "type": "buttons",
