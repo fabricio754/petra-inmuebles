@@ -167,6 +167,7 @@ def _preparar(pool):
     with pool.connection() as conn:
         with open(SCHEMA_PATH, encoding="utf-8") as f:
             conn.execute(f.read())
+        _sembrar_propietarios_dummy_al_boot(conn)
         ya = conn.execute("SELECT 1 FROM meta WHERE clave = 'datos_iniciales'").fetchone()
         if ya:
             return
@@ -176,6 +177,35 @@ def _preparar(pool):
             "ON CONFLICT (clave) DO NOTHING"
         )
     log.info("[Postgres] Base preparada.")
+
+
+def _sembrar_propietarios_dummy_al_boot(conn):
+    """Si la env PETRA_SEMBRAR_PROP_DUMMY está seteada a un teléfono, pisa
+    propietario_telefono en inmuebles_visitante activos que no lo tengan.
+    Idempotente: al próximo boot con la misma env solo pisa inmuebles que
+    todavía no tengan ese valor (los que ya se pisaron en una pasada
+    anterior quedan).
+
+    Útil para pruebas sin tener propietarios reales cargados y sin tener
+    que llamar a un endpoint manual. Para desactivar: borrá la env.
+    """
+    tel = (os.environ.get("PETRA_SEMBRAR_PROP_DUMMY") or "").strip().lstrip("+")
+    if not tel or not tel.isdigit() or len(tel) < 10:
+        return
+    try:
+        cur = conn.execute(
+            "UPDATE inmuebles_visitante SET propietario_telefono=%s "
+            "WHERE activo=TRUE "
+            "  AND (propietario_telefono IS NULL OR propietario_telefono='') "
+            "RETURNING id",
+            (tel,),
+        )
+        n = len(cur.fetchall())
+        if n:
+            log.info("[boot] propietarios dummy sembrados: %d inmueble(s) con "
+                     "propietario_telefono=%s", n, tel)
+    except Exception:
+        log.exception("[boot] sembrar propietarios dummy fallo")
 
 
 def _cargar_datos_iniciales(conn):
