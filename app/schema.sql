@@ -2116,6 +2116,14 @@ ALTER TABLE inmuebles_visitante
 ALTER TABLE inmuebles_visitante
   ADD COLUMN IF NOT EXISTS propietario_telefono_original TEXT;
 
+-- Administración (solo aplica a arriendos). admin_valor = costo mensual
+-- de la cuota de administración. admin_incluida = si está dentro del
+-- canon anunciado o si el inquilino la paga aparte.
+ALTER TABLE inmuebles_visitante
+  ADD COLUMN IF NOT EXISTS admin_valor BIGINT;
+ALTER TABLE inmuebles_visitante
+  ADD COLUMN IF NOT EXISTS admin_incluida BOOLEAN;
+
 -- ============================================================================
 -- Interesados QR: registro de personas que vieron inmuebles vía el QR del
 -- edificio y pidieron contacto.  Alimentado por el flujo visitante (cuando
