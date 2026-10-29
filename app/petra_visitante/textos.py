@@ -19,8 +19,8 @@ BIENVENIDA = (
 MENU_PROMPT = "¿Qué querés hacer?"
 
 # Botón labels (max 20 chars cada uno — límite WhatsApp)
-BTN_ARRIENDO = "🏠 Tomar en arriendo"
-BTN_COMPRAR = "🏡 Comprar"
+BTN_ARRIENDO = "🏠 Ver arriendos"
+BTN_COMPRAR = "🏡 Ver ventas"
 BTN_PUBLICAR = "📋 Publicar inmueble"
 
 BTN_VOLVER = "⬅️ Volver"
