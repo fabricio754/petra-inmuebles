@@ -2717,7 +2717,7 @@ def admin_recordatorios_auto_run():
                 500)
 
 
-@petra_panel_bp.post("/_admin/sembrar-propietarios-dummy")
+@petra_panel_bp.route("/_admin/sembrar-propietarios-dummy", methods=["POST", "GET"])
 def admin_sembrar_propietarios_dummy():
     """Setea un teléfono dummy en inmuebles_visitante.propietario_telefono
     para los inmuebles activos que no tienen uno. Útil para probar el flow
