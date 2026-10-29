@@ -496,6 +496,31 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
             base_vis = vis_estado_raw.split(":", 1)[0]
             qr_present = _qr.tiene_marker_qr(texto)
 
+            # ---- Idle timeout 5 min --------------------------------------
+            # Si el visitante vuelve a escribir con un mensaje normal (texto
+            # sin botón/lista/flow/QR) después de >5 min sin actividad, le
+            # mandamos un mensaje de cierre con botón Menú en vez del menú
+            # de bienvenida. El próximo tap al Menú lo re-abre normal.
+            _ahora_ts = int(time.time())
+            _last_ts = int((meta or {}).get("ultimo_msg_ts") or 0)
+            meta["ultimo_msg_ts"] = _ahora_ts
+            _idle_sec = _ahora_ts - _last_ts if _last_ts else 0
+            if (_last_ts and _idle_sec > 300
+                    and not button_id and not list_id
+                    and not qr_present):
+                _guardar_meta(conn, telefono, meta)
+                _enviar(telefono, {
+                    "type": "buttons",
+                    "text": ("💤 Tu sesión anterior se cerró por "
+                             "inactividad.\n\n"
+                             "Tocá el botón de abajo cuando quieras seguir."),
+                    "buttons": [
+                        {"id": "VIS_MENU", "title": "🏠 Menú"},
+                    ],
+                })
+                return
+            _guardar_meta(conn, telefono, meta)
+
             # ---- Intent "quiero ser agente petra" ------------------------
             # Si el usuario escribe directamente esa intención (sin botón),
             # saltamos todo el home y lo mandamos al flujo de inscripción.
