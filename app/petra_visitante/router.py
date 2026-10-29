@@ -789,6 +789,42 @@ def _fmt_precio(inm, operacion):
     return f"${p:,}"
 
 
+_RE_TORRE = re.compile(r"torre[/\s]*(?:bloque\s*)?(\w+)", re.IGNORECASE)
+_RE_BLOQUE = re.compile(r"bloque\s*(\w+)", re.IGNORECASE)
+_RE_APTO = re.compile(r"apto\s*(\w+)", re.IGNORECASE)
+
+
+def _nro_compacto(nro):
+    """Normaliza el nro guardado (ej. 'Torre/Bloque 4 · Apto 1206') a una
+    forma corta que entre en el item del Flow (title max 50 chars).
+
+    Ejemplos:
+      "Torre/Bloque 4 · Apto 1206" → "T4·1206"
+      "Torre 3 · Apto 405"         → "T3·405"
+      "Bloque B · Apto 15A"        → "B·15A"
+      "201"                        → "201"
+      "(sin especificar)"          → ""
+    """
+    if not nro:
+        return ""
+    s = str(nro).strip()
+    if not s or s == "(sin especificar)":
+        return ""
+    torre = _RE_TORRE.search(s)
+    bloque = _RE_BLOQUE.search(s)
+    apto = _RE_APTO.search(s)
+    partes = []
+    if torre:
+        partes.append(f"T{torre.group(1)}")
+    elif bloque:
+        partes.append(f"B{bloque.group(1)}")
+    if apto:
+        partes.append(apto.group(1))
+    if partes:
+        return "·".join(partes)
+    return s[:20]
+
+
 def _subtitulo_inm_flow(inm, operacion):
     """Línea secundaria del item en la pantalla del Flow. Formato COMPACTO
     (hab, baños abreviados) para que el precio quepa aunque el title del
@@ -849,10 +885,16 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
         tipo = _TIPO_EMOJI.get(tipo_raw,
                                 _TIPO_ABREV.get(tipo_raw, tipo_raw.capitalize()))
         nro = inm.get("nro") or inm["id"]
+        nro_corto = _nro_compacto(nro)
         sub = _subtitulo_inm_flow(inm, operacion)
         # Tipo PRIMERO (con emoji) para que se lea de un vistazo qué es;
-        # después el nro y el subtítulo (precio · m²).
-        title_full = tipo + (f" · {sub}" if sub else "")
+        # después el nro corto (Torre·Apto) y el subtítulo (precio · m²).
+        partes_title = [tipo]
+        if nro_corto:
+            partes_title.append(nro_corto)
+        if sub:
+            partes_title.append(sub)
+        title_full = " · ".join(partes_title)
         items.append({
             "id": str(inm["id"]),
             # Meta oficialmente limita item title del CheckboxGroup a 30
