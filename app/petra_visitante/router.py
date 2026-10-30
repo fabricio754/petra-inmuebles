@@ -318,7 +318,7 @@ def _listar_inmuebles(conn, conjunto_id, operacion, limite=10, excluir_ids=None)
     excluir_ids = list(excluir_ids or [])
     sql = (
         "SELECT id, nro, habitaciones, banos, m2, precio, fuente, tipo, "
-        "       admin_valor, admin_incluida "
+        "       admin_valor, admin_incluida, propietario_telefono "
         "FROM inmuebles_visitante "
         "WHERE conjunto_id=%s AND operacion=%s AND activo=TRUE"
     )
@@ -332,7 +332,8 @@ def _listar_inmuebles(conn, conjunto_id, operacion, limite=10, excluir_ids=None)
     return [
         {"id": r[0], "nro": r[1], "hab": r[2], "banos": r[3],
          "m2": r[4], "precio": r[5], "fuente": r[6], "tipo": r[7],
-         "admin_valor": r[8], "admin_incluida": r[9]}
+         "admin_valor": r[8], "admin_incluida": r[9],
+         "propietario_telefono": r[10]}
         for r in rows
     ]
 
