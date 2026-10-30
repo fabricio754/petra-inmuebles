@@ -923,12 +923,12 @@ def _fmt_precio(inm, operacion):
     return f"${p:,}"
 
 
-# Double-struck ("blackboard bold") Unicode — convierte letras ASCII a
-# su equivalente Unicode double-struck. Útil para dar un toque visual
-# a los items del Flow sin perder legibilidad de números y símbolos.
+# Monospace Unicode — convierte letras ASCII a su equivalente Unicode
+# monospace. Da un toque "código/digital" elegante sin perder
+# legibilidad de números y símbolos.
 _CURSIVA_MAP = {}
-_CURSIVA_UP = "𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ"
-_CURSIVA_LOW = "𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫"
+_CURSIVA_UP = "𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉"
+_CURSIVA_LOW = "𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣"
 # Nota: estos son chars múltiples bytes; iteramos sobre code points.
 _up_chars = list(_CURSIVA_UP)
 _low_chars = list(_CURSIVA_LOW)
