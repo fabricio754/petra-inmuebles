@@ -923,6 +923,32 @@ def _fmt_precio(inm, operacion):
     return f"${p:,}"
 
 
+# Cursiva "Mathematical Script" — convierte letras ASCII (A-Z, a-z) a su
+# equivalente cursivo Unicode. Útil para dar un toque elegante a los
+# items del Flow sin perder legibilidad de números y símbolos.
+_CURSIVA_MAP = {}
+_CURSIVA_UP = "𝒜𝐵𝒞𝒟𝐸𝐹𝒢𝐻𝐼𝒥𝒦𝐿𝑀𝒩𝒪𝒫𝒬𝑅𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
+_CURSIVA_LOW = "𝒶𝒷𝒸𝒹𝑒𝒻𝑔𝒽𝒾𝒿𝓀𝓁𝓂𝓃𝑜𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏"
+# Nota: estos son chars múltiples bytes; iteramos sobre code points.
+_up_chars = list(_CURSIVA_UP)
+_low_chars = list(_CURSIVA_LOW)
+for i, c in enumerate("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+    if i < len(_up_chars):
+        _CURSIVA_MAP[c] = _up_chars[i]
+for i, c in enumerate("abcdefghijklmnopqrstuvwxyz"):
+    if i < len(_low_chars):
+        _CURSIVA_MAP[c] = _low_chars[i]
+
+
+def _a_cursiva(texto):
+    """Convierte las letras ASCII del texto a cursiva Unicode. Deja
+    números, símbolos, acentos y emojis intactos (acentos no se mapean
+    porque la cursiva Mathematical Script no cubre latin-1 extended)."""
+    if not texto:
+        return texto
+    return "".join(_CURSIVA_MAP.get(c, c) for c in texto)
+
+
 _RE_TORRE = re.compile(r"torre[/\s]*(?:bloque\s*)?(\w+)", re.IGNORECASE)
 _RE_BLOQUE = re.compile(r"bloque\s*(\w+)", re.IGNORECASE)
 _RE_APTO = re.compile(r"apto\s*(\w+)", re.IGNORECASE)
@@ -1017,15 +1043,17 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
         # trunca títulos largos; algunos clientes a 30, otros a 50).
         # Emojis + nombre completo para que el visitante vea de un vistazo
         # qué tipo de inmueble está mirando (los QRs mezclan tipos).
+        # Las letras del nombre van en cursiva Unicode para dar un
+        # toque visual (Mathematical Script).
         _TIPO_EMOJI = {
-            "apartamento": "🏢 Apto",
-            "apto": "🏢 Apto",
-            "casa": "🏡 Casa",
-            "oficina": "🏬 Oficina",
-            "parqueadero": "🚗 Parq.",
-            "deposito": "📦 Depósito",
-            "habitacion": "🛏️ Hab.",
-            "local": "🏪 Local",
+            "apartamento": f"🏢 {_a_cursiva('Apto')}",
+            "apto": f"🏢 {_a_cursiva('Apto')}",
+            "casa": f"🏡 {_a_cursiva('Casa')}",
+            "oficina": f"🏬 {_a_cursiva('Oficina')}",
+            "parqueadero": f"🚗 {_a_cursiva('Parq')}.",
+            "deposito": f"📦 {_a_cursiva('Deposito')}",
+            "habitacion": f"🛏️ {_a_cursiva('Hab')}.",
+            "local": f"🏪 {_a_cursiva('Local')}",
         }
         _TIPO_ABREV = {
             "apartamento": "Apto", "apto": "Apto",
