@@ -756,7 +756,121 @@ def _dispatch(conn, telefono, texto, button_id, list_id,
 # Sub-flows
 # ---------------------------------------------------------------------------
 
+_MAX_TARJETAS_DIRECTAS = 10
+
+
+def _mostrar_tarjetas_directas(conn, telefono, conjunto, meta, operacion):
+    """Camino C: envía UN mensaje interactivo por inmueble, con precio y
+    botón CTA 'Hablar al dueño' que abre wa.me del propietario.
+
+    Sin Flow, sin carrito. Topea en _MAX_TARJETAS_DIRECTAS para no spamear.
+    Al final manda un mensaje con botón Menú.
+    """
+    inmuebles = _listar_inmuebles(conn, conjunto["id"], operacion)
+    if not inmuebles:
+        vacio = (T.LISTA_VACIA_ARRIENDO if operacion == "arriendo"
+                 else T.LISTA_VACIA_VENTA).format(edificio=conjunto["nombre"])
+        _enviar(telefono, _menus.solo_menu_boton(vacio))
+        _set_estado(conn, telefono, "menu", meta=meta)
+        return
+
+    truncado = len(inmuebles) > _MAX_TARJETAS_DIRECTAS
+    inmuebles_mostrar = inmuebles[:_MAX_TARJETAS_DIRECTAS]
+
+    # Header con conteo.
+    op_label = "Arriendos" if operacion == "arriendo" else "Ventas"
+    cuenta = f"{len(inmuebles)}+" if truncado else str(len(inmuebles))
+    _enviar(telefono, _menus.texto(
+        f"🏠 *{op_label} en {conjunto['nombre']}*\n\n"
+        f"✨ *{cuenta} inmuebles disponibles*"
+        + (f"\n_(mostrando los {_MAX_TARJETAS_DIRECTAS} más recientes)_"
+           if truncado else "")
+    ))
+
+    # Emojis + nombre por tipo.
+    _TIPO_EMOJI_DIR = {
+        "apartamento": "🏢 Apartamento",
+        "apto": "🏢 Apartamento",
+        "casa": "🏡 Casa",
+        "oficina": "🏬 Oficina",
+        "parqueadero": "🚗 Parqueadero",
+        "deposito": "📦 Depósito",
+        "habitacion": "🛏️ Habitación",
+        "local": "🏪 Local",
+    }
+
+    for inm in inmuebles_mostrar:
+        tipo_raw = (inm.get("tipo") or "inmueble").lower()
+        tipo = _TIPO_EMOJI_DIR.get(tipo_raw, f"🏢 {tipo_raw.capitalize()}")
+        nro = inm.get("nro") or inm["id"]
+        precio = _fmt_precio(inm, operacion)
+        m2 = inm.get("m2")
+        av = inm.get("admin_valor")
+        ai = inm.get("admin_incluida")
+
+        # Línea 1: tipo + ubicación. Línea 2+: datos.
+        detalles = [f"#{nro}"]
+        if m2:
+            detalles.append(f"{m2} m²")
+        if operacion == "arriendo":
+            if av and ai is False:
+                detalles.append(f"+ admin ${av:,}")
+            elif av and ai:
+                detalles.append("admin incluida")
+            elif ai is True:
+                detalles.append("admin incluida")
+            elif ai is False:
+                detalles.append("+ admin")
+
+        body = f"*{tipo}*\n{' · '.join(detalles)}"
+        if precio:
+            body += f"\n\n💰 *{precio}*"
+
+        prop_tel = (inm.get("propietario_telefono") or "").strip()
+        prop_clean = re.sub(r"\D", "", prop_tel)
+        if prop_clean:
+            saludo = (
+                f"Hola, me interesa el inmueble #{nro} "
+                f"del edificio {conjunto['nombre']}."
+            )
+            url = f"https://wa.me/{prop_clean}?text={quote(saludo)}"
+            try:
+                _pwa.send_cta_url(
+                    to=telefono,
+                    body=body,
+                    display_text="Hablar al dueño",
+                    url=url,
+                )
+            except Exception:
+                log.exception("[visitante] cards: send_cta_url fallo "
+                              "tel=%s inm=%s", telefono, inm.get("id"))
+                _enviar(telefono, _menus.texto(
+                    f"{body}\n\n👉 Hablar: {url}"
+                ))
+        else:
+            _enviar(telefono, _menus.texto(
+                f"{body}\n_(sin contacto del propietario registrado)_"
+            ))
+
+    # Botón Menú al final.
+    _enviar(telefono, {
+        "type": "buttons",
+        "text": "¿Querés hacer algo más? 💜",
+        "buttons": [
+            {"id": "VIS_MENU", "title": "🏠 Menú"},
+        ],
+    })
+    _set_estado(conn, telefono, "menu", meta=meta)
+
+
 def _mostrar_lista(conn, telefono, conjunto, meta, operacion):
+    # Camino C — tarjetas directas (una por inmueble, botón "Hablar al
+    # dueño"). Activo con env PETRA_INMUEBLES_CARDS=1. Sin Flow, sin
+    # carrito — más visual y directo, uno a uno.
+    if os.environ.get("PETRA_INMUEBLES_CARDS") == "1":
+        _mostrar_tarjetas_directas(conn, telefono, conjunto, meta, operacion)
+        return
+
     # Camino A' — WhatsApp Flow multi-select nativo (feature flag).
     # Si el env PETRA_FLOW_INMUEBLES_ID está seteado, usamos la pantalla
     # in-app de WhatsApp (checkboxes) en vez del carrito tradicional.
