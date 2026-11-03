@@ -169,6 +169,7 @@ def _preparar(pool):
             conn.execute(f.read())
         _sembrar_propietarios_dummy_al_boot(conn)
         _corregir_precios_inmuebles_al_boot(conn)
+        _desactivar_inmuebles_al_boot(conn)
         ya = conn.execute("SELECT 1 FROM meta WHERE clave = 'datos_iniciales'").fetchone()
         if ya:
             return
@@ -242,6 +243,46 @@ def _corregir_precios_inmuebles_al_boot(conn):
         log.info("[boot] precios corregidos: %s", pares)
     except Exception:
         log.exception("[boot] fix precios inmuebles fallo")
+
+
+def _desactivar_inmuebles_al_boot(conn):
+    """One-shot: desactiva inmuebles de inmuebles_visitante por conjunto o
+    todos. Soft delete (activo=FALSE), no borra filas.
+
+    Formato de la env PETRA_DESACTIVAR_INM:
+        "all"      → desactiva TODOS los inmuebles activos
+        "1001"     → desactiva los del conjunto codigo=1001
+        "1001,2530" → desactiva los de varios códigos
+
+    Idempotente. Para desactivar la env: borrála.
+    """
+    raw = (os.environ.get("PETRA_DESACTIVAR_INM") or "").strip()
+    if not raw:
+        return
+    try:
+        if raw.lower() == "all":
+            cur = conn.execute(
+                "UPDATE inmuebles_visitante SET activo=FALSE "
+                "WHERE activo=TRUE RETURNING id"
+            )
+            n = len(cur.fetchall())
+            log.info("[boot] desactivados TODOS los inmuebles: %d", n)
+            return
+        codigos = [c.strip() for c in raw.split(",") if c.strip()]
+        if not codigos:
+            return
+        cur = conn.execute(
+            "UPDATE inmuebles_visitante SET activo=FALSE "
+            "WHERE activo=TRUE AND conjunto_id IN ("
+            "  SELECT id FROM conjuntos_visitante WHERE codigo = ANY(%s)"
+            ") RETURNING id",
+            (codigos,),
+        )
+        n = len(cur.fetchall())
+        log.info("[boot] desactivados inmuebles de conjuntos %s: %d",
+                 codigos, n)
+    except Exception:
+        log.exception("[boot] desactivar inmuebles fallo")
 
 
 def _cargar_datos_iniciales(conn):
