@@ -810,7 +810,10 @@ def _mostrar_tarjetas_directas(conn, telefono, conjunto, meta, operacion):
         ai = inm.get("admin_incluida")
 
         # Línea 1: tipo + ubicación. Línea 2+: datos.
-        detalles = [f"#{nro}"]
+        detalles = []
+        nro_str = str(nro).strip()
+        if nro_str and nro_str != "(sin especificar)":
+            detalles.append(f"#{nro_str}")
         if m2:
             detalles.append(f"{m2} m²")
         if operacion == "arriendo":
