@@ -1043,17 +1043,15 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
         # trunca títulos largos; algunos clientes a 30, otros a 50).
         # Emojis + nombre completo para que el visitante vea de un vistazo
         # qué tipo de inmueble está mirando (los QRs mezclan tipos).
-        # Las letras del nombre van en cursiva Unicode para dar un
-        # toque visual (Mathematical Script).
         _TIPO_EMOJI = {
-            "apartamento": f"🏢 {_a_cursiva('Apto')}",
-            "apto": f"🏢 {_a_cursiva('Apto')}",
-            "casa": f"🏡 {_a_cursiva('Casa')}",
-            "oficina": f"🏬 {_a_cursiva('Oficina')}",
-            "parqueadero": f"🚗 {_a_cursiva('Parq')}.",
-            "deposito": f"📦 {_a_cursiva('Deposito')}",
-            "habitacion": f"🛏️ {_a_cursiva('Hab')}.",
-            "local": f"🏪 {_a_cursiva('Local')}",
+            "apartamento": "🏢 Apto",
+            "apto": "🏢 Apto",
+            "casa": "🏡 Casa",
+            "oficina": "🏬 Oficina",
+            "parqueadero": "🚗 Parq.",
+            "deposito": "📦 Depósito",
+            "habitacion": "🛏️ Hab.",
+            "local": "🏪 Local",
         }
         _TIPO_ABREV = {
             "apartamento": "Apto", "apto": "Apto",
