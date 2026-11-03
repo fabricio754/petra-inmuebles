@@ -1650,7 +1650,12 @@ def _procesar_flow_submit(conn, telefono, meta, flow_response):
         nro = inm.get("nro") or inm["id"]
         precio = _fmt_precio(inm, operacion)
         m2 = inm.get("m2")
-        meta_bits = [f"#{nro}"]
+        meta_bits = []
+        # Si el nro es placeholder ("(sin especificar)") lo omitimos:
+        # no aporta info al visitante y se ve feo.
+        nro_str = str(nro).strip()
+        if nro_str and nro_str != "(sin especificar)":
+            meta_bits.append(f"#{nro_str}")
         if m2:
             meta_bits.append(f"{m2}m²")
         if precio:
