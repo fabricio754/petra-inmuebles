@@ -101,8 +101,14 @@
         <tr style="cursor:pointer" onclick="window.location='/panel/petra/visitante/usuario/{{ u.telefono }}?token={{ token }}'">
           <td class="tel">
             <a href="/panel/petra/visitante/usuario/{{ u.telefono }}?token={{ token }}"
-               style="color:var(--accent); text-decoration:none">{{ u.telefono }}</a>
-            {% if u.username %}
+               style="color:var(--accent); text-decoration:none">
+              {% if u.telefono and u.telefono.startswith('CO.') %}
+                {% if u.username %}@{{ u.username }}{% else %}—{% endif %}
+              {% else %}
+                {{ u.telefono }}
+              {% endif %}
+            </a>
+            {% if u.username and not u.telefono.startswith('CO.') %}
               <div style="font-size:11px;color:var(--muted);margin-top:2px">@{{ u.username }}</div>
             {% endif %}
           </td>

@@ -3533,7 +3533,7 @@ def visitante_usuario_detalle(telefono):
                                  token=token))
     with _db._conexion_directa(timeout=15) as conn:
         _contacto_rows = _rows(conn,
-            """SELECT pc.id, pc.telefono, pc.nombre, pc.updated_at,
+            """SELECT pc.id, pc.telefono, pc.nombre, pc.username, pc.updated_at,
                       pc.created_at,
                       pc.meta->>'visitante_conjunto_id' AS conjunto_id_sticky,
                       pc.meta->>'visitante_estado' AS estado_visitante,
