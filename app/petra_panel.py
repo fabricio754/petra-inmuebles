@@ -3193,10 +3193,12 @@ def visitante_inmueble_nuevo(cid):
     precio = _parse_int_or_none(request.form.get("precio"))
     tel = (request.form.get("propietario_telefono") or "").strip() or None
 
-    if (not nro or operacion not in ("arriendo", "venta") or precio is None
+    if (operacion not in ("arriendo", "venta") or precio is None
             or precio <= 0):
         return redirect(url_for("petra_panel.visitante_inmuebles",
                                 cid=cid, token=token, flash="falta_campo"))
+    if not nro:
+        nro = "(sin especificar)"
     for v in (hab, banos, m2):
         if v is not None and v < 0:
             return redirect(url_for("petra_panel.visitante_inmuebles",

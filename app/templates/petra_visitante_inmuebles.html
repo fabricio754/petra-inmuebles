@@ -112,7 +112,7 @@
   {% if flash == 'creado' %}<div class="flash ok">Inmueble creado ✅</div>
   {% elif flash == 'editado' %}<div class="flash ok">Inmueble actualizado ✅</div>
   {% elif flash == 'toggled' %}<div class="flash ok">Estado actualizado ✅</div>
-  {% elif flash == 'falta_campo' %}<div class="flash err">Faltan campos obligatorios (nro, operación, precio &gt; 0).</div>
+  {% elif flash == 'falta_campo' %}<div class="flash err">Faltan campos obligatorios (operación, precio &gt; 0).</div>
   {% elif flash == 'valores_invalidos' %}<div class="flash err">Valores numéricos deben ser ≥ 0.</div>
   {% elif flash == 'error' %}<div class="flash err">Error guardando. Revisá los logs.</div>
   {% endif %}
@@ -122,7 +122,9 @@
     <form method="POST" action="{{ url_for('petra_panel.visitante_inmueble_nuevo', cid=conjunto.id) }}">
       <input type="hidden" name="token" value="{{ token }}">
       <div class="form-grid">
-        <div><label>Nro *</label><input type="text" name="nro" required maxlength="60"></div>
+        <div><label>Torre / Apto</label><input type="text" name="nro" maxlength="60" placeholder="Ej: Torre 3 · Apto 502">
+          <small style="color:#888;font-size:11px">Código P#### auto</small>
+        </div>
         <div><label>Operación *</label>
           <select name="operacion" required>
             <option value="arriendo">Arriendo</option>
@@ -161,14 +163,15 @@
     <table>
       <thead>
         <tr>
-          <th>Nro</th><th>Op</th><th>Hab</th><th>Baños</th><th>m²</th>
+          <th>Código</th><th>Torre/Apto</th><th>Op</th><th>Hab</th><th>Baños</th><th>m²</th>
           <th>Precio</th><th>Fuente</th><th>Gestión</th><th>Estado</th><th>Creado</th><th></th>
         </tr>
       </thead>
       <tbody>
         {% for i in inmuebles %}
         <tr class="{% if not i.activo %}inactivo{% endif %}">
-          <td class="mono"><strong>{{ i.nro }}</strong></td>
+          <td class="mono"><strong style="color:#7c5cff">P{{ '%04d'|format(i.id) }}</strong></td>
+          <td class="mono">{% if i.nro and i.nro != '(sin especificar)' %}{{ i.nro }}{% else %}<span style="color:#aaa">—</span>{% endif %}</td>
           <td><span class="pill {% if i.operacion == 'arriendo' %}arr{% else %}ven{% endif %}">{{ i.operacion }}</span></td>
           <td>{{ i.habitaciones if i.habitaciones is not none else '—' }}</td>
           <td>{{ i.banos if i.banos is not none else '—' }}</td>
@@ -208,7 +211,7 @@
             <form method="POST" action="{{ url_for('petra_panel.visitante_inmueble_editar', iid=i.id) }}">
               <input type="hidden" name="token" value="{{ token }}">
               <div class="form-grid">
-                <div><label>Nro *</label><input type="text" name="nro" required value="{{ i.nro }}"></div>
+                <div><label>Torre / Apto</label><input type="text" name="nro" value="{{ i.nro }}"></div>
                 <div><label>Operación *</label>
                   <select name="operacion" required>
                     <option value="arriendo" {% if i.operacion == 'arriendo' %}selected{% endif %}>Arriendo</option>
