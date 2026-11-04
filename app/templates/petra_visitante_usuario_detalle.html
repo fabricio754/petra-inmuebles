@@ -89,6 +89,28 @@
 
   .empty { padding: 30px; text-align: center; color: var(--muted); font-size: 13px; }
   .muted { color: var(--muted); }
+
+  /* Chat */
+  .chat { padding: 16px; background: #efeae2;
+          background-image:
+            radial-gradient(#d9d2c7 1px, transparent 1px),
+            radial-gradient(#d9d2c7 1px, transparent 1px);
+          background-size: 20px 20px;
+          background-position: 0 0, 10px 10px;
+          max-height: 520px; overflow-y: auto; }
+  .msg { margin-bottom: 8px; display: flex; }
+  .msg.in { justify-content: flex-start; }
+  .msg.out { justify-content: flex-end; }
+  .bubble { max-width: 70%; padding: 6px 10px 20px; border-radius: 8px;
+            font-size: 13px; line-height: 1.35; position: relative;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.08); word-wrap: break-word;
+            white-space: pre-wrap; }
+  .msg.in .bubble { background: #ffffff; border-top-left-radius: 2px; }
+  .msg.out .bubble { background: #d9fdd3; border-top-right-radius: 2px; }
+  .bubble .time { position: absolute; bottom: 3px; right: 8px;
+                  font-size: 10px; color: var(--muted); }
+  .bubble .tipo { font-size: 10px; color: var(--muted); font-style: italic;
+                  margin-bottom: 2px; display: block; }
 </style>
 </head>
 <body>
@@ -153,6 +175,34 @@
   </aside>
 
   <div>
+    {% if mensajes %}
+    <div class="section">
+      <div class="section-head">
+        <h2>💬 Chat</h2>
+        <span class="count">{{ mensajes|length }} mensajes</span>
+      </div>
+      <div class="chat" id="chat-scroll">
+        {% for m in mensajes %}
+        <div class="msg {% if m.direccion == 'in' %}in{% else %}out{% endif %}">
+          <div class="bubble">
+            {% if m.tipo and m.tipo not in ['text','mensaje'] %}
+              <span class="tipo">[{{ m.tipo }}]</span>
+            {% endif %}
+            {{ m.resumen or '(sin contenido)' }}
+            <span class="time">{{ m.fecha.strftime('%d/%m %H:%M') }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <script>
+        (function(){
+          var c = document.getElementById('chat-scroll');
+          if (c) c.scrollTop = c.scrollHeight;
+        })();
+      </script>
+    </div>
+    {% endif %}
+
     <div class="section">
       <div class="section-head">
         <h2>📜 Historial</h2>
