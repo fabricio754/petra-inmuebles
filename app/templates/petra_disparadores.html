@@ -87,29 +87,34 @@
         <div class="desc">{{ d.descripcion }}</div>
         <form method="post" class="horario-form"
               action="/panel/petra/visitante/disparadores/{{ d.id }}/horario?token={{ token }}"
-              style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+              style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:nowrap;white-space:nowrap">
           <select name="dia_semana" style="padding:6px 10px;border:1px solid var(--border);
                                            border-radius:6px;font-size:13px;background:#fff;color:var(--text)">
             {% for key, label in dias_semana %}
               <option value="{{ key }}" {% if (d.dia_semana or '') == key %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
-          <span class="k" style="font-size:13px;color:var(--muted)">a las</span>
-          <input type="number" name="hora" value="{{ d.hora }}" min="0" max="23"
-                 style="width:62px;padding:6px 8px;border:1px solid var(--border);
+          <span style="font-size:13px;color:var(--muted)">a las</span>
+          <input type="number" name="hora" value="{{ d.hora_12 }}" min="1" max="12"
+                 style="width:54px;padding:6px 8px;border:1px solid var(--border);
                         border-radius:6px;font-size:13px;text-align:center">
-          <span class="k">:</span>
-          <input type="number" name="minuto" value="{{ d.minuto }}" min="0" max="59"
-                 style="width:62px;padding:6px 8px;border:1px solid var(--border);
+          <span style="font-size:13px;color:var(--muted)">:</span>
+          <input type="number" name="minuto" value="{{ '%02d'|format(d.minuto) }}" min="0" max="59"
+                 style="width:54px;padding:6px 8px;border:1px solid var(--border);
                         border-radius:6px;font-size:13px;text-align:center">
+          <select name="ampm" style="padding:6px 10px;border:1px solid var(--border);
+                                      border-radius:6px;font-size:13px;background:#fff;color:var(--text)">
+            <option value="AM" {% if d.ampm == 'AM' %}selected{% endif %}>AM</option>
+            <option value="PM" {% if d.ampm == 'PM' %}selected{% endif %}>PM</option>
+          </select>
           <button type="submit"
                   style="padding:6px 14px;background:var(--accent);color:#fff;border:none;
                          border-radius:6px;font-size:13px;font-weight:500;cursor:pointer">
-            Guardar horario
+            Guardar
           </button>
           {% if d.updated_at %}
           <span style="font-size:11px;color:var(--muted);margin-left:auto">
-            Actualizado {{ d.updated_at.strftime('%Y-%m-%d %H:%M') }}
+            {{ d.updated_at.strftime('%Y-%m-%d %H:%M') }}
           </span>
           {% endif %}
         </form>
