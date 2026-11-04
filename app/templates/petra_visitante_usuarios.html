@@ -102,6 +102,9 @@
           <td class="tel">
             <a href="/panel/petra/visitante/usuario/{{ u.telefono }}?token={{ token }}"
                style="color:var(--accent); text-decoration:none">{{ u.telefono }}</a>
+            {% if u.username %}
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">@{{ u.username }}</div>
+            {% endif %}
           </td>
           <td class="nombre">
             <a href="/panel/petra/visitante/usuario/{{ u.telefono }}?token={{ token }}"

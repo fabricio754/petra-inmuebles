@@ -3473,6 +3473,7 @@ def visitante_usuarios_vista():
             )
             SELECT t.telefono,
                    pc.nombre,
+                   pc.username,
                    pc.updated_at AS ultima_conexion,
                    cv.ciudad AS ciudad,
                    COALESCE(a.n_inm, 0) AS n_inmuebles_publicados,
