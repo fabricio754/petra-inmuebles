@@ -475,6 +475,61 @@ def _es_intent_quiero_agente(texto):
     return False
 
 
+def _procesar_nudge_disponibilidad(conn, telefono, button_id):
+    """Respuesta al nudge de viernes '¿sigue disponible?'.
+
+    button_id = "VIS_INM_DISP:<id>"  → confirma disponibilidad
+    button_id = "VIS_INM_NODISP:<id>" → desactiva inmueble (activo=FALSE)
+
+    Solo actúa si el inmueble pertenece al propietario que responde,
+    como check de seguridad básico.
+    """
+    try:
+        _, _, raw_id = button_id.partition(":")
+        iid = int(raw_id)
+    except (ValueError, TypeError):
+        return
+
+    disponible = button_id.startswith("VIS_INM_DISP:")
+    try:
+        row = conn.execute(
+            "SELECT tipo, nro, propietario_telefono FROM inmuebles_visitante "
+            " WHERE id=%s",
+            (iid,),
+        ).fetchone()
+        if not row:
+            return
+        tipo, nro, prop_tel = row
+        if (prop_tel or "").strip() != (telefono or "").strip():
+            log.warning("[viernes-disp] tel %s intentó responder inm %s "
+                        "de otro propietario %s", telefono, iid, prop_tel)
+            return
+
+        if disponible:
+            _enviar(telefono, _menus.texto(
+                "¡Gracias! 💜 Seguimos mostrándolo a los interesados."
+            ))
+            log.info("[viernes-disp] tel=%s inm=%s CONFIRMADO disponible",
+                     telefono, iid)
+        else:
+            conn.execute(
+                "UPDATE inmuebles_visitante SET activo=FALSE WHERE id=%s",
+                (iid,),
+            )
+            tipo_cap = (tipo or "inmueble").capitalize()
+            nro_txt = (f" #{nro}" if nro and nro != "(sin especificar)"
+                       else "")
+            _enviar(telefono, _menus.texto(
+                f"✅ Listo, retiramos tu *{tipo_cap}{nro_txt}* de la lista.\n\n"
+                "Cuando quieras volver a publicarlo, escribí *menú*. 💜"
+            ))
+            log.info("[viernes-disp] tel=%s inm=%s DESACTIVADO",
+                     telefono, iid)
+    except Exception:
+        log.exception("[viernes-disp] procesar fallo tel=%s button=%s",
+                      telefono, button_id)
+
+
 def handle_message(telefono, texto, button_id=None, list_id=None,
                    contacto_nombre=None, wa_msg_id=None,
                    flow_response=None):
@@ -488,6 +543,15 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
         with _db._conexion_directa(timeout=5) as conn:
             _upsert_contacto(conn, telefono, nombre=contacto_nombre)
             _, meta = _leer_contacto(conn, telefono)
+
+            # ---- Nudge viernes "¿sigue disponible?" ----------------------
+            # Botones de respuesta al nudge de disponibilidad (scheduler).
+            # Se maneja arriba de todo para que funcione aunque el
+            # propietario no tenga flujo visitante activo.
+            if button_id and (button_id.startswith("VIS_INM_DISP:") or
+                              button_id.startswith("VIS_INM_NODISP:")):
+                _procesar_nudge_disponibilidad(conn, telefono, button_id)
+                return
 
             # ---- Submit de WhatsApp Flow (nfm_reply) ---------------------
             # El Flow trae su propio contexto; no dispatcheamos por estado.

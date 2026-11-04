@@ -85,6 +85,13 @@ def iniciar():
                        minutes=5,
                        id="petra_nudges_citas",
                        max_instances=1, coalesce=True)
+    # Viernes 9 AM Bogotá — pregunta a propietarios si el inmueble sigue
+    # disponible, con botones Sí/Ya no disponible. Se puede pausar con
+    # PETRA_VIERNES_DISPONIBLE_PAUSADO=1.
+    _scheduler.add_job(_petra_nudge_viernes_disponibles, "cron",
+                       day_of_week="fri", hour=9, minute=0,
+                       id="petra_nudge_viernes_disponibles",
+                       max_instances=1, coalesce=True)
     # Autonomía kit: pasadas ~KIT_AUTOENVIO_HORAS (24 default) desde que la
     # agente completó la dirección, el bot automáticamente la pasa a
     # kit_enviado y le manda "tu kit salió en camino" + video + botón QR.
@@ -742,3 +749,74 @@ def _cap_enviar_para_agente(conn, cid, telefono, meta, hoy_iso,
     )
     log.info("[cap-cron] enviado día %s (v%s) a tel=%s", dia_a_enviar, cap_v, telefono)
     return True
+
+
+def _petra_nudge_viernes_disponibles():
+    """Cada viernes 9am Bogotá, pregunta a cada propietario con inmuebles
+    activos (publicados vía Petra) si siguen disponibles. Mensaje con
+    botones Sí / Ya no disponible por inmueble.
+
+    Pausable con env PETRA_VIERNES_DISPONIBLE_PAUSADO=1.
+    """
+    if os.environ.get("PETRA_VIERNES_DISPONIBLE_PAUSADO") == "1":
+        log.info("[viernes-disp] pausado por env.")
+        return
+    try:
+        from app import db as _db, petra_wa as _pwa
+    except Exception:
+        log.exception("[viernes-disp] import fallo.")
+        return
+
+    enviados = 0
+    try:
+        with _db._conexion_directa(timeout=20) as conn:
+            rows = conn.execute(
+                "SELECT iv.id, iv.tipo, iv.nro, iv.operacion, iv.precio, "
+                "       iv.propietario_telefono, cv.nombre AS conjunto_nombre "
+                "  FROM inmuebles_visitante iv "
+                "  JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id "
+                " WHERE iv.activo = TRUE "
+                "   AND iv.fuente = 'petra' "
+                "   AND iv.propietario_telefono IS NOT NULL "
+                "   AND iv.propietario_telefono <> '' "
+                " ORDER BY iv.propietario_telefono, iv.id"
+            ).fetchall()
+            for r in rows:
+                iid, tipo, nro, operacion, precio, tel, conj = r
+                tipo_cap = (tipo or "inmueble").capitalize()
+                nro_txt = (f" #{nro}" if nro and nro != "(sin especificar)"
+                           else "")
+                precio_txt = ""
+                try:
+                    if precio:
+                        p = int(precio)
+                        if operacion == "venta" and p >= 1_000_000:
+                            precio_txt = f" · ${p // 1_000_000}M"
+                        else:
+                            precio_txt = f" · ${p:,}"
+                except Exception:
+                    pass
+                body = (
+                    f"🏠 *{tipo_cap}{nro_txt}* en {conj}{precio_txt}\n\n"
+                    "¿Sigue disponible este inmueble para "
+                    f"{operacion}?"
+                )
+                try:
+                    _pwa.send_message(tel, {
+                        "type": "buttons",
+                        "text": body,
+                        "buttons": [
+                            {"id": f"VIS_INM_DISP:{iid}",
+                             "title": "✅ Sí, disponible"},
+                            {"id": f"VIS_INM_NODISP:{iid}",
+                             "title": "❌ Ya no"},
+                        ],
+                    })
+                    enviados += 1
+                except Exception:
+                    log.exception(
+                        "[viernes-disp] fallo tel=%s inm=%s", tel, iid)
+    except Exception:
+        log.exception("[viernes-disp] query/loop fallo")
+
+    log.info("[viernes-disp] mensajes enviados: %s", enviados)
