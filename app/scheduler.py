@@ -92,6 +92,13 @@ def iniciar():
                        day_of_week="fri", hour=9, minute=0,
                        id="petra_nudge_viernes_disponibles",
                        max_instances=1, coalesce=True)
+    # Cada día 10am Bogotá — a buscadores que hace >=5 días pidieron un
+    # contacto y no respondimos su follow-up, les pregunta si siguen
+    # buscando o ya encontraron. Pausable con PETRA_BUSCADOR_FOLLOWUP_PAUSADO=1.
+    _scheduler.add_job(_petra_nudge_buscador_seguimiento, "cron",
+                       hour=10, minute=30,
+                       id="petra_nudge_buscador_seguimiento",
+                       max_instances=1, coalesce=True)
     # Autonomía kit: pasadas ~KIT_AUTOENVIO_HORAS (24 default) desde que la
     # agente completó la dirección, el bot automáticamente la pasa a
     # kit_enviado y le manda "tu kit salió en camino" + video + botón QR.
@@ -820,3 +827,83 @@ def _petra_nudge_viernes_disponibles():
         log.exception("[viernes-disp] query/loop fallo")
 
     log.info("[viernes-disp] mensajes enviados: %s", enviados)
+
+
+def _petra_nudge_buscador_seguimiento():
+    """Cada día 10:30am Bogotá, pregunta a buscadores (que pidieron contacto
+    con algún propietario) si siguen buscando o ya encontraron vivienda.
+
+    Dispara 5+ días después de su última solicitud de contacto. Evita
+    re-enviar marcando el timestamp en petra_contactos.meta.ultimo_fup_busc.
+
+    Pausable con env PETRA_BUSCADOR_FOLLOWUP_PAUSADO=1.
+    """
+    if os.environ.get("PETRA_BUSCADOR_FOLLOWUP_PAUSADO") == "1":
+        log.info("[busc-fup] pausado por env.")
+        return
+    try:
+        from app import db as _db, petra_wa as _pwa
+        import json as _json
+    except Exception:
+        log.exception("[busc-fup] import fallo.")
+        return
+
+    enviados = 0
+    try:
+        with _db._conexion_directa(timeout=20) as conn:
+            # Buscadores con solicitud hace >=5 días y <=30 (ventana para
+            # no molestar a gente de hace meses), con nada posterior más
+            # reciente que el último follow-up.
+            rows = conn.execute(
+                """
+                SELECT vc.telefono, MAX(vc.creado_en) AS ultimo_pedido,
+                       pc.meta->>'ultimo_fup_busc' AS ultimo_fup
+                  FROM visitante_contactos vc
+                  JOIN petra_contactos pc ON pc.telefono = vc.telefono
+                 WHERE vc.telefono IS NOT NULL AND vc.telefono <> ''
+                 GROUP BY vc.telefono, pc.meta
+                HAVING MAX(vc.creado_en) BETWEEN
+                       NOW() - INTERVAL '30 days' AND NOW() - INTERVAL '5 days'
+                   AND (pc.meta->>'ultimo_fup_busc' IS NULL
+                        OR (pc.meta->>'ultimo_fup_busc')::timestamptz
+                            < MAX(vc.creado_en))
+                """
+            ).fetchall()
+            for r in rows:
+                tel, _ultimo, _prev_fup = r
+                body = (
+                    "👋 ¡Hola! Hace unos días pediste hablar con el "
+                    "dueño de un inmueble en Petra.\n\n"
+                    "¿Seguís buscando vivienda o ya encontraste algo?"
+                )
+                try:
+                    _pwa.send_message(tel, {
+                        "type": "buttons",
+                        "text": body,
+                        "buttons": [
+                            {"id": "VIS_BUSC_SIGO",
+                             "title": "🔎 Sigo buscando"},
+                            {"id": "VIS_BUSC_ENCONTRE",
+                             "title": "✅ Ya encontré"},
+                        ],
+                    })
+                    # Marcar follow-up enviado en meta.
+                    cur = conn.execute(
+                        "SELECT meta FROM petra_contactos WHERE telefono=%s",
+                        (tel,),
+                    ).fetchone()
+                    m = dict(cur[0] or {}) if cur and cur[0] else {}
+                    from datetime import datetime, timezone
+                    m["ultimo_fup_busc"] = datetime.now(timezone.utc).isoformat()
+                    conn.execute(
+                        "UPDATE petra_contactos SET meta=%s::jsonb "
+                        " WHERE telefono=%s",
+                        (_json.dumps(m), tel),
+                    )
+                    enviados += 1
+                except Exception:
+                    log.exception("[busc-fup] fallo tel=%s", tel)
+    except Exception:
+        log.exception("[busc-fup] query/loop fallo")
+
+    log.info("[busc-fup] mensajes enviados: %s", enviados)

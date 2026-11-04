@@ -553,6 +553,23 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
                 _procesar_nudge_disponibilidad(conn, telefono, button_id)
                 return
 
+            # ---- Nudge buscador: ¿sigue buscando o ya encontró? ---------
+            if button_id in ("VIS_BUSC_SIGO", "VIS_BUSC_ENCONTRE"):
+                if button_id == "VIS_BUSC_SIGO":
+                    _enviar(telefono, _menus.texto(
+                        "¡Dale! 💜 Escribí *menú* cuando quieras ver más "
+                        "opciones o volver a buscar."
+                    ))
+                    log.info("[busc-fup] tel=%s SIGO_BUSCANDO", telefono)
+                else:
+                    _enviar(telefono, _menus.texto(
+                        "¡Qué bueno! 🎉 Nos alegra que encontraste "
+                        "lo que buscabas. Si en el futuro necesitás "
+                        "algo más, acá estamos. 💜"
+                    ))
+                    log.info("[busc-fup] tel=%s ENCONTRE", telefono)
+                return
+
             # ---- Submit de WhatsApp Flow (nfm_reply) ---------------------
             # El Flow trae su propio contexto; no dispatcheamos por estado.
             # Hay 2 Flows posibles: "Ver inmuebles" (multi-select) y
