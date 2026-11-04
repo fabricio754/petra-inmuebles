@@ -3412,3 +3412,88 @@ def visitante_contactos_vista():
         "petra_visitante_contactos.html",
         contactos=rows, token=token,
     )
+
+
+@petra_panel_bp.get("/visitante/usuarios")
+def visitante_usuarios_vista():
+    """Lista todos los usuarios que han interactuado con el flujo visitante.
+
+    Por cada teléfono muestra:
+      - número
+      - nombre (si lo capturamos)
+      - última vez conectado (updated_at de petra_contactos)
+      - anunciante = publicó al menos 1 inmueble activo
+      - buscando = pidió contacto por al menos 1 inmueble
+      - edificio sticky (si lo tiene en meta.visitante_conjunto_id)
+    """
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    filtro = (request.args.get("rol") or "").strip()  # all|anun|busc
+    with _db._conexion_directa(timeout=15) as conn:
+        rows = _rows(conn,
+            """
+            WITH anunciantes AS (
+              SELECT DISTINCT propietario_telefono AS tel, COUNT(*) AS n_inm
+                FROM inmuebles_visitante
+               WHERE activo = TRUE
+                 AND propietario_telefono IS NOT NULL
+                 AND propietario_telefono <> ''
+               GROUP BY propietario_telefono
+            ),
+            buscando AS (
+              SELECT DISTINCT telefono AS tel, COUNT(*) AS n_cont
+                FROM visitante_contactos
+               WHERE telefono IS NOT NULL AND telefono <> ''
+               GROUP BY telefono
+            ),
+            interesados_qr AS (
+              SELECT DISTINCT interesado_telefono AS tel, COUNT(*) AS n_int
+                FROM petra_interesados_qr
+               WHERE interesado_telefono IS NOT NULL
+                 AND interesado_telefono <> ''
+               GROUP BY interesado_telefono
+            ),
+            telefonos AS (
+              SELECT telefono FROM petra_contactos
+                WHERE meta ? 'visitante_estado'
+                   OR meta ? 'visitante_conjunto_id'
+                   OR meta ? 'flow_publicar_conjunto_id'
+              UNION
+              SELECT tel AS telefono FROM anunciantes
+              UNION
+              SELECT tel AS telefono FROM buscando
+              UNION
+              SELECT tel AS telefono FROM interesados_qr
+            )
+            SELECT t.telefono,
+                   pc.nombre,
+                   pc.updated_at AS ultima_conexion,
+                   pc.meta->>'visitante_conjunto_id' AS conjunto_id_sticky,
+                   COALESCE(a.n_inm, 0) AS n_inmuebles_publicados,
+                   COALESCE(b.n_cont, 0) + COALESCE(i.n_int, 0) AS n_contactos_pedidos,
+                   cv.nombre AS conjunto_nombre
+              FROM telefonos t
+              LEFT JOIN petra_contactos pc ON pc.telefono = t.telefono
+              LEFT JOIN anunciantes a ON a.tel = t.telefono
+              LEFT JOIN buscando b ON b.tel = t.telefono
+              LEFT JOIN interesados_qr i ON i.tel = t.telefono
+              LEFT JOIN conjuntos_visitante cv
+                ON cv.id = NULLIF(pc.meta->>'visitante_conjunto_id', '')::int
+             ORDER BY pc.updated_at DESC NULLS LAST, t.telefono
+             LIMIT 1000
+            """)
+    for r in rows:
+        r["es_anunciante"] = (r.get("n_inmuebles_publicados") or 0) > 0
+        r["es_buscando"] = (r.get("n_contactos_pedidos") or 0) > 0
+    if filtro == "anun":
+        rows = [r for r in rows if r["es_anunciante"]]
+    elif filtro == "busc":
+        rows = [r for r in rows if r["es_buscando"]]
+    total = len(rows)
+    n_anun = sum(1 for r in rows if r["es_anunciante"])
+    n_busc = sum(1 for r in rows if r["es_buscando"])
+    return render_template(
+        "petra_visitante_usuarios.html",
+        usuarios=rows, token=token, filtro=filtro,
+        total=total, n_anun=n_anun, n_busc=n_busc,
+    )
