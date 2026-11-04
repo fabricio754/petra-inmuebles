@@ -3741,3 +3741,42 @@ def visitante_disparadores_toggle(disp_id):
         )
     return redirect(url_for("petra_panel.visitante_disparadores_vista",
                              token=token))
+
+
+@petra_panel_bp.get("/visitante/listado")
+def visitante_listado_inmuebles():
+    """Listado completo de inmuebles con código tipo P0001."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    filtro = (request.args.get("f") or "").strip()  # all|activo|inactivo|arriendo|venta
+    with _db._conexion_directa(timeout=15) as conn:
+        rows = _rows(conn,
+            """SELECT iv.id, iv.tipo, iv.nro, iv.operacion, iv.precio,
+                      iv.m2, iv.admin_valor, iv.admin_incluida, iv.activo,
+                      iv.fuente, iv.propietario_telefono, iv.creado_en,
+                      cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre,
+                      cv.ciudad AS conjunto_ciudad
+                 FROM inmuebles_visitante iv
+                 LEFT JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id
+                ORDER BY iv.id DESC""")
+    for r in rows:
+        r["codigo"] = f"P{r['id']:04d}"
+        r["precio_fmt"] = _fmt_precio_cop(r.get("precio"))
+    if filtro == "activo":
+        rows = [r for r in rows if r.get("activo")]
+    elif filtro == "inactivo":
+        rows = [r for r in rows if not r.get("activo")]
+    elif filtro == "arriendo":
+        rows = [r for r in rows if r.get("operacion") == "arriendo"]
+    elif filtro == "venta":
+        rows = [r for r in rows if r.get("operacion") == "venta"]
+    stats = {
+        "total": len(rows),
+        "activos": sum(1 for r in rows if r.get("activo")),
+        "arriendos": sum(1 for r in rows if r.get("operacion") == "arriendo"),
+        "ventas": sum(1 for r in rows if r.get("operacion") == "venta"),
+    }
+    return render_template(
+        "petra_visitante_listado.html",
+        inmuebles=rows, token=token, filtro=filtro, stats=stats,
+    )
