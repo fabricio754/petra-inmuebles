@@ -2971,7 +2971,13 @@ def admin_kit_guia():
 
 def _fmt_precio_cop(valor):
     """Formato $ 1.950.000 — reutiliza textos.formatear_precio del visitante
-    para no divergir del formato que ve el usuario en WhatsApp."""
+    para no divergir del formato que ve el usuario en WhatsApp.
+    Devuelve '—' cuando el valor es 0/None (precio no definido)."""
+    try:
+        if valor is None or int(valor) == 0:
+            return "—"
+    except (ValueError, TypeError):
+        pass
     try:
         from app.petra_visitante.textos import formatear_precio
         return formatear_precio(valor)
@@ -3199,10 +3205,11 @@ def visitante_inmueble_nuevo(cid):
     if tipo not in tipos_validos:
         tipo = "apartamento"
 
-    if (operacion not in ("arriendo", "venta") or precio is None
-            or precio <= 0):
+    if operacion not in ("arriendo", "venta"):
         return redirect(url_for("petra_panel.visitante_inmuebles",
                                 cid=cid, token=token, flash="falta_campo"))
+    if precio is None or precio < 0:
+        precio = 0
     if not nro:
         nro = "(sin especificar)"
     for v in (hab, banos, m2):
