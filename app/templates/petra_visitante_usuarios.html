@@ -98,9 +98,15 @@
       </thead>
       <tbody>
         {% for u in usuarios %}
-        <tr>
-          <td class="tel">{{ u.telefono }}</td>
-          <td class="nombre">{{ u.nombre or '—' }}</td>
+        <tr style="cursor:pointer" onclick="window.location='/panel/petra/visitante/usuario/{{ u.telefono }}?token={{ token }}'">
+          <td class="tel">
+            <a href="/panel/petra/visitante/usuario/{{ u.telefono }}?token={{ token }}"
+               style="color:var(--accent); text-decoration:none">{{ u.telefono }}</a>
+          </td>
+          <td class="nombre">
+            <a href="/panel/petra/visitante/usuario/{{ u.telefono }}?token={{ token }}"
+               style="color:var(--text); text-decoration:none">{{ u.nombre or '—' }}</a>
+          </td>
           <td>{% if u.ultima_conexion %}{{ u.ultima_conexion.strftime('%Y-%m-%d %H:%M') }}{% else %}<span class="muted">—</span>{% endif %}</td>
           <td>{{ u.ciudad or '—' }}</td>
           <td>
