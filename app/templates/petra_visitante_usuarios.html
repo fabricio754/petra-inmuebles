@@ -13,6 +13,7 @@
     --accent-soft: #ece6ff;
     --green: #16a34a; --green-soft: #dcfce7;
     --blue: #2563eb; --blue-soft: #dbeafe;
+    --orange: #d97706; --orange-soft: #fef3c7;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: Inter, system-ui, sans-serif;
@@ -53,6 +54,7 @@
           font-size: 11px; font-weight: 600; margin-right: 4px; }
   .pill.anun { background: var(--green-soft); color: var(--green); }
   .pill.busc { background: var(--blue-soft); color: var(--blue); }
+  .pill.agente { background: var(--orange-soft); color: var(--orange); }
   .pill.none { background: #f1eef7; color: var(--muted); }
   .tel { font-family: ui-monospace, monospace; color: var(--text); }
   .nombre { font-weight: 500; }
@@ -70,11 +72,13 @@
     <div class="stat"><div class="k">Total</div><div class="v">{{ total }}</div></div>
     <div class="stat"><div class="k">Anunciantes</div><div class="v">{{ n_anun }}</div></div>
     <div class="stat"><div class="k">Buscando</div><div class="v">{{ n_busc }}</div></div>
+    <div class="stat"><div class="k">Agentes</div><div class="v">{{ n_agente }}</div></div>
   </div>
   <div class="filters">
     <a href="?token={{ token }}" class="{% if not filtro %}on{% endif %}">Todos</a>
     <a href="?token={{ token }}&rol=anun" class="{% if filtro == 'anun' %}on{% endif %}">Anunciantes</a>
     <a href="?token={{ token }}&rol=busc" class="{% if filtro == 'busc' %}on{% endif %}">Buscando</a>
+    <a href="?token={{ token }}&rol=agente" class="{% if filtro == 'agente' %}on{% endif %}">Agentes</a>
   </div>
   <div class="panel">
     <div class="panel-head">
@@ -88,10 +92,8 @@
           <th>Teléfono</th>
           <th>Nombre</th>
           <th>Última conexión</th>
-          <th>Edificio</th>
+          <th>Ciudad</th>
           <th>Rol</th>
-          <th style="text-align:right">Inmuebles</th>
-          <th style="text-align:right">Contactos</th>
         </tr>
       </thead>
       <tbody>
@@ -100,14 +102,13 @@
           <td class="tel">{{ u.telefono }}</td>
           <td class="nombre">{{ u.nombre or '—' }}</td>
           <td>{% if u.ultima_conexion %}{{ u.ultima_conexion.strftime('%Y-%m-%d %H:%M') }}{% else %}<span class="muted">—</span>{% endif %}</td>
-          <td>{{ u.conjunto_nombre or '—' }}</td>
+          <td>{{ u.ciudad or '—' }}</td>
           <td>
+            {% if u.es_agente %}<span class="pill agente">Agente</span>{% endif %}
             {% if u.es_anunciante %}<span class="pill anun">Anunciante</span>{% endif %}
             {% if u.es_buscando %}<span class="pill busc">Buscando</span>{% endif %}
-            {% if not u.es_anunciante and not u.es_buscando %}<span class="pill none">Explorando</span>{% endif %}
+            {% if not u.es_agente and not u.es_anunciante and not u.es_buscando %}<span class="pill none">Explorando</span>{% endif %}
           </td>
-          <td style="text-align:right">{{ u.n_inmuebles_publicados }}</td>
-          <td style="text-align:right">{{ u.n_contactos_pedidos }}</td>
         </tr>
         {% endfor %}
       </tbody>
