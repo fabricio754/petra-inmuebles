@@ -125,7 +125,13 @@
       {{ (contacto.nombre or contacto.telefono)[:1]|upper }}
     </div>
     <div class="nombre">{{ contacto.nombre or 'Sin nombre' }}</div>
-    <div class="tel">{{ contacto.telefono }}</div>
+    <div class="tel">
+      {% if contacto.telefono and contacto.telefono.startswith('CO.') %}
+        {% if contacto.username %}@{{ contacto.username }}{% else %}—{% endif %}
+      {% else %}
+        {{ contacto.telefono }}{% if contacto.username %} · @{{ contacto.username }}{% endif %}
+      {% endif %}
+    </div>
 
     <div class="roles">
       {% if contacto.es_agente %}<span class="pill agente">Agente Petra</span>{% endif %}
