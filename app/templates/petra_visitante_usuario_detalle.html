@@ -194,7 +194,6 @@
             <th>Nombre</th>
             <th>Ciudad</th>
             <th style="text-align:right">Inmuebles</th>
-            <th>Estado</th>
             <th>Fecha alta</th>
           </tr>
         </thead>
@@ -205,7 +204,6 @@
             <td>{{ e.nombre }}</td>
             <td>{{ e.ciudad or '—' }}</td>
             <td style="text-align:right">{{ e.n_inmuebles }}</td>
-            <td>{% if e.activo %}<span class="pill activo">Activo</span>{% else %}<span class="pill inactivo">Inactivo</span>{% endif %}</td>
             <td>{{ e.creado_en.strftime('%Y-%m-%d') }}</td>
           </tr>
           {% endfor %}

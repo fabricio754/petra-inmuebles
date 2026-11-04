@@ -3595,7 +3595,7 @@ def visitante_usuario_detalle(telefono):
         inmuebles_agente_total = 0
         if contacto.get("es_agente"):
             edificios_agente = _rows(conn,
-                """SELECT id, codigo, nombre, ciudad, activo, creado_en,
+                """SELECT id, codigo, nombre, ciudad, creado_en,
                           (SELECT COUNT(*) FROM inmuebles_visitante iv
                             WHERE iv.conjunto_id = cv.id AND iv.activo = TRUE)
                           AS n_inmuebles
