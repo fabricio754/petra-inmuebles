@@ -3468,10 +3468,14 @@ def visitante_usuarios_vista():
             SELECT t.telefono,
                    pc.nombre,
                    pc.updated_at AS ultima_conexion,
-                   pc.meta->>'visitante_conjunto_id' AS conjunto_id_sticky,
+                   cv.ciudad AS ciudad,
                    COALESCE(a.n_inm, 0) AS n_inmuebles_publicados,
                    COALESCE(b.n_cont, 0) + COALESCE(i.n_int, 0) AS n_contactos_pedidos,
-                   cv.nombre AS conjunto_nombre
+                   EXISTS (
+                     SELECT 1 FROM petra_contacto_roles r
+                      WHERE r.contacto_id = pc.id
+                        AND r.rol = 'agente_petra'
+                   ) AS es_agente
               FROM telefonos t
               LEFT JOIN petra_contactos pc ON pc.telefono = t.telefono
               LEFT JOIN anunciantes a ON a.tel = t.telefono
@@ -3489,11 +3493,14 @@ def visitante_usuarios_vista():
         rows = [r for r in rows if r["es_anunciante"]]
     elif filtro == "busc":
         rows = [r for r in rows if r["es_buscando"]]
+    elif filtro == "agente":
+        rows = [r for r in rows if r.get("es_agente")]
     total = len(rows)
     n_anun = sum(1 for r in rows if r["es_anunciante"])
     n_busc = sum(1 for r in rows if r["es_buscando"])
+    n_agente = sum(1 for r in rows if r.get("es_agente"))
     return render_template(
         "petra_visitante_usuarios.html",
         usuarios=rows, token=token, filtro=filtro,
-        total=total, n_anun=n_anun, n_busc=n_busc,
+        total=total, n_anun=n_anun, n_busc=n_busc, n_agente=n_agente,
     )
