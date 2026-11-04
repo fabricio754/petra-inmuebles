@@ -2201,3 +2201,12 @@ CREATE TABLE IF NOT EXISTS petra_disparadores (
   pausado BOOLEAN NOT NULL DEFAULT FALSE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+
+-- Horario editable por disparador.
+ALTER TABLE petra_disparadores
+  ADD COLUMN IF NOT EXISTS hora INT NOT NULL DEFAULT 9;
+ALTER TABLE petra_disparadores
+  ADD COLUMN IF NOT EXISTS minuto INT NOT NULL DEFAULT 0;
+ALTER TABLE petra_disparadores
+  ADD COLUMN IF NOT EXISTS dia_semana TEXT DEFAULT NULL;  -- mon,tue,...  o NULL=diario

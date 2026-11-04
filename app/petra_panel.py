@@ -3678,6 +3678,18 @@ def visitante_usuario_detalle(telefono):
     )
 
 
+_DIAS_SEMANA = [
+    ("", "Diario"),
+    ("mon", "Lunes"), ("tue", "Martes"), ("wed", "Miércoles"),
+    ("thu", "Jueves"), ("fri", "Viernes"), ("sat", "Sábado"), ("sun", "Domingo"),
+]
+
+
+def _dia_label(dow):
+    m = {k: v for k, v in _DIAS_SEMANA}
+    return m.get(dow or "", "Diario")
+
+
 _DISPARADORES_CATALOGO = [
     {
         "id": "viernes_disponible",
@@ -3701,24 +3713,40 @@ def visitante_disparadores_vista():
     """Lista de disparadores (cron jobs) con posibilidad de pausar/reanudar."""
     _check_token()
     token = (request.args.get("token") or "").strip()
+    # Horarios default por catálogo (sobrescritos por DB si existe).
+    defaults = {
+        "viernes_disponible": {"hora": 9, "minuto": 0, "dia_semana": "fri"},
+        "buscador_followup":  {"hora": 10, "minuto": 30, "dia_semana": None},
+    }
     with _db._conexion_directa(timeout=10) as conn:
         try:
             rows = _rows(conn,
-                "SELECT id, pausado, updated_at FROM petra_disparadores")
+                "SELECT id, pausado, hora, minuto, dia_semana, updated_at "
+                "  FROM petra_disparadores")
         except Exception:
             rows = []
     estado_map = {r["id"]: r for r in rows}
     disparadores = []
     for d in _DISPARADORES_CATALOGO:
         prev = estado_map.get(d["id"], {})
+        default = defaults.get(d["id"], {"hora": 9, "minuto": 0, "dia_semana": None})
+        hora = prev.get("hora") if prev.get("hora") is not None else default["hora"]
+        minuto = prev.get("minuto") if prev.get("minuto") is not None else default["minuto"]
+        dow = prev.get("dia_semana") if "dia_semana" in prev else default["dia_semana"]
+        horario_txt = (f"{_dia_label(dow) if dow else 'Diario'} "
+                        f"{hora:02d}:{minuto:02d}")
         disparadores.append({
             **d,
             "pausado": bool(prev.get("pausado", False)),
+            "hora": hora,
+            "minuto": minuto,
+            "dia_semana": dow,
+            "horario": horario_txt,
             "updated_at": prev.get("updated_at"),
         })
     return render_template(
         "petra_disparadores.html",
-        disparadores=disparadores, token=token,
+        disparadores=disparadores, token=token, dias_semana=_DIAS_SEMANA,
     )
 
 
@@ -3739,6 +3767,44 @@ def visitante_disparadores_toggle(disp_id):
             "SET pausado = EXCLUDED.pausado, updated_at = NOW()",
             (valido["id"], valido["nombre"], valido["descripcion"], pausado),
         )
+    return redirect(url_for("petra_panel.visitante_disparadores_vista",
+                             token=token))
+
+
+@petra_panel_bp.post("/visitante/disparadores/<disp_id>/horario")
+def visitante_disparadores_horario(disp_id):
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    valido = next((d for d in _DISPARADORES_CATALOGO if d["id"] == disp_id),
+                  None)
+    if not valido:
+        abort(404)
+    try:
+        hora = max(0, min(23, int(request.form.get("hora", "9"))))
+        minuto = max(0, min(59, int(request.form.get("minuto", "0"))))
+    except (ValueError, TypeError):
+        hora, minuto = 9, 0
+    dow = (request.form.get("dia_semana") or "").strip() or None
+    valid_dows = {k for k, _ in _DIAS_SEMANA if k}
+    if dow and dow not in valid_dows:
+        dow = None
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "INSERT INTO petra_disparadores (id, nombre, descripcion, "
+            "  hora, minuto, dia_semana) "
+            "VALUES (%s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (id) DO UPDATE "
+            "SET hora = EXCLUDED.hora, minuto = EXCLUDED.minuto, "
+            "    dia_semana = EXCLUDED.dia_semana, updated_at = NOW()",
+            (valido["id"], valido["nombre"], valido["descripcion"],
+             hora, minuto, dow),
+        )
+    # Reprograma el job APScheduler en caliente.
+    try:
+        from app import scheduler as _sch
+        _sch.reprogramar_disparador(disp_id)
+    except Exception:
+        pass
     return redirect(url_for("petra_panel.visitante_disparadores_vista",
                              token=token))
 
