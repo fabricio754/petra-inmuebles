@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Usuario · Detalle | Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff; --panel: #ffffff; --border: #e8e4f0;
+    --text: #2a2440; --muted: #76708a; --accent: #7c5cff;
+    --accent-soft: #ece6ff;
+    --green: #16a34a; --green-soft: #dcfce7;
+    --blue: #2563eb; --blue-soft: #dbeafe;
+    --orange: #d97706; --orange-soft: #fef3c7;
+    --red: #dc2626; --red-soft: #fee2e2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background: #fff;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  .topbar .brand { color: var(--accent); }
+  .topbar a.back { color: var(--accent); text-decoration: none; font-size: 13px; }
+  main { padding: 20px 24px; max-width: 1300px; margin: 0 auto;
+         display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  /* Tarjeta de perfil */
+  .profile { background: var(--panel); border: 1px solid var(--border);
+             border-radius: 12px; padding: 20px; position: sticky; top: 20px;
+             align-self: start; }
+  .avatar { width: 64px; height: 64px; border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), #a78bfa);
+            color: #fff; display: flex; align-items: center;
+            justify-content: center; font-size: 24px; font-weight: 700;
+            margin-bottom: 14px; }
+  .profile .nombre { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .profile .tel { font-family: ui-monospace, monospace; color: var(--muted);
+                  font-size: 13px; margin-bottom: 14px; }
+  .profile .roles { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px;
+          font-size: 11px; font-weight: 600; }
+  .pill.anun { background: var(--green-soft); color: var(--green); }
+  .pill.busc { background: var(--blue-soft); color: var(--blue); }
+  .pill.agente { background: var(--orange-soft); color: var(--orange); }
+  .pill.none { background: #f1eef7; color: var(--muted); }
+  .pill.activo { background: var(--green-soft); color: var(--green); }
+  .pill.inactivo { background: var(--red-soft); color: var(--red); }
+
+  .info { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .info .row { display: flex; justify-content: space-between;
+               padding: 4px 0; font-size: 13px; }
+  .info .k { color: var(--muted); }
+
+  /* Secciones */
+  .section { background: var(--panel); border: 1px solid var(--border);
+             border-radius: 12px; margin-bottom: 18px; overflow: hidden; }
+  .section-head { padding: 14px 18px; border-bottom: 1px solid var(--border);
+                  display: flex; align-items: center; justify-content: space-between; }
+  .section-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .section-head .count { color: var(--muted); font-size: 12px; }
+
+  /* Timeline */
+  .timeline { padding: 10px 0; }
+  .event { display: flex; gap: 14px; padding: 12px 18px;
+           border-left: 3px solid transparent; }
+  .event:hover { background: #fcfaff; border-left-color: var(--accent); }
+  .event .icon { font-size: 22px; line-height: 1; flex-shrink: 0;
+                 width: 34px; text-align: center; }
+  .event .body { flex: 1; min-width: 0; }
+  .event .titulo { font-weight: 600; margin-bottom: 2px; }
+  .event .detalle { color: var(--muted); font-size: 13px; }
+  .event .fecha { color: var(--muted); font-size: 12px; margin-top: 4px;
+                  font-family: ui-monospace, monospace; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; padding: 10px 14px; background: #f5f2fb;
+             color: var(--muted); font-weight: 500; text-transform: uppercase;
+             font-size: 11px; letter-spacing: 0.5px;
+             border-bottom: 1px solid var(--border); }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid #f1eef7;
+             vertical-align: middle; }
+  tbody tr:hover { background: #fcfaff; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .empty { padding: 30px; text-align: center; color: var(--muted); font-size: 13px; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1><span class="brand">Petra</span> · Visitante · Usuario</h1>
+  <a class="back" href="/panel/petra/visitante/usuarios?token={{ token }}">← Volver a Usuarios</a>
+</div>
+<main>
+
+  <aside class="profile">
+    <div class="avatar">
+      {{ (contacto.nombre or contacto.telefono)[:1]|upper }}
+    </div>
+    <div class="nombre">{{ contacto.nombre or 'Sin nombre' }}</div>
+    <div class="tel">{{ contacto.telefono }}</div>
+
+    <div class="roles">
+      {% if contacto.es_agente %}<span class="pill agente">Agente Petra</span>{% endif %}
+      {% if publicados %}<span class="pill anun">Anunciante</span>{% endif %}
+      {% if contactos_pedidos or interesados %}<span class="pill busc">Buscando</span>{% endif %}
+      {% if not contacto.es_agente and not publicados and not contactos_pedidos and not interesados %}
+        <span class="pill none">Explorando</span>
+      {% endif %}
+    </div>
+
+    <div class="info">
+      <div class="row"><span class="k">Ciudad</span><span>{{ contacto.ciudad or '—' }}</span></div>
+      <div class="row"><span class="k">Edificio</span><span>{{ contacto.conjunto_nombre or '—' }}</span></div>
+      <div class="row"><span class="k">Estado flujo</span><span>{{ contacto.estado_visitante or '—' }}</span></div>
+      <div class="row"><span class="k">Última conexión</span>
+        <span>{% if contacto.updated_at %}{{ contacto.updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="row"><span class="k">Primer contacto</span>
+        <span>{% if contacto.created_at %}{{ contacto.created_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="row"><span class="k">Publicó</span><span>{{ publicados|length }} inmuebles</span></div>
+      <div class="row"><span class="k">Pidió contacto</span><span>{{ contactos_pedidos|length + interesados|length }} veces</span></div>
+    </div>
+  </aside>
+
+  <div>
+    <div class="section">
+      <div class="section-head">
+        <h2>📜 Historial</h2>
+        <span class="count">{{ timeline|length }} eventos</span>
+      </div>
+      {% if timeline %}
+      <div class="timeline">
+        {% for e in timeline %}
+        <div class="event">
+          <div class="icon">{{ e.icono }}</div>
+          <div class="body">
+            <div class="titulo">
+              {{ e.titulo }}
+              {% if e.activo is defined and e.activo == False %}
+                <span class="pill inactivo" style="margin-left:6px">inactivo</span>
+              {% endif %}
+            </div>
+            <div class="detalle">{{ e.detalle }}</div>
+            <div class="fecha">{{ e.fecha.strftime('%Y-%m-%d %H:%M') }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty">Sin actividad registrada todavía.</div>
+      {% endif %}
+    </div>
+
+    {% if publicados %}
+    <div class="section">
+      <div class="section-head">
+        <h2>🏠 Inmuebles publicados</h2>
+        <span class="count">{{ publicados|length }}</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>Ubicación</th>
+            <th>Edificio</th>
+            <th>Operación</th>
+            <th style="text-align:right">Precio</th>
+            <th style="text-align:right">m²</th>
+            <th>Estado</th>
+            <th>Fecha</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in publicados %}
+          <tr>
+            <td>{{ p.tipo|capitalize }}</td>
+            <td>{% if p.nro and p.nro != '(sin especificar)' %}{{ p.nro }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>{{ p.conjunto_nombre or '—' }}</td>
+            <td>{{ p.operacion }}</td>
+            <td style="text-align:right">{{ p.precio_fmt or '—' }}</td>
+            <td style="text-align:right">{{ p.m2 or '—' }}</td>
+            <td>
+              {% if p.activo %}<span class="pill activo">Activo</span>{% else %}<span class="pill inactivo">Inactivo</span>{% endif %}
+            </td>
+            <td>{{ p.creado_en.strftime('%Y-%m-%d') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if contactos_pedidos %}
+    <div class="section">
+      <div class="section-head">
+        <h2>💬 Solicitudes de contacto</h2>
+        <span class="count">{{ contactos_pedidos|length }}</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>Nro</th>
+            <th>Edificio</th>
+            <th>Operación</th>
+            <th style="text-align:right">Precio</th>
+            <th>Fecha</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in contactos_pedidos %}
+          <tr>
+            <td>{% if c.tipo %}{{ c.tipo|capitalize }}{% else %}—{% endif %}</td>
+            <td>{% if c.nro and c.nro != '(sin especificar)' %}{{ c.nro }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>{{ c.conjunto_nombre or '—' }}</td>
+            <td>{{ c.operacion or '—' }}</td>
+            <td style="text-align:right">{{ c.precio_fmt or '—' }}</td>
+            <td>{{ c.creado_en.strftime('%Y-%m-%d %H:%M') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if interesados %}
+    <div class="section">
+      <div class="section-head">
+        <h2>✨ Interesados QR (Flow multi-select)</h2>
+        <span class="count">{{ interesados|length }}</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Edificio</th>
+            <th style="text-align:right">Inmuebles</th>
+            <th>Estado</th>
+            <th>Fecha</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for i in interesados %}
+          <tr>
+            <td>{{ i.conjunto_nombre or '—' }}</td>
+            <td style="text-align:right">{{ (i.inmueble_ids or [])|length }}</td>
+            <td>{{ i.estado or 'enviado' }}</td>
+            <td>{{ i.creado_en.strftime('%Y-%m-%d %H:%M') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+</main>
+</body>
+</html>

@@ -3504,3 +3504,131 @@ def visitante_usuarios_vista():
         usuarios=rows, token=token, filtro=filtro,
         total=total, n_anun=n_anun, n_busc=n_busc, n_agente=n_agente,
     )
+
+
+@petra_panel_bp.get("/visitante/usuario/<telefono>")
+def visitante_usuario_detalle(telefono):
+    """Historial completo de lo que ha hecho un usuario del flujo visitante.
+
+    Muestra:
+      - datos básicos + roles
+      - inmuebles que publicó
+      - solicitudes de contacto que hizo (visitante_contactos)
+      - interesados QR (multi-select del Flow)
+      - estado agente (si lo es)
+      - línea de tiempo unificada ordenada por fecha
+    """
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    tel = (telefono or "").strip()
+    if not tel:
+        return redirect(url_for("petra_panel.visitante_usuarios_vista",
+                                 token=token))
+    with _db._conexion_directa(timeout=15) as conn:
+        _contacto_rows = _rows(conn,
+            """SELECT pc.id, pc.telefono, pc.nombre, pc.updated_at,
+                      pc.created_at,
+                      pc.meta->>'visitante_conjunto_id' AS conjunto_id_sticky,
+                      pc.meta->>'visitante_estado' AS estado_visitante,
+                      cv.nombre AS conjunto_nombre,
+                      cv.ciudad AS ciudad,
+                      EXISTS (
+                        SELECT 1 FROM petra_contacto_roles r
+                         WHERE r.contacto_id = pc.id
+                           AND r.rol = 'agente_petra'
+                      ) AS es_agente
+                 FROM petra_contactos pc
+                 LEFT JOIN conjuntos_visitante cv
+                   ON cv.id = NULLIF(pc.meta->>'visitante_conjunto_id', '')::int
+                WHERE pc.telefono = %s""",
+            (tel,))
+        contacto = _contacto_rows[0] if _contacto_rows else None
+        if not contacto:
+            contacto = {"telefono": tel, "nombre": None,
+                        "updated_at": None, "created_at": None,
+                        "es_agente": False, "conjunto_nombre": None,
+                        "ciudad": None, "estado_visitante": None}
+
+        publicados = _rows(conn,
+            """SELECT iv.id, iv.tipo, iv.nro, iv.operacion, iv.precio,
+                      iv.m2, iv.admin_valor, iv.admin_incluida,
+                      iv.activo, iv.creado_en,
+                      cv.nombre AS conjunto_nombre, cv.codigo AS conjunto_codigo
+                 FROM inmuebles_visitante iv
+                 LEFT JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id
+                WHERE iv.propietario_telefono = %s
+                ORDER BY iv.creado_en DESC""",
+            (tel,))
+        for p in publicados:
+            p["precio_fmt"] = _fmt_precio_cop(p.get("precio"))
+
+        contactos_pedidos = _rows(conn,
+            """SELECT vc.id, vc.creado_en,
+                      cv.nombre AS conjunto_nombre, cv.codigo AS conjunto_codigo,
+                      iv.id AS inmueble_id, iv.tipo, iv.nro,
+                      iv.operacion, iv.precio
+                 FROM visitante_contactos vc
+                 LEFT JOIN conjuntos_visitante cv ON cv.id = vc.conjunto_id
+                 LEFT JOIN inmuebles_visitante iv ON iv.id = vc.inmueble_id
+                WHERE vc.telefono = %s
+                ORDER BY vc.creado_en DESC""",
+            (tel,))
+        for c in contactos_pedidos:
+            c["precio_fmt"] = _fmt_precio_cop(c.get("precio"))
+
+        interesados = _rows(conn,
+            """SELECT id, creado_en, estado, inmueble_ids,
+                      conjunto_id,
+                      (SELECT cv.nombre FROM conjuntos_visitante cv
+                        WHERE cv.id = i.conjunto_id) AS conjunto_nombre
+                 FROM petra_interesados_qr i
+                WHERE interesado_telefono = %s
+                ORDER BY creado_en DESC""",
+            (tel,))
+
+        # Timeline unificada: mezcla eventos por fecha descendente.
+        timeline = []
+        for p in publicados:
+            tipo_lbl = (p.get("tipo") or "inmueble").capitalize()
+            timeline.append({
+                "fecha": p["creado_en"],
+                "icono": "🏠",
+                "titulo": f"Publicó {tipo_lbl}"
+                          + (f" #{p['nro']}" if p.get("nro")
+                             and p["nro"] != "(sin especificar)" else ""),
+                "detalle": (f"{p.get('conjunto_nombre') or '—'} · "
+                            f"{p.get('operacion') or ''} · "
+                            f"{p.get('precio_fmt') or ''}"),
+                "activo": p.get("activo"),
+            })
+        for c in contactos_pedidos:
+            tipo_lbl = (c.get("tipo") or "inmueble").capitalize()
+            timeline.append({
+                "fecha": c["creado_en"],
+                "icono": "💬",
+                "titulo": f"Pidió hablar por {tipo_lbl}"
+                          + (f" #{c['nro']}" if c.get("nro")
+                             and c["nro"] != "(sin especificar)" else ""),
+                "detalle": (f"{c.get('conjunto_nombre') or '—'} · "
+                            f"{c.get('operacion') or ''} · "
+                            f"{c.get('precio_fmt') or ''}"),
+                "activo": True,
+            })
+        for i in interesados:
+            n = len(i.get("inmueble_ids") or [])
+            timeline.append({
+                "fecha": i["creado_en"],
+                "icono": "✨",
+                "titulo": f"Pidió contacto por {n} inmuebles (Flow)",
+                "detalle": (f"{i.get('conjunto_nombre') or '—'} · "
+                            f"estado: {i.get('estado') or 'enviado'}"),
+                "activo": True,
+            })
+        timeline.sort(key=lambda x: x["fecha"], reverse=True)
+
+    return render_template(
+        "petra_visitante_usuario_detalle.html",
+        contacto=contacto, publicados=publicados,
+        contactos_pedidos=contactos_pedidos, interesados=interesados,
+        timeline=timeline, token=token,
+    )
