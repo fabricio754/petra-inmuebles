@@ -3733,12 +3733,23 @@ def visitante_disparadores_vista():
         hora = prev.get("hora") if prev.get("hora") is not None else default["hora"]
         minuto = prev.get("minuto") if prev.get("minuto") is not None else default["minuto"]
         dow = prev.get("dia_semana") if "dia_semana" in prev else default["dia_semana"]
+        # 24h → 12h + AM/PM
+        if hora == 0:
+            hora_12, ampm = 12, "AM"
+        elif hora < 12:
+            hora_12, ampm = hora, "AM"
+        elif hora == 12:
+            hora_12, ampm = 12, "PM"
+        else:
+            hora_12, ampm = hora - 12, "PM"
         horario_txt = (f"{_dia_label(dow) if dow else 'Diario'} "
-                        f"{hora:02d}:{minuto:02d}")
+                        f"{hora_12}:{minuto:02d} {ampm}")
         disparadores.append({
             **d,
             "pausado": bool(prev.get("pausado", False)),
             "hora": hora,
+            "hora_12": hora_12,
+            "ampm": ampm,
             "minuto": minuto,
             "dia_semana": dow,
             "horario": horario_txt,
@@ -3780,10 +3791,16 @@ def visitante_disparadores_horario(disp_id):
     if not valido:
         abort(404)
     try:
-        hora = max(0, min(23, int(request.form.get("hora", "9"))))
+        hora_12 = max(1, min(12, int(request.form.get("hora", "9"))))
         minuto = max(0, min(59, int(request.form.get("minuto", "0"))))
     except (ValueError, TypeError):
-        hora, minuto = 9, 0
+        hora_12, minuto = 9, 0
+    ampm = (request.form.get("ampm") or "AM").upper()
+    # Convierte 12h → 24h.
+    if ampm == "PM":
+        hora = 12 if hora_12 == 12 else hora_12 + 12
+    else:
+        hora = 0 if hora_12 == 12 else hora_12
     dow = (request.form.get("dia_semana") or "").strip() or None
     valid_dows = {k for k, _ in _DIAS_SEMANA if k}
     if dow and dow not in valid_dows:
