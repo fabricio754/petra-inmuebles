@@ -230,11 +230,20 @@ def _upsert_contacto(conn, telefono, nombre=None):
         "SELECT id FROM petra_contactos WHERE telefono=%s", (telefono,),
     ).fetchone()
     if row:
+        # Siempre tocamos updated_at para registrar la última interacción
+        # (lo usa el panel de Usuarios para "última conexión").
         if nombre:
             conn.execute(
-                "UPDATE petra_contactos SET nombre=COALESCE(nombre, %s) "
-                "WHERE telefono=%s",
+                "UPDATE petra_contactos "
+                "   SET nombre=COALESCE(nombre, %s), updated_at=NOW() "
+                " WHERE telefono=%s",
                 (nombre, telefono),
+            )
+        else:
+            conn.execute(
+                "UPDATE petra_contactos SET updated_at=NOW() "
+                " WHERE telefono=%s",
+                (telefono,),
             )
         return row[0]
     r = conn.execute(
@@ -246,7 +255,8 @@ def _upsert_contacto(conn, telefono, nombre=None):
 
 def _guardar_meta(conn, telefono, meta):
     conn.execute(
-        "UPDATE petra_contactos SET meta=%s::jsonb WHERE telefono=%s",
+        "UPDATE petra_contactos SET meta=%s::jsonb, updated_at=NOW() "
+        " WHERE telefono=%s",
         (json.dumps(meta or {}), telefono),
     )
 
