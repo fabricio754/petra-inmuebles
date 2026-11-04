@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Listado de inmuebles · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff; --panel: #ffffff; --border: #e8e4f0;
+    --text: #2a2440; --muted: #76708a; --accent: #7c5cff;
+    --accent-soft: #ece6ff;
+    --green: #16a34a; --green-soft: #dcfce7;
+    --red: #dc2626; --red-soft: #fee2e2;
+    --blue: #2563eb; --blue-soft: #dbeafe;
+    --amber: #d97706; --amber-soft: #fef3c7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background: #fff;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  .topbar .brand { color: var(--accent); }
+  .topbar a.back { color: var(--accent); text-decoration: none; font-size: 13px; }
+  main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+
+  .stats { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .stat { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 10px; padding: 12px 18px; flex: 1 1 140px; }
+  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase;
+             letter-spacing: 0.5px; font-weight: 500; }
+  .stat .v { font-size: 22px; font-weight: 700; margin-top: 4px; }
+
+  .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filters a { padding: 6px 14px; border-radius: 999px; font-size: 13px;
+               text-decoration: none; color: var(--muted);
+               border: 1px solid var(--border); background: #fff; }
+  .filters a.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .panel { background: var(--panel); border-radius: 10px;
+           border: 1px solid var(--border); overflow: hidden; }
+  .panel-head { padding: 14px 18px; border-bottom: 1px solid var(--border);
+                display: flex; align-items: center; justify-content: space-between; }
+  .panel-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count { color: var(--muted); font-size: 13px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; padding: 10px 14px; background: #f5f2fb;
+             color: var(--muted); font-weight: 500; text-transform: uppercase;
+             font-size: 11px; letter-spacing: 0.5px;
+             border-bottom: 1px solid var(--border); }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid #f1eef7;
+             vertical-align: middle; }
+  tbody tr:hover { background: #fcfaff; }
+  .codigo { font-family: ui-monospace, monospace; font-weight: 600;
+            color: var(--accent); background: var(--accent-soft);
+            padding: 3px 8px; border-radius: 6px; font-size: 12px; }
+  .tel { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px;
+          font-size: 11px; font-weight: 600; }
+  .pill.on { background: var(--green-soft); color: var(--green); }
+  .pill.off { background: var(--red-soft); color: var(--red); }
+  .pill.arriendo { background: var(--blue-soft); color: var(--blue); }
+  .pill.venta { background: var(--amber-soft); color: var(--amber); }
+
+  .empty { padding: 60px; text-align: center; color: var(--muted); }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1><span class="brand">Petra</span> · Visitante · Listado de inmuebles</h1>
+  <a class="back" href="/panel/petra/visitante?token={{ token }}">← Volver</a>
+</div>
+<main>
+  <div class="stats">
+    <div class="stat"><div class="k">Total</div><div class="v">{{ stats.total }}</div></div>
+    <div class="stat"><div class="k">Activos</div><div class="v">{{ stats.activos }}</div></div>
+    <div class="stat"><div class="k">Arriendos</div><div class="v">{{ stats.arriendos }}</div></div>
+    <div class="stat"><div class="k">Ventas</div><div class="v">{{ stats.ventas }}</div></div>
+  </div>
+
+  <div class="filters">
+    <a href="?token={{ token }}" class="{% if not filtro %}on{% endif %}">Todos</a>
+    <a href="?token={{ token }}&f=activo" class="{% if filtro == 'activo' %}on{% endif %}">Activos</a>
+    <a href="?token={{ token }}&f=inactivo" class="{% if filtro == 'inactivo' %}on{% endif %}">Inactivos</a>
+    <a href="?token={{ token }}&f=arriendo" class="{% if filtro == 'arriendo' %}on{% endif %}">Arriendo</a>
+    <a href="?token={{ token }}&f=venta" class="{% if filtro == 'venta' %}on{% endif %}">Venta</a>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Inmuebles</h2>
+      <span class="count">{{ inmuebles|length }} resultados</span>
+    </div>
+    {% if inmuebles %}
+    <table>
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Tipo</th>
+          <th>Ubicación</th>
+          <th>Edificio</th>
+          <th>Ciudad</th>
+          <th>Operación</th>
+          <th style="text-align:right">Precio</th>
+          <th style="text-align:right">m²</th>
+          <th>Propietario</th>
+          <th>Estado</th>
+          <th>Fecha</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in inmuebles %}
+        <tr>
+          <td><span class="codigo">{{ i.codigo }}</span></td>
+          <td>{{ (i.tipo or 'inmueble')|capitalize }}</td>
+          <td>{% if i.nro and i.nro != '(sin especificar)' %}{{ i.nro }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{{ i.conjunto_nombre or '—' }}</td>
+          <td>{{ i.conjunto_ciudad or '—' }}</td>
+          <td>
+            {% if i.operacion == 'arriendo' %}
+              <span class="pill arriendo">Arriendo</span>
+            {% else %}
+              <span class="pill venta">Venta</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right">{{ i.precio_fmt or '—' }}</td>
+          <td style="text-align:right">{{ i.m2 or '—' }}</td>
+          <td class="tel">{{ i.propietario_telefono or '—' }}</td>
+          <td>
+            {% if i.activo %}
+              <span class="pill on">Activo</span>
+            {% else %}
+              <span class="pill off">Inactivo</span>
+            {% endif %}
+          </td>
+          <td>{{ i.creado_en.strftime('%Y-%m-%d') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No hay inmuebles con este filtro.</div>
+    {% endif %}
+  </div>
+</main>
+</body>
+</html>
