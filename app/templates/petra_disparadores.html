@@ -75,7 +75,7 @@
 <main>
   <div class="intro">
     Los disparadores son mensajes automáticos que el bot envía según un horario.
-    Acá podés pausarlos o reanudarlos sin tocar código.
+    Acá podés pausarlos, reanudarlos y editar el horario sin tocar código.
   </div>
 
   <div class="grid">
@@ -85,13 +85,34 @@
       <div class="info">
         <h3>{{ d.nombre }}</h3>
         <div class="desc">{{ d.descripcion }}</div>
-        <div class="meta">
-          <span><span class="k">Horario:</span> <span class="v">{{ d.horario }}</span></span>
+        <form method="post" class="horario-form"
+              action="/panel/petra/visitante/disparadores/{{ d.id }}/horario?token={{ token }}"
+              style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <select name="dia_semana" style="padding:6px 10px;border:1px solid var(--border);
+                                           border-radius:6px;font-size:13px;background:#fff;color:var(--text)">
+            {% for key, label in dias_semana %}
+              <option value="{{ key }}" {% if (d.dia_semana or '') == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <span class="k" style="font-size:13px;color:var(--muted)">a las</span>
+          <input type="number" name="hora" value="{{ d.hora }}" min="0" max="23"
+                 style="width:62px;padding:6px 8px;border:1px solid var(--border);
+                        border-radius:6px;font-size:13px;text-align:center">
+          <span class="k">:</span>
+          <input type="number" name="minuto" value="{{ d.minuto }}" min="0" max="59"
+                 style="width:62px;padding:6px 8px;border:1px solid var(--border);
+                        border-radius:6px;font-size:13px;text-align:center">
+          <button type="submit"
+                  style="padding:6px 14px;background:var(--accent);color:#fff;border:none;
+                         border-radius:6px;font-size:13px;font-weight:500;cursor:pointer">
+            Guardar horario
+          </button>
           {% if d.updated_at %}
-          <span><span class="k">Último cambio:</span>
-            <span class="v">{{ d.updated_at.strftime('%Y-%m-%d %H:%M') }}</span></span>
+          <span style="font-size:11px;color:var(--muted);margin-left:auto">
+            Actualizado {{ d.updated_at.strftime('%Y-%m-%d %H:%M') }}
+          </span>
           {% endif %}
-        </div>
+        </form>
       </div>
       <form method="post"
             action="/panel/petra/visitante/disparadores/{{ d.id }}/toggle?token={{ token }}">
@@ -108,6 +129,18 @@
       </form>
     </div>
     {% endfor %}
+  </div>
+
+  <div class="card" style="margin-top:14px;align-items:center">
+    <div class="icon" style="background:#fff3cd">➕</div>
+    <div class="info">
+      <h3>¿Agregar un disparador nuevo?</h3>
+      <div class="desc">
+        Los disparadores necesitan código personalizado (qué mensaje enviar y a quién).
+        Para crear uno nuevo, decime qué querés enviar, a qué horario y a qué gente, y lo
+        armo junto con el handler de los botones.
+      </div>
+    </div>
   </div>
 </main>
 </body>

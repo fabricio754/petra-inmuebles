@@ -12,6 +12,51 @@ log = logging.getLogger("petra")
 _scheduler = None
 
 
+_DISPARADOR_JOB_IDS = {
+    "viernes_disponible": "petra_nudge_viernes_disponibles",
+    "buscador_followup": "petra_nudge_buscador_seguimiento",
+}
+
+
+def reprogramar_disparador(disparador_id):
+    """Lee horario de petra_disparadores y reprograma el job APScheduler
+    para que use ese horario inmediatamente, sin redeploy."""
+    if not _scheduler:
+        return False
+    job_id = _DISPARADOR_JOB_IDS.get(disparador_id)
+    if not job_id:
+        return False
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        from app import db as _db
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT hora, minuto, dia_semana FROM petra_disparadores "
+                " WHERE id=%s", (disparador_id,),
+            ).fetchone()
+        if not row:
+            return False
+        hora, minuto, dow = row
+        kwargs = {"hour": int(hora or 0), "minute": int(minuto or 0)}
+        if dow:
+            kwargs["day_of_week"] = dow
+        _scheduler.reschedule_job(job_id,
+                                   trigger=CronTrigger(timezone="America/Bogota",
+                                                        **kwargs))
+        log.info("[disparadores] reprogramado %s → %s", disparador_id, kwargs)
+        return True
+    except Exception:
+        log.exception("[disparadores] reprogramar fallo id=%s", disparador_id)
+        return False
+
+
+def aplicar_horarios_al_boot():
+    """Aplica horarios de la DB a todos los disparadores conocidos al iniciar
+    el scheduler, sobrescribiendo los defaults hardcodeados."""
+    for disp_id in _DISPARADOR_JOB_IDS:
+        reprogramar_disparador(disp_id)
+
+
 def _disparador_pausado(disparador_id, env_fallback=None):
     """¿El disparador está pausado? Lee de petra_disparadores primero;
     fallback a env si no hay fila."""
@@ -144,6 +189,11 @@ def iniciar():
     _scheduler.start()
     log.info("[Scheduler] Iniciado — healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min, "
              "nudges/citas/kit/tc_queue Petra.")
+    # Aplicar horarios editables desde panel (si hay filas en petra_disparadores).
+    try:
+        aplicar_horarios_al_boot()
+    except Exception:
+        log.exception("[Scheduler] aplicar_horarios_al_boot fallo (ignorable)")
 
     # Drenaje inicial del spool de OUTs: en background para no bloquear el
     # arranque si hay cientos de archivos acumulados (bloquearia health
