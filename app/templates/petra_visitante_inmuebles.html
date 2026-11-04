@@ -172,7 +172,7 @@
     <table>
       <thead>
         <tr>
-          <th>Código</th><th>Op</th><th>Hab</th><th>Baños</th><th>m²</th>
+          <th>Código</th><th>Op</th><th>m²</th>
           <th>Precio</th><th>Fuente</th><th>Gestión</th><th>Estado</th><th>Creado</th><th></th>
         </tr>
       </thead>
@@ -181,8 +181,6 @@
         <tr class="{% if not i.activo %}inactivo{% endif %}">
           <td class="mono"><strong style="color:#7c5cff">P{{ '%04d'|format(i.id) }}</strong></td>
           <td><span class="pill {% if i.operacion == 'arriendo' %}arr{% else %}ven{% endif %}">{{ i.operacion }}</span></td>
-          <td>{{ i.habitaciones if i.habitaciones is not none else '—' }}</td>
-          <td>{{ i.banos if i.banos is not none else '—' }}</td>
           <td>{{ i.m2 if i.m2 is not none else '—' }}</td>
           <td class="mono">{{ i.precio_fmt }}</td>
           <td><span class="pill src-{{ i.fuente }}">{{ i.fuente }}</span></td>
@@ -226,8 +224,6 @@
                     <option value="venta" {% if i.operacion == 'venta' %}selected{% endif %}>Venta</option>
                   </select>
                 </div>
-                <div><label>Hab</label><input type="number" name="habitaciones" min="0" value="{{ i.habitaciones if i.habitaciones is not none else '' }}"></div>
-                <div><label>Baños</label><input type="number" name="banos" min="0" value="{{ i.banos if i.banos is not none else '' }}"></div>
                 <div><label>m²</label><input type="number" name="m2" min="0" value="{{ i.m2 if i.m2 is not none else '' }}"></div>
                 <div><label>Precio (COP) *</label><input type="number" name="precio" required min="1" value="{{ i.precio }}"></div>
                 <div><label>Tel. propietario</label><input type="text" name="propietario_telefono" value="{{ i.propietario_telefono or '' }}"></div>
