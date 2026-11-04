@@ -141,19 +141,33 @@
         </form>
         {% endif %}
       </div>
-      <form method="post"
-            action="/panel/petra/visitante/disparadores/{{ d.id }}/toggle?token={{ token }}">
-        <input type="hidden" name="pausado" value="{% if d.pausado %}0{% else %}1{% endif %}">
-        <label class="toggle">
-          <input type="checkbox" {% if not d.pausado %}checked{% endif %}
-                 onchange="this.form.submit()">
-          <span class="slider"></span>
-        </label>
-        <span class="status {% if d.pausado %}off{% else %}on{% endif %}">
-          {% if d.pausado %}<span class="pill off">Pausado</span>
-          {% else %}<span class="pill on">Activo</span>{% endif %}
-        </span>
-      </form>
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-end">
+        <form method="post"
+              action="/panel/petra/visitante/disparadores/{{ d.id }}/toggle?token={{ token }}"
+              style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;margin:0">
+          <input type="hidden" name="pausado" value="{% if d.pausado %}0{% else %}1{% endif %}">
+          <label class="toggle">
+            <input type="checkbox" {% if not d.pausado %}checked{% endif %}
+                   onchange="this.form.submit()">
+            <span class="slider"></span>
+          </label>
+          <span class="status {% if d.pausado %}off{% else %}on{% endif %}">
+            {% if d.pausado %}<span class="pill off">Pausado</span>
+            {% else %}<span class="pill on">Activo</span>{% endif %}
+          </span>
+        </form>
+        <form method="post"
+              action="/panel/petra/visitante/disparadores/{{ d.id }}/disparar?token={{ token }}"
+              style="margin:0">
+          <button type="submit"
+                  onclick="return confirm('¿Disparar ahora el mensaje a todos los que aplican?')"
+                  style="padding:6px 12px;background:#fff;color:var(--accent);
+                         border:1px solid var(--accent);border-radius:6px;
+                         font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+            ⚡ Disparar ahora
+          </button>
+        </form>
+      </div>
     </div>
     {% endfor %}
   </div>

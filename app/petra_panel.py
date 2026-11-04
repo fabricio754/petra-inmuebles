@@ -3839,6 +3839,33 @@ def visitante_disparadores_horario(disp_id):
                              token=token))
 
 
+@petra_panel_bp.post("/visitante/disparadores/<disp_id>/disparar")
+def visitante_disparadores_disparar(disp_id):
+    """Dispara el job inmediatamente sin esperar el horario."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    valido = next((d for d in _DISPARADORES_CATALOGO if d["id"] == disp_id),
+                  None)
+    if not valido:
+        abort(404)
+    try:
+        from app import scheduler as _sch
+        fn_map = {
+            "viernes_disponible": _sch._petra_nudge_viernes_disponibles,
+            "buscador_followup":  _sch._petra_nudge_buscador_seguimiento,
+            "mejora_busqueda":    _sch._petra_nudge_mejora_busqueda,
+        }
+        fn = fn_map.get(disp_id)
+        if fn:
+            fn()
+    except Exception:
+        import logging
+        logging.getLogger("petra").exception(
+            "[disparadores] disparar manual fallo id=%s", disp_id)
+    return redirect(url_for("petra_panel.visitante_disparadores_vista",
+                             token=token))
+
+
 @petra_panel_bp.post("/visitante/disparadores/<disp_id>/delay")
 def visitante_disparadores_delay(disp_id):
     _check_token()
