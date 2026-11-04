@@ -3187,11 +3187,17 @@ def visitante_inmueble_nuevo(cid):
     token = (request.form.get("token") or "").strip()
     nro = (request.form.get("nro") or "").strip()
     operacion = (request.form.get("operacion") or "").strip()
+    tipo = (request.form.get("tipo") or "apartamento").strip().lower()
     hab = _parse_int_or_none(request.form.get("habitaciones"))
     banos = _parse_int_or_none(request.form.get("banos"))
     m2 = _parse_int_or_none(request.form.get("m2"))
     precio = _parse_int_or_none(request.form.get("precio"))
     tel = (request.form.get("propietario_telefono") or "").strip() or None
+
+    tipos_validos = {"apartamento", "casa", "oficina", "parqueadero",
+                      "deposito", "habitacion", "local"}
+    if tipo not in tipos_validos:
+        tipo = "apartamento"
 
     if (operacion not in ("arriendo", "venta") or precio is None
             or precio <= 0):
@@ -3208,10 +3214,10 @@ def visitante_inmueble_nuevo(cid):
         with _db._conexion_directa(timeout=10) as conn:
             conn.execute(
                 "INSERT INTO inmuebles_visitante "
-                "(conjunto_id, nro, operacion, habitaciones, banos, m2, "
+                "(conjunto_id, tipo, nro, operacion, habitaciones, banos, m2, "
                 " precio, propietario_telefono, fuente, activo) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'petra', TRUE)",
-                (cid, nro, operacion, hab, banos, m2, precio, tel),
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'petra', TRUE)",
+                (cid, tipo, nro, operacion, hab, banos, m2, precio, tel),
             )
             conn.commit()
     except Exception:

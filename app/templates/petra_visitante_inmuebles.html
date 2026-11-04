@@ -132,10 +132,18 @@
             <option value="venta">Venta</option>
           </select>
         </div>
-        <div><label>Habitaciones</label><input type="number" name="habitaciones" min="0"></div>
-        <div><label>Baños</label><input type="number" name="banos" min="0"></div>
-        <div><label>m²</label><input type="number" name="m2" min="0"></div>
-        <div><label>Precio (COP) *</label><input type="number" name="precio" required min="1"></div>
+        <div><label>Tipo de inmueble *</label>
+          <select name="tipo" required>
+            <option value="apartamento">Apartamento</option>
+            <option value="casa">Casa</option>
+            <option value="oficina">Oficina</option>
+            <option value="parqueadero">Parqueadero</option>
+            <option value="deposito">Depósito</option>
+            <option value="habitacion">Habitación</option>
+          </select>
+        </div>
+        <div><label>Área (m²)</label><input type="number" name="m2" min="0"></div>
+        <div><label>Precio (COP) (incluye admón.) *</label><input type="number" name="precio" required min="1"></div>
         <div><label>Tel. propietario</label><input type="text" name="propietario_telefono" placeholder="+57..."></div>
         <div><button type="submit" class="primary">Crear</button></div>
       </div>
