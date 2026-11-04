@@ -3459,6 +3459,12 @@ def visitante_usuarios_vista():
                    OR meta ? 'visitante_conjunto_id'
                    OR meta ? 'flow_publicar_conjunto_id'
               UNION
+              -- Todas las agentes Petra (tengan o no interacción visitante).
+              SELECT pc.telefono
+                FROM petra_contactos pc
+                JOIN petra_contacto_roles r ON r.contacto_id = pc.id
+               WHERE r.rol = 'agente_petra'
+              UNION
               SELECT tel AS telefono FROM anunciantes
               UNION
               SELECT tel AS telefono FROM buscando
