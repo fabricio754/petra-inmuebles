@@ -2191,3 +2191,13 @@ BEGIN
       VALUES ('2026-10-28_drop_massi_tables');
   END IF;
 END $$;
+
+
+-- Flags de disparadores editables desde el panel.
+CREATE TABLE IF NOT EXISTS petra_disparadores (
+  id TEXT PRIMARY KEY,
+  nombre TEXT NOT NULL,
+  descripcion TEXT,
+  pausado BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

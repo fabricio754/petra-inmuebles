@@ -12,6 +12,25 @@ log = logging.getLogger("petra")
 _scheduler = None
 
 
+def _disparador_pausado(disparador_id, env_fallback=None):
+    """¿El disparador está pausado? Lee de petra_disparadores primero;
+    fallback a env si no hay fila."""
+    try:
+        from app import db as _db
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT pausado FROM petra_disparadores WHERE id=%s",
+                (disparador_id,),
+            ).fetchone()
+            if row is not None:
+                return bool(row[0])
+    except Exception:
+        pass
+    if env_fallback and os.environ.get(env_fallback) == "1":
+        return True
+    return False
+
+
 def iniciar():
     global _scheduler
     db_url   = os.environ.get("DATABASE_URL", "").strip()
@@ -765,8 +784,9 @@ def _petra_nudge_viernes_disponibles():
 
     Pausable con env PETRA_VIERNES_DISPONIBLE_PAUSADO=1.
     """
-    if os.environ.get("PETRA_VIERNES_DISPONIBLE_PAUSADO") == "1":
-        log.info("[viernes-disp] pausado por env.")
+    if _disparador_pausado("viernes_disponible",
+                            env_fallback="PETRA_VIERNES_DISPONIBLE_PAUSADO"):
+        log.info("[viernes-disp] pausado.")
         return
     try:
         from app import db as _db, petra_wa as _pwa
@@ -838,8 +858,9 @@ def _petra_nudge_buscador_seguimiento():
 
     Pausable con env PETRA_BUSCADOR_FOLLOWUP_PAUSADO=1.
     """
-    if os.environ.get("PETRA_BUSCADOR_FOLLOWUP_PAUSADO") == "1":
-        log.info("[busc-fup] pausado por env.")
+    if _disparador_pausado("buscador_followup",
+                            env_fallback="PETRA_BUSCADOR_FOLLOWUP_PAUSADO"):
+        log.info("[busc-fup] pausado.")
         return
     try:
         from app import db as _db, petra_wa as _pwa

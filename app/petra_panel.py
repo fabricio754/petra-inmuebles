@@ -3676,3 +3676,68 @@ def visitante_usuario_detalle(telefono):
         inmuebles_agente_total=inmuebles_agente_total,
         mensajes=mensajes,
     )
+
+
+_DISPARADORES_CATALOGO = [
+    {
+        "id": "viernes_disponible",
+        "nombre": "¿Sigue disponible? (viernes)",
+        "descripcion": ("Cada viernes 9:00 AM Bogotá pregunta a los "
+                         "propietarios si su inmueble sigue disponible."),
+        "horario": "Viernes 9:00 AM",
+    },
+    {
+        "id": "buscador_followup",
+        "nombre": "Follow-up buscador (5 días)",
+        "descripcion": ("Cada día 10:30 AM pregunta a buscadores (5+ días "
+                         "sin respuesta) si siguen buscando o ya encontraron."),
+        "horario": "Diario 10:30 AM",
+    },
+]
+
+
+@petra_panel_bp.get("/visitante/disparadores")
+def visitante_disparadores_vista():
+    """Lista de disparadores (cron jobs) con posibilidad de pausar/reanudar."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        try:
+            rows = _rows(conn,
+                "SELECT id, pausado, updated_at FROM petra_disparadores")
+        except Exception:
+            rows = []
+    estado_map = {r["id"]: r for r in rows}
+    disparadores = []
+    for d in _DISPARADORES_CATALOGO:
+        prev = estado_map.get(d["id"], {})
+        disparadores.append({
+            **d,
+            "pausado": bool(prev.get("pausado", False)),
+            "updated_at": prev.get("updated_at"),
+        })
+    return render_template(
+        "petra_disparadores.html",
+        disparadores=disparadores, token=token,
+    )
+
+
+@petra_panel_bp.post("/visitante/disparadores/<disp_id>/toggle")
+def visitante_disparadores_toggle(disp_id):
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    valido = next((d for d in _DISPARADORES_CATALOGO if d["id"] == disp_id),
+                  None)
+    if not valido:
+        abort(404)
+    pausado = request.form.get("pausado") == "1"
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "INSERT INTO petra_disparadores (id, nombre, descripcion, pausado) "
+            "VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (id) DO UPDATE "
+            "SET pausado = EXCLUDED.pausado, updated_at = NOW()",
+            (valido["id"], valido["nombre"], valido["descripcion"], pausado),
+        )
+    return redirect(url_for("petra_panel.visitante_disparadores_vista",
+                             token=token))
