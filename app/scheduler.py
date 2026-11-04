@@ -1044,11 +1044,9 @@ def _petra_nudge_mejora_busqueda():
                     _pwa.send_message(tel, {
                         "type": "text",
                         "text": (
-                            "Para mostrarte mejores opciones, respondeme "
-                            "estas 3 preguntas:\n\n"
-                            "1️⃣ ¿En qué *zona* querés vivir?\n"
-                            "2️⃣ ¿Cuál es tu *presupuesto*?\n"
-                            "3️⃣ ¿Cuántos *m²* buscás?"
+                            "📍 *Zona*\n"
+                            "💰 *Presupuesto*\n"
+                            "📐 *Metros cuadrados*"
                         ),
                     })
                     cur = conn.execute(
