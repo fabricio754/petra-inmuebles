@@ -85,6 +85,27 @@
       <div class="info">
         <h3>{{ d.nombre }}</h3>
         <div class="desc">{{ d.descripcion }}</div>
+        {% if d.tipo == 'delay' %}
+        <form method="post"
+              action="/panel/petra/visitante/disparadores/{{ d.id }}/delay?token={{ token }}"
+              style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:nowrap;white-space:nowrap">
+          <span style="font-size:13px;color:var(--muted)">Enviar</span>
+          <input type="number" name="minutos" value="{{ d.delay_minutos }}" min="1" max="1440"
+                 style="width:80px;padding:6px 8px;border:1px solid var(--border);
+                        border-radius:6px;font-size:13px;text-align:center">
+          <span style="font-size:13px;color:var(--muted)">minutos después del contacto</span>
+          <button type="submit"
+                  style="padding:6px 14px;background:var(--accent);color:#fff;border:none;
+                         border-radius:6px;font-size:13px;font-weight:500;cursor:pointer">
+            Guardar
+          </button>
+          {% if d.updated_at %}
+          <span style="font-size:11px;color:var(--muted);margin-left:auto">
+            {{ d.updated_at.strftime('%Y-%m-%d %H:%M') }}
+          </span>
+          {% endif %}
+        </form>
+        {% else %}
         <form method="post" class="horario-form"
               action="/panel/petra/visitante/disparadores/{{ d.id }}/horario?token={{ token }}"
               style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:nowrap;white-space:nowrap">
@@ -118,6 +139,7 @@
           </span>
           {% endif %}
         </form>
+        {% endif %}
       </div>
       <form method="post"
             action="/panel/petra/visitante/disparadores/{{ d.id }}/toggle?token={{ token }}">

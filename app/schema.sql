@@ -2210,3 +2210,10 @@ ALTER TABLE petra_disparadores
   ADD COLUMN IF NOT EXISTS minuto INT NOT NULL DEFAULT 0;
 ALTER TABLE petra_disparadores
   ADD COLUMN IF NOT EXISTS dia_semana TEXT DEFAULT NULL;  -- mon,tue,...  o NULL=diario
+
+
+-- Tipo de disparador: 'cron' (hora fija) o 'delay' (minutos después de evento).
+ALTER TABLE petra_disparadores
+  ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'cron';
+ALTER TABLE petra_disparadores
+  ADD COLUMN IF NOT EXISTS delay_minutos INT DEFAULT 15;
