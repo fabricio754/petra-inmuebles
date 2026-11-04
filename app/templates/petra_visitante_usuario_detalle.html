@@ -116,17 +116,40 @@
 
     <div class="info">
       <div class="row"><span class="k">Ciudad</span><span>{{ contacto.ciudad or '—' }}</span></div>
+      {% if not contacto.es_agente %}
       <div class="row"><span class="k">Edificio</span><span>{{ contacto.conjunto_nombre or '—' }}</span></div>
       <div class="row"><span class="k">Estado flujo</span><span>{{ contacto.estado_visitante or '—' }}</span></div>
+      {% endif %}
       <div class="row"><span class="k">Última conexión</span>
         <span>{% if contacto.updated_at %}{{ contacto.updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</span>
       </div>
       <div class="row"><span class="k">Primer contacto</span>
         <span>{% if contacto.created_at %}{{ contacto.created_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</span>
       </div>
+      {% if not contacto.es_agente %}
       <div class="row"><span class="k">Publicó</span><span>{{ publicados|length }} inmuebles</span></div>
       <div class="row"><span class="k">Pidió contacto</span><span>{{ contactos_pedidos|length + interesados|length }} veces</span></div>
+      {% endif %}
     </div>
+
+    {% if contacto.es_agente %}
+    <div class="info">
+      <div class="row"><span class="k" style="font-weight:600;color:var(--orange)">👷 Agente Petra</span><span></span></div>
+      <div class="row"><span class="k">Estado</span><span>{{ contacto.estado_agente or '—' }}</span></div>
+      <div class="row"><span class="k">Capacitación</span><span>{{ contacto.videos_vistos }}/14 videos</span></div>
+      <div class="row"><span class="k">Edificios asignados</span><span>{{ edificios_agente|length }}</span></div>
+      <div class="row"><span class="k">Inmuebles gestionados</span><span>{{ inmuebles_agente_total }}</span></div>
+      {% if contacto.inscrito_at %}
+      <div class="row"><span class="k">Inscrita</span><span>{{ contacto.inscrito_at[:10] }}</span></div>
+      {% endif %}
+      {% if contacto.origen_agente %}
+      <div class="row"><span class="k">Origen</span><span>{{ contacto.origen_agente }}</span></div>
+      {% endif %}
+      {% if contacto.bot_pausado == 'true' %}
+      <div class="row"><span class="k">Bot</span><span class="pill inactivo">Pausado</span></div>
+      {% endif %}
+    </div>
+    {% endif %}
   </aside>
 
   <div>
@@ -157,6 +180,39 @@
       <div class="empty">Sin actividad registrada todavía.</div>
       {% endif %}
     </div>
+
+    {% if contacto.es_agente and edificios_agente %}
+    <div class="section">
+      <div class="section-head">
+        <h2>🏢 Edificios asignados</h2>
+        <span class="count">{{ edificios_agente|length }}</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Nombre</th>
+            <th>Ciudad</th>
+            <th style="text-align:right">Inmuebles</th>
+            <th>Estado</th>
+            <th>Fecha alta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in edificios_agente %}
+          <tr>
+            <td class="tel">{{ e.codigo }}</td>
+            <td>{{ e.nombre }}</td>
+            <td>{{ e.ciudad or '—' }}</td>
+            <td style="text-align:right">{{ e.n_inmuebles }}</td>
+            <td>{% if e.activo %}<span class="pill activo">Activo</span>{% else %}<span class="pill inactivo">Inactivo</span>{% endif %}</td>
+            <td>{{ e.creado_en.strftime('%Y-%m-%d') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
 
     {% if publicados %}
     <div class="section">

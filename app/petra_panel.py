@@ -3537,15 +3537,24 @@ def visitante_usuario_detalle(telefono):
                       pc.meta->>'visitante_conjunto_id' AS conjunto_id_sticky,
                       pc.meta->>'visitante_estado' AS estado_visitante,
                       cv.nombre AS conjunto_nombre,
-                      cv.ciudad AS ciudad,
-                      EXISTS (
-                        SELECT 1 FROM petra_contacto_roles r
-                         WHERE r.contacto_id = pc.id
-                           AND r.rol = 'agente_petra'
-                      ) AS es_agente
+                      COALESCE(cv.ciudad, ra.metadata->>'ciudad') AS ciudad,
+                      ra.metadata->>'estado_agente' AS estado_agente,
+                      COALESCE((ra.metadata->>'videos_vistos')::int, 0) AS videos_vistos,
+                      ra.metadata->>'inscrito_at' AS inscrito_at,
+                      ra.metadata->>'origen' AS origen_agente,
+                      ra.metadata->>'bot_pausado' AS bot_pausado,
+                      (ra.id IS NOT NULL) AS es_agente,
+                      (SELECT COUNT(*) FROM conjuntos_visitante
+                        WHERE creado_por_cid = pc.id) AS n_edificios_agente,
+                      (SELECT COUNT(*) FROM inmuebles_visitante iv
+                         JOIN conjuntos_visitante cv2 ON cv2.id = iv.conjunto_id
+                        WHERE cv2.creado_por_cid = pc.id
+                          AND iv.activo = TRUE) AS n_inmuebles_agente
                  FROM petra_contactos pc
                  LEFT JOIN conjuntos_visitante cv
                    ON cv.id = NULLIF(pc.meta->>'visitante_conjunto_id', '')::int
+                 LEFT JOIN petra_contacto_roles ra
+                   ON ra.contacto_id = pc.id AND ra.rol = 'agente_petra'
                 WHERE pc.telefono = %s""",
             (tel,))
         contacto = _contacto_rows[0] if _contacto_rows else None
@@ -3581,6 +3590,21 @@ def visitante_usuario_detalle(telefono):
             (tel,))
         for c in contactos_pedidos:
             c["precio_fmt"] = _fmt_precio_cop(c.get("precio"))
+
+        edificios_agente = []
+        inmuebles_agente_total = 0
+        if contacto.get("es_agente"):
+            edificios_agente = _rows(conn,
+                """SELECT id, codigo, nombre, ciudad, activo, creado_en,
+                          (SELECT COUNT(*) FROM inmuebles_visitante iv
+                            WHERE iv.conjunto_id = cv.id AND iv.activo = TRUE)
+                          AS n_inmuebles
+                     FROM conjuntos_visitante cv
+                    WHERE creado_por_cid = %s
+                    ORDER BY creado_en DESC""",
+                (contacto.get("id"),))
+            inmuebles_agente_total = sum(e.get("n_inmuebles") or 0
+                                         for e in edificios_agente)
 
         interesados = _rows(conn,
             """SELECT id, creado_en, estado, inmueble_ids,
@@ -3637,4 +3661,6 @@ def visitante_usuario_detalle(telefono):
         contacto=contacto, publicados=publicados,
         contactos_pedidos=contactos_pedidos, interesados=interesados,
         timeline=timeline, token=token,
+        edificios_agente=edificios_agente,
+        inmuebles_agente_total=inmuebles_agente_total,
     )
