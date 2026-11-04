@@ -1044,6 +1044,8 @@ def _petra_nudge_mejora_busqueda():
                     _pwa.send_message(tel, {
                         "type": "text",
                         "text": (
+                            "🏠 Los próximos días te enviaremos "
+                            "inmuebles similares.\n\n"
                             "Para mejorar la búsqueda respondé "
                             "estas 3 preguntas:\n\n"
                             "📍 *Zona*\n"
