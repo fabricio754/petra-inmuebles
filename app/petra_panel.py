@@ -3606,6 +3606,16 @@ def visitante_usuario_detalle(telefono):
             inmuebles_agente_total = sum(e.get("n_inmuebles") or 0
                                          for e in edificios_agente)
 
+        mensajes = _rows(conn,
+            """SELECT direccion, tipo, resumen, fecha
+                 FROM mensajes
+                WHERE telefono = %s
+                ORDER BY fecha DESC
+                LIMIT 200""",
+            (tel,))
+        # Invertimos para render (oldest first dentro del chat).
+        mensajes = list(reversed(mensajes))
+
         interesados = _rows(conn,
             """SELECT id, creado_en, estado, inmueble_ids,
                       conjunto_id,
@@ -3663,4 +3673,5 @@ def visitante_usuario_detalle(telefono):
         timeline=timeline, token=token,
         edificios_agente=edificios_agente,
         inmuebles_agente_total=inmuebles_agente_total,
+        mensajes=mensajes,
     )
