@@ -163,6 +163,11 @@ def iniciar():
                        hour=10, minute=30,
                        id="petra_nudge_buscador_seguimiento",
                        max_instances=1, coalesce=True)
+    # Cada 2 min evalúa el disparador "mejora_busqueda": tras N minutos
+    # de que un buscador pidió contacto, le pregunta zona/presupuesto/m².
+    _scheduler.add_job(_petra_nudge_mejora_busqueda, "interval",
+                       minutes=2, id="petra_nudge_mejora_busqueda",
+                       max_instances=1, coalesce=True)
     # Autonomía kit: pasadas ~KIT_AUTOENVIO_HORAS (24 default) desde que la
     # agente completó la dirección, el bot automáticamente la pasa a
     # kit_enviado y le manda "tu kit salió en camino" + video + botón QR.
@@ -978,3 +983,92 @@ def _petra_nudge_buscador_seguimiento():
         log.exception("[busc-fup] query/loop fallo")
 
     log.info("[busc-fup] mensajes enviados: %s", enviados)
+
+
+def _petra_nudge_mejora_busqueda():
+    """N minutos después de que un buscador pidió hablar con el dueño,
+    le envía un mensaje pidiendo 3 datos (zona, presupuesto, m²) para
+    mejorar futuras recomendaciones.
+
+    N configurable en petra_disparadores.delay_minutos (default 15).
+    Pausable: toggle en el panel o PETRA_MEJORA_BUSQUEDA_PAUSADO=1.
+    """
+    if _disparador_pausado("mejora_busqueda",
+                            env_fallback="PETRA_MEJORA_BUSQUEDA_PAUSADO"):
+        return
+    try:
+        from app import db as _db, petra_wa as _pwa
+        import json as _json
+    except Exception:
+        log.exception("[mejora-busq] import fallo.")
+        return
+
+    # Lee delay_minutos del disparador (fallback 15).
+    delay_min = 15
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT delay_minutos FROM petra_disparadores WHERE id=%s",
+                ("mejora_busqueda",),
+            ).fetchone()
+            if row and row[0]:
+                delay_min = int(row[0])
+    except Exception:
+        pass
+
+    enviados = 0
+    try:
+        with _db._conexion_directa(timeout=20) as conn:
+            # Buscadores con contacto solicitado hace >= delay_min minutos
+            # pero <= delay_min + 15 (ventana de gracia), que no hayan
+            # recibido ya este mensaje.
+            rows = conn.execute(
+                """
+                SELECT vc.telefono, MAX(vc.creado_en) AS ultimo
+                  FROM visitante_contactos vc
+                  JOIN petra_contactos pc ON pc.telefono = vc.telefono
+                 WHERE vc.telefono IS NOT NULL AND vc.telefono <> ''
+                 GROUP BY vc.telefono, pc.meta
+                HAVING MAX(vc.creado_en) BETWEEN
+                       NOW() - (%s::int || ' minutes')::interval - INTERVAL '15 minutes'
+                       AND NOW() - (%s::int || ' minutes')::interval
+                   AND (pc.meta->>'ultimo_mejora_busq' IS NULL
+                        OR (pc.meta->>'ultimo_mejora_busq')::timestamptz
+                            < MAX(vc.creado_en))
+                """,
+                (delay_min, delay_min),
+            ).fetchall()
+            for r in rows:
+                tel, _ultimo = r
+                try:
+                    _pwa.send_message(tel, {
+                        "type": "text",
+                        "text": (
+                            "¡Gracias por tu interés! 💜\n\n"
+                            "Para mostrarte mejores opciones, respondeme "
+                            "estas 3 cositas:\n\n"
+                            "1️⃣ ¿En qué *zona* querés vivir?\n"
+                            "2️⃣ ¿Cuál es tu *presupuesto*?\n"
+                            "3️⃣ ¿Cuántos *m²* buscás?"
+                        ),
+                    })
+                    cur = conn.execute(
+                        "SELECT meta FROM petra_contactos WHERE telefono=%s",
+                        (tel,),
+                    ).fetchone()
+                    m = dict(cur[0] or {}) if cur and cur[0] else {}
+                    from datetime import datetime, timezone
+                    m["ultimo_mejora_busq"] = datetime.now(timezone.utc).isoformat()
+                    conn.execute(
+                        "UPDATE petra_contactos SET meta=%s::jsonb "
+                        " WHERE telefono=%s",
+                        (_json.dumps(m), tel),
+                    )
+                    enviados += 1
+                except Exception:
+                    log.exception("[mejora-busq] fallo tel=%s", tel)
+    except Exception:
+        log.exception("[mejora-busq] query/loop fallo")
+
+    if enviados:
+        log.info("[mejora-busq] mensajes enviados: %s", enviados)

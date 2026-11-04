@@ -3696,14 +3696,22 @@ _DISPARADORES_CATALOGO = [
         "nombre": "¿Sigue disponible? (viernes)",
         "descripcion": ("Cada viernes 9:00 AM Bogotá pregunta a los "
                          "propietarios si su inmueble sigue disponible."),
-        "horario": "Viernes 9:00 AM",
+        "tipo": "cron",
     },
     {
         "id": "buscador_followup",
         "nombre": "Follow-up buscador (5 días)",
         "descripcion": ("Cada día 10:30 AM pregunta a buscadores (5+ días "
                          "sin respuesta) si siguen buscando o ya encontraron."),
-        "horario": "Diario 10:30 AM",
+        "tipo": "cron",
+    },
+    {
+        "id": "mejora_busqueda",
+        "nombre": "Mejorar búsqueda (tras contacto)",
+        "descripcion": ("N minutos después de que el buscador toque 'Hablar "
+                         "al dueño', le pide zona, presupuesto y m² para "
+                         "mejorar la recomendación."),
+        "tipo": "delay",
     },
 ]
 
@@ -3717,11 +3725,13 @@ def visitante_disparadores_vista():
     defaults = {
         "viernes_disponible": {"hora": 9, "minuto": 0, "dia_semana": "fri"},
         "buscador_followup":  {"hora": 10, "minuto": 30, "dia_semana": None},
+        "mejora_busqueda":    {"delay_minutos": 15},
     }
     with _db._conexion_directa(timeout=10) as conn:
         try:
             rows = _rows(conn,
-                "SELECT id, pausado, hora, minuto, dia_semana, updated_at "
+                "SELECT id, pausado, hora, minuto, dia_semana, "
+                "       delay_minutos, updated_at "
                 "  FROM petra_disparadores")
         except Exception:
             rows = []
@@ -3729,32 +3739,35 @@ def visitante_disparadores_vista():
     disparadores = []
     for d in _DISPARADORES_CATALOGO:
         prev = estado_map.get(d["id"], {})
-        default = defaults.get(d["id"], {"hora": 9, "minuto": 0, "dia_semana": None})
-        hora = prev.get("hora") if prev.get("hora") is not None else default["hora"]
-        minuto = prev.get("minuto") if prev.get("minuto") is not None else default["minuto"]
-        dow = prev.get("dia_semana") if "dia_semana" in prev else default["dia_semana"]
-        # 24h → 12h + AM/PM
-        if hora == 0:
-            hora_12, ampm = 12, "AM"
-        elif hora < 12:
-            hora_12, ampm = hora, "AM"
-        elif hora == 12:
-            hora_12, ampm = 12, "PM"
-        else:
-            hora_12, ampm = hora - 12, "PM"
-        horario_txt = (f"{_dia_label(dow) if dow else 'Diario'} "
-                        f"{hora_12}:{minuto:02d} {ampm}")
-        disparadores.append({
+        default = defaults.get(d["id"], {})
+        item = {
             **d,
             "pausado": bool(prev.get("pausado", False)),
-            "hora": hora,
-            "hora_12": hora_12,
-            "ampm": ampm,
-            "minuto": minuto,
-            "dia_semana": dow,
-            "horario": horario_txt,
             "updated_at": prev.get("updated_at"),
-        })
+        }
+        if d["tipo"] == "delay":
+            delay = (prev.get("delay_minutos")
+                     if prev.get("delay_minutos") is not None
+                     else default.get("delay_minutos", 15))
+            item["delay_minutos"] = int(delay)
+        else:
+            hora = prev.get("hora") if prev.get("hora") is not None else default.get("hora", 9)
+            minuto = prev.get("minuto") if prev.get("minuto") is not None else default.get("minuto", 0)
+            dow = prev.get("dia_semana") if "dia_semana" in prev else default.get("dia_semana")
+            if hora == 0:
+                hora_12, ampm = 12, "AM"
+            elif hora < 12:
+                hora_12, ampm = hora, "AM"
+            elif hora == 12:
+                hora_12, ampm = 12, "PM"
+            else:
+                hora_12, ampm = hora - 12, "PM"
+            item["hora"] = hora
+            item["hora_12"] = hora_12
+            item["ampm"] = ampm
+            item["minuto"] = minuto
+            item["dia_semana"] = dow
+        disparadores.append(item)
     return render_template(
         "petra_disparadores.html",
         disparadores=disparadores, token=token, dias_semana=_DIAS_SEMANA,
@@ -3822,6 +3835,32 @@ def visitante_disparadores_horario(disp_id):
         _sch.reprogramar_disparador(disp_id)
     except Exception:
         pass
+    return redirect(url_for("petra_panel.visitante_disparadores_vista",
+                             token=token))
+
+
+@petra_panel_bp.post("/visitante/disparadores/<disp_id>/delay")
+def visitante_disparadores_delay(disp_id):
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    valido = next((d for d in _DISPARADORES_CATALOGO if d["id"] == disp_id),
+                  None)
+    if not valido or valido.get("tipo") != "delay":
+        abort(404)
+    try:
+        minutos = max(1, min(1440, int(request.form.get("minutos", "15"))))
+    except (ValueError, TypeError):
+        minutos = 15
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            "INSERT INTO petra_disparadores (id, nombre, descripcion, "
+            "  tipo, delay_minutos) "
+            "VALUES (%s, %s, %s, 'delay', %s) "
+            "ON CONFLICT (id) DO UPDATE "
+            "SET delay_minutos = EXCLUDED.delay_minutos, "
+            "    tipo = 'delay', updated_at = NOW()",
+            (valido["id"], valido["nombre"], valido["descripcion"], minutos),
+        )
     return redirect(url_for("petra_panel.visitante_disparadores_vista",
                              token=token))
 
