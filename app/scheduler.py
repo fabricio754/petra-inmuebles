@@ -1044,13 +1044,20 @@ def _petra_nudge_mejora_busqueda():
                     _pwa.send_message(tel, {
                         "type": "text",
                         "text": (
-                            "🏠 Los próximos días te enviaremos "
-                            "inmuebles similares.\n\n"
-                            "Para mejorar la búsqueda respondé "
-                            "estas 3 preguntas:\n\n"
-                            "📍 *Zona*\n"
-                            "💰 *Presupuesto*\n"
-                            "📐 *Metros cuadrados*"
+                            "✨ *Petra busca por ti!*\n"
+                            "🏠 Los próximos días te enviaremos inmuebles "
+                            "similares para ayudarte a encontrar más "
+                            "rápido lo que buscas."
+                        ),
+                    })
+                    _pwa.send_message(tel, {
+                        "type": "text",
+                        "text": (
+                            "Para mejorar nuestra búsqueda contanos "
+                            "estas 3 cosas:\n\n"
+                            "1. 📍 *Zona*\n"
+                            "2. 💰 *Presupuesto*\n"
+                            "3. 📐 *Metros cuadrados*"
                         ),
                     })
                     cur = conn.execute(
