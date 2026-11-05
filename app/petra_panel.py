@@ -3246,10 +3246,13 @@ def visitante_inmueble_editar(iid):
     precio = _parse_int_or_none(request.form.get("precio"))
     tel = (request.form.get("propietario_telefono") or "").strip() or None
 
-    if (not nro or operacion not in ("arriendo", "venta") or precio is None
-            or precio <= 0):
+    if operacion not in ("arriendo", "venta"):
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
+    if not nro:
+        nro = "(sin especificar)"
+    if precio is None or precio < 0:
+        precio = 0
     try:
         with _db._conexion_directa(timeout=10) as conn:
             row = conn.execute(

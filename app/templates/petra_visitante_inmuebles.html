@@ -225,7 +225,7 @@
                   </select>
                 </div>
                 <div><label>m²</label><input type="number" name="m2" min="0" value="{{ i.m2 if i.m2 is not none else '' }}"></div>
-                <div><label>Precio (COP) *</label><input type="number" name="precio" required min="1" value="{{ i.precio }}"></div>
+                <div><label>Precio (COP)</label><input type="number" name="precio" min="0" value="{{ i.precio if i.precio else '' }}"></div>
                 <div><label>Tel. propietario</label><input type="text" name="propietario_telefono" value="{{ i.propietario_telefono or '' }}"></div>
                 <div><button type="submit" class="primary">Guardar</button></div>
               </div>
