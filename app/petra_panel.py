@@ -19,6 +19,35 @@ def _check_token():
     return True
 
 
+def _detect_role():
+    """Devuelve 'fabricio' | 'sebastian' | None según el token enviado.
+    - PANEL_TOKEN           → fabricio (admin, ve todo)
+    - PANEL_TOKEN_HERMANO   → sebastian (solo /panel/petra/hermano)
+    Si ninguno está configurado (dev local), devuelve 'fabricio'.
+    """
+    token = (request.args.get("token") or request.form.get("token") or "").strip()
+    fab = (os.environ.get("PANEL_TOKEN") or "").strip()
+    seb = (os.environ.get("PANEL_TOKEN_HERMANO") or "").strip()
+    if not fab and not seb:
+        return 'fabricio'  # dev
+    if fab and token == fab:
+        return 'fabricio'
+    if seb and token == seb:
+        return 'sebastian'
+    return None
+
+
+def _require_hermano():
+    """Solo acepta PANEL_TOKEN_HERMANO."""
+    expected = (os.environ.get("PANEL_TOKEN_HERMANO") or "").strip()
+    if not expected:
+        abort(403)
+    got = (request.args.get("token") or request.form.get("token") or "").strip()
+    if got != expected:
+        abort(403)
+    return True
+
+
 def _rows(conn, sql, params=()):
     cur = conn.execute(sql, params)
     cols = [d[0] for d in cur.description]
@@ -2993,7 +3022,8 @@ def _fmt_precio_cop(valor):
 
 @petra_panel_bp.get("/visitante")
 def visitante_conjuntos():
-    """Index de conjuntos registrados en el flujo visitante QR."""
+    """Index de conjuntos registrados en el flujo visitante QR.
+    Trae también KPIs del embudo por conjunto para el dashboard arriba."""
     _check_token()
     token = (request.args.get("token") or "").strip()
     flash = (request.args.get("flash") or "").strip()
@@ -3003,7 +3033,18 @@ def visitante_conjuntos():
                       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='arriendo'
                                         THEN 1 ELSE 0 END), 0) AS arr_activos,
                       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='venta'
-                                        THEN 1 ELSE 0 END), 0) AS ven_activos
+                                        THEN 1 ELSE 0 END), 0) AS ven_activos,
+                      COALESCE(SUM(CASE WHEN i.activo THEN 1 ELSE 0 END), 0) AS act,
+                      COALESCE(SUM(CASE WHEN i.activo AND i.datos_confirmado_at IS NOT NULL
+                                        THEN 1 ELSE 0 END), 0) AS n_conf,
+                      COALESCE(SUM(CASE WHEN i.activo AND i.bienvenida_at IS NOT NULL
+                                        THEN 1 ELSE 0 END), 0) AS n_bv,
+                      COALESCE(SUM(CASE WHEN i.activo AND i.ofrecer_petra_at IS NOT NULL
+                                        THEN 1 ELSE 0 END), 0) AS n_op,
+                      COALESCE(SUM(CASE WHEN i.activo AND i.ofrecer_credito_at IS NOT NULL
+                                        THEN 1 ELSE 0 END), 0) AS n_cr,
+                      COALESCE(SUM(CASE WHEN i.activo AND i.mandato_at IS NOT NULL
+                                        THEN 1 ELSE 0 END), 0) AS n_mn
                  FROM conjuntos_visitante c
                  LEFT JOIN inmuebles_visitante i ON i.conjunto_id = c.id
                 GROUP BY c.id
@@ -3162,21 +3203,66 @@ def visitante_inmuebles(cid):
         elif estado_filtro == "inactivos":
             where.append("activo=FALSE")
         sql = (
-            "SELECT id, nro, operacion, habitaciones, banos, m2, precio, "
+            "SELECT id, tipo, nro, operacion, habitaciones, banos, m2, precio, "
             "       fuente, activo, creado_en, propietario_telefono, "
-            "       gestionado_por_petra, propietario_telefono_original "
+            "       gestionado_por_petra, propietario_telefono_original, "
+            "       datos_confirmado_at, bienvenida_at, ofrecer_petra_at, "
+            "       ofrecer_credito_at, mandato_at "
             "  FROM inmuebles_visitante "
             " WHERE " + " AND ".join(where) +
             " ORDER BY activo DESC, creado_en DESC"
         )
         inmuebles = _rows(conn, sql, tuple(params))
 
+    # Enriquecer cada inmueble con etapa + wa.me URLs listas para los botones.
     for i in inmuebles:
         i["precio_fmt"] = _fmt_precio_cop(i.get("precio"))
+        i["codigo"] = f"P{i['id']:04d}"
+        i["conjunto_nombre"] = conjunto["nombre"]
+        i["etapa"] = _etapa_inmueble(i)
+        cel = _normalizar_celular_co(i.get("propietario_telefono"))
+        i["celular_e164"] = cel
+        i["celular_valido"] = bool(cel)
+        # Pre-computar texto + wa_url para cada botón habilitado
+        i["wa_bienvenida"] = _wa_url(cel, _texto_bienvenida(i))
+        i["wa_ofrecer_petra"] = _wa_url(cel, _texto_ofrecer_petra(i))
+        i["wa_ofrecer_credito"] = _wa_url(cel, _texto_ofrecer_credito(i))
+        # Imagen asociada a ofrecer_petra
+        op = (i.get("operacion") or "").lower()
+        if op == "venta":
+            i["img_ofrecer"] = _IMG_ETAPA['ofrecer_petra_venta']
+            i["img_ofrecer_nombre"] = "venta.webp"
+        else:
+            i["img_ofrecer"] = _IMG_ETAPA['ofrecer_petra_arriendo']
+            i["img_ofrecer_nombre"] = "arriendo.webp"
+        i["img_credito"] = _IMG_ETAPA['ofrecer_credito']
+
+    # Filtro por etapa (query param ?etapa=...). Si está, filtra en memoria.
+    etapa_filtro = (request.args.get("etapa") or "").strip()
+    if etapa_filtro:
+        inmuebles = [i for i in inmuebles if i["etapa"] == etapa_filtro]
+
+    # Contadores por etapa para los chips (sobre el universo activo).
+    cont = {k: 0 for k in (
+        'pendiente_confirmar', 'confirmado_sin_datos', 'confirmado_completo',
+        'post_bienvenida', 'post_petra', 'post_credito', 'mandato',
+    )}
+    with _db._conexion_directa(timeout=10) as conn:
+        all_rows = _rows(conn,
+            """SELECT activo, precio, m2,
+                      datos_confirmado_at, bienvenida_at,
+                      ofrecer_petra_at, ofrecer_credito_at, mandato_at
+                 FROM inmuebles_visitante WHERE conjunto_id=%s""", (cid,))
+    for r in all_rows:
+        e = _etapa_inmueble(r)
+        if e in cont:
+            cont[e] += 1
+
     return render_template(
         "petra_visitante_inmuebles.html",
         conjunto=conjunto, inmuebles=inmuebles, token=token, flash=flash,
         op_filtro=op_filtro, estado_filtro=estado_filtro,
+        etapa_filtro=etapa_filtro, cont=cont,
     )
 
 
@@ -3949,3 +4035,259 @@ def visitante_listado_inmuebles():
         "petra_visitante_listado.html",
         inmuebles=rows, token=token, filtro=filtro, stats=stats,
     )
+
+
+# =============================================================================
+# Embudo de contacto a propietarios (wa.me click-to-chat).
+# 5 etapas gated:
+#   1 confirmar_datos  → Sebastián
+#   2 bienvenida       → Fabricio (texto + video)
+#   3 ofrecer_petra    → Fabricio (texto + imagen)
+#   4 ofrecer_credito  → Fabricio (texto + imagen)
+#   5 mandato          → Fabricio (toggle, no envía)
+# =============================================================================
+
+def _urlencode_min(s):
+    import urllib.parse
+    return urllib.parse.quote(s or "", safe="")
+
+
+def _normalizar_celular_co(raw):
+    """Devuelve '57XXXXXXXXXX' (listo para wa.me). None si no parseable.
+    Si vienen 10 dígitos empezando en 3, agrega '57' adelante.
+    """
+    if not raw:
+        return None
+    dig = "".join(c for c in str(raw) if c.isdigit())
+    if not dig:
+        return None
+    if dig.startswith("57") and 12 <= len(dig) <= 13:
+        return dig[:12]
+    if len(dig) == 10 and dig.startswith("3"):
+        return "57" + dig
+    if 10 <= len(dig) <= 15:
+        return dig
+    return None
+
+
+def _tipo_label(inm):
+    return (inm.get("tipo") or "inmueble").lower()
+
+
+def _op_label(op):
+    op = (op or "").lower()
+    if op == "arriendo":
+        return "arrendar"
+    if op == "venta":
+        return "vender"
+    return "arrendar o vender"
+
+
+# --- Textos de cada etapa ----------------------------------------------------
+
+def _texto_confirmar_datos(inm):
+    """Mensaje ① — Sebastián sondeando datos. Sin marca, sin mencionar admin."""
+    tipo = _tipo_label(inm)
+    conjunto = inm.get("conjunto_nombre") or "el conjunto"
+    return (
+        f"Hola, buen día 👋\n"
+        f"Quería preguntarte por el {tipo} que tenés en {conjunto}. "
+        f"¿Me puedes contar de cuántos metros es y qué precio tiene?"
+    )
+
+
+def _texto_bienvenida(inm):
+    """Mensaje ② — Fabricio dando bienvenida + video (lo adjunta a mano)."""
+    conjunto = inm.get("conjunto_nombre") or "tu conjunto"
+    return (
+        f"Hola 👋\n"
+        f"Soy Fabricio de *Petra*. Te escribo para contarte que {conjunto} "
+        f"acaba de activar Petra para ayudar a los propietarios a vender "
+        f"o arrendar más rápido 🏠\n\n"
+        f"Mirá este video de 1 min y enterate cómo funciona 👇"
+    )
+
+
+def _texto_ofrecer_petra(inm):
+    """Mensaje ③ — Fabricio ofreciendo servicio inmobiliario. Caption de imagen."""
+    tipo = _tipo_label(inm)
+    conjunto = inm.get("conjunto_nombre") or "tu conjunto"
+    op = (inm.get("operacion") or "").lower()
+    if op == "venta":
+        return (
+            f"Hola, soy Fabricio, asesor inmobiliario de *Petra*. "
+            f"Vi que quieres vender tu {tipo} en {conjunto}.\n\n"
+            f"La mayoría de propietarios tardan meses en el proceso de venta. "
+            f"En Petra nos encargamos de todo y podemos hacerlo más rápido.\n\n"
+            f"En la imagen te explico cómo.\n\n"
+            f"¿Te interesa?"
+        )
+    # arriendo (o default)
+    return (
+        f"Hola, soy Fabricio, asesor inmobiliario de *Petra*. "
+        f"Vi que querés arrendar tu {tipo} en {conjunto}.\n\n"
+        f"Arrendar por tu cuenta toma tiempo y riesgos. Inquilinos que no "
+        f"pagan, visitas infinitas, trámites de administración. En Petra "
+        f"lo hacemos rápido y seguro.\n\n"
+        f"En la imagen te explico cómo.\n\n"
+        f"¿Te interesa?"
+    )
+
+
+def _texto_ofrecer_credito(inm):
+    """Mensaje ④ — Fabricio ofreciendo crédito. Caption de imagen."""
+    return (
+        f"Hola, soy Fabricio, asesor inmobiliario de *Petra*.\n\n"
+        f"Dale impulso a eso que tienes en mente. ¿Necesitas liquidez? "
+        f"En la imagen te muestro cómo te podemos ayudar.\n\n"
+        f"¿Te interesa?"
+    )
+
+
+# --- Lookup de wa.me URL por etapa -------------------------------------------
+
+def _wa_url(cel_e164, texto):
+    return f"https://wa.me/{cel_e164}?text={_urlencode_min(texto)}" if cel_e164 else ""
+
+
+def _etapa_inmueble(inm):
+    """Clasifica el inmueble en la etapa actual del embudo."""
+    if not inm.get("activo"):
+        return 'desactivado'
+    if inm.get("mandato_at"):
+        return 'mandato'
+    if inm.get("ofrecer_credito_at"):
+        return 'post_credito'
+    if inm.get("ofrecer_petra_at"):
+        return 'post_petra'
+    if inm.get("bienvenida_at"):
+        return 'post_bienvenida'
+    if inm.get("datos_confirmado_at"):
+        # ¿Tiene precio Y m²?
+        tiene_precio = (inm.get("precio") or 0) > 0
+        tiene_m2 = (inm.get("m2") or 0) > 0
+        if tiene_precio and tiene_m2:
+            return 'confirmado_completo'
+        return 'confirmado_sin_datos'
+    return 'pendiente_confirmar'
+
+
+# Imagen asociada por etapa (para el thumbnail del botón).
+_IMG_ETAPA = {
+    'ofrecer_petra_venta': '/static/images/propietarios/venta.webp',
+    'ofrecer_petra_arriendo': '/static/images/propietarios/arriendo.webp',
+    'ofrecer_credito': '/static/images/propietarios/credito.webp',
+}
+
+
+# -----------------------------------------------------------------------------
+# Vista Sebastián: cola única con todos los inmuebles pendientes de confirmar
+# a través de TODOS los conjuntos. Un solo botón por fila: Confirmar datos.
+# -----------------------------------------------------------------------------
+
+@petra_panel_bp.get("/hermano")
+def hermano_home():
+    """Vista exclusiva de Sebastián. Única URL donde su token funciona."""
+    _require_hermano()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    with _db._conexion_directa(timeout=15) as conn:
+        rows = _rows(conn,
+            """SELECT iv.id, iv.tipo, iv.nro, iv.operacion, iv.precio,
+                      iv.m2, iv.admin_valor, iv.admin_incluida,
+                      iv.propietario_telefono,
+                      iv.datos_confirmado_at,
+                      cv.codigo AS conjunto_codigo,
+                      cv.nombre AS conjunto_nombre,
+                      cv.ciudad AS conjunto_ciudad
+                 FROM inmuebles_visitante iv
+                 JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id
+                WHERE iv.activo = TRUE
+                  AND iv.datos_confirmado_at IS NULL
+                  AND iv.propietario_telefono IS NOT NULL
+                  AND TRIM(iv.propietario_telefono) <> ''
+                ORDER BY cv.nombre, iv.id""")
+    for r in rows:
+        r["codigo"] = f"P{r['id']:04d}"
+        cel = _normalizar_celular_co(r.get("propietario_telefono"))
+        r["celular_e164"] = cel
+        r["celular_valido"] = bool(cel)
+        r["mensaje"] = _texto_confirmar_datos(r)
+        r["wa_url"] = _wa_url(cel, r["mensaje"])
+    # Totales simples
+    total_pendientes = len(rows)
+    return render_template(
+        "petra_hermano_cola.html",
+        inmuebles=rows, token=token, flash=flash,
+        total_pendientes=total_pendientes,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Endpoint único para avanzar un inmueble a la siguiente etapa.
+# Valida rol vs acción: Sebastián solo puede confirmar_datos; el resto son
+# acciones de Fabricio. Sin marcar mensaje: solo setea el timestamp.
+# -----------------------------------------------------------------------------
+
+_ACCIONES_EMBUDO = {
+    # accion         : (rol_requerido, columna_timestamp)
+    'confirmar_datos':  ('sebastian', 'datos_confirmado_at'),
+    'bienvenida':       ('fabricio',  'bienvenida_at'),
+    'ofrecer_petra':    ('fabricio',  'ofrecer_petra_at'),
+    'ofrecer_credito':  ('fabricio',  'ofrecer_credito_at'),
+    'mandato':          ('fabricio',  'mandato_at'),
+}
+
+
+@petra_panel_bp.post("/inmueble/<int:iid>/etapa/<accion>")
+def inmueble_etapa_avanzar(iid, accion):
+    """Marca la etapa como completada (timestamp = NOW()). Idempotente:
+    si ya estaba marcada, no la pisa."""
+    role = _detect_role()
+    if role is None:
+        abort(403)
+    if accion not in _ACCIONES_EMBUDO:
+        abort(400)
+    req_role, col = _ACCIONES_EMBUDO[accion]
+    if role != req_role:
+        abort(403)
+    token = (request.form.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        # Solo actualiza si está en NULL — evita pisar timestamps anteriores.
+        conn.execute(
+            f"UPDATE inmuebles_visitante "
+            f"   SET {col} = NOW() "
+            f" WHERE id = %s AND {col} IS NULL",
+            (iid,))
+    if role == 'sebastian':
+        return redirect(url_for("petra_panel.hermano_home",
+                                token=token, flash="ok"))
+    # Fabricio: vuelve a la vista desde la que vino
+    ref = request.form.get("volver") or request.referrer
+    if ref:
+        return redirect(ref)
+    return redirect(url_for("petra_panel.visitante_conjuntos", token=token))
+
+
+# POST para desmarcar una etapa (deshacer). Útil si se envió por error.
+@petra_panel_bp.post("/inmueble/<int:iid>/etapa/<accion>/deshacer")
+def inmueble_etapa_deshacer(iid, accion):
+    role = _detect_role()
+    if role is None:
+        abort(403)
+    if accion not in _ACCIONES_EMBUDO:
+        abort(400)
+    req_role, col = _ACCIONES_EMBUDO[accion]
+    if role != req_role:
+        abort(403)
+    token = (request.form.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            f"UPDATE inmuebles_visitante SET {col} = NULL WHERE id = %s",
+            (iid,))
+    ref = request.form.get("volver") or request.referrer
+    if ref:
+        return redirect(ref)
+    if role == 'sebastian':
+        return redirect(url_for("petra_panel.hermano_home", token=token))
+    return redirect(url_for("petra_panel.visitante_conjuntos", token=token))
