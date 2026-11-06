@@ -272,7 +272,11 @@
                 <form id="f-bv-{{ i.id }}" method="post"
                       action="/panel/petra/inmueble/{{ i.id }}/etapa/bienvenida?token={{ token }}"
                       style="display:none"><input type="hidden" name="token" value="{{ token }}"></form>
-                <span style="font-size:10.5px;color:var(--muted)">📹 no olvides el video</span>
+                <div class="img-row">
+                  📹
+                  <a class="down" href="/static/images/propietarios/bienvenida.mp4" download="bienvenida.mp4">⬇ bienvenida.mp4</a>
+                  <span style="color:var(--muted)">(adjuntar en WA)</span>
+                </div>
                 {% else %}<span class="locked">Teléfono inválido</span>{% endif %}
               </div>
             {% elif e == 'post_bienvenida' %}
