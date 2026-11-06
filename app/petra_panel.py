@@ -4131,9 +4131,9 @@ def _texto_bienvenida(inm):
     conjunto = inm.get("conjunto_nombre") or "tu conjunto"
     return (
         f"Hola 👋\n"
-        f"Soy Fabricio de *Petra*. Te escribo para contarte que {conjunto} "
-        f"acaba de activar Petra para ayudar a los propietarios a vender "
-        f"o arrendar más rápido 🏠\n\n"
+        f"Soy Fabricio de *Petra*.\n\n"
+        f"Te escribo para contarte que {conjunto} acaba de activar Petra "
+        f"para ayudar a los propietarios a vender o arrendar más rápido 🏠\n\n"
         f"Mirá este video de 1 min y enterate cómo funciona 👇"
     )
 
