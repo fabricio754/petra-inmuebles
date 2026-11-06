@@ -454,18 +454,14 @@
     document.querySelectorAll('input.js-money').forEach(function(inp){
       if (inp.dataset.moneyReady) return;
       inp.dataset.moneyReady = '1';
-      // Formato inicial
       if (inp.value) inp.value = formatearMiles(inp.value);
-      // Formato on input
       inp.addEventListener('input', function(){
         var pos = inp.selectionStart;
         var antesLen = inp.value.length;
         inp.value = formatearMiles(inp.value);
         var despuesLen = inp.value.length;
-        // Mantener el cursor en posición razonable
         try { inp.setSelectionRange(pos + (despuesLen - antesLen), pos + (despuesLen - antesLen)); } catch(e){}
       });
-      // Limpiar puntos antes de enviar el form
       var form = inp.closest('form');
       if (form) {
         form.addEventListener('submit', function(){
@@ -475,7 +471,6 @@
     });
   }
   document.addEventListener('DOMContentLoaded', iniMoney);
-  // También inicializar cuando se despliega la fila de edición (están en DOM pero ocultas)
   iniMoney();
 
   window.eliminarInmueble = function(iid, codigo, token) {
