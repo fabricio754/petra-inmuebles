@@ -188,7 +188,7 @@
           </select>
         </div>
         <div><label>Área (m²)</label><input type="number" name="m2" min="0"></div>
-        <div><label>Precio (COP) (incluye admón.)</label><input type="number" name="precio" min="0" autocomplete="off" placeholder=""></div>
+        <div><label>Precio (COP) (incluye admón.)</label><input type="text" inputmode="numeric" class="js-money" name="precio" autocomplete="off" placeholder=""></div>
         <div><label>Tel. propietario</label><input type="text" name="propietario_telefono" placeholder="+57..."></div>
         <div><button type="submit" class="primary">Crear</button></div>
       </div>
@@ -393,7 +393,7 @@
                   </select>
                 </div>
                 <div><label>m²</label><input type="number" name="m2" min="0" value="{{ i.m2 if i.m2 is not none else '' }}"></div>
-                <div><label>Precio (COP)</label><input type="number" name="precio" min="0" value="{{ i.precio if i.precio else '' }}"></div>
+                <div><label>Precio (COP)</label><input type="text" inputmode="numeric" class="js-money" name="precio" value="{{ '{:,.0f}'.format(i.precio).replace(',', '.') if i.precio else '' }}"></div>
                 <div><label>Tel. propietario</label><input type="text" name="propietario_telefono" value="{{ i.propietario_telefono or '' }}"></div>
                 <div style="display:flex;gap:8px">
                   <button type="submit" class="primary">Guardar</button>
@@ -444,6 +444,35 @@
     try { sessionStorage.setItem(key, p); } catch(e){}
     return p;
   }
+  // Formateador de miles para inputs .js-money (formato colombiano: 2.000.000)
+  function formatearMiles(valor) {
+    var limpio = String(valor).replace(/\D/g, '');
+    if (!limpio) return '';
+    return limpio.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+  function iniMoney() {
+    document.querySelectorAll('input.js-money').forEach(function(inp){
+      if (inp.dataset.moneyReady) return;
+      inp.dataset.moneyReady = '1';
+      if (inp.value) inp.value = formatearMiles(inp.value);
+      inp.addEventListener('input', function(){
+        var pos = inp.selectionStart;
+        var antesLen = inp.value.length;
+        inp.value = formatearMiles(inp.value);
+        var despuesLen = inp.value.length;
+        try { inp.setSelectionRange(pos + (despuesLen - antesLen), pos + (despuesLen - antesLen)); } catch(e){}
+      });
+      var form = inp.closest('form');
+      if (form) {
+        form.addEventListener('submit', function(){
+          inp.value = inp.value.replace(/\./g, '');
+        });
+      }
+    });
+  }
+  document.addEventListener('DOMContentLoaded', iniMoney);
+  iniMoney();
+
   window.eliminarInmueble = function(iid, codigo, token) {
     if (!confirm('⚠ ELIMINAR DEFINITIVAMENTE ' + codigo + '?\n\n' +
                  'Esto NO es "Desactivar". Borra el inmueble de la base ' +
