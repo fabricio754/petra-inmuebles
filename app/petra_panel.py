@@ -4177,7 +4177,12 @@ def _texto_ofrecer_credito(inm):
 # --- Lookup de wa.me URL por etapa -------------------------------------------
 
 def _wa_url(cel_e164, texto):
-    return f"https://wa.me/{cel_e164}?text={_urlencode_min(texto)}" if cel_e164 else ""
+    """URL de WhatsApp pre-cargado con el texto, sin página intermedia.
+    web.whatsapp.com/send abre WhatsApp Web directo en escritorio y la app
+    en mobile (redirect transparente). vs wa.me que pasa por
+    api.whatsapp.com y muestra una landing con 'Abrir aplicación'."""
+    return (f"https://web.whatsapp.com/send?phone={cel_e164}"
+            f"&text={_urlencode_min(texto)}") if cel_e164 else ""
 
 
 def _etapa_inmueble(inm):
