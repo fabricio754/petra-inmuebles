@@ -2217,3 +2217,25 @@ ALTER TABLE petra_disparadores
   ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'cron';
 ALTER TABLE petra_disparadores
   ADD COLUMN IF NOT EXISTS delay_minutos INT DEFAULT 15;
+
+
+-- ============================================================================
+-- Embudo de contacto directo a propietarios (via wa.me click-to-chat).
+-- 5 etapas secuenciales, cada una marca el timestamp cuando el actor avanza:
+--
+--  1. datos_confirmado_at   → Sebastián le preguntó al propietario precio/m²
+--  2. bienvenida_at         → Fabricio mandó bienvenida + video
+--  3. ofrecer_petra_at      → Fabricio ofreció servicios inmobiliarios
+--  4. ofrecer_credito_at    → Fabricio ofreció crédito
+--  5. mandato_at            → Propietario firmó mandato con Petra (deal)
+--
+-- Gating en la UI: una etapa solo se habilita cuando la anterior tiene
+-- timestamp. Sebastián solo puede avanzar #1; Fabricio las otras 4.
+-- ============================================================================
+ALTER TABLE inmuebles_visitante
+  ADD COLUMN IF NOT EXISTS datos_confirmado_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS bienvenida_at       TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS ofrecer_petra_at    TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS ofrecer_credito_at  TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS mandato_at          TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS mandato_nota        TEXT;

@@ -88,6 +88,49 @@
   .row-actions { white-space: nowrap; display: flex; gap: 6px; flex-wrap: wrap; }
   form.inline { display: inline; }
   .edit-row { display: none; background: #faf8ff; }
+
+  /* Embudo bar + etapa cell */
+  .embudo-bar { background:#fff; border:1px solid var(--border); border-radius:10px;
+                padding:10px 14px; margin-bottom:14px;
+                display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .embudo-bar .lbl { color:var(--muted); font-size:11px; text-transform:uppercase;
+                     letter-spacing:.5px; margin-right:6px; }
+  .embudo-bar .chip { padding:4px 10px; border-radius:999px; font-size:12px;
+                      text-decoration:none; color:var(--text); background:#f5f2fb;
+                      border:1px solid var(--border); font-weight:500; }
+  .embudo-bar .chip:hover { background: var(--accent-soft); }
+  .embudo-bar .chip.on { background: var(--accent); color:#fff; border-color: var(--accent); }
+  .embudo-bar .chip .n { display:inline-block; margin-left:4px; padding:0 6px;
+                         background:rgba(0,0,0,0.15); border-radius:999px; font-size:10.5px; }
+
+  .etapa-cell { min-width: 280px; }
+  .etapa-pill { display:inline-block; padding:3px 10px; border-radius:999px;
+                font-size:11px; font-weight:600; margin-bottom:6px; }
+  .etapa-pill.e1 { background:#f5f2fb; color: var(--muted); }         /* pendiente_confirmar */
+  .etapa-pill.e2 { background:#fef3c7; color: #92400e; }               /* confirmado_sin_datos */
+  .etapa-pill.e3 { background:#dbeafe; color: #1e40af; }               /* confirmado_completo */
+  .etapa-pill.e4 { background:#ede7ff; color: var(--accent); }         /* post_bienvenida */
+  .etapa-pill.e5 { background:#fce7f3; color: #be185d; }               /* post_petra */
+  .etapa-pill.e6 { background:#fff7ed; color: #c2410c; }               /* post_credito */
+  .etapa-pill.e7 { background:#dcfce7; color: #166534; }               /* mandato */
+  .etapa-pill.e0 { background:#fee2e2; color: #991b1b; }               /* desactivado */
+
+  .etapa-actions { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .wa-btn { background: #25d366; color:#fff !important; border:none;
+            padding:6px 10px; border-radius:6px; font-size:12px; font-weight:600;
+            text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
+  .wa-btn:hover { background:#1fbd5a; border-color:#1fbd5a !important; color:#fff !important; }
+  .wa-btn.secundario { background: var(--accent); }
+  .wa-btn.secundario:hover { background:#6a4ae8; }
+
+  .thumb { width:28px; height:36px; border-radius:4px; object-fit:cover;
+           border:1px solid var(--border); }
+  .locked { color: var(--muted); font-size:11.5px; font-style:italic; }
+  .down { color: var(--accent); font-size:11px; text-decoration:none; }
+  .deshacer-btn { background:none; border:none; color: var(--muted); font-size:10.5px;
+                  cursor:pointer; padding:2px 4px; text-decoration:underline; }
+  .deshacer-btn:hover { color: var(--danger); }
+  .img-row { display:flex; gap:6px; align-items:center; margin-top:4px; font-size:11px; color:var(--muted); }
   .edit-row.show { display: table-row; }
   .meta-head { display: flex; gap: 16px; margin-bottom: 12px;
                color: var(--muted); font-size: 13px; flex-wrap: wrap; }
@@ -150,6 +193,27 @@
     </form>
   </details>
 
+  <!-- Embudo filter bar -->
+  <div class="embudo-bar">
+    <span class="lbl">Embudo:</span>
+    {% for v, lbl, ico in [
+        ('', 'Todos', '📋'),
+        ('pendiente_confirmar', 'Falta Sebas', '⚪'),
+        ('confirmado_sin_datos', 'Confirmado sin datos', '🟡'),
+        ('confirmado_completo', 'Listo bienvenida', '✉️'),
+        ('post_bienvenida', 'Listo ofrecer Petra', '🏠'),
+        ('post_petra', 'Listo crédito', '💵'),
+        ('post_credito', 'Listo mandato', '📝'),
+        ('mandato', 'Con mandato', '🤝'),
+    ] %}
+      <a class="chip {% if etapa_filtro == v %}on{% endif %}"
+         href="?token={{ token }}&op={{ op_filtro }}&estado={{ estado_filtro }}&etapa={{ v }}">
+        {{ ico }} {{ lbl }}
+        {% if v and cont.get(v, 0) %}<span class="n">{{ cont[v] }}</span>{% endif %}
+      </a>
+    {% endfor %}
+  </div>
+
   <div class="panel">
     <div class="panel-head">
       <h2>Inmuebles</h2>
@@ -157,12 +221,12 @@
         <span class="lbl">Op:</span>
         {% for v, lbl in [('todos','Todos'),('arriendo','Arriendo'),('venta','Venta')] %}
           <a class="{% if op_filtro == v %}on{% endif %}"
-             href="?token={{ token }}&op={{ v }}&estado={{ estado_filtro }}">{{ lbl }}</a>
+             href="?token={{ token }}&op={{ v }}&estado={{ estado_filtro }}&etapa={{ etapa_filtro }}">{{ lbl }}</a>
         {% endfor %}
         <span class="lbl" style="margin-left:12px">Estado:</span>
         {% for v, lbl in [('activos','Activos'),('inactivos','Inactivos'),('todos','Todos')] %}
           <a class="{% if estado_filtro == v %}on{% endif %}"
-             href="?token={{ token }}&op={{ op_filtro }}&estado={{ v }}">{{ lbl }}</a>
+             href="?token={{ token }}&op={{ op_filtro }}&estado={{ v }}&etapa={{ etapa_filtro }}">{{ lbl }}</a>
         {% endfor %}
       </div>
       <span class="count">{{ inmuebles|length }} resultado(s)</span>
@@ -173,37 +237,105 @@
       <thead>
         <tr>
           <th>Código</th><th>Op</th><th>m²</th>
-          <th>Precio</th><th>Fuente</th><th>Gestión</th><th>Estado</th><th>Creado</th><th></th>
+          <th>Precio</th><th>Tel</th><th>Embudo</th><th>Estado</th><th></th>
         </tr>
       </thead>
       <tbody>
         {% for i in inmuebles %}
         <tr class="{% if not i.activo %}inactivo{% endif %}">
-          <td class="mono"><strong style="color:#7c5cff">P{{ '%04d'|format(i.id) }}</strong></td>
+          <td class="mono"><strong style="color:#7c5cff">{{ i.codigo }}</strong></td>
           <td><span class="pill {% if i.operacion == 'arriendo' %}arr{% else %}ven{% endif %}">{{ i.operacion }}</span></td>
           <td>{{ i.m2 if i.m2 is not none else '—' }}</td>
           <td class="mono">{{ i.precio_fmt }}</td>
-          <td><span class="pill src-{{ i.fuente }}">{{ i.fuente }}</span></td>
-          <td>
-            <form class="inline" method="POST" action="{{ url_for('petra_panel.visitante_inmueble_toggle_gestion', iid=i.id) }}">
-              <input type="hidden" name="token" value="{{ token }}">
-              {% if i.gestionado_por_petra %}
-                <button type="submit" title="Click para dejar de gestionar">💜 Petra</button>
-                {% if i.propietario_telefono_original %}
-                  <div class="mono" style="font-size:0.75em;color:var(--muted)">
-                    real: {{ i.propietario_telefono_original }}
-                  </div>
+          <td class="mono" style="font-size:11.5px">
+            {% if i.celular_valido %}{{ i.propietario_telefono }}
+            {% elif i.propietario_telefono %}<span style="color:var(--danger)">⚠ {{ i.propietario_telefono }}</span>
+            {% else %}<span style="color:var(--muted)">sin tel</span>{% endif %}
+          </td>
+          <!-- EMBUDO CELL -->
+          <td class="etapa-cell">
+            {% set e = i.etapa %}
+            {% if e == 'pendiente_confirmar' %}
+              <div class="etapa-pill e1">⚪ Falta confirmar (Sebas)</div>
+              <div class="locked">🔒 Sebastián todavía no habló con el propietario</div>
+            {% elif e == 'confirmado_sin_datos' %}
+              <div class="etapa-pill e2">🟡 Confirmó pero falta precio/m²</div>
+              <div class="locked">Editá el inmueble con los datos que Sebas trajo</div>
+            {% elif e == 'confirmado_completo' %}
+              <div class="etapa-pill e3">✉️ Listo para BIENVENIDA</div>
+              <div class="etapa-actions">
+                {% if i.celular_valido %}
+                <a class="wa-btn" href="{{ i.wa_bienvenida }}" target="_blank"
+                   onclick="document.getElementById('f-bv-{{ i.id }}').submit()">
+                  💬 Enviar bienvenida
+                </a>
+                <form id="f-bv-{{ i.id }}" method="post"
+                      action="/panel/petra/inmueble/{{ i.id }}/etapa/bienvenida?token={{ token }}"
+                      style="display:none"><input type="hidden" name="token" value="{{ token }}"></form>
+                <span style="font-size:10.5px;color:var(--muted)">📹 no olvides el video</span>
+                {% else %}<span class="locked">Teléfono inválido</span>{% endif %}
+              </div>
+            {% elif e == 'post_bienvenida' %}
+              <div class="etapa-pill e4">🏠 Listo para OFRECER PETRA</div>
+              <div class="etapa-actions">
+                {% if i.celular_valido %}
+                <a class="wa-btn secundario" href="{{ i.wa_ofrecer_petra }}" target="_blank"
+                   onclick="document.getElementById('f-op-{{ i.id }}').submit()">
+                  💬 Ofrecer {{ 'venta' if i.operacion == 'venta' else 'arriendo' }}
+                </a>
+                <form id="f-op-{{ i.id }}" method="post"
+                      action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_petra?token={{ token }}"
+                      style="display:none"><input type="hidden" name="token" value="{{ token }}"></form>
+                <div class="img-row">
+                  <img class="thumb" src="{{ i.img_ofrecer }}">
+                  <a class="down" href="{{ i.img_ofrecer }}" download="{{ i.img_ofrecer_nombre }}">⬇ {{ i.img_ofrecer_nombre }}</a>
+                </div>
+                {% else %}<span class="locked">Teléfono inválido</span>{% endif %}
+              </div>
+            {% elif e == 'post_petra' %}
+              <div class="etapa-pill e5">💵 Listo para CRÉDITO · Mandato disponible</div>
+              <div class="etapa-actions">
+                {% if i.celular_valido %}
+                <a class="wa-btn secundario" href="{{ i.wa_ofrecer_credito }}" target="_blank"
+                   onclick="document.getElementById('f-cr-{{ i.id }}').submit()">
+                  💬 Ofrecer crédito
+                </a>
+                <form id="f-cr-{{ i.id }}" method="post"
+                      action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_credito?token={{ token }}"
+                      style="display:none"><input type="hidden" name="token" value="{{ token }}"></form>
+                <form method="post" action="/panel/petra/inmueble/{{ i.id }}/etapa/mandato?token={{ token }}"
+                      style="display:inline">
+                  <input type="hidden" name="token" value="{{ token }}">
+                  <button type="submit" class="btn" onclick="return confirm('¿Marcar como MANDATO firmado?')"
+                          style="background:#dcfce7;color:#166534;border-color:#86efac">🤝 Mandato</button>
+                </form>
+                <div class="img-row">
+                  <img class="thumb" src="/static/images/propietarios/credito.webp">
+                  <a class="down" href="/static/images/propietarios/credito.webp" download="credito.webp">⬇ credito.webp</a>
+                </div>
                 {% endif %}
-              {% else %}
-                <button type="submit" title="Click para flaggear como gestionado">○ No gestionado</button>
-              {% endif %}
-            </form>
+              </div>
+            {% elif e == 'post_credito' %}
+              <div class="etapa-pill e6">📝 Crédito ofrecido · Listo mandato</div>
+              <div class="etapa-actions">
+                <form method="post" action="/panel/petra/inmueble/{{ i.id }}/etapa/mandato?token={{ token }}"
+                      style="display:inline">
+                  <input type="hidden" name="token" value="{{ token }}">
+                  <button type="submit" class="btn" onclick="return confirm('¿Marcar como MANDATO firmado?')"
+                          style="background:#dcfce7;color:#166534;border-color:#86efac">🤝 Marcar mandato</button>
+                </form>
+              </div>
+            {% elif e == 'mandato' %}
+              <div class="etapa-pill e7">🤝 Mandato firmado 🎉</div>
+              <div class="locked">Firmado el {{ i.mandato_at.strftime('%Y-%m-%d') if i.mandato_at else '' }}</div>
+            {% elif e == 'desactivado' %}
+              <div class="etapa-pill e0">⛔ Desactivado</div>
+            {% endif %}
           </td>
           <td>
             {% if i.activo %}<span class="pill ok">activo</span>
             {% else %}<span class="pill off">inactivo</span>{% endif %}
           </td>
-          <td class="mono">{{ i.creado_en.strftime('%Y-%m-%d') if i.creado_en else '' }}</td>
           <td class="row-actions">
             <button type="button" class="btn" onclick="document.getElementById('edit-{{ i.id }}').classList.toggle('show')">Editar</button>
             <form class="inline" method="POST" action="{{ url_for('petra_panel.visitante_inmueble_toggle', iid=i.id) }}">
@@ -213,7 +345,7 @@
           </td>
         </tr>
         <tr id="edit-{{ i.id }}" class="edit-row">
-          <td colspan="11">
+          <td colspan="8">
             <form method="POST" action="{{ url_for('petra_panel.visitante_inmueble_editar', iid=i.id) }}">
               <input type="hidden" name="token" value="{{ token }}">
               <div class="form-grid">

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Confirmar datos · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f0f9f4; --panel: #fff; --border: #d1e7dc;
+    --text: #0b3b2e; --muted: #5d7a6e;
+    --accent: #0d6b4d; --accent-soft: #c3e8d4;
+    --wa: #25d366;
+    --rojo: #dc2626; --rojo-soft: #fee2e2;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 18px 24px; background:#fff; border-bottom:4px solid var(--accent);
+            display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  .topbar h1 { margin:0; font-size:18px; font-weight:700; }
+  .topbar h1 .brand { color: var(--accent); }
+  .topbar .user { font-size:12px; color: var(--muted); }
+  main { padding: 20px; max-width: 760px; margin: 0 auto; }
+
+  .intro { background: var(--panel); border:1px solid var(--border); border-radius:12px;
+           padding: 14px 18px; margin-bottom:16px; font-size:13.5px; line-height:1.5; }
+  .counter { color: var(--muted); font-size:12.5px; margin-bottom:14px; }
+  .flash { padding:10px 16px; background:#dcfce7; color:#166534; border-radius:8px;
+           margin-bottom:14px; font-size:13px; }
+
+  .empty { background: var(--panel); border:1px solid var(--border); border-radius:12px;
+           padding:50px 20px; text-align:center; color: var(--muted); }
+  .empty .big { font-size:30px; margin-bottom:10px; }
+
+  .card { background: var(--panel); border:1px solid var(--border); border-radius:12px;
+          padding: 14px 16px; margin-bottom:12px; }
+  .head { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .head .nombre { font-weight:600; font-size:15px; color: var(--text); }
+  .head .codigo { color: var(--muted); font-size:12px; font-family:ui-monospace,Menlo,monospace; }
+  .meta { margin-top:4px; color: var(--muted); font-size:12.5px; }
+  .cel { margin-top:8px; font-weight:600; color: var(--text);
+         font-family:ui-monospace,Menlo,monospace; font-size:13px; }
+  .cel.invalido { color: var(--rojo); }
+
+  .msg-preview { background: var(--accent-soft); border-left: 3px solid var(--accent);
+                 border-radius: 6px; padding:10px 12px; margin-top:10px;
+                 font-size:13px; white-space:pre-wrap; line-height:1.5; }
+
+  .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .btn { padding:10px 14px; border-radius:8px; font-size:13px; font-weight:600;
+         border:none; cursor:pointer; text-decoration:none; text-align:center;
+         display:inline-block; }
+  .btn-wa { background: var(--wa); color:#fff; flex:1; min-width:160px; }
+  .btn-wa:hover { background:#1fbd5a; }
+  .btn-skip { background:#fff; color: var(--rojo); border:1px solid #fecaca; font-size:12px; }
+
+  .warn { margin-top:8px; padding:8px 10px; background:#fef3c7; color:#92400e;
+          border-radius:6px; font-size:12px; }
+
+  .toggle-msg { background:none; border:none; color:var(--accent); cursor:pointer;
+                font-size:12px; padding:4px 0; margin-top:6px; }
+
+  @media (max-width: 600px) {
+    .btn-wa { min-width:100%; }
+    .actions { flex-direction: column; align-items: stretch; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1><span class="brand">Petra</span> · Confirmar datos</h1>
+  <span class="user">Sebastián</span>
+</div>
+
+<main>
+  <div class="intro">
+    👋 Hola Sebastián. Esta es tu cola — solo vos la ves.<br>
+    Para cada inmueble, tocá <b>"💬 Abrir WhatsApp"</b>, mandá el mensaje tal cual aparece,
+    y cuando te confirmen precio/metros, volvés acá para ponerlos en el campo "Editar".
+  </div>
+
+  {% if flash == 'ok' %}
+    <div class="flash">✔ Marcado como contactado</div>
+  {% endif %}
+
+  <div class="counter">{{ total_pendientes }} inmueble(s) pendiente(s)</div>
+
+  {% if not inmuebles %}
+    <div class="empty">
+      <div class="big">🎉</div>
+      <div>No hay inmuebles pendientes.</div>
+      <div style="font-size:12px;margin-top:6px">
+        Cuando Fabricio cargue propietarios nuevos, aparecen acá.
+      </div>
+    </div>
+  {% endif %}
+
+  {% for i in inmuebles %}
+  <div class="card">
+    <div class="head">
+      <div class="nombre">
+        {{ (i.tipo or 'inmueble')|capitalize }}
+        {% if i.nro %} · {{ i.nro }}{% endif %}
+        · {{ i.conjunto_nombre }}
+      </div>
+      <div class="codigo">{{ i.codigo }}</div>
+    </div>
+    <div class="meta">
+      {% if i.operacion %}<b>{{ i.operacion|capitalize }}</b>{% endif %}
+      {% if i.conjunto_ciudad %} · {{ i.conjunto_ciudad }}{% endif %}
+    </div>
+    <div class="cel {% if not i.celular_valido %}invalido{% endif %}">
+      📱 {{ i.propietario_telefono }}
+      {% if not i.celular_valido %}⚠ Teléfono inválido{% endif %}
+    </div>
+
+    <button class="toggle-msg" type="button"
+            onclick="var el=this.nextElementSibling; el.style.display=(el.style.display=='none'?'block':'none');">
+      👁 Ver mensaje
+    </button>
+    <div class="msg-preview" style="display:none">{{ i.mensaje }}</div>
+
+    <div class="actions">
+      {% if i.celular_valido %}
+        <a class="btn btn-wa" href="{{ i.wa_url }}" target="_blank"
+           onclick="document.getElementById('f-ok-{{ i.id }}').submit()">
+          💬 Abrir WhatsApp
+        </a>
+        <form id="f-ok-{{ i.id }}" method="post"
+              action="/panel/petra/inmueble/{{ i.id }}/etapa/confirmar_datos?token={{ token }}"
+              style="margin:0;display:none">
+          <input type="hidden" name="token" value="{{ token }}">
+        </form>
+      {% else %}
+        <div class="warn">
+          Teléfono no se puede marcar como WhatsApp. Avisale a Fabricio para que lo corrija.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+</main>
+</body>
+</html>
