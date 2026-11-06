@@ -158,6 +158,7 @@
   {% elif flash == 'falta_campo' %}<div class="flash err">Faltan campos obligatorios (operación, precio &gt; 0).</div>
   {% elif flash == 'valores_invalidos' %}<div class="flash err">Valores numéricos deben ser ≥ 0.</div>
   {% elif flash == 'error' %}<div class="flash err">Error guardando. Revisá los logs.</div>
+  {% elif flash == 'pin_malo' %}<div class="flash err">❌ PIN incorrecto. Volvé a intentarlo.</div>
   {% endif %}
 
   <details class="form-box">
@@ -257,7 +258,22 @@
             {% set e = i.etapa %}
             {% if e == 'pendiente_confirmar' %}
               <div class="etapa-pill e1">⚪ Falta confirmar (Sebas)</div>
-              <div class="locked">🔒 Sebastián todavía no habló con el propietario</div>
+              <div class="etapa-actions">
+                {% if i.celular_valido %}
+                <a class="wa-btn" style="background:#0d6b4d"
+                   href="{{ i.wa_confirmar }}"
+                   target="_blank"
+                   onclick="return petraEjecutar(event, 'sebastian', 'f-cf-{{ i.id }}')">
+                  💬 Confirmar datos (Sebas)
+                </a>
+                <form id="f-cf-{{ i.id }}" method="post"
+                      action="/panel/petra/inmueble/{{ i.id }}/etapa/confirmar_datos?token={{ token }}"
+                      style="display:none">
+                  <input type="hidden" name="token" value="{{ token }}">
+                  <input type="hidden" name="pin" value="">
+                </form>
+                {% else %}<span class="locked">Teléfono inválido — editá el inmueble</span>{% endif %}
+              </div>
             {% elif e == 'confirmado_sin_datos' %}
               <div class="etapa-pill e2">🟡 Confirmó pero falta precio/m²</div>
               <div class="locked">Editá el inmueble con los datos que Sebas trajo</div>
@@ -266,12 +282,15 @@
               <div class="etapa-actions">
                 {% if i.celular_valido %}
                 <a class="wa-btn" href="{{ i.wa_bienvenida }}" target="_blank"
-                   onclick="document.getElementById('f-bv-{{ i.id }}').submit()">
+                   onclick="return petraEjecutar(event, 'fabricio', 'f-bv-{{ i.id }}')">
                   💬 Enviar bienvenida
                 </a>
                 <form id="f-bv-{{ i.id }}" method="post"
                       action="/panel/petra/inmueble/{{ i.id }}/etapa/bienvenida?token={{ token }}"
-                      style="display:none"><input type="hidden" name="token" value="{{ token }}"></form>
+                      style="display:none">
+                  <input type="hidden" name="token" value="{{ token }}">
+                  <input type="hidden" name="pin" value="">
+                </form>
                 <div class="img-row">
                   📹
                   <a class="down" href="/static/images/propietarios/bienvenida.mp4" download="bienvenida.mp4">⬇ bienvenida.mp4</a>
@@ -284,12 +303,15 @@
               <div class="etapa-actions">
                 {% if i.celular_valido %}
                 <a class="wa-btn secundario" href="{{ i.wa_ofrecer_petra }}" target="_blank"
-                   onclick="document.getElementById('f-op-{{ i.id }}').submit()">
+                   onclick="return petraEjecutar(event, 'fabricio', 'f-op-{{ i.id }}')">
                   💬 Ofrecer {{ 'venta' if i.operacion == 'venta' else 'arriendo' }}
                 </a>
                 <form id="f-op-{{ i.id }}" method="post"
                       action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_petra?token={{ token }}"
-                      style="display:none"><input type="hidden" name="token" value="{{ token }}"></form>
+                      style="display:none">
+                  <input type="hidden" name="token" value="{{ token }}">
+                  <input type="hidden" name="pin" value="">
+                </form>
                 <div class="img-row">
                   <img class="thumb" src="{{ i.img_ofrecer }}">
                   <a class="down" href="{{ i.img_ofrecer }}" download="{{ i.img_ofrecer_nombre }}">⬇ {{ i.img_ofrecer_nombre }}</a>
@@ -301,16 +323,22 @@
               <div class="etapa-actions">
                 {% if i.celular_valido %}
                 <a class="wa-btn secundario" href="{{ i.wa_ofrecer_credito }}" target="_blank"
-                   onclick="document.getElementById('f-cr-{{ i.id }}').submit()">
+                   onclick="return petraEjecutar(event, 'fabricio', 'f-cr-{{ i.id }}')">
                   💬 Ofrecer crédito
                 </a>
                 <form id="f-cr-{{ i.id }}" method="post"
                       action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_credito?token={{ token }}"
-                      style="display:none"><input type="hidden" name="token" value="{{ token }}"></form>
-                <form method="post" action="/panel/petra/inmueble/{{ i.id }}/etapa/mandato?token={{ token }}"
+                      style="display:none">
+                  <input type="hidden" name="token" value="{{ token }}">
+                  <input type="hidden" name="pin" value="">
+                </form>
+                <form id="f-mn-{{ i.id }}" method="post"
+                      action="/panel/petra/inmueble/{{ i.id }}/etapa/mandato?token={{ token }}"
                       style="display:inline">
                   <input type="hidden" name="token" value="{{ token }}">
-                  <button type="submit" class="btn" onclick="return confirm('¿Marcar como MANDATO firmado?')"
+                  <input type="hidden" name="pin" value="">
+                  <button type="submit" class="btn"
+                          onclick="if(!confirm('¿Marcar como MANDATO firmado?'))return false; return petraEjecutar(event, 'fabricio', 'f-mn-{{ i.id }}');"
                           style="background:#dcfce7;color:#166534;border-color:#86efac">🤝 Mandato</button>
                 </form>
                 <div class="img-row">
@@ -322,10 +350,13 @@
             {% elif e == 'post_credito' %}
               <div class="etapa-pill e6">📝 Crédito ofrecido · Listo mandato</div>
               <div class="etapa-actions">
-                <form method="post" action="/panel/petra/inmueble/{{ i.id }}/etapa/mandato?token={{ token }}"
+                <form id="f-mn2-{{ i.id }}" method="post"
+                      action="/panel/petra/inmueble/{{ i.id }}/etapa/mandato?token={{ token }}"
                       style="display:inline">
                   <input type="hidden" name="token" value="{{ token }}">
-                  <button type="submit" class="btn" onclick="return confirm('¿Marcar como MANDATO firmado?')"
+                  <input type="hidden" name="pin" value="">
+                  <button type="submit" class="btn"
+                          onclick="if(!confirm('¿Marcar como MANDATO firmado?'))return false; return petraEjecutar(event, 'fabricio', 'f-mn2-{{ i.id }}');"
                           style="background:#dcfce7;color:#166534;border-color:#86efac">🤝 Marcar mandato</button>
                 </form>
               </div>
@@ -378,5 +409,47 @@
     {% endif %}
   </div>
 </main>
+
+<!-- PIN helper: cada botón de embudo requiere PIN. Cache en sessionStorage,
+     validación contra el servidor antes de guardar. Dura solo en esta
+     pestaña/ventana del navegador. -->
+<script>
+(function(){
+  function obtenerPin(rol) {
+    var key = 'petra_pin_' + rol;
+    try {
+      var cached = sessionStorage.getItem(key);
+      if (cached) return cached;
+    } catch(e){}
+    var etiqueta = rol === 'sebastian' ? 'Sebastián' : 'Fabricio';
+    var p = prompt('PIN de 4 dígitos de ' + etiqueta + ':');
+    if (!p || !/^\d{4}$/.test(p)) return null;
+    // Validar contra el servidor antes de guardar
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/panel/petra/pin/verificar', false);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.send('rol=' + encodeURIComponent(rol) + '&pin=' + encodeURIComponent(p));
+    if (xhr.status !== 200) {
+      alert('PIN incorrecto. No vas a poder ejecutar esta acción.');
+      return null;
+    }
+    try { sessionStorage.setItem(key, p); } catch(e){}
+    return p;
+  }
+  window.petraEjecutar = function(ev, rol, formId) {
+    var pin = obtenerPin(rol);
+    if (!pin) { if (ev) ev.preventDefault(); return false; }
+    var form = document.getElementById(formId);
+    if (!form) return true;
+    form.querySelector('input[name="pin"]').value = pin;
+    // Si veníamos de un submit button, el form se envía solo.
+    // Si veníamos de un <a> con href externo, lo enviamos manual.
+    if (!ev || ev.type !== 'submit') {
+      form.submit();
+    }
+    return true;
+  };
+})();
+</script>
 </body>
 </html>

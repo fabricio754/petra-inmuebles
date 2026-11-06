@@ -3224,6 +3224,7 @@ def visitante_inmuebles(cid):
         i["celular_e164"] = cel
         i["celular_valido"] = bool(cel)
         # Pre-computar texto + wa_url para cada botón habilitado
+        i["wa_confirmar"] = _wa_url(cel, _texto_confirmar_datos(i))
         i["wa_bienvenida"] = _wa_url(cel, _texto_bienvenida(i))
         i["wa_ofrecer_petra"] = _wa_url(cel, _texto_ofrecer_petra(i))
         i["wa_ofrecer_credito"] = _wa_url(cel, _texto_ofrecer_credito(i))
@@ -4074,6 +4075,14 @@ def _tipo_label(inm):
     return (inm.get("tipo") or "inmueble").lower()
 
 
+# Tipos de inmueble femeninos (para elegir 'la'/'el'). Todo lo demás masculino.
+_TIPOS_FEM = {"casa", "oficina", "bodega", "habitacion", "habitación"}
+
+
+def _articulo(tipo):
+    return "la" if (tipo or "").lower() in _TIPOS_FEM else "el"
+
+
 def _op_label(op):
     op = (op or "").lower()
     if op == "arriendo":
@@ -4088,10 +4097,11 @@ def _op_label(op):
 def _texto_confirmar_datos(inm):
     """Mensaje ① — Sebastián sondeando datos. Sin marca, sin mencionar admin."""
     tipo = _tipo_label(inm)
+    art = _articulo(tipo)
     conjunto = inm.get("conjunto_nombre") or "el conjunto"
     return (
-        f"Hola, buen día 👋\n"
-        f"Quería preguntarte por el {tipo} que tenés en {conjunto}. "
+        f"Hola, buen día.\n"
+        f"Quería preguntarte por {art} {tipo} que tenés en {conjunto}. "
         f"¿Me puedes contar de cuántos metros es y qué precio tiene?"
     )
 
@@ -4181,52 +4191,9 @@ _IMG_ETAPA = {
 
 
 # -----------------------------------------------------------------------------
-# Vista Sebastián: cola única con todos los inmuebles pendientes de confirmar
-# a través de TODOS los conjuntos. Un solo botón por fila: Confirmar datos.
-# -----------------------------------------------------------------------------
-
-@petra_panel_bp.get("/hermano")
-def hermano_home():
-    """Vista exclusiva de Sebastián. Única URL donde su token funciona."""
-    _require_hermano()
-    token = (request.args.get("token") or "").strip()
-    flash = (request.args.get("flash") or "").strip()
-    with _db._conexion_directa(timeout=15) as conn:
-        rows = _rows(conn,
-            """SELECT iv.id, iv.tipo, iv.nro, iv.operacion, iv.precio,
-                      iv.m2, iv.admin_valor, iv.admin_incluida,
-                      iv.propietario_telefono,
-                      iv.datos_confirmado_at,
-                      cv.codigo AS conjunto_codigo,
-                      cv.nombre AS conjunto_nombre,
-                      cv.ciudad AS conjunto_ciudad
-                 FROM inmuebles_visitante iv
-                 JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id
-                WHERE iv.activo = TRUE
-                  AND iv.datos_confirmado_at IS NULL
-                  AND iv.propietario_telefono IS NOT NULL
-                  AND TRIM(iv.propietario_telefono) <> ''
-                ORDER BY cv.nombre, iv.id""")
-    for r in rows:
-        r["codigo"] = f"P{r['id']:04d}"
-        cel = _normalizar_celular_co(r.get("propietario_telefono"))
-        r["celular_e164"] = cel
-        r["celular_valido"] = bool(cel)
-        r["mensaje"] = _texto_confirmar_datos(r)
-        r["wa_url"] = _wa_url(cel, r["mensaje"])
-    # Totales simples
-    total_pendientes = len(rows)
-    return render_template(
-        "petra_hermano_cola.html",
-        inmuebles=rows, token=token, flash=flash,
-        total_pendientes=total_pendientes,
-    )
-
-
-# -----------------------------------------------------------------------------
-# Endpoint único para avanzar un inmueble a la siguiente etapa.
-# Valida rol vs acción: Sebastián solo puede confirmar_datos; el resto son
-# acciones de Fabricio. Sin marcar mensaje: solo setea el timestamp.
+# Embudo: endpoint único para avanzar una etapa. El gate real es el PIN por
+# rol (PIN_SEBASTIAN para confirmar_datos; PIN_FABRICIO para el resto).
+# Token del panel = acceso a la pantalla; PIN = permiso de ejecución.
 # -----------------------------------------------------------------------------
 
 _ACCIONES_EMBUDO = {
@@ -4239,55 +4206,81 @@ _ACCIONES_EMBUDO = {
 }
 
 
+def _verificar_pin(rol):
+    """PIN de 4 dígitos por rol, configurable en env:
+      PIN_SEBASTIAN, PIN_FABRICIO
+    El PIN viaja en el form POST como 'pin'. Si el env no está configurado,
+    no se exige (dev mode). Devuelve True/False.
+    """
+    env_key = 'PIN_SEBASTIAN' if rol == 'sebastian' else 'PIN_FABRICIO'
+    expected = (os.environ.get(env_key) or "").strip()
+    if not expected:
+        return True  # dev mode: sin PIN exigido
+    got = (request.form.get("pin") or "").strip()
+    return got == expected
+
+
+@petra_panel_bp.post("/pin/verificar")
+def pin_verificar():
+    """AJAX: valida PIN sin ejecutar acción. Usado por el JS para decidir si
+    guardar el PIN en sessionStorage antes de enviar el form real.
+    Request body: rol=fabricio|sebastian, pin=1234
+    Response: 200 {"ok": true} o 401 {"ok": false}
+    """
+    from flask import jsonify
+    rol = (request.form.get("rol") or "").strip()
+    pin = (request.form.get("pin") or "").strip()
+    env_key = 'PIN_SEBASTIAN' if rol == 'sebastian' else 'PIN_FABRICIO'
+    expected = (os.environ.get(env_key) or "").strip()
+    if not expected:
+        return jsonify({"ok": True, "dev": True})
+    if pin == expected:
+        return jsonify({"ok": True})
+    return jsonify({"ok": False}), 401
+
+
 @petra_panel_bp.post("/inmueble/<int:iid>/etapa/<accion>")
 def inmueble_etapa_avanzar(iid, accion):
     """Marca la etapa como completada (timestamp = NOW()). Idempotente:
-    si ya estaba marcada, no la pisa."""
-    role = _detect_role()
-    if role is None:
-        abort(403)
+    si ya estaba marcada, no la pisa. El PIN es el gate de ejecución."""
+    _check_token()
     if accion not in _ACCIONES_EMBUDO:
         abort(400)
     req_role, col = _ACCIONES_EMBUDO[accion]
-    if role != req_role:
-        abort(403)
     token = (request.form.get("token") or "").strip()
+    if not _verificar_pin(req_role):
+        ref = request.form.get("volver") or request.referrer or url_for(
+            "petra_panel.visitante_conjuntos", token=token)
+        sep = "&" if "?" in ref else "?"
+        return redirect(f"{ref}{sep}flash=pin_malo")
     with _db._conexion_directa(timeout=10) as conn:
-        # Solo actualiza si está en NULL — evita pisar timestamps anteriores.
         conn.execute(
             f"UPDATE inmuebles_visitante "
             f"   SET {col} = NOW() "
             f" WHERE id = %s AND {col} IS NULL",
             (iid,))
-    if role == 'sebastian':
-        return redirect(url_for("petra_panel.hermano_home",
-                                token=token, flash="ok"))
-    # Fabricio: vuelve a la vista desde la que vino
     ref = request.form.get("volver") or request.referrer
     if ref:
         return redirect(ref)
     return redirect(url_for("petra_panel.visitante_conjuntos", token=token))
 
 
-# POST para desmarcar una etapa (deshacer). Útil si se envió por error.
 @petra_panel_bp.post("/inmueble/<int:iid>/etapa/<accion>/deshacer")
 def inmueble_etapa_deshacer(iid, accion):
-    role = _detect_role()
-    if role is None:
-        abort(403)
+    _check_token()
     if accion not in _ACCIONES_EMBUDO:
         abort(400)
     req_role, col = _ACCIONES_EMBUDO[accion]
-    if role != req_role:
-        abort(403)
-    token = (request.form.get("token") or "").strip()
+    if not _verificar_pin(req_role):
+        ref = request.form.get("volver") or request.referrer or "/"
+        sep = "&" if "?" in ref else "?"
+        return redirect(f"{ref}{sep}flash=pin_malo")
     with _db._conexion_directa(timeout=10) as conn:
         conn.execute(
             f"UPDATE inmuebles_visitante SET {col} = NULL WHERE id = %s",
             (iid,))
+    token = (request.form.get("token") or "").strip()
     ref = request.form.get("volver") or request.referrer
     if ref:
         return redirect(ref)
-    if role == 'sebastian':
-        return redirect(url_for("petra_panel.hermano_home", token=token))
     return redirect(url_for("petra_panel.visitante_conjuntos", token=token))
