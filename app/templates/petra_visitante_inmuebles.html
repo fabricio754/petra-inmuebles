@@ -99,6 +99,7 @@
   <h1>🏠 <span class="brand">Visitante QR</span> — Inmuebles</h1>
   <a class="back" href="{{ url_for('petra_panel.visitante_conjuntos') }}?token={{ token }}">← Conjuntos</a>
   <span style="flex:1"></span>
+  <a class="btn" href="{{ url_for('petra_panel.visitante_propietarios_admin', cid=conjunto.id) }}?token={{ token }}">👥 Propietarios</a>
   <a class="btn" href="{{ url_for('petra_panel.visitante_conjunto_qr', cid=conjunto.id) }}?token={{ token }}">🔳 QR del conjunto</a>
 </div>
 

@@ -3949,3 +3949,270 @@ def visitante_listado_inmuebles():
         "petra_visitante_listado.html",
         inmuebles=rows, token=token, filtro=filtro, stats=stats,
     )
+
+
+# =============================================================================
+# Propietarios a contactar (click-to-chat desde el panel al teléfono).
+#
+# Dos pasos, dos personas, dos teléfonos, dos marcas:
+#   P1 (hermano, sin marca Petra): hace el primer sondeo.
+#   P2 (Fabricio, con marca Petra): entra después con la oferta formal.
+#
+# Cada vista filtra por su estado y usa su propio texto, así ninguno puede
+# accidentalmente ejecutar el paso del otro.
+# =============================================================================
+
+def _normalizar_celular_co(raw):
+    """Devuelve '57XXXXXXXXXX' (listo para wa.me). None si no parseable."""
+    if not raw:
+        return None
+    dig = "".join(c for c in str(raw) if c.isdigit())
+    if not dig:
+        return None
+    # ya trae 57 adelante
+    if dig.startswith("57") and len(dig) in (12, 13):
+        return dig[:12] if len(dig) >= 12 else None
+    # 10 dígitos típicos COL (3XXXXXXXXX)
+    if len(dig) == 10 and dig.startswith("3"):
+        return "57" + dig
+    # devolvé como está si la longitud es razonable
+    if 10 <= len(dig) <= 15:
+        return dig
+    return None
+
+
+def _texto_p1(p, conjunto):
+    """Mensaje del hermano (sin marca Petra, tono vecinal)."""
+    nombre = (p.get("contacto_nombre") or "").strip().split()[0] if p.get("contacto_nombre") else ""
+    saludo = f"Hola {nombre}" if nombre else "Hola"
+    torre_apto = ""
+    if p.get("torre") and p.get("apto"):
+        torre_apto = f" (torre {p['torre']} apto {p['apto']})"
+    elif p.get("apto"):
+        torre_apto = f" (apto {p['apto']})"
+    op = (p.get("operacion") or "").strip().lower()
+    verbo = "arrendar" if op == "arriendo" else ("vender" if op == "venta" else "arrendar o vender")
+    return (
+        f"{saludo}, buen día 👋\n"
+        f"Me pasaron tu contacto del administrador de {conjunto.get('nombre','')}"
+        f"{torre_apto}. "
+        f"Entiendo que te interesa {verbo} el inmueble, ¿sigue disponible?"
+    )
+
+
+def _texto_p2(p, conjunto):
+    """Mensaje de Fabricio con marca Petra (formal, oferta de servicio)."""
+    nombre = (p.get("contacto_nombre") or "").strip().split()[0] if p.get("contacto_nombre") else ""
+    saludo = f"Hola {nombre}" if nombre else "Hola"
+    op = (p.get("operacion") or "").strip().lower()
+    verbo = "arrendarlo" if op == "arriendo" else ("venderlo" if op == "venta" else "arrendarlo o venderlo")
+    return (
+        f"{saludo}, soy Fabricio de *Petra* 🏠\n\n"
+        f"Vi que tenés un inmueble disponible en {conjunto.get('nombre','')}. "
+        f"Nosotros ayudamos a propietarios a {verbo} de forma segura, "
+        f"con buscadores pre-filtrados y acompañamiento end-to-end.\n\n"
+        f"¿Te puedo contar cómo funciona en 2 minutos?"
+    )
+
+
+def _urlencode_min(s):
+    import urllib.parse
+    return urllib.parse.quote(s or "", safe="")
+
+
+@petra_panel_bp.get("/visitante/conjuntos/<int:cid>/propietarios")
+def visitante_propietarios_admin(cid):
+    """Vista admin del conjunto: alta de propietarios + ver todos."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
+            "WHERE id=%s", (cid,),
+        ).fetchone()
+        if not row:
+            abort(404)
+        conjunto = {"id": row[0], "codigo": row[1],
+                    "nombre": row[2], "ciudad": row[3] or ""}
+        propietarios = _rows(conn,
+            """SELECT id, torre, apto, descripcion, contacto_nombre, celular,
+                      operacion, precio, admin_incluida, m2, estado,
+                      contactado_p1_at, contactado_p2_at, notas, creado_en
+                 FROM petra_propietarios
+                WHERE conjunto_id = %s
+                ORDER BY
+                  CASE estado
+                    WHEN 'pendiente_p1'  THEN 1
+                    WHEN 'contactado_p1' THEN 2
+                    WHEN 'contactado_p2' THEN 3
+                    WHEN 'cerrado'       THEN 4
+                    WHEN 'no_interesado' THEN 5
+                  END, creado_en DESC""",
+            (cid,))
+        stats = {
+            "total": len(propietarios),
+            "p1_pendientes":  sum(1 for p in propietarios if p["estado"] == "pendiente_p1"),
+            "p2_pendientes":  sum(1 for p in propietarios if p["estado"] == "contactado_p1"),
+            "cerrados":       sum(1 for p in propietarios if p["estado"] in ("contactado_p2","cerrado")),
+            "no_interesados": sum(1 for p in propietarios if p["estado"] == "no_interesado"),
+        }
+    return render_template(
+        "petra_visitante_propietarios_admin.html",
+        conjunto=conjunto, propietarios=propietarios, stats=stats,
+        token=token, flash=flash,
+    )
+
+
+@petra_panel_bp.post("/visitante/conjuntos/<int:cid>/propietarios/nuevo")
+def visitante_propietarios_nuevo(cid):
+    """Alta de un propietario. Acepta un solo registro."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    celular_raw = (request.form.get("celular") or "").strip()
+    cel = _normalizar_celular_co(celular_raw)
+    if not cel:
+        return redirect(url_for("petra_panel.visitante_propietarios_admin",
+                                cid=cid, token=token,
+                                flash="Celular inválido"))
+    torre = (request.form.get("torre") or "").strip() or None
+    apto = (request.form.get("apto") or "").strip() or None
+    descripcion = (request.form.get("descripcion") or "").strip() or None
+    nombre = (request.form.get("contacto_nombre") or "").strip() or None
+    op = (request.form.get("operacion") or "").strip().lower() or None
+    if op not in (None, "arriendo", "venta", "ambos"):
+        op = None
+    precio = (request.form.get("precio") or "").strip() or None
+    admin_raw = (request.form.get("admin_incluida") or "").strip()
+    admin_inc = None
+    if admin_raw in ("1", "true", "si", "sí"):
+        admin_inc = True
+    elif admin_raw in ("0", "false", "no"):
+        admin_inc = False
+    m2 = (request.form.get("m2") or "").strip() or None
+
+    with _db._conexion_directa(timeout=10) as conn:
+        conn.execute(
+            """INSERT INTO petra_propietarios
+               (conjunto_id, torre, apto, descripcion, contacto_nombre,
+                celular, operacion, precio, admin_incluida, m2)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (cid, torre, apto, descripcion, nombre, cel, op, precio,
+             admin_inc, m2))
+    return redirect(url_for("petra_panel.visitante_propietarios_admin",
+                            cid=cid, token=token, flash="agregado"))
+
+
+@petra_panel_bp.post("/visitante/propietarios/<int:pid>/eliminar")
+def visitante_propietarios_eliminar(pid):
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT conjunto_id FROM petra_propietarios WHERE id=%s",
+            (pid,)).fetchone()
+        if not row:
+            abort(404)
+        cid = row[0]
+        conn.execute("DELETE FROM petra_propietarios WHERE id=%s", (pid,))
+    return redirect(url_for("petra_panel.visitante_propietarios_admin",
+                            cid=cid, token=token, flash="eliminado"))
+
+
+def _cola_propietarios(rol):
+    """Devuelve filas en el estado de la cola del rol dado."""
+    estado = "pendiente_p1" if rol == "p1" else "contactado_p1"
+    with _db._conexion_directa(timeout=15) as conn:
+        rows = _rows(conn,
+            """SELECT pp.*, cv.codigo AS conjunto_codigo,
+                      cv.nombre AS conjunto_nombre, cv.ciudad AS conjunto_ciudad
+                 FROM petra_propietarios pp
+                 JOIN conjuntos_visitante cv ON cv.id = pp.conjunto_id
+                WHERE pp.estado = %s
+                ORDER BY pp.conjunto_id, pp.creado_en""",
+            (estado,))
+    for r in rows:
+        conjunto_lite = {"nombre": r.get("conjunto_nombre"),
+                         "codigo": r.get("conjunto_codigo")}
+        texto = _texto_p1(r, conjunto_lite) if rol == "p1" else _texto_p2(r, conjunto_lite)
+        r["mensaje"] = texto
+        r["wa_url"] = f"https://wa.me/{r['celular']}?text={_urlencode_min(texto)}"
+    return rows
+
+
+@petra_panel_bp.get("/visitante/propietarios/p1")
+def visitante_propietarios_cola_p1():
+    """Cola del paso 1 (hermano, sin marca Petra)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    rows = _cola_propietarios("p1")
+    return render_template(
+        "petra_visitante_propietarios_cola.html",
+        rol="p1",
+        titulo="Paso 1 — Primer contacto",
+        subtitulo="Sondeo inicial, sin marca Petra",
+        color_acento="#2563eb",  # azul
+        propietarios=rows, token=token, flash=flash,
+    )
+
+
+@petra_panel_bp.get("/visitante/propietarios/p2")
+def visitante_propietarios_cola_p2():
+    """Cola del paso 2 (Fabricio, con marca Petra)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    rows = _cola_propietarios("p2")
+    return render_template(
+        "petra_visitante_propietarios_cola.html",
+        rol="p2",
+        titulo="Paso 2 — Oferta Petra",
+        subtitulo="Contactá solo propietarios que ya pasaron por paso 1",
+        color_acento="#7c5cff",  # lavanda Petra
+        propietarios=rows, token=token, flash=flash,
+    )
+
+
+@petra_panel_bp.post("/visitante/propietarios/<int:pid>/avanzar")
+def visitante_propietarios_avanzar(pid):
+    """Mueve la fila al siguiente estado según el rol que la tocó.
+    El rol se envía desde el form oculto y se valida contra el estado
+    actual: así un click desde /p2 no puede avanzar una fila que todavía
+    está en 'pendiente_p1'.
+    """
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    rol = (request.form.get("rol") or "").strip()
+    accion = (request.form.get("accion") or "contactado").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT estado FROM petra_propietarios WHERE id=%s", (pid,)
+        ).fetchone()
+        if not row:
+            abort(404)
+        estado_actual = row[0]
+        nuevo = estado_actual
+        if accion == "no_interesado":
+            nuevo = "no_interesado"
+        elif rol == "p1" and estado_actual == "pendiente_p1":
+            nuevo = "contactado_p1"
+            conn.execute(
+                "UPDATE petra_propietarios SET contactado_p1_at=NOW() "
+                "WHERE id=%s", (pid,))
+        elif rol == "p2" and estado_actual == "contactado_p1":
+            nuevo = "contactado_p2"
+            conn.execute(
+                "UPDATE petra_propietarios SET contactado_p2_at=NOW() "
+                "WHERE id=%s", (pid,))
+        else:
+            # Rol intentando avanzar algo que no le toca: no cambia nada.
+            return redirect(url_for(
+                f"petra_panel.visitante_propietarios_cola_{rol or 'p1'}",
+                token=token, flash="fuera_de_cola"))
+        conn.execute(
+            "UPDATE petra_propietarios "
+            "   SET estado=%s, actualizado_en=NOW() WHERE id=%s",
+            (nuevo, pid))
+    target = f"petra_panel.visitante_propietarios_cola_{rol}"
+    return redirect(url_for(target, token=token, flash="ok"))

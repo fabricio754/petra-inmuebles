@@ -2217,3 +2217,43 @@ ALTER TABLE petra_disparadores
   ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'cron';
 ALTER TABLE petra_disparadores
   ADD COLUMN IF NOT EXISTS delay_minutos INT DEFAULT 15;
+
+
+-- ============================================================================
+-- Propietarios a contactar en masa (lista manual del administrador del
+-- conjunto). Flujo de dos pasos:
+--   p1 (hermano, sin marca Petra) hace el primer contacto desde SU teléfono
+--       via click-to-chat (wa.me/...). Cuando marca "contactado" la fila pasa
+--       a estado 'contactado_p1'.
+--   p2 (Fabricio, con marca Petra) ve SOLO las filas en 'contactado_p1' y
+--       hace el segundo contacto desde su teléfono. Marca "contactado" y pasa
+--       a 'cerrado'.
+-- Cada vista (/propietarios/p1, /propietarios/p2) filtra por su estado y usa
+-- su propia plantilla de mensaje, así ninguno puede hacer el trabajo del otro
+-- por error.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS petra_propietarios (
+  id SERIAL PRIMARY KEY,
+  conjunto_id INT NOT NULL REFERENCES conjuntos_visitante(id) ON DELETE CASCADE,
+  torre TEXT,
+  apto TEXT,
+  descripcion TEXT,              -- "3 hab, 2 baños, parqueadero, 83 m²"
+  contacto_nombre TEXT,
+  celular TEXT NOT NULL,         -- se normaliza a 57XXXXXXXXXX
+  operacion TEXT,                -- 'arriendo' | 'venta' | 'ambos'
+  precio TEXT,                   -- texto libre (puede traer "$850M", "negociable", vacío)
+  admin_incluida BOOLEAN,        -- solo para arriendo; NULL si no aplica
+  m2 TEXT,
+  estado TEXT NOT NULL DEFAULT 'pendiente_p1'
+    CHECK (estado IN ('pendiente_p1','contactado_p1','contactado_p2',
+                      'no_interesado','cerrado')),
+  contactado_p1_at TIMESTAMPTZ,
+  contactado_p2_at TIMESTAMPTZ,
+  notas TEXT,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_propietarios_conjunto_estado_idx
+  ON petra_propietarios(conjunto_id, estado);
+CREATE INDEX IF NOT EXISTS petra_propietarios_celular_idx
+  ON petra_propietarios(celular);

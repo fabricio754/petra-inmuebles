@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>{{ titulo }} · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff; --panel: #fff; --border: #e8e4f0;
+    --text: #2a2440; --muted: #76708a;
+    --accent: {{ color_acento }};
+    --wa: #25d366;
+    --gris: #94a3b8; --gris-soft: #f1f5f9;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background:#fff; border-bottom:4px solid var(--accent);
+            display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  .topbar h1 { margin:0; font-size:18px; font-weight:700; }
+  .topbar h1 .rol { color: var(--accent); }
+  .topbar a.back { color: var(--accent); text-decoration:none; font-size:13px; margin-left:auto; }
+  .warn-cross { background: #fff3cd; color:#92400e; padding:8px 16px;
+                border-bottom:1px solid #fde68a; font-size:12.5px; }
+
+  main { padding: 20px; max-width: 900px; margin: 0 auto; }
+  .subt { color: var(--muted); font-size:13px; margin-bottom:16px; }
+
+  .empty { background: var(--panel); border:1px solid var(--border); border-radius:12px;
+           padding:50px; text-align:center; color: var(--muted); }
+
+  .card { background: var(--panel); border:1px solid var(--border); border-radius:12px;
+          padding: 14px 16px; margin-bottom:12px; display:flex; gap:14px;
+          align-items:flex-start; }
+  .card:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.04); }
+  .card .num { font-size:22px; font-weight:700; color: var(--accent);
+               min-width:34px; text-align:center; }
+  .card .info { flex: 1; min-width: 0; }
+  .card .head { display:flex; gap:8px; align-items:baseline; margin-bottom:4px; }
+  .card .nombre { font-weight:600; font-size:15px; }
+  .card .conj { color: var(--muted); font-size:12px; }
+  .card .cel { color: var(--text); font-weight:500; font-family: ui-monospace, Menlo, monospace;
+               font-size:13px; }
+  .card .desc { color: var(--muted); font-size:12.5px; margin-top:4px; line-height:1.45; }
+
+  .msg-preview { background:#f5f2fb; border:1px solid var(--border); border-radius:8px;
+                 padding:10px 12px; margin-top:10px; font-size:13px; white-space:pre-wrap;
+                 color: var(--text); font-family: Inter; line-height:1.5;
+                 border-left: 3px solid var(--accent); }
+
+  .actions { display:flex; flex-direction:column; gap:8px; align-items:stretch; min-width:180px; }
+  .btn { padding:10px 14px; border-radius:8px; font-size:13px; font-weight:600; border:none;
+         cursor:pointer; text-decoration:none; text-align:center; display:inline-block; }
+  .btn-wa { background: var(--wa); color:#fff; }
+  .btn-wa:hover { background:#1fbd5a; }
+  .btn-done { background:#fff; color: var(--accent); border:1px solid var(--accent); }
+  .btn-skip { background:#fff; color:#94a3b8; border:1px solid #cbd5e1; font-size:11.5px;
+              padding:6px 10px; }
+
+  .counter { color: var(--muted); font-size:12px; margin-bottom:10px; }
+
+  .toggle-msg { background:none; border:none; color:var(--accent); cursor:pointer;
+                font-size:12px; padding:4px 0; margin-top:6px; }
+
+  .flash { padding:10px 16px; background:#dcfce7; color:#166534; border-radius:8px;
+           margin-bottom:14px; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1><span class="rol">{{ titulo }}</span></h1>
+  <a class="back" href="/panel/petra/visitante?token={{ token }}">← Panel</a>
+</div>
+{% if rol == 'p1' %}
+<div class="warn-cross">
+  👋 Esta vista es del <b>paso 1</b> (sondeo inicial). Los mensajes son neutros, sin marca Petra.
+</div>
+{% else %}
+<div class="warn-cross">
+  🏠 Esta vista es del <b>paso 2</b> (Petra). Acá solo aparecen propietarios que ya respondieron al paso 1.
+</div>
+{% endif %}
+
+<main>
+  <div class="subt">{{ subtitulo }}</div>
+
+  {% if flash == 'ok' %}
+    <div class="flash">✔ Marcado y movido al siguiente paso</div>
+  {% elif flash == 'fuera_de_cola' %}
+    <div class="flash" style="background:#fef3c7;color:#92400e">
+      ⚠ Ese contacto no corresponde a esta cola — otro paso lo tiene que tocar primero
+    </div>
+  {% endif %}
+
+  <div class="counter">{{ propietarios|length }} propietario(s) en tu cola</div>
+
+  {% if not propietarios %}
+    <div class="empty">
+      🎉 No hay nadie pendiente en tu cola.<br>
+      <span style="font-size:12px">
+        {% if rol == 'p1' %}
+          Cargá propietarios desde el admin de cada conjunto.
+        {% else %}
+          Esperá a que paso 1 termine de contactar — los que respondan aparecen acá.
+        {% endif %}
+      </span>
+    </div>
+  {% endif %}
+
+  {% for p in propietarios %}
+  <div class="card">
+    <div class="num">{{ loop.index }}</div>
+    <div class="info">
+      <div class="head">
+        <span class="nombre">{{ p.contacto_nombre or 'Sin nombre' }}</span>
+        <span class="conj">· {{ p.conjunto_nombre }}
+          {% if p.torre and p.apto %}· T{{ p.torre }}·{{ p.apto }}{% endif %}
+        </span>
+      </div>
+      <div class="cel">📱 {{ p.celular }}</div>
+      {% if p.descripcion or p.operacion or p.precio or p.m2 %}
+      <div class="desc">
+        {% if p.operacion %}<b>{{ p.operacion|capitalize }}</b>{% endif %}
+        {% if p.precio %} · {{ p.precio }}{% endif %}
+        {% if p.m2 %} · {{ p.m2 }} m²{% endif %}
+        {% if p.descripcion %}<br>{{ p.descripcion }}{% endif %}
+      </div>
+      {% endif %}
+
+      <button class="toggle-msg" type="button"
+              onclick="var el=this.nextElementSibling; el.style.display=(el.style.display=='none'?'block':'none');">
+        👁 Ver mensaje que se va a enviar
+      </button>
+      <div class="msg-preview" style="display:none">{{ p.mensaje }}</div>
+    </div>
+    <div class="actions">
+      <a class="btn btn-wa" href="{{ p.wa_url }}" target="_blank"
+         onclick="document.getElementById('f-{{ p.id }}').submit()">
+        💬 Abrir en WhatsApp
+      </a>
+      <form id="f-{{ p.id }}" method="post"
+            action="/panel/petra/visitante/propietarios/{{ p.id }}/avanzar?token={{ token }}"
+            style="margin:0">
+        <input type="hidden" name="rol" value="{{ rol }}">
+        <input type="hidden" name="accion" value="contactado">
+      </form>
+      <form method="post"
+            action="/panel/petra/visitante/propietarios/{{ p.id }}/avanzar?token={{ token }}"
+            style="margin:0">
+        <input type="hidden" name="rol" value="{{ rol }}">
+        <input type="hidden" name="accion" value="no_interesado">
+        <button class="btn btn-skip" type="submit"
+                onclick="return confirm('¿Marcar como no interesado?')">
+          No interesado
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+
+</main>
+</body>
+</html>
