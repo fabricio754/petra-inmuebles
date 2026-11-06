@@ -451,15 +451,11 @@
                  'Si solo querés que no aparezca en el QR, usá "Desactivar".')) {
       return;
     }
-    if (!confirm('Última chance. ¿Borrar ' + codigo + ' DEFINITIVAMENTE?')) return;
-    var pin = obtenerPin('fabricio');
-    if (!pin) return;
     var f = document.createElement('form');
     f.method = 'POST';
     f.action = '/panel/petra/visitante/inmuebles/' + iid + '/eliminar';
     f.style.display = 'none';
-    f.innerHTML = '<input name="token" value="' + token + '">' +
-                  '<input name="pin" value="' + pin + '">';
+    f.innerHTML = '<input name="token" value="' + token + '">';
     document.body.appendChild(f);
     f.submit();
   };

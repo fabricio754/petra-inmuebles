@@ -3365,16 +3365,11 @@ def visitante_inmueble_editar(iid):
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/eliminar")
 def visitante_inmueble_eliminar(iid):
-    """Elimina DEFINITIVAMENTE un inmueble. Requiere PIN de Fabricio.
-    Vs 'Desactivar' (que solo lo marca inactivo, se puede recuperar),
-    esto borra la fila y no se puede deshacer."""
+    """Elimina DEFINITIVAMENTE un inmueble (DELETE, no toggle).
+    Vs 'Desactivar' (inactivo pero vive en la base), esto borra la fila
+    y no se puede deshacer. Doble confirm en el frontend."""
     _check_token()
     token = (request.form.get("token") or "").strip()
-    if not _verificar_pin('fabricio'):
-        ref = request.form.get("volver") or request.referrer or url_for(
-            "petra_panel.visitante_conjuntos", token=token)
-        sep = "&" if "?" in ref else "?"
-        return redirect(f"{ref}{sep}flash=pin_malo")
     with _db._conexion_directa(timeout=10) as conn:
         row = conn.execute(
             "SELECT conjunto_id FROM inmuebles_visitante WHERE id=%s",
