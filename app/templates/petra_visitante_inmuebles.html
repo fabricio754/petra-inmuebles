@@ -159,6 +159,7 @@
   {% elif flash == 'valores_invalidos' %}<div class="flash err">Valores numéricos deben ser ≥ 0.</div>
   {% elif flash == 'error' %}<div class="flash err">Error guardando. Revisá los logs.</div>
   {% elif flash == 'pin_malo' %}<div class="flash err">❌ PIN incorrecto. Volvé a intentarlo.</div>
+  {% elif flash == 'eliminado' %}<div class="flash ok">🗑 Inmueble eliminado definitivamente.</div>
   {% endif %}
 
   <details class="form-box">
@@ -394,7 +395,14 @@
                 <div><label>m²</label><input type="number" name="m2" min="0" value="{{ i.m2 if i.m2 is not none else '' }}"></div>
                 <div><label>Precio (COP)</label><input type="number" name="precio" min="0" value="{{ i.precio if i.precio else '' }}"></div>
                 <div><label>Tel. propietario</label><input type="text" name="propietario_telefono" value="{{ i.propietario_telefono or '' }}"></div>
-                <div><button type="submit" class="primary">Guardar</button></div>
+                <div style="display:flex;gap:8px">
+                  <button type="submit" class="primary">Guardar</button>
+                  <button type="button" class="btn"
+                          style="background:#fee2e2;color:#991b1b;border-color:#fecaca"
+                          onclick="eliminarInmueble({{ i.id }}, '{{ i.codigo }}', '{{ token }}')">
+                    🗑 Eliminar
+                  </button>
+                </div>
               </div>
             </form>
           </td>
@@ -436,6 +444,25 @@
     try { sessionStorage.setItem(key, p); } catch(e){}
     return p;
   }
+  window.eliminarInmueble = function(iid, codigo, token) {
+    if (!confirm('⚠ ELIMINAR DEFINITIVAMENTE ' + codigo + '?\n\n' +
+                 'Esto NO es "Desactivar". Borra el inmueble de la base ' +
+                 'de datos para siempre. No se puede deshacer.\n\n' +
+                 'Si solo querés que no aparezca en el QR, usá "Desactivar".')) {
+      return;
+    }
+    if (!confirm('Última chance. ¿Borrar ' + codigo + ' DEFINITIVAMENTE?')) return;
+    var pin = obtenerPin('fabricio');
+    if (!pin) return;
+    var f = document.createElement('form');
+    f.method = 'POST';
+    f.action = '/panel/petra/visitante/inmuebles/' + iid + '/eliminar';
+    f.style.display = 'none';
+    f.innerHTML = '<input name="token" value="' + token + '">' +
+                  '<input name="pin" value="' + pin + '">';
+    document.body.appendChild(f);
+    f.submit();
+  };
   window.petraEjecutar = function(ev, rol, formId) {
     var pin = obtenerPin(rol);
     if (!pin) { if (ev) ev.preventDefault(); return false; }
