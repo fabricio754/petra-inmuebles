@@ -3626,7 +3626,9 @@ def visitante_usuario_detalle(telefono):
                                          for e in edificios_agente)
 
         mensajes = _rows(conn,
-            """SELECT direccion, tipo, resumen, fecha
+            """SELECT direccion, tipo, resumen, fecha,
+                      wa_msg_id, estado_entrega, estado_entrega_at,
+                      estado_entrega_error
                  FROM mensajes
                 WHERE telefono = %s
                 ORDER BY fecha DESC

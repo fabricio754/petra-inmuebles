@@ -111,6 +111,33 @@
                   font-size: 10px; color: var(--muted); }
   .bubble .tipo { font-size: 10px; color: var(--muted); font-style: italic;
                   margin-bottom: 2px; display: block; }
+  /* WhatsApp-style delivery ticks dentro de la burbuja OUT */
+  .bubble .ticks { position: absolute; bottom: 3px; right: 8px;
+                   font-size: 11px; display: inline-flex; align-items: center;
+                   gap: 3px; }
+  .bubble .ticks .t-time { color: var(--muted); font-size: 10px; }
+  .msg.out .bubble .time { display: none; }  /* time va dentro de ticks */
+  .tick { font-weight: 700; letter-spacing: -2px; }
+  .tick.sent     { color: #9aa0a6; }   /* ✓     */
+  .tick.delivered{ color: #9aa0a6; }   /* ✓✓    */
+  .tick.read     { color: #34b7f1; }   /* ✓✓ az */
+  .tick.failed   { color: #dc2626; letter-spacing: 0; }   /* ⚠ */
+  .tick.pending  { color: #c0bbd0; letter-spacing: 0; }   /* 🕓 */
+  .bubble .err-reason { display: block; margin-top: 4px; padding: 4px 6px;
+                        font-size: 10.5px; color: #991b1b; background: #fee2e2;
+                        border-radius: 4px; border-left: 2px solid #dc2626;
+                        font-style: italic; }
+
+  /* Tira de salud del chat */
+  .chat-stats { display: flex; gap: 10px; padding: 8px 14px;
+                background: #f8f5ff; border-bottom: 1px solid var(--border);
+                font-size: 11.5px; flex-wrap: wrap; }
+  .chat-stats .st { display: inline-flex; align-items: center; gap: 4px;
+                    padding: 2px 8px; border-radius: 999px; font-weight: 500; }
+  .chat-stats .st.ok   { background: #dcfce7; color: #166534; }
+  .chat-stats .st.warn { background: #fef3c7; color: #92400e; }
+  .chat-stats .st.err  { background: #fee2e2; color: #991b1b; }
+  .chat-stats .st.mut  { background: #ececec; color: #525252; }
 </style>
 </head>
 <body>
@@ -182,10 +209,27 @@
 
   <div>
     {% if mensajes %}
+    {% set _n_in = mensajes|selectattr('direccion','equalto','in')|list|length %}
+    {% set _out = mensajes|selectattr('direccion','equalto','out')|list %}
+    {% set _n_out = _out|length %}
+    {% set _n_read = _out|selectattr('estado_entrega','equalto','read')|list|length %}
+    {% set _n_deli = _out|selectattr('estado_entrega','equalto','delivered')|list|length %}
+    {% set _n_sent = _out|selectattr('estado_entrega','equalto','sent')|list|length %}
+    {% set _n_fail = _out|selectattr('estado_entrega','equalto','failed')|list|length %}
+    {% set _n_pend = _n_out - _n_read - _n_deli - _n_sent - _n_fail %}
     <div class="section">
       <div class="section-head">
         <h2>💬 Chat</h2>
         <span class="count">{{ mensajes|length }} mensajes</span>
+      </div>
+      <div class="chat-stats">
+        <span class="st mut">↙ {{ _n_in }} recibidos</span>
+        <span class="st mut">↗ {{ _n_out }} enviados</span>
+        {% if _n_read %}<span class="st ok">✓✓ {{ _n_read }} leídos</span>{% endif %}
+        {% if _n_deli %}<span class="st ok">✓✓ {{ _n_deli }} entregados</span>{% endif %}
+        {% if _n_sent %}<span class="st warn">✓ {{ _n_sent }} aceptados por Meta (sin entregar aún)</span>{% endif %}
+        {% if _n_fail %}<span class="st err">⚠ {{ _n_fail }} fallaron</span>{% endif %}
+        {% if _n_pend %}<span class="st mut">🕓 {{ _n_pend }} sin estado</span>{% endif %}
       </div>
       <div class="chat" id="chat-scroll">
         {% for m in mensajes %}
@@ -195,7 +239,31 @@
               <span class="tipo">[{{ m.tipo }}]</span>
             {% endif %}
             {{ m.resumen or '(sin contenido)' }}
-            <span class="time">{{ m.fecha.strftime('%d/%m %H:%M') }}</span>
+            {% if m.direccion == 'out' and m.estado_entrega == 'failed' and m.estado_entrega_error %}
+              <span class="err-reason" title="{{ m.estado_entrega_error }}">
+                ⚠ No entregado por Meta — {{ m.estado_entrega_error }}
+              </span>
+            {% endif %}
+            {% if m.direccion == 'out' %}
+              <span class="ticks">
+                <span class="t-time">{{ m.fecha.strftime('%d/%m %H:%M') }}</span>
+                {% if m.estado_entrega == 'read' %}
+                  <span class="tick read" title="Leído por el usuario">✓✓</span>
+                {% elif m.estado_entrega == 'delivered' %}
+                  <span class="tick delivered" title="Entregado al teléfono">✓✓</span>
+                {% elif m.estado_entrega == 'sent' %}
+                  <span class="tick sent" title="Aceptado por Meta — aún no entregado">✓</span>
+                {% elif m.estado_entrega == 'failed' %}
+                  <span class="tick failed" title="{{ m.estado_entrega_error or 'Fallo en entrega' }}">⚠</span>
+                {% elif m.wa_msg_id %}
+                  <span class="tick pending" title="Esperando confirmación de Meta">🕓</span>
+                {% else %}
+                  <span class="tick pending" title="No llegó a Meta (error local o aún en cola)">⋯</span>
+                {% endif %}
+              </span>
+            {% else %}
+              <span class="time">{{ m.fecha.strftime('%d/%m %H:%M') }}</span>
+            {% endif %}
           </div>
         </div>
         {% endfor %}
