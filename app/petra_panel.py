@@ -4736,18 +4736,19 @@ def _funnel_propietarios():
 
 
 def _funnel_agentes():
+    # El rol y estado_agente viven en petra_contacto_roles (no en petra_contactos).
     sql = """
       SELECT
-        COUNT(*)                                                                 AS total,
-        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'recolectando')             AS recolec,
-        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'en_capacitacion')          AS capa,
-        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'autorizacion_pendiente')   AS auto,
-        COUNT(*) FILTER (WHERE metadata->>'estado_agente' IN ('activa','activo'))       AS activa,
-        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'pausada')                  AS pausada,
-        COUNT(*) FILTER (WHERE metadata->>'estado_agente' IS NULL
-                         OR metadata->>'estado_agente' = '')                             AS sin_estado
-      FROM petra_contactos
-      WHERE rol = 'agente_petra'
+        COUNT(*)                                                                  AS total,
+        COUNT(*) FILTER (WHERE r.metadata->>'estado_agente' = 'recolectando')             AS recolec,
+        COUNT(*) FILTER (WHERE r.metadata->>'estado_agente' = 'en_capacitacion')          AS capa,
+        COUNT(*) FILTER (WHERE r.metadata->>'estado_agente' = 'autorizacion_pendiente')   AS auto,
+        COUNT(*) FILTER (WHERE r.metadata->>'estado_agente' IN ('activa','activo'))       AS activa,
+        COUNT(*) FILTER (WHERE r.metadata->>'estado_agente' = 'pausada')                  AS pausada,
+        COUNT(*) FILTER (WHERE r.metadata->>'estado_agente' IS NULL
+                         OR r.metadata->>'estado_agente' = '')                             AS sin_estado
+      FROM petra_contacto_roles r
+      WHERE r.rol = 'agente_petra'
     """
     with _db._conexion_directa(timeout=5) as conn:
         r = conn.execute(sql).fetchone()
@@ -4772,6 +4773,7 @@ def _funnel_agentes():
 
 
 def _funnel_visitantes():
+    # Visitantes = contactos que NO tienen rol agente_petra.
     sql = """
       SELECT
         COUNT(DISTINCT pc.id)                                                    AS total,
@@ -4781,7 +4783,10 @@ def _funnel_visitantes():
         COUNT(DISTINCT i.interesado_telefono) FILTER (WHERE i.estado = 'enviado') AS enviados_al_prop
       FROM petra_contactos pc
       LEFT JOIN petra_interesados_qr i ON i.interesado_telefono = pc.telefono
-      WHERE pc.rol IS NULL OR pc.rol = 'visitante'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM petra_contacto_roles r
+        WHERE r.contacto_id = pc.id AND r.rol = 'agente_petra'
+      )
     """
     try:
         with _db._conexion_directa(timeout=5) as conn:
@@ -4806,13 +4811,20 @@ def _funnel_visitantes():
 
 def _run_funnels():
     """Corre los 3 funnels aislados."""
+    fallbacks = {
+        "_funnel_propietarios": "🏠 Propietarios — Embudo",
+        "_funnel_agentes":      "👤 Agentes Petra — Flujo",
+        "_funnel_visitantes":   "👀 Visitantes QR",
+    }
     funnels = []
     for fn in [_funnel_propietarios, _funnel_agentes, _funnel_visitantes]:
         try:
             funnels.append(fn())
         except Exception as e:
-            funnels.append({"titulo": fn.__name__, "total": 0, "subtotal_label": "",
-                            "extra": f"crasheó: {e}", "pasos": []})
+            funnels.append({"titulo": fallbacks.get(fn.__name__, fn.__name__),
+                            "total": 0, "subtotal_label": "",
+                            "extra": f"error al consultar: {type(e).__name__}",
+                            "pasos": []})
     return funnels
 
 
@@ -4959,14 +4971,15 @@ def _detalle_propietarios():
 def _detalle_agentes():
     """Lista agentes Petra con su estado + última actividad."""
     sql = """
-      SELECT telefono, nombre, updated_at,
-             metadata->>'estado_agente' AS estado_agente,
-             metadata->>'ciudad' AS ciudad,
-             metadata->>'videos_vistos' AS videos_vistos,
-             created_at
-        FROM petra_contactos
-       WHERE rol = 'agente_petra'
-       ORDER BY updated_at DESC NULLS LAST
+      SELECT c.telefono, c.nombre, c.updated_at,
+             r.metadata->>'estado_agente' AS estado_agente,
+             r.metadata->>'ciudad' AS ciudad,
+             r.metadata->>'videos_vistos' AS videos_vistos,
+             c.created_at
+        FROM petra_contacto_roles r
+        JOIN petra_contactos c ON c.id = r.contacto_id
+       WHERE r.rol = 'agente_petra'
+       ORDER BY c.updated_at DESC NULLS LAST
     """
     with _db._conexion_directa(timeout=5) as conn:
         rows = _rows(conn, sql)
@@ -4999,7 +5012,7 @@ def _detalle_agentes():
 
 
 def _detalle_visitantes():
-    """Visitantes QR (contactos no-agentes) activos último mes."""
+    """Visitantes QR (contactos NO-agentes) activos último mes."""
     sql = """
       SELECT pc.telefono, pc.nombre, pc.updated_at, pc.created_at,
              pc.meta->>'visitante_conjunto_id' AS conjunto_id,
@@ -5007,7 +5020,10 @@ def _detalle_visitantes():
              (SELECT COUNT(*) FROM petra_interesados_qr i
                WHERE i.interesado_telefono = pc.telefono) AS n_pidio
         FROM petra_contactos pc
-       WHERE (pc.rol IS NULL OR pc.rol = 'visitante')
+       WHERE NOT EXISTS (
+         SELECT 1 FROM petra_contacto_roles r
+         WHERE r.contacto_id = pc.id AND r.rol = 'agente_petra'
+       )
          AND pc.updated_at > NOW() - INTERVAL '30 days'
        ORDER BY pc.updated_at DESC
        LIMIT 500
