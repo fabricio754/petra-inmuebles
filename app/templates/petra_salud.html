@@ -205,7 +205,13 @@
   <div class="funnels" id="funnels">
     {% for f in funnels %}
     <div class="funnel">
-      <h4>{{ f.titulo }}</h4>
+      <h4>{{ f.titulo }}
+        {% set tipo = 'propietarios' if 'ropietarios' in f.titulo else ('agentes' if 'gentes' in f.titulo else 'visitantes') %}
+        <a href="/panel/petra/pasos?tipo={{ tipo }}&token={{ token }}"
+           style="float:right;font-size:11.5px;font-weight:500;color:var(--accent);text-decoration:none">
+          Ver personas →
+        </a>
+      </h4>
       <div class="totales">
         <b>{{ f.total }}</b> {{ f.subtotal_label }}
         {% if f.extra %}· {{ f.extra }}{% endif %}
@@ -319,10 +325,16 @@
             '<div class="f-bar"><div class="f-fill c' + i + '" style="width:' + p.pct + '%"></div></div>' +
           '</div>';
         }
+        let tipo = 'visitantes';
+        if (f.titulo.indexOf('ropietarios') >= 0) tipo = 'propietarios';
+        else if (f.titulo.indexOf('gentes') >= 0) tipo = 'agentes';
+        const verLink = '<a href="/panel/petra/pasos?tipo=' + tipo +
+                        '&token=' + encodeURIComponent(TOKEN) +
+                        '" style="float:right;font-size:11.5px;font-weight:500;color:var(--accent);text-decoration:none">Ver personas →</a>';
         funs.insertAdjacentHTML('beforeend',
-          '<div class="funnel"><h4>' + f.titulo + '</h4>' +
-          '<div class="totales"><b>' + f.total + '</b> ' + f.subtotal_label +
-          (f.extra ? ' · ' + f.extra : '') + '</div>' + rows + '</div>');
+          '<div class="funnel"><h4>' + escapeHtml(f.titulo) + verLink + '</h4>' +
+          '<div class="totales"><b>' + f.total + '</b> ' + escapeHtml(f.subtotal_label) +
+          (f.extra ? ' · ' + escapeHtml(f.extra) : '') + '</div>' + rows + '</div>');
       }
     }
   }

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>{{ titulo }} · Pasos · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f8fa; --panel: #fff; --border: #d0d7de;
+    --text: #1f2328; --muted: #656d76;
+    --ok: #1a7f37; --accent: #7c5cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background:#fff; border-bottom:1px solid var(--border);
+            display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .topbar h1 { margin:0; font-size:17px; font-weight:600; }
+  .topbar a.back { color: var(--accent); text-decoration:none; font-size:13px; margin-left:auto; }
+  main { padding: 20px 24px; max-width: 1100px; margin: 0 auto; }
+
+  .tabs { display:flex; gap:6px; margin-bottom:18px; flex-wrap:wrap; }
+  .tabs a { padding:8px 14px; border:1px solid var(--border); border-radius:8px;
+            text-decoration:none; color: var(--text); background:#fff;
+            font-size:13px; font-weight:500; }
+  .tabs a.on { background: var(--accent); color:#fff; border-color: var(--accent); }
+  .tabs a:hover { border-color: var(--accent); }
+
+  .counter { color: var(--muted); font-size:12.5px; margin-bottom:10px; }
+
+  .group { background: var(--panel); border:1px solid var(--border);
+           border-radius: 10px; margin-bottom:14px; overflow:hidden; }
+  .group-h { padding: 12px 16px; background:#fafbfc; border-bottom:1px solid var(--border);
+             display:flex; justify-content:space-between; align-items:center;
+             font-weight:600; font-size:14px; }
+  .group-h .n { color: var(--muted); font-weight:500; font-size:12.5px; }
+  table { width:100%; border-collapse: collapse; font-size:13px; }
+  thead th { text-align:left; padding:8px 14px; background:#fff;
+             color: var(--muted); font-weight:500; font-size:11px;
+             text-transform:uppercase; letter-spacing:.4px;
+             border-bottom:1px solid var(--border); }
+  tbody td { padding:10px 14px; border-bottom:1px solid #f1eef7;
+             vertical-align: middle; }
+  tbody tr:hover { background:#fcfaff; }
+  tbody tr:last-child td { border-bottom:none; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size:11.5px; }
+  .pill { padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; }
+  .pill.pendiente   { background:#f3f4f6; color:#475569; }
+  .pill.confirmado  { background:#fef3c7; color:#92400e; }
+  .pill.bienvenida  { background:#dbeafe; color:#1e40af; }
+  .pill.ofrecer     { background:#fce7f3; color:#be185d; }
+  .pill.credito     { background:#fff7ed; color:#c2410c; }
+  .pill.mandato     { background:#dcfce7; color:#166534; }
+
+  .link { color: var(--accent); text-decoration:none; font-size:12px; }
+  .link:hover { text-decoration: underline; }
+  .empty { padding:40px; text-align:center; color: var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>{{ titulo }} · Pasos de cada persona</h1>
+  <a class="back" href="/panel/petra/salud?token={{ token }}">← Salud</a>
+</div>
+
+<main>
+
+  <div class="tabs">
+    <a class="{% if tipo == 'propietarios' %}on{% endif %}"
+       href="/panel/petra/pasos?tipo=propietarios&token={{ token }}">🏠 Propietarios</a>
+    <a class="{% if tipo == 'agentes' %}on{% endif %}"
+       href="/panel/petra/pasos?tipo=agentes&token={{ token }}">👤 Agentes Petra</a>
+    <a class="{% if tipo == 'visitantes' %}on{% endif %}"
+       href="/panel/petra/pasos?tipo=visitantes&token={{ token }}">👀 Visitantes QR</a>
+  </div>
+
+  <div class="counter">{{ total }} persona(s) agrupadas por paso del embudo</div>
+
+  {% if not grupos %}
+    <div class="empty">Sin personas para mostrar.</div>
+  {% endif %}
+
+  {% for etapa_key, filas in grupos %}
+  <div class="group">
+    <div class="group-h">
+      {{ filas[0].etapa_label }}
+      <span class="n">{{ filas|length }}</span>
+    </div>
+    {% if tipo == 'propietarios' %}
+    <table>
+      <thead>
+        <tr><th>Código</th><th>Conjunto</th><th>Tipo · Op</th>
+            <th>Precio · m²</th><th>Teléfono</th>
+            <th>Última actividad</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in filas %}
+        <tr>
+          <td class="mono"><b style="color:#7c5cff">{{ r.codigo }}</b></td>
+          <td>{{ r.conjunto_nombre or '—' }}</td>
+          <td>{{ r.tipo or '—' }} · <span class="mono">{{ r.operacion }}</span></td>
+          <td class="mono">
+            {{ '${:,.0f}'.format(r.precio).replace(',', '.') if r.precio else '—' }}
+            · {{ r.m2 if r.m2 else '—' }}m²
+          </td>
+          <td class="mono">{{ r.propietario_telefono or '—' }}</td>
+          <td class="mono" style="color:var(--muted)">
+            {% if r.ult_actividad %}{{ r.ult_actividad.strftime('%m-%d %H:%M') }}{% endif %}
+          </td>
+          <td>
+            <a class="link" href="/panel/petra/visitante/conjuntos/{{ r.conjunto_id if r.conjunto_id else '' }}/inmuebles?token={{ token }}" target="_blank">ver →</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% elif tipo == 'agentes' %}
+    <table>
+      <thead>
+        <tr><th>Agente</th><th>Teléfono</th><th>Ciudad</th>
+            <th>Videos vistos</th><th>Última actividad</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in filas %}
+        <tr>
+          <td><b>{{ r.nombre or '(sin nombre)' }}</b></td>
+          <td class="mono">{{ r.telefono }}</td>
+          <td>{{ r.ciudad or '—' }}</td>
+          <td class="mono">{{ r.videos_vistos or '0' }}/14</td>
+          <td class="mono" style="color:var(--muted)">
+            {% if r.updated_at %}{{ r.updated_at.strftime('%m-%d %H:%M') }}{% endif %}
+          </td>
+          <td>
+            <a class="link" href="/panel/petra?tab=agentes&token={{ token }}" target="_blank">ver →</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% else %}  {# visitantes #}
+    <table>
+      <thead>
+        <tr><th>Nombre</th><th>Teléfono</th>
+            <th>Pidió contacto</th><th>Última actividad</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in filas %}
+        <tr>
+          <td><b>{{ r.nombre or '(sin nombre)' }}</b></td>
+          <td class="mono">{{ r.telefono }}</td>
+          <td class="mono">{{ r.n_pidio or 0 }}</td>
+          <td class="mono" style="color:var(--muted)">
+            {% if r.updated_at %}{{ r.updated_at.strftime('%m-%d %H:%M') }}{% endif %}
+          </td>
+          <td>
+            <a class="link" href="/panel/petra/visitante/usuario/{{ r.telefono }}?token={{ token }}" target="_blank">ver chat →</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+  </div>
+  {% endfor %}
+
+</main>
+</body>
+</html>

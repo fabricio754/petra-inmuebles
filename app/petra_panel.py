@@ -4894,3 +4894,168 @@ def flags_toggle(nombre):
     _flags_cache_bust()
     return redirect(url_for("petra_panel.flags_dashboard",
                             token=token, flash="ok"))
+
+
+# =============================================================================
+# PASOS — Detalle persona-a-persona de propietarios, agentes y visitantes
+# con su etapa actual, agrupados por paso del embudo.
+# =============================================================================
+
+def _detalle_propietarios():
+    """Lista inmuebles activos con dueño + paso actual + última actividad."""
+    sql = """
+      SELECT iv.id, iv.tipo, iv.nro, iv.operacion, iv.precio, iv.m2,
+             iv.propietario_telefono,
+             iv.datos_confirmado_at, iv.bienvenida_at,
+             iv.ofrecer_petra_at, iv.ofrecer_credito_at, iv.mandato_at,
+             iv.creado_en,
+             cv.nombre AS conjunto_nombre,
+             cv.codigo AS conjunto_codigo
+        FROM inmuebles_visitante iv
+        LEFT JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id
+       WHERE iv.activo = TRUE
+       ORDER BY iv.creado_en DESC
+    """
+    with _db._conexion_directa(timeout=5) as conn:
+        rows = _rows(conn, sql)
+    for r in rows:
+        if r.get("mandato_at"):
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "mandato", "🤝 Mandato firmado", "mandato"
+            r["ult_actividad"] = r["mandato_at"]
+        elif r.get("ofrecer_credito_at"):
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "credito", "💵 Ofrecido Crédito", "credito"
+            r["ult_actividad"] = r["ofrecer_credito_at"]
+        elif r.get("ofrecer_petra_at"):
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "ofrecer", "🏠 Ofrecida Petra", "ofrecer"
+            r["ult_actividad"] = r["ofrecer_petra_at"]
+        elif r.get("bienvenida_at"):
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "bienvenida", "✉️ Bienvenida enviada", "bienvenida"
+            r["ult_actividad"] = r["bienvenida_at"]
+        elif r.get("datos_confirmado_at"):
+            tiene_datos = (r.get("precio") or 0) > 0 and (r.get("m2") or 0) > 0
+            r["etapa"] = "confirmado"
+            r["etapa_label"] = "📝 Datos completos · listo bienvenida" if tiene_datos \
+                else "🟡 Contactado · faltan datos"
+            r["etapa_cls"] = "confirmado"
+            r["ult_actividad"] = r["datos_confirmado_at"]
+        else:
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "pendiente", "⚪ Pendiente contacto (Sebas)", "pendiente"
+            r["ult_actividad"] = r["creado_en"]
+        r["codigo"] = f"P{r['id']:04d}"
+    # Agrupar por etapa en orden del embudo
+    orden = ["pendiente", "confirmado", "bienvenida", "ofrecer",
+             "credito", "mandato"]
+    grupos = {k: [] for k in orden}
+    for r in rows:
+        grupos[r["etapa"]].append(r)
+    return [(k, grupos[k]) for k in orden if grupos[k]]
+
+
+def _detalle_agentes():
+    """Lista agentes Petra con su estado + última actividad."""
+    sql = """
+      SELECT telefono, nombre, updated_at,
+             metadata->>'estado_agente' AS estado_agente,
+             metadata->>'ciudad' AS ciudad,
+             metadata->>'videos_vistos' AS videos_vistos,
+             created_at
+        FROM petra_contactos
+       WHERE rol = 'agente_petra'
+       ORDER BY updated_at DESC NULLS LAST
+    """
+    with _db._conexion_directa(timeout=5) as conn:
+        rows = _rows(conn, sql)
+    for r in rows:
+        est = (r.get("estado_agente") or "").lower()
+        if est == "recolectando":
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "recolectando", "🌱 Recolectando datos", "pendiente"
+        elif est == "en_capacitacion":
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "capacitacion", "🎓 En capacitación", "confirmado"
+        elif est == "autorizacion_pendiente":
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "autorizacion", "📋 Autorización pendiente", "bienvenida"
+        elif est in ("activa", "activo"):
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "activa", "✅ Activa", "mandato"
+        elif est == "pausada":
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "pausada", "⏸ Pausada", "credito"
+        else:
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "sin_estado", "❓ Sin estado", "pendiente"
+    orden = ["recolectando", "capacitacion", "autorizacion", "activa",
+             "pausada", "sin_estado"]
+    grupos = {k: [] for k in orden}
+    for r in rows:
+        grupos[r["etapa"]].append(r)
+    return [(k, grupos[k]) for k in orden if grupos[k]]
+
+
+def _detalle_visitantes():
+    """Visitantes QR (contactos no-agentes) activos último mes."""
+    sql = """
+      SELECT pc.telefono, pc.nombre, pc.updated_at, pc.created_at,
+             pc.meta->>'visitante_conjunto_id' AS conjunto_id,
+             pc.meta->>'visitante_estado' AS estado_v,
+             (SELECT COUNT(*) FROM petra_interesados_qr i
+               WHERE i.interesado_telefono = pc.telefono) AS n_pidio
+        FROM petra_contactos pc
+       WHERE (pc.rol IS NULL OR pc.rol = 'visitante')
+         AND pc.updated_at > NOW() - INTERVAL '30 days'
+       ORDER BY pc.updated_at DESC
+       LIMIT 500
+    """
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            rows = _rows(conn, sql)
+    except Exception:
+        rows = []
+    for r in rows:
+        if (r.get("n_pidio") or 0) > 0:
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "pidio_contacto", "💬 Pidió contacto a propietario", "mandato"
+            r["ult_actividad"] = r["updated_at"]
+        elif r.get("conjunto_id"):
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "escaneo", "👋 Escaneó QR", "confirmado"
+            r["ult_actividad"] = r["updated_at"]
+        else:
+            r["etapa"], r["etapa_label"], r["etapa_cls"] = \
+                "sin_actividad", "👀 Sin actividad clara", "pendiente"
+            r["ult_actividad"] = r["updated_at"]
+    orden = ["pidio_contacto", "escaneo", "sin_actividad"]
+    grupos = {k: [] for k in orden}
+    for r in rows:
+        grupos[r["etapa"]].append(r)
+    return [(k, grupos[k]) for k in orden if grupos[k]]
+
+
+@petra_panel_bp.get("/pasos")
+def pasos_personas():
+    """Detalle persona-a-persona de propietarios, agentes y visitantes QR."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    tipo = (request.args.get("tipo") or "propietarios").strip()
+    if tipo == "agentes":
+        grupos = _detalle_agentes()
+        titulo = "👤 Agentes Petra"
+    elif tipo == "visitantes":
+        grupos = _detalle_visitantes()
+        titulo = "👀 Visitantes QR"
+    else:
+        tipo = "propietarios"
+        grupos = _detalle_propietarios()
+        titulo = "🏠 Propietarios"
+    total = sum(len(g[1]) for g in grupos)
+    return render_template(
+        "petra_pasos.html",
+        tipo=tipo, grupos=grupos, titulo=titulo,
+        total=total, token=token,
+    )
