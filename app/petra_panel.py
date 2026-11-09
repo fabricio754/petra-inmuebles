@@ -4814,3 +4814,83 @@ def _run_funnels():
             funnels.append({"titulo": fn.__name__, "total": 0, "subtotal_label": "",
                             "extra": f"crasheó: {e}", "pasos": []})
     return funnels
+
+
+# =============================================================================
+# FEATURE FLAGS — switches on/off desde /panel/petra/flags
+# =============================================================================
+
+import time as _time
+_FLAGS_CACHE = {"data": {}, "ts": 0.0, "ttl": 30.0}
+
+
+def _flag(nombre, default=False):
+    """Lee un feature flag. Cachea 30s para no hammer DB en hot paths.
+    Si el flag no existe en DB, devuelve `default`.
+    Uso típico:
+        from app.petra_panel import _flag
+        if _flag("disparador_viernes_propietarios"):
+            ...
+    """
+    now = _time.time()
+    cache = _FLAGS_CACHE
+    if now - cache["ts"] > cache["ttl"] or not cache["data"]:
+        try:
+            with _db._conexion_directa(timeout=3) as conn:
+                rows = conn.execute(
+                    "SELECT nombre, activo FROM petra_flags").fetchall()
+            cache["data"] = {r[0]: bool(r[1]) for r in rows}
+            cache["ts"] = now
+        except Exception:
+            # Si falla la DB, usar lo que haya cacheado (o default)
+            pass
+    return cache["data"].get(nombre, default)
+
+
+def _flags_cache_bust():
+    """Fuerza la próxima lectura a ir a DB. Se llama después de toggle."""
+    _FLAGS_CACHE["ts"] = 0.0
+
+
+@petra_panel_bp.get("/flags")
+def flags_dashboard():
+    """UI de feature flags. Grupos por categoría, toggle con PIN."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    with _db._conexion_directa(timeout=5) as conn:
+        rows = _rows(conn,
+            "SELECT nombre, activo, categoria, descripcion, updated_at "
+            "FROM petra_flags ORDER BY categoria, nombre")
+    # Agrupar por categoría
+    grupos = {}
+    for f in rows:
+        grupos.setdefault(f["categoria"], []).append(f)
+    return render_template(
+        "petra_flags.html",
+        grupos=grupos, token=token, flash=flash,
+    )
+
+
+@petra_panel_bp.post("/flags/<nombre>/toggle")
+def flags_toggle(nombre):
+    """Toggle activo/inactivo. Requiere PIN de Fabricio."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    if not _verificar_pin("fabricio"):
+        return redirect(url_for("petra_panel.flags_dashboard",
+                                token=token, flash="pin_malo"))
+    with _db._conexion_directa(timeout=5) as conn:
+        row = conn.execute(
+            "SELECT activo FROM petra_flags WHERE nombre=%s", (nombre,)
+        ).fetchone()
+        if not row:
+            return redirect(url_for("petra_panel.flags_dashboard",
+                                    token=token, flash="no_existe"))
+        nuevo = not bool(row[0])
+        conn.execute(
+            "UPDATE petra_flags SET activo=%s, updated_at=NOW() "
+            "WHERE nombre=%s", (nuevo, nombre))
+    _flags_cache_bust()
+    return redirect(url_for("petra_panel.flags_dashboard",
+                            token=token, flash="ok"))

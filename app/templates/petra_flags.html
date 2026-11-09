@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Feature Flags · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f8fa; --panel: #fff; --border: #d0d7de;
+    --text: #1f2328; --muted: #656d76;
+    --ok: #1a7f37; --ok-soft: #dafbe1;
+    --down: #cf222e; --down-soft: #ffebe9;
+    --warn-soft: #fff8c5;
+    --accent: #7c5cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background:#fff; border-bottom:1px solid var(--border);
+            display:flex; align-items:center; gap:14px; }
+  .topbar h1 { margin:0; font-size:17px; font-weight:600; }
+  .topbar a.back { color: var(--accent); text-decoration:none; font-size:13px; margin-left:auto; }
+  main { padding: 24px; max-width: 880px; margin: 0 auto; }
+
+  .intro { background: var(--panel); border:1px solid var(--border);
+           border-radius:10px; padding: 12px 16px; margin-bottom:18px;
+           color: var(--muted); font-size:12.5px; line-height:1.5; }
+  .intro b { color: var(--text); }
+
+  .flash { padding:10px 14px; border-radius:8px; margin-bottom:14px; font-size:13px; }
+  .flash.ok   { background: var(--ok-soft);   color: var(--ok); }
+  .flash.err  { background: var(--down-soft); color: var(--down); }
+  .flash.warn { background: var(--warn-soft); color: #92400e; }
+
+  .cat-h { font-size:12px; font-weight:600; color: var(--muted);
+           text-transform:uppercase; letter-spacing:.5px;
+           margin: 18px 0 8px; }
+
+  .list { background: var(--panel); border:1px solid var(--border);
+          border-radius: 10px; overflow:hidden; }
+  .row { padding: 14px 18px; display:flex; align-items:center; gap:14px;
+         border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom:none; }
+  .row .info { flex:1; min-width:0; }
+  .row .info b { font-family: ui-monospace, Menlo, monospace;
+                 font-size: 13px; font-weight:600; display:block; }
+  .row .info .desc { color: var(--muted); font-size:12.5px; margin-top:3px;
+                     line-height:1.4; }
+  .row .ts { color: var(--muted); font-size:11px;
+             font-family: ui-monospace, Menlo, monospace; }
+
+  /* Toggle switch */
+  .toggle { position: relative; display: inline-block;
+            width: 44px; height: 24px; flex-shrink:0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; cursor: pointer; inset: 0;
+            background: #cbc5db; transition: .2s; border-radius: 999px; }
+  .slider:before { content: ""; position: absolute; left: 2px; top: 2px;
+                   width: 20px; height: 20px; background: #fff;
+                   border-radius: 50%; transition: .2s;
+                   box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .toggle input:checked + .slider { background: var(--ok); }
+  .toggle input:checked + .slider:before { transform: translateX(20px); }
+
+  .pill { padding: 2px 8px; border-radius: 999px; font-size: 10.5px;
+          font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
+  .pill.on  { background: var(--ok-soft);   color: var(--ok); }
+  .pill.off { background: #ebeef1;          color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>⚙️ Petra · Feature Flags</h1>
+  <a class="back" href="/panel/petra?token={{ token }}">← Panel</a>
+</div>
+
+<main>
+
+  <div class="intro">
+    Switches <b>on/off</b> para controlar features en vivo, sin redeploy.
+    Al apretar un toggle te pide PIN de Fabricio. Los cambios pueden tardar
+    hasta <b>30 segundos</b> en propagarse (hay cache).
+  </div>
+
+  {% if flash == 'ok' %}
+    <div class="flash ok">✔ Flag actualizado</div>
+  {% elif flash == 'pin_malo' %}
+    <div class="flash err">❌ PIN incorrecto</div>
+  {% elif flash == 'no_existe' %}
+    <div class="flash err">❌ Flag no existe</div>
+  {% endif %}
+
+  {% for categoria, flags in grupos.items() %}
+    <div class="cat-h">{{ categoria }}</div>
+    <div class="list">
+      {% for f in flags %}
+      <div class="row">
+        <div class="info">
+          <b>{{ f.nombre }}</b>
+          <div class="desc">{{ f.descripcion or '(sin descripción)' }}</div>
+        </div>
+        <span class="ts">
+          {% if f.updated_at %}{{ f.updated_at.strftime('%m-%d %H:%M') }}{% endif %}
+        </span>
+        <span class="pill {% if f.activo %}on{% else %}off{% endif %}">
+          {{ 'ON' if f.activo else 'OFF' }}
+        </span>
+        <form method="post"
+              action="/panel/petra/flags/{{ f.nombre }}/toggle"
+              onsubmit="return pedirPinYAgregar(this)"
+              style="margin:0">
+          <input type="hidden" name="token" value="{{ token }}">
+          <input type="hidden" name="pin" value="">
+          <label class="toggle">
+            <input type="checkbox" {% if f.activo %}checked{% endif %}
+                   onchange="this.form.requestSubmit()">
+            <span class="slider"></span>
+          </label>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  {% endfor %}
+
+</main>
+
+<script>
+function pedirPinYAgregar(form) {
+  let pin = null;
+  try { pin = sessionStorage.getItem('petra_pin_fabricio'); } catch(e){}
+  if (!pin) {
+    pin = prompt('PIN de 4 dígitos de Fabricio:');
+    if (!pin || !/^\d{4}$/.test(pin)) {
+      // Devolver el checkbox a su estado anterior
+      const cb = form.querySelector('input[type=checkbox]');
+      if (cb) cb.checked = !cb.checked;
+      return false;
+    }
+    try { sessionStorage.setItem('petra_pin_fabricio', pin); } catch(e){}
+  }
+  form.querySelector('input[name="pin"]').value = pin;
+  return true;
+}
+</script>
+
+</body>
+</html>
