@@ -2239,3 +2239,34 @@ ALTER TABLE inmuebles_visitante
   ADD COLUMN IF NOT EXISTS ofrecer_credito_at  TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS mandato_at          TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS mandato_nota        TEXT;
+
+
+-- ============================================================================
+-- Feature flags — switches on/off operados desde /panel/petra/flags.
+-- Permiten apagar features arriesgadas en tiempo real sin redeploy.
+-- Cada flag se consume con petra_panel._flag("nombre", default=False).
+-- Idempotente: los flags iniciales se insertan vía ON CONFLICT DO NOTHING.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS petra_flags (
+  nombre       TEXT PRIMARY KEY,
+  activo       BOOLEAN NOT NULL DEFAULT FALSE,
+  categoria    TEXT NOT NULL DEFAULT 'general',
+  descripcion  TEXT,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO petra_flags (nombre, activo, categoria, descripcion) VALUES
+  ('bot_visitante_qr',               TRUE,  'bot',
+   'Flujo QR de visitantes activo. Si se apaga, el bot no responde a quien escanea el QR.'),
+  ('disparador_viernes_propietarios', FALSE, 'disparadores',
+   'Cron viernes 9am: ¿Sigue disponible tu inmueble? — Pausado por defecto hasta tener template Meta aprobado.'),
+  ('disparador_buscador_seguimiento', FALSE, 'disparadores',
+   'Cron diario 10:30am: ¿Sigues buscando? a buscadores con 5+ días inactivos.'),
+  ('disparador_mejora_busqueda',      TRUE,  'disparadores',
+   'Delay 15 min después del contacto: para mejorar la búsqueda (zona, presupuesto, metros).'),
+  ('bienvenida_con_video',            TRUE,  'embudo',
+   'Al enviar bienvenida (etapa 2) incluye el link para adjuntar el video. Si se apaga, solo va texto.'),
+  ('mandato_requiere_confirmacion',   TRUE,  'embudo',
+   'El botón "Marcar mandato" pide confirmación JS. Si se apaga, click directo.'),
+  ('nuevo_inmueble_sin_precio',       TRUE,  'panel',
+   'Permite crear inmueble con precio vacío (se guarda como 0). Si se apaga, precio obligatorio.');

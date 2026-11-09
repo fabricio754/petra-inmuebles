@@ -839,6 +839,13 @@ def _petra_nudge_viernes_disponibles():
 
     Pausable con env PETRA_VIERNES_DISPONIBLE_PAUSADO=1.
     """
+    try:
+        from app.petra_panel import _flag
+        if not _flag("disparador_viernes_propietarios", default=True):
+            log.info("[viernes-disp] flag petra_flags.disparador_viernes_propietarios OFF.")
+            return
+    except Exception:
+        pass
     if _disparador_pausado("viernes_disponible",
                             env_fallback="PETRA_VIERNES_DISPONIBLE_PAUSADO"):
         log.info("[viernes-disp] pausado.")
@@ -913,6 +920,13 @@ def _petra_nudge_buscador_seguimiento():
 
     Pausable con env PETRA_BUSCADOR_FOLLOWUP_PAUSADO=1.
     """
+    try:
+        from app.petra_panel import _flag
+        if not _flag("disparador_buscador_seguimiento", default=True):
+            log.info("[busc-fup] flag petra_flags.disparador_buscador_seguimiento OFF.")
+            return
+    except Exception:
+        pass
     if _disparador_pausado("buscador_followup",
                             env_fallback="PETRA_BUSCADOR_FOLLOWUP_PAUSADO"):
         log.info("[busc-fup] pausado.")
@@ -993,6 +1007,12 @@ def _petra_nudge_mejora_busqueda():
     N configurable en petra_disparadores.delay_minutos (default 15).
     Pausable: toggle en el panel o PETRA_MEJORA_BUSQUEDA_PAUSADO=1.
     """
+    try:
+        from app.petra_panel import _flag
+        if not _flag("disparador_mejora_busqueda", default=True):
+            return
+    except Exception:
+        pass
     if _disparador_pausado("mejora_busqueda",
                             env_fallback="PETRA_MEJORA_BUSQUEDA_PAUSADO"):
         return
