@@ -1,0 +1,13 @@
+{
+  "name": "visitante_hola_sin_qr",
+  "description": "Un saludo plano sin QR activa el flow visitante por regla 5 de es_visitante (saludo + no es agente). El bot debe responder algo útil, no quedar silencioso.",
+  "telefono": "+99999000102",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "Hola",
+      "bot_contiene": [],
+      "bot_no_contiene": ["crash", "Traceback", "500"]
+    }
+  ]
+}
