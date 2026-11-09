@@ -627,8 +627,10 @@ def _procesar_webhook_petra(payload):
                 flow_response=flow_response,
             )
             return
-    except Exception:
+    except Exception as _e_visit:
         log.exception("[petra] visitante fallo tel=%s", phone)
+        _bot_fallback_y_alertar(phone, texto, "visitante", _e_visit)
+        return
 
     # Feature flag en cascada: multi-agent > orchestrator monolítico > legacy.
     # - USE_MULTI_AGENT=true → router + sub-agentes especializados
@@ -653,8 +655,11 @@ def _procesar_webhook_petra(payload):
                 contacto_nombre=nombre, wa_msg_id=wamid,
             )
             return
-    except Exception:
+    except Exception as _e_agents:
         log.exception("[petra] multi-agent fallo — cae a orchestrator")
+        # No cortamos acá: dejamos que caiga al orquestador legacy. Si ese
+        # también falla, el fallback final se dispara abajo.
+        _e_agents_capturado = _e_agents  # noqa: F841
     try:
         from app import petra_orchestrator
         if petra_orchestrator.esta_activo():
@@ -677,15 +682,78 @@ def _procesar_webhook_petra(payload):
             edificio_slug=edificio_slug,
             contacto_nombre=nombre,
         )
-    except Exception:
+    except Exception as _e_legacy:
         log.exception("[petra] handle_inbound fallo tel=%s", phone)
+        _bot_fallback_y_alertar(phone, texto, "legacy_router", _e_legacy)
         return
 
     for msg in out.get("messages", []):
         try:
             petra_wa.send_message(phone, msg)
-        except Exception:
+        except Exception as _e_send:
             log.exception("[petra] send_message fallo tel=%s", phone)
+            _bot_fallback_y_alertar(phone, texto, "send_message", _e_send)
+
+
+_ALERTA_ULTIMO_ENVIO = {"ts": 0.0, "razones": {}}
+
+def _bot_fallback_y_alertar(phone, texto_usuario, rama, error):
+    """Cuando un handler crashea: enviar fallback al usuario + alertar operador.
+
+    No intenta nada si ya se envió fallback en los últimos 60s para el mismo
+    teléfono (evita loops). La alerta al operador tiene rate-limit de 1 por
+    minuto por tipo de razón (ej. "visitante", "orquestador") para no
+    floodear si todo el bot está roto.
+
+    Marca el contacto con requires_humano=true en la DB para que aparezca
+    en el panel y un humano pueda tomar la conversación.
+    """
+    import time as _tm
+    import traceback as _tb
+    try:
+        from app import petra_wa
+        petra_wa.send_message(phone, {
+            "type": "text",
+            "text": {"body":
+                "👋 Perdón, tuvimos un problema procesando tu mensaje.\n\n"
+                "Un asesor te responderá en un momento. Mientras tanto "
+                "podés escribirle a Fabricio a wa.me/573102303030."},
+        })
+    except Exception:
+        log.exception("[petra] fallback user send fallo tel=%s", phone)
+
+    # Marcar requires_humano para que aparezca en el panel.
+    try:
+        from app import db as _db
+        _db.marcar_requiere_humano(
+            phone, motivo=f"bot_crash: {rama} — {type(error).__name__}"
+        )
+    except Exception:
+        log.exception("[petra] marcar_requiere_humano fallo tel=%s", phone)
+
+    # Alertar operador con rate-limit por rama (una por minuto por rama).
+    try:
+        destino = (os.environ.get("PETRA_OPERADOR_PHONE") or "").strip()
+        if not destino:
+            return
+        now = _tm.time()
+        ult = _ALERTA_ULTIMO_ENVIO["razones"].get(rama, 0.0)
+        if now - ult < 60.0:
+            return
+        _ALERTA_ULTIMO_ENVIO["razones"][rama] = now
+        from app import petra_wa
+        texto = (texto_usuario or "(vacío)").strip()[:200]
+        tb_tail = "".join(_tb.format_exception_only(type(error), error)).strip()[:300]
+        petra_wa.send_text(
+            destino,
+            f"🚨 Bot crash en rama *{rama}*\n\n"
+            f"Tel: {phone}\n"
+            f"Texto: {texto}\n\n"
+            f"Error: {tb_tail}\n\n"
+            f"Ver detalle en Render logs o panel/petra/salud."
+        )
+    except Exception:
+        log.exception("[petra] alerta operador fallo")
 
 
 def _procesar_status(s):
