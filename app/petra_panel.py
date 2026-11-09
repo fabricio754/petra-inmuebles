@@ -634,6 +634,7 @@ def panel_home():
                  AND texto IS NOT NULL
                  AND LENGTH(TRIM(texto)) > 0
                ORDER BY tipo DESC, created_at DESC""")
+    contexto["modo_staging"] = (os.environ.get("MODO_STAGING") or "").strip() == "1"
     return render_template("petra_panel.html", **contexto)
 
 

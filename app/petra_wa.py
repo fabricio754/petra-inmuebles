@@ -92,6 +92,17 @@ def _en_whitelist(dest):
 
 
 def _post(payload):
+    # Modo STAGING: no enviar NADA a Meta. Logear el payload y volver OK.
+    # Permite correr el bot entero en staging sin molestar propietarios
+    # reales. Se activa con env MODO_STAGING=1 (debe estar solo en el
+    # servicio staging, nunca en prod).
+    import os as _os
+    if (_os.environ.get("MODO_STAGING") or "").strip() == "1":
+        log.info("[petra_wa] 🧪 MODO_STAGING to=%s type=%s — NO enviado a Meta",
+                 payload.get("to") or payload.get("recipient"),
+                 payload.get("type"))
+        return {"ok": True, "staging_skip": True,
+                "nota": "MODO_STAGING=1: envío silenciado"}
     # Modo simulación: capturar en vez de enviar. El panel reutiliza TODO
     # el pipeline (router + flow + LLM) para probar sin WhatsApp real.
     if _is_simulating():

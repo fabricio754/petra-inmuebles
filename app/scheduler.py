@@ -84,6 +84,12 @@ def iniciar():
         log.info("[Scheduler] Sin DATABASE_URL — no se inicia.")
         return
 
+    # MODO_STAGING: no arrancar scheduler para no disparar crons a
+    # propietarios reales desde el ambiente de pruebas.
+    if (os.environ.get("MODO_STAGING") or "").strip() == "1":
+        log.info("[Scheduler] 🧪 MODO_STAGING=1 — scheduler NO se inicia.")
+        return
+
     from apscheduler.schedulers.background import BackgroundScheduler
     _scheduler = BackgroundScheduler(timezone="America/Bogota")
     _scheduler.add_job(_webhook_queue_health, "interval", minutes=10,
