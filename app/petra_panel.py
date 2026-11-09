@@ -5203,3 +5203,93 @@ def deploys_promover():
                                  "Hacelo desde prod."}), 400
     res = _gh_merge_dev_into_main()
     return jsonify(res)
+
+
+# =============================================================================
+# OBSERVABILIDAD — dashboard que agrega petra_paso_eventos
+# =============================================================================
+
+def _stats_por_etapa(ambiente, horas):
+    """Devuelve lista de etapas con stats (últimas N horas), ordenadas por
+    volumen descendente."""
+    sql = """
+      SELECT etapa,
+             COUNT(*)                                       AS total,
+             COUNT(*) FILTER (WHERE resultado='ok')         AS ok,
+             COUNT(*) FILTER (WHERE resultado='fallo')      AS fallo,
+             COUNT(*) FILTER (WHERE resultado='timeout')    AS timeout,
+             PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY tiempo_ms)   AS p50,
+             PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY tiempo_ms)  AS p95,
+             MAX(tiempo_ms)                                 AS p_max,
+             (SELECT error FROM petra_paso_eventos p2
+               WHERE p2.etapa = p.etapa AND p2.ambiente = p.ambiente
+                 AND p2.resultado = 'fallo'
+                 AND p2.ts > NOW() - INTERVAL '%s hours'
+               ORDER BY p2.ts DESC LIMIT 1)                 AS ultimo_error
+        FROM petra_paso_eventos p
+       WHERE ambiente = %s
+         AND ts > NOW() - INTERVAL '%s hours'
+       GROUP BY etapa, ambiente
+       ORDER BY total DESC
+       LIMIT 50
+    """
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            rows = _rows(conn, sql, (horas, ambiente, horas))
+    except Exception as e:
+        return [{"error_global": str(e)}]
+    for r in rows:
+        total = r.get("total") or 0
+        ok = r.get("ok") or 0
+        r["pct_ok"] = int(ok * 100 / total) if total else 0
+        if r["pct_ok"] >= 95:
+            r["status"] = "ok"
+        elif r["pct_ok"] >= 80:
+            r["status"] = "warn"
+        else:
+            r["status"] = "down"
+    return rows
+
+
+@petra_panel_bp.get("/observabilidad")
+def observabilidad_dashboard():
+    """Dashboard de observabilidad por paso. Muestra comparación lado a
+    lado prod vs staging con % éxito, latencias, último error por etapa."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    horas = int(request.args.get("horas") or 24)
+    prod = _stats_por_etapa("prod", horas)
+    staging = _stats_por_etapa("staging", horas)
+    # Unificar lista de etapas que apararecen en cualquiera de los dos
+    etapas = sorted(set(
+        [r["etapa"] for r in prod if "etapa" in r] +
+        [r["etapa"] for r in staging if "etapa" in r]
+    ))
+    prod_by = {r["etapa"]: r for r in prod if "etapa" in r}
+    staging_by = {r["etapa"]: r for r in staging if "etapa" in r}
+    rows = []
+    for e in etapas:
+        rows.append({
+            "etapa": e,
+            "prod": prod_by.get(e),
+            "staging": staging_by.get(e),
+        })
+    return render_template(
+        "petra_observabilidad.html",
+        rows=rows, horas=horas, token=token,
+        total_eventos_prod=sum(r.get("total", 0) for r in prod if "etapa" in r),
+        total_eventos_staging=sum(r.get("total", 0) for r in staging if "etapa" in r),
+    )
+
+
+@petra_panel_bp.get("/observabilidad.json")
+def observabilidad_json():
+    """JSON para auto-refresh del dashboard sin recargar."""
+    _check_token()
+    from flask import jsonify
+    horas = int(request.args.get("horas") or 24)
+    return jsonify({
+        "horas": horas,
+        "prod": _stats_por_etapa("prod", horas),
+        "staging": _stats_por_etapa("staging", horas),
+    })

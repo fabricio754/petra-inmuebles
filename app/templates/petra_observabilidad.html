@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Observabilidad · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f8fa; --panel: #fff; --border: #d0d7de;
+    --text: #1f2328; --muted: #656d76;
+    --ok: #1a7f37; --ok-soft: #dafbe1;
+    --warn: #9a6700; --warn-soft: #fff8c5;
+    --down: #cf222e; --down-soft: #ffebe9;
+    --accent: #7c5cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background:#fff; border-bottom:1px solid var(--border);
+            display:flex; align-items:center; gap:14px; flex-wrap: wrap; }
+  .topbar h1 { margin:0; font-size:17px; font-weight:600; }
+  .topbar a.back { color: var(--accent); text-decoration:none; font-size:13px; margin-left:auto; }
+
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+
+  .intro { background: var(--panel); border:1px solid var(--border);
+           border-radius: 10px; padding: 12px 18px; margin-bottom: 14px;
+           color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+
+  .controls { display: flex; gap: 10px; margin-bottom: 16px; }
+  .btn-period { padding: 6px 14px; border-radius: 6px; font-size: 12px;
+                text-decoration: none; color: var(--text);
+                background: #fff; border: 1px solid var(--border); font-weight: 500; }
+  .btn-period.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .totales { display: flex; gap: 12px; margin-bottom: 18px; }
+  .total-card { background: var(--panel); border: 1px solid var(--border);
+                border-radius: 10px; padding: 12px 18px; flex: 1; }
+  .total-card .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase;
+                     letter-spacing: .5px; }
+  .total-card .val { font-size: 22px; font-weight: 700; margin-top: 4px; }
+
+  table { width: 100%; background: var(--panel); border: 1px solid var(--border);
+          border-radius: 10px; border-collapse: collapse; overflow: hidden;
+          margin-top: 10px; }
+  thead th { text-align: left; padding: 10px 14px; background: #fafbfc;
+             color: var(--muted); font-size: 11px; text-transform: uppercase;
+             letter-spacing: .5px; font-weight: 600;
+             border-bottom: 1px solid var(--border); }
+  thead th.amb { border-left: 3px solid var(--border); padding-left: 12px; }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid #f1eef7;
+             vertical-align: top; font-size: 12.5px; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody td.amb { border-left: 3px solid var(--border); padding-left: 12px; }
+
+  .etapa { font-family: ui-monospace, Menlo, monospace; font-weight: 600;
+           font-size: 12px; color: var(--text); word-break: break-all; }
+
+  .pill { padding: 2px 8px; border-radius: 999px; font-size: 10.5px;
+          font-weight: 600; display: inline-block; }
+  .pill.ok   { background: var(--ok-soft);   color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.down { background: var(--down-soft); color: var(--down); }
+  .pill.none { background: #f1f5f9; color: #94a3b8; }
+
+  .metric { color: var(--muted); font-size: 11.5px;
+            font-family: ui-monospace, Menlo, monospace; }
+  .err { margin-top: 4px; color: var(--down); font-size: 11px;
+         font-family: ui-monospace, Menlo, monospace;
+         max-width: 300px; overflow: hidden; text-overflow: ellipsis;
+         white-space: nowrap; }
+
+  .empty { padding: 60px 20px; text-align: center; color: var(--muted);
+           font-size: 13px; background: var(--panel); border: 1px solid var(--border);
+           border-radius: 10px; }
+  .empty .big { font-size: 40px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>🔬 Petra · Observabilidad por paso</h1>
+  <a class="back" href="/panel/petra?token={{ token }}">← Panel</a>
+</div>
+
+<main>
+
+  <div class="intro">
+    Cada etapa del bot (<code>visitante_handle_message</code>, <code>bot_crash_*</code>, etc.)
+    con % éxito, latencia p50/p95 y último error. <b>Prod</b> y <b>staging</b> lado a lado
+    para comparar si algo divergió.
+  </div>
+
+  <div class="controls">
+    <span style="color:var(--muted);font-size:12px;align-self:center">Ventana:</span>
+    {% for h in [1, 6, 24, 168] %}
+      <a class="btn-period {% if horas == h %}on{% endif %}"
+         href="?token={{ token }}&horas={{ h }}">
+        {% if h == 1 %}1h{% elif h == 6 %}6h{% elif h == 24 %}24h{% else %}7 días{% endif %}
+      </a>
+    {% endfor %}
+  </div>
+
+  <div class="totales">
+    <div class="total-card">
+      <div class="lbl">Eventos PROD (últimas {{ horas }}h)</div>
+      <div class="val">{{ total_eventos_prod }}</div>
+    </div>
+    <div class="total-card">
+      <div class="lbl">Eventos STAGING (últimas {{ horas }}h)</div>
+      <div class="val" style="color:#f59e0b">{{ total_eventos_staging }}</div>
+    </div>
+  </div>
+
+  {% if not rows %}
+    <div class="empty">
+      <div class="big">📭</div>
+      <div>Sin eventos todavía en esta ventana.</div>
+      <div style="font-size:11.5px;margin-top:6px">
+        Mandá un mensaje al bot y refrescá — debería aparecer la etapa
+        <code>visitante_handle_message</code>.
+      </div>
+    </div>
+  {% else %}
+  <table>
+    <thead>
+      <tr>
+        <th>Etapa</th>
+        <th class="amb">PROD · % éxito</th>
+        <th>PROD · p50/p95 ms</th>
+        <th>PROD · último error</th>
+        <th class="amb">STAGING · % éxito</th>
+        <th>STAGING · p50/p95 ms</th>
+        <th>STAGING · último error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td class="etapa">{{ row.etapa }}</td>
+        {% set p = row.prod %}
+        <td class="amb">
+          {% if p %}
+            <span class="pill {{ p.status }}">{{ p.pct_ok }}%</span>
+            <div class="metric">{{ p.ok }}/{{ p.total }}
+              {% if p.fallo %} · ⚠ {{ p.fallo }} fallos{% endif %}
+            </div>
+          {% else %}<span class="pill none">sin datos</span>{% endif %}
+        </td>
+        <td>
+          {% if p %}
+            <span class="metric">{{ p.p50 or '—' }} / {{ p.p95 or '—' }} ms</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if p and p.ultimo_error %}
+            <span class="err" title="{{ p.ultimo_error }}">{{ p.ultimo_error }}</span>
+          {% else %}<span class="metric">—</span>{% endif %}
+        </td>
+        {% set s = row.staging %}
+        <td class="amb">
+          {% if s %}
+            <span class="pill {{ s.status }}">{{ s.pct_ok }}%</span>
+            <div class="metric">{{ s.ok }}/{{ s.total }}
+              {% if s.fallo %} · ⚠ {{ s.fallo }} fallos{% endif %}
+            </div>
+          {% else %}<span class="pill none">sin datos</span>{% endif %}
+        </td>
+        <td>
+          {% if s %}
+            <span class="metric">{{ s.p50 or '—' }} / {{ s.p95 or '—' }} ms</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if s and s.ultimo_error %}
+            <span class="err" title="{{ s.ultimo_error }}">{{ s.ultimo_error }}</span>
+          {% else %}<span class="metric">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:11px">
+    Auto-refresh cada 30 seg ·
+    <a href="/panel/petra/observabilidad.json?token={{ token }}&horas={{ horas }}" target="_blank" style="color:var(--accent);text-decoration:none">API JSON</a>
+  </div>
+
+</main>
+
+<script>
+setTimeout(function(){ location.reload(); }, 30000);
+</script>
+
+</body>
+</html>
