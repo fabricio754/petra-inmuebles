@@ -4309,3 +4309,278 @@ def inmueble_etapa_deshacer(iid, accion):
     if ref:
         return redirect(ref)
     return redirect(url_for("petra_panel.visitante_conjuntos", token=token))
+
+
+# =============================================================================
+# SALUD — Dashboard de estado tipo githubstatus.com
+# =============================================================================
+
+def _check_db():
+    import time
+    try:
+        t0 = time.time()
+        with _db._conexion_directa(timeout=3) as conn:
+            conn.execute("SELECT 1").fetchone()
+        ms = int((time.time() - t0) * 1000)
+        return {"nombre": "Base de datos (Postgres)",
+                "status": "ok" if ms < 500 else "warn",
+                "detalle": f"respondió en {ms} ms",
+                "bars": 4 if ms < 150 else (3 if ms < 500 else 2)}
+    except Exception as e:
+        return {"nombre": "Base de datos (Postgres)",
+                "status": "down", "detalle": f"error: {type(e).__name__}",
+                "bars": 0}
+
+
+def _check_whatsapp_api():
+    import requests
+    tok = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    pid = (os.environ.get("META_PHONE_NUMBER_ID") or "").strip()
+    if not tok or not pid:
+        return {"nombre": "WhatsApp API (Meta)",
+                "status": "down",
+                "detalle": "faltan credenciales en env",
+                "bars": 0}
+    try:
+        r = requests.get(
+            f"https://graph.facebook.com/v20.0/{pid}",
+            params={"fields": "verified_name,quality_rating,code_verification_status"},
+            headers={"Authorization": f"Bearer {tok}"},
+            timeout=5)
+        if r.status_code != 200:
+            return {"nombre": "WhatsApp API (Meta)",
+                    "status": "down",
+                    "detalle": f"HTTP {r.status_code}",
+                    "bars": 0}
+        d = r.json()
+        name = d.get("verified_name", "?")
+        qual = d.get("quality_rating", "?")
+        return {"nombre": "WhatsApp API (Meta)",
+                "status": "ok" if qual.upper() in ("GREEN", "UNKNOWN") else "warn",
+                "detalle": f"{name} · quality: {qual}",
+                "bars": 4 if qual.upper() == "GREEN" else 3}
+    except Exception as e:
+        return {"nombre": "WhatsApp API (Meta)",
+                "status": "down", "detalle": f"{type(e).__name__}",
+                "bars": 0}
+
+
+def _check_scheduler():
+    try:
+        from app import scheduler as _sch
+        s = getattr(_sch, "_scheduler", None)
+        if s is None or not getattr(s, "running", False):
+            return {"nombre": "Scheduler (APScheduler)",
+                    "status": "down", "detalle": "no corre",
+                    "bars": 0}
+        jobs = s.get_jobs()
+        n = len(jobs)
+        proximos = [j.next_run_time for j in jobs if j.next_run_time]
+        prox = min(proximos).strftime("%Y-%m-%d %H:%M") if proximos else "—"
+        return {"nombre": "Scheduler (APScheduler)",
+                "status": "ok" if n > 0 else "warn",
+                "detalle": f"{n} jobs · próximo {prox}",
+                "bars": 4 if n > 0 else 2}
+    except Exception as e:
+        return {"nombre": "Scheduler (APScheduler)",
+                "status": "down", "detalle": f"{type(e).__name__}",
+                "bars": 0}
+
+
+def _check_webhook_queue():
+    try:
+        with _db._conexion_directa(timeout=3) as conn:
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM webhook_queue WHERE estado='pending'"
+            ).fetchone()[0] or 0
+            atrasado = conn.execute(
+                "SELECT COUNT(*) FROM webhook_queue "
+                "WHERE estado='pending' AND recibido_at < NOW() - INTERVAL '2 minutes'"
+            ).fetchone()[0] or 0
+        if atrasado > 0:
+            return {"nombre": "Cola de webhooks",
+                    "status": "warn",
+                    "detalle": f"{pending} pendientes · {atrasado} atrasados",
+                    "bars": 1 if atrasado > 20 else 2}
+        return {"nombre": "Cola de webhooks",
+                "status": "ok",
+                "detalle": f"{pending} en cola · drena bien",
+                "bars": 4}
+    except Exception as e:
+        return {"nombre": "Cola de webhooks",
+                "status": "down", "detalle": f"{type(e).__name__}",
+                "bars": 0}
+
+
+def _check_disco():
+    import shutil
+    try:
+        t, u, f = shutil.disk_usage("/")
+        pct_libre = int(f * 100 / t)
+        gb_libre = f / (1024 ** 3)
+        if pct_libre < 10:
+            return {"nombre": "Disco",
+                    "status": "down" if pct_libre < 5 else "warn",
+                    "detalle": f"solo {pct_libre}% libre ({gb_libre:.1f} GB)",
+                    "bars": 1 if pct_libre < 5 else 2}
+        return {"nombre": "Disco",
+                "status": "ok",
+                "detalle": f"{pct_libre}% libre ({gb_libre:.1f} GB)",
+                "bars": 4}
+    except Exception as e:
+        return {"nombre": "Disco", "status": "down",
+                "detalle": str(e), "bars": 0}
+
+
+def _check_mensajes_out_24h():
+    try:
+        with _db._conexion_directa(timeout=3) as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM mensajes WHERE direccion='out' "
+                "AND fecha > NOW() - INTERVAL '24 hours'").fetchone()[0] or 0
+            fallidos = conn.execute(
+                "SELECT COUNT(*) FROM mensajes WHERE direccion='out' "
+                "AND fecha > NOW() - INTERVAL '24 hours' AND estado_entrega='failed'"
+            ).fetchone()[0] or 0
+        if total == 0:
+            return {"nombre": "Mensajes saliendo (24h)",
+                    "status": "warn", "detalle": "0 enviados — flujo quieto",
+                    "bars": 2}
+        pct_fail = int(fallidos * 100 / total) if total else 0
+        if pct_fail > 50:
+            return {"nombre": "Mensajes saliendo (24h)",
+                    "status": "down",
+                    "detalle": f"{total} enviados · {pct_fail}% fallidos",
+                    "bars": 1}
+        return {"nombre": "Mensajes saliendo (24h)",
+                "status": "ok" if pct_fail < 10 else "warn",
+                "detalle": f"{total} enviados · {pct_fail}% fallidos",
+                "bars": 4 if pct_fail < 5 else 3}
+    except Exception as e:
+        return {"nombre": "Mensajes saliendo (24h)",
+                "status": "down", "detalle": str(e), "bars": 0}
+
+
+def _check_embudo():
+    try:
+        with _db._conexion_directa(timeout=3) as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante WHERE activo=TRUE"
+            ).fetchone()[0] or 0
+            confirmados = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante WHERE activo=TRUE "
+                "AND datos_confirmado_at IS NOT NULL").fetchone()[0] or 0
+            mandatos = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante WHERE activo=TRUE "
+                "AND mandato_at IS NOT NULL").fetchone()[0] or 0
+        return {"nombre": "Embudo propietarios",
+                "status": "ok",
+                "detalle": f"{total} activos · {confirmados} confirmados · {mandatos} mandatos",
+                "bars": 4}
+    except Exception as e:
+        return {"nombre": "Embudo propietarios",
+                "status": "down", "detalle": str(e), "bars": 0}
+
+
+def _check_deploy_git():
+    try:
+        import subprocess
+        sha = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            timeout=2).decode().strip()
+        ts = subprocess.check_output(
+            ["git", "log", "-1", "--format=%cr"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            timeout=2).decode().strip()
+        return {"nombre": "Deploy actual",
+                "status": "ok",
+                "detalle": f"commit {sha} · {ts}",
+                "bars": 4}
+    except Exception as e:
+        return {"nombre": "Deploy actual",
+                "status": "warn", "detalle": str(e)[:60], "bars": 2}
+
+
+def _run_checks():
+    """Corre todos los checks. Cada uno es isolated — si uno falla no tumba al resto."""
+    checks = []
+    for fn in [_check_db, _check_whatsapp_api, _check_scheduler,
+               _check_webhook_queue, _check_disco, _check_mensajes_out_24h,
+               _check_embudo, _check_deploy_git]:
+        try:
+            checks.append(fn())
+        except Exception as e:
+            checks.append({"nombre": fn.__name__,
+                           "status": "down",
+                           "detalle": f"check crasheó: {e}",
+                           "bars": 0})
+    return checks
+
+
+def _global_status(checks):
+    """Agrega el estado general: OK si todos OK, WARN si algún warn, DOWN si alguno down."""
+    if any(c["status"] == "down" for c in checks):
+        return "down", "Algo está caído"
+    if any(c["status"] == "warn" for c in checks):
+        return "warn", "Operativo con advertencias"
+    return "ok", "Todo operativo"
+
+
+@petra_panel_bp.get("/salud")
+def salud_dashboard():
+    """Dashboard de estado tipo githubstatus.com. Protegido por PANEL_TOKEN."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    checks = _run_checks()
+    estado, mensaje = _global_status(checks)
+    from datetime import datetime
+    return render_template(
+        "petra_salud.html",
+        checks=checks, estado=estado, mensaje=mensaje,
+        verificado_en=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        token=token,
+    )
+
+
+@petra_panel_bp.get("/salud.json")
+def salud_json():
+    """Mismo check pero en JSON para que el frontend haga auto-refresh sin recargar."""
+    _check_token()
+    from flask import jsonify
+    from datetime import datetime
+    checks = _run_checks()
+    estado, mensaje = _global_status(checks)
+    return jsonify({
+        "estado": estado,
+        "mensaje": mensaje,
+        "verificado_en": datetime.now().strftime("%H:%M:%S"),
+        "checks": checks,
+    })
+
+
+@petra_panel_bp.post("/salud/smoke/wa")
+def salud_smoke_wa():
+    """Smoke test: manda un WA de prueba al número de Fabricio."""
+    _check_token()
+    if not _verificar_pin("fabricio"):
+        from flask import jsonify
+        return jsonify({"ok": False, "error": "PIN incorrecto"}), 401
+    destino = (os.environ.get("PETRA_OPERADOR_PHONE") or "").strip()
+    if not destino:
+        from flask import jsonify
+        return jsonify({"ok": False, "error": "PETRA_OPERADOR_PHONE no configurado"}), 400
+    try:
+        from app import whatsapp as _wa
+        from datetime import datetime
+        marca = datetime.now().strftime("%H:%M:%S")
+        resp = _wa.send_text(
+            destino,
+            f"🧪 Smoke test de Petra — {marca}\n\nSi ves este mensaje, la salida WA funciona end-to-end.")
+        from flask import jsonify
+        wa_id = (resp or {}).get("messages", [{}])[0].get("id", "?")
+        return jsonify({"ok": True, "wa_msg_id": wa_id,
+                        "destino": destino, "hora": marca})
+    except Exception as e:
+        from flask import jsonify
+        return jsonify({"ok": False, "error": str(e)}), 500
