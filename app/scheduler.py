@@ -197,6 +197,13 @@ def iniciar():
                        hours=4,
                        id="petra_recordatorios_auto",
                        max_instances=1, coalesce=True)
+    # Experiencia 4: chequeo de alertas cada 5 min. Si una etapa del bot
+    # cae por debajo del umbral (%éxito < 80 con N+ eventos), notifica
+    # al operador via WA. Con cooldown de 1h por etapa para no floodear.
+    _scheduler.add_job(_petra_chequear_alertas_metricas, "interval",
+                       minutes=5,
+                       id="petra_alertas_metricas",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min, "
              "nudges/citas/kit/tc_queue Petra.")
@@ -1106,3 +1113,109 @@ def _petra_nudge_mejora_busqueda():
 
     if enviados:
         log.info("[mejora-busq] mensajes enviados: %s", enviados)
+
+
+# =============================================================================
+# EXPERIENCIA 4 — alertas sobre métricas en vivo
+# =============================================================================
+
+def _petra_chequear_alertas_metricas():
+    """Cada 5 min: scan petra_paso_eventos última hora, agrupa por etapa,
+    si alguna cae por debajo del umbral (% éxito < 80 con 5+ eventos),
+    notifica al operador via WhatsApp.
+
+    Cooldown por etapa: no re-alerta la misma etapa en <1h (evita flood).
+    El cooldown se guarda en petra_meta.
+    """
+    try:
+        from app import db as _db, petra_wa as _pwa
+        import json as _json
+    except Exception:
+        log.exception("[alertas] import fallo.")
+        return
+
+    destino = (os.environ.get("PETRA_OPERADOR_PHONE") or "").strip()
+    if not destino:
+        log.info("[alertas] PETRA_OPERADOR_PHONE no configurado — skip.")
+        return
+
+    # Query: etapas con problemas en última hora
+    sql = """
+      SELECT etapa,
+             COUNT(*)                                    AS total,
+             COUNT(*) FILTER (WHERE resultado='ok')      AS ok,
+             COUNT(*) FILTER (WHERE resultado='fallo')   AS fallo,
+             (SELECT error FROM petra_paso_eventos p2
+               WHERE p2.etapa = p.etapa
+                 AND p2.resultado = 'fallo'
+                 AND p2.ts > NOW() - INTERVAL '1 hour'
+               ORDER BY p2.ts DESC LIMIT 1)              AS ultimo_error
+        FROM petra_paso_eventos p
+       WHERE ambiente = 'prod'
+         AND ts > NOW() - INTERVAL '1 hour'
+       GROUP BY etapa
+      HAVING COUNT(*) >= 5
+         AND (COUNT(*) FILTER (WHERE resultado='ok'))::float / COUNT(*) < 0.80
+    """
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            rows = conn.execute(sql).fetchall()
+            # Leer cooldowns ya enviados
+            meta_row = conn.execute(
+                "SELECT valor FROM meta WHERE clave='alertas_metricas_cooldown'"
+            ).fetchone()
+            cooldowns = _json.loads(meta_row[0]) if meta_row and meta_row[0] else {}
+    except Exception:
+        log.exception("[alertas] query fallo — skip.")
+        return
+
+    import time as _tm
+    ahora = _tm.time()
+    nuevas_alertas = []
+    for r in rows:
+        etapa, total, ok, fallo, ult_err = r[0], r[1], r[2], r[3], r[4]
+        ult = cooldowns.get(etapa, 0)
+        if ahora - ult < 3600:  # 1h cooldown
+            continue
+        pct_ok = int(ok * 100 / total) if total else 0
+        nuevas_alertas.append({
+            "etapa": etapa, "total": total, "ok": ok, "fallo": fallo,
+            "pct_ok": pct_ok, "ult_err": ult_err or "(sin detalle)"
+        })
+        cooldowns[etapa] = ahora
+
+    if not nuevas_alertas:
+        return
+
+    # Armar texto consolidado
+    lineas = [f"🚨 *Alerta métricas Petra*\n"]
+    lineas.append(f"Etapas degradadas en última hora (prod):")
+    for a in nuevas_alertas:
+        lineas.append(
+            f"\n• *{a['etapa']}*\n"
+            f"  {a['pct_ok']}% éxito ({a['ok']}/{a['total']}) · {a['fallo']} fallos\n"
+            f"  Último error: {a['ult_err'][:150]}"
+        )
+    lineas.append(
+        f"\n\nRevisá /panel/petra/observabilidad para más detalle.\n"
+        f"Cooldown 1h por etapa — si sigue, vuelvo a avisar."
+    )
+    texto = "\n".join(lineas)
+    try:
+        _pwa.send_text(destino, texto)
+    except Exception:
+        log.exception("[alertas] send fallo")
+        return
+
+    # Persistir cooldowns actualizados
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            conn.execute(
+                "INSERT INTO meta (clave, valor) VALUES ('alertas_metricas_cooldown', %s) "
+                "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, "
+                "actualizado = NOW()",
+                (_json.dumps(cooldowns),))
+    except Exception:
+        log.exception("[alertas] persist cooldowns fallo (no crítico)")
+
+    log.info("[alertas] enviadas %s alertas.", len(nuevas_alertas))
