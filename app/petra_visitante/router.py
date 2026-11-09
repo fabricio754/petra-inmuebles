@@ -562,7 +562,37 @@ def _procesar_nudge_disponibilidad(conn, telefono, button_id):
 def handle_message(telefono, texto, button_id=None, list_id=None,
                    contacto_nombre=None, wa_msg_id=None,
                    flow_response=None):
-    """Punto de entrada único del flujo visitante.
+    """Punto de entrada único del flujo visitante. Mide tiempo + resultado
+    vía app.metricas (etapa=visitante_handle_message)."""
+    try:
+        from app.metricas import marcar_paso
+        import time as _t
+        _t0 = _t.time()
+    except Exception:
+        marcar_paso = None
+        _t0 = None
+    try:
+        _ret = _handle_message_impl(
+            telefono, texto, button_id=button_id, list_id=list_id,
+            contacto_nombre=contacto_nombre, wa_msg_id=wa_msg_id,
+            flow_response=flow_response)
+        if marcar_paso and _t0 is not None:
+            marcar_paso("visitante_handle_message", "ok",
+                        int((_t.time() - _t0) * 1000), telefono=telefono)
+        return _ret
+    except Exception as _e:
+        if marcar_paso and _t0 is not None:
+            marcar_paso("visitante_handle_message", "fallo",
+                        int((_t.time() - _t0) * 1000),
+                        error=f"{type(_e).__name__}: {str(_e)[:150]}",
+                        telefono=telefono)
+        raise
+
+
+def _handle_message_impl(telefono, texto, button_id=None, list_id=None,
+                         contacto_nombre=None, wa_msg_id=None,
+                         flow_response=None):
+    """Implementación real (ver docstring de handle_message).
 
     `flow_response` llega cuando el usuario completó un WhatsApp Flow
     (nfm_reply). Si viene, se procesa primero y se corta el resto del
