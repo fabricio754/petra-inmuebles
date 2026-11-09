@@ -4533,11 +4533,13 @@ def salud_dashboard():
     _check_token()
     token = (request.args.get("token") or "").strip()
     checks = _run_checks()
+    funnels = _run_funnels()
     estado, mensaje = _global_status(checks)
     from datetime import datetime
     return render_template(
         "petra_salud.html",
-        checks=checks, estado=estado, mensaje=mensaje,
+        checks=checks, funnels=funnels,
+        estado=estado, mensaje=mensaje,
         verificado_en=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         token=token,
     )
@@ -4550,12 +4552,14 @@ def salud_json():
     from flask import jsonify
     from datetime import datetime
     checks = _run_checks()
+    funnels = _run_funnels()
     estado, mensaje = _global_status(checks)
     return jsonify({
         "estado": estado,
         "mensaje": mensaje,
         "verificado_en": datetime.now().strftime("%H:%M:%S"),
         "checks": checks,
+        "funnels": funnels,
     })
 
 
@@ -4584,3 +4588,126 @@ def salud_smoke_wa():
     except Exception as e:
         from flask import jsonify
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# SALUD — Funnels de progreso por tipo de persona
+# =============================================================================
+
+def _funnel_propietarios():
+    sql = """
+      SELECT
+        COUNT(*) FILTER (WHERE activo)                                          AS total,
+        COUNT(*) FILTER (WHERE activo AND datos_confirmado_at IS NULL)          AS pendiente,
+        COUNT(*) FILTER (WHERE activo AND datos_confirmado_at IS NOT NULL
+                         AND bienvenida_at IS NULL)                             AS confirmado,
+        COUNT(*) FILTER (WHERE activo AND bienvenida_at IS NOT NULL
+                         AND ofrecer_petra_at IS NULL)                          AS bienvenida,
+        COUNT(*) FILTER (WHERE activo AND ofrecer_petra_at IS NOT NULL
+                         AND ofrecer_credito_at IS NULL
+                         AND mandato_at IS NULL)                                AS ofrecer_petra,
+        COUNT(*) FILTER (WHERE activo AND ofrecer_credito_at IS NOT NULL
+                         AND mandato_at IS NULL)                                AS ofrecer_credito,
+        COUNT(*) FILTER (WHERE activo AND mandato_at IS NOT NULL)               AS mandato,
+        COUNT(*) FILTER (WHERE NOT activo)                                      AS desactivados
+      FROM inmuebles_visitante
+    """
+    with _db._conexion_directa(timeout=5) as conn:
+        r = conn.execute(sql).fetchone()
+    total = r[0] or 0
+    pasos = [
+        ("⚪ Pendiente contacto (Sebas)",   r[1] or 0),
+        ("🟡 Contactado · faltan datos",    r[2] or 0),
+        ("✉️ Bienvenida enviada",           r[3] or 0),
+        ("🏠 Ofrecida Petra",               r[4] or 0),
+        ("💵 Ofrecida Crédito",             r[5] or 0),
+        ("🤝 Mandato firmado",              r[6] or 0),
+    ]
+    return {
+        "titulo": "🏠 Propietarios — Embudo",
+        "total": total, "subtotal_label": "activos",
+        "extra": f"{r[7] or 0} desactivados (no cuentan)",
+        "pasos": [{"nombre": n, "n": v,
+                   "pct": int(v * 100 / total) if total else 0} for n, v in pasos],
+    }
+
+
+def _funnel_agentes():
+    sql = """
+      SELECT
+        COUNT(*)                                                                 AS total,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'recolectando')             AS recolec,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'en_capacitacion')          AS capa,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'autorizacion_pendiente')   AS auto,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' IN ('activa','activo'))       AS activa,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'pausada')                  AS pausada,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' IS NULL
+                         OR metadata->>'estado_agente' = '')                             AS sin_estado
+      FROM petra_contactos
+      WHERE rol = 'agente_petra'
+    """
+    with _db._conexion_directa(timeout=5) as conn:
+        r = conn.execute(sql).fetchone()
+    total = r[0] or 0
+    pasos = [
+        ("🌱 Recolectando datos",        r[1] or 0),
+        ("🎓 En capacitación",           r[2] or 0),
+        ("📋 Autorización pendiente",    r[3] or 0),
+        ("✅ Activa",                    r[4] or 0),
+        ("⏸ Pausada",                   r[5] or 0),
+    ]
+    extra = ""
+    if (r[6] or 0) > 0:
+        extra = f"{r[6]} sin estado definido"
+    return {
+        "titulo": "👤 Agentes Petra — Flujo",
+        "total": total, "subtotal_label": "agentes",
+        "extra": extra,
+        "pasos": [{"nombre": n, "n": v,
+                   "pct": int(v * 100 / total) if total else 0} for n, v in pasos],
+    }
+
+
+def _funnel_visitantes():
+    sql = """
+      SELECT
+        COUNT(DISTINCT pc.id)                                                    AS total,
+        COUNT(DISTINCT pc.id) FILTER (WHERE pc.updated_at > NOW() - INTERVAL '7 days') AS activos_7d,
+        COUNT(DISTINCT pc.id) FILTER (WHERE pc.meta->>'visitante_conjunto_id' IS NOT NULL) AS escaneo_qr,
+        COUNT(DISTINCT i.interesado_telefono)                                    AS pidieron_contacto,
+        COUNT(DISTINCT i.interesado_telefono) FILTER (WHERE i.estado = 'enviado') AS enviados_al_prop
+      FROM petra_contactos pc
+      LEFT JOIN petra_interesados_qr i ON i.interesado_telefono = pc.telefono
+      WHERE pc.rol IS NULL OR pc.rol = 'visitante'
+    """
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            r = conn.execute(sql).fetchone()
+    except Exception as e:
+        return {"titulo": "👀 Visitantes QR", "total": 0, "subtotal_label": "",
+                "extra": f"error: {type(e).__name__}", "pasos": []}
+    total = r[0] or 0
+    pasos = [
+        ("👋 Escaneó QR en algún conjunto",          r[2] or 0),
+        ("💬 Pidió contacto al propietario",          r[3] or 0),
+        ("📤 Contacto enviado al propietario",        r[4] or 0),
+    ]
+    return {
+        "titulo": "👀 Visitantes QR",
+        "total": total, "subtotal_label": "contactos totales",
+        "extra": f"{r[1] or 0} activos últimos 7 días",
+        "pasos": [{"nombre": n, "n": v,
+                   "pct": int(v * 100 / total) if total else 0} for n, v in pasos],
+    }
+
+
+def _run_funnels():
+    """Corre los 3 funnels aislados."""
+    funnels = []
+    for fn in [_funnel_propietarios, _funnel_agentes, _funnel_visitantes]:
+        try:
+            funnels.append(fn())
+        except Exception as e:
+            funnels.append({"titulo": fn.__name__, "total": 0, "subtotal_label": "",
+                            "extra": f"crasheó: {e}", "pasos": []})
+    return funnels
