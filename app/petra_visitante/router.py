@@ -544,6 +544,25 @@ def handle_message(telefono, texto, button_id=None, list_id=None,
             _upsert_contacto(conn, telefono, nombre=contacto_nombre)
             _, meta = _leer_contacto(conn, telefono)
 
+            # ---- Comando global "menu" / "menú" / "opciones" / "ayuda" ----
+            # Si el usuario tiene un conjunto en meta (último escaneado),
+            # mostramos su menú principal. Si no, le pedimos escanear QR.
+            if texto and texto.strip().lower() in (
+                    "menu", "menú", "opciones", "ayuda", "help"):
+                cid = (meta or {}).get("visitante_conjunto_id")
+                if cid:
+                    conjunto = _conjunto_por_id(conn, cid)
+                    if conjunto:
+                        _enviar(telefono,
+                                _menus.menu_principal(conjunto["nombre"]))
+                        return
+                _enviar(telefono, _menus.texto(
+                    "👋 ¡Hola! Para ver opciones, escaneá el QR del "
+                    "conjunto en la entrada.\n\n"
+                    "Si sos propietario y querés publicar tu inmueble, "
+                    "también te lo guiamos desde el QR del edificio."))
+                return
+
             # ---- Nudge viernes "¿sigue disponible?" ----------------------
             # Botones de respuesta al nudge de disponibilidad (scheduler).
             # Se maneja arriba de todo para que funcione aunque el
