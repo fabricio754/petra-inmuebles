@@ -3083,6 +3083,12 @@ def visitante_conjunto_nuevo():
     except Exception:
         return redirect(url_for("petra_panel.visitante_conjuntos",
                                 token=token, flash="error"))
+    # Invalidar cache del bot para que el nuevo conjunto se vea al toque.
+    try:
+        from app.petra_visitante.router import _conjunto_cache_bust
+        _conjunto_cache_bust()
+    except Exception:
+        pass
     return redirect(url_for("petra_panel.visitante_conjuntos",
                             token=token, flash="creado"))
 
@@ -3104,6 +3110,12 @@ def visitante_conjunto_editar(cid):
                 (nombre, ciudad, cid),
             )
             conn.commit()
+        # Invalidar cache del bot para reflejar el cambio al toque.
+        try:
+            from app.petra_visitante.router import _conjunto_cache_bust
+            _conjunto_cache_bust()
+        except Exception:
+            pass
     except Exception:
         return redirect(url_for("petra_panel.visitante_conjuntos",
                                 token=token, flash="error"))
