@@ -116,6 +116,13 @@
 </style>
 </head>
 <body>
+{% if modo_staging %}
+<div style="background:#f59e0b;color:#fff;padding:10px 20px;font-weight:600;
+            font-size:14px;text-align:center;letter-spacing:.3px">
+  🧪 AMBIENTE DE PRUEBAS — cambios acá NO afectan propietarios reales.
+  Mensajes WA silenciados. Scheduler desactivado.
+</div>
+{% endif %}
 <div class="topbar">
   <h1>🏢 <span class="brand">Petra</span> — Operaciones</h1>
   <div class="muted">

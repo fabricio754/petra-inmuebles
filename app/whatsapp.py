@@ -109,6 +109,13 @@ def _dispatch(payload, human_summary, log_out=True):
         payload["recipient_type"] = "individual"
         payload["recipient"] = dest
     tipo = payload.get("type", "text")
+    # Modo STAGING: no enviar a Meta. Loguea y vuelve. Permite correr el
+    # bot entero en staging sin tocar propietarios reales.
+    if (os.environ.get("MODO_STAGING") or "").strip() == "1":
+        log.info("[whatsapp] 🧪 MODO_STAGING → %s: %s", dest, human_summary)
+        if log_out:
+            _log_out(dest, tipo, human_summary, payload, "staging-skip")
+        return {"status": "staging-skip", "summary": human_summary}
     if DRY_RUN:
         log.info("[DRY-RUN → %s] %s", dest, human_summary)
         if log_out:
