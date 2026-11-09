@@ -170,6 +170,14 @@ def _preparar(pool):
         _sembrar_propietarios_dummy_al_boot(conn)
         _corregir_precios_inmuebles_al_boot(conn)
         _desactivar_inmuebles_al_boot(conn)
+        # Pre-cargar cache de conjuntos para que la primera query del bot
+        # sea instantánea (en vez de esperar ~100ms a DB Virginia).
+        try:
+            from app.petra_visitante.router import _refrescar_conjuntos_cache
+            _refrescar_conjuntos_cache(conn)
+            log.info("[DB] cache de conjuntos pre-cargado al boot")
+        except Exception:
+            log.exception("[DB] fallo pre-cargando cache conjuntos — no crítico")
         ya = conn.execute("SELECT 1 FROM meta WHERE clave = 'datos_iniciales'").fetchone()
         if ya:
             return

@@ -274,27 +274,56 @@ def _set_estado(conn, telefono, estado, meta=None, extra=None):
 
 # ---------------------------------------------------------------------------
 # Resolución del conjunto a partir del contacto / QR
+# Cache en memoria: los conjuntos cambian poquísimo (solo cuando creás uno
+# nuevo en el panel). TTL 5 min ahorra ~100ms de latencia DB por cada
+# mensaje entrante que entra al flow visitante.
+# Si en el panel creás/editás un conjunto, se verá reflejado en 5min max.
 # ---------------------------------------------------------------------------
 
+import time as _time
+_CONJUNTO_CACHE = {"by_codigo": {}, "by_id": {}, "ts": 0.0, "ttl": 300.0}
+
+
+def _conjunto_cache_bust():
+    """Invalida el cache. Llamar desde el panel cuando se crea/edita/borra
+    un conjunto para que los cambios se vean sin esperar los 5 min."""
+    _CONJUNTO_CACHE["by_codigo"] = {}
+    _CONJUNTO_CACHE["by_id"] = {}
+    _CONJUNTO_CACHE["ts"] = 0.0
+
+
+def _refrescar_conjuntos_cache(conn):
+    rows = conn.execute(
+        "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante"
+    ).fetchall()
+    by_codigo, by_id = {}, {}
+    for r in rows:
+        d = {"id": r[0], "codigo": r[1], "nombre": r[2], "ciudad": r[3]}
+        by_codigo[r[1]] = d
+        by_id[r[0]] = d
+    _CONJUNTO_CACHE["by_codigo"] = by_codigo
+    _CONJUNTO_CACHE["by_id"] = by_id
+    _CONJUNTO_CACHE["ts"] = _time.time()
+
+
 def _conjunto_por_codigo(conn, codigo):
-    row = conn.execute(
-        "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
-        "WHERE codigo=%s",
-        (codigo,),
-    ).fetchone()
-    if not row:
-        return None
-    return {"id": row[0], "codigo": row[1], "nombre": row[2], "ciudad": row[3]}
+    now = _time.time()
+    if now - _CONJUNTO_CACHE["ts"] > _CONJUNTO_CACHE["ttl"]:
+        try:
+            _refrescar_conjuntos_cache(conn)
+        except Exception:
+            pass
+    return _CONJUNTO_CACHE["by_codigo"].get(codigo)
 
 
 def _conjunto_por_id(conn, cid):
-    row = conn.execute(
-        "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante WHERE id=%s",
-        (cid,),
-    ).fetchone()
-    if not row:
-        return None
-    return {"id": row[0], "codigo": row[1], "nombre": row[2], "ciudad": row[3]}
+    now = _time.time()
+    if now - _CONJUNTO_CACHE["ts"] > _CONJUNTO_CACHE["ttl"]:
+        try:
+            _refrescar_conjuntos_cache(conn)
+        except Exception:
+            pass
+    return _CONJUNTO_CACHE["by_id"].get(cid)
 
 
 def _resolver_conjunto(conn, telefono, texto, meta):
