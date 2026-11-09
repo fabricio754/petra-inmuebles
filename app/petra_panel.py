@@ -4340,7 +4340,20 @@ def _check_whatsapp_api():
         return {"nombre": "WhatsApp API (Meta)",
                 "status": "down",
                 "detalle": "faltan credenciales en env",
-                "bars": 0}
+                "bars": 0,
+                "diagnostico": {
+                    "titulo": "Variables de entorno faltantes",
+                    "lineas": [
+                        f"• META_ACCESS_TOKEN: {'OK' if tok else 'VACÍO'}",
+                        f"• META_PHONE_NUMBER_ID: {'OK' if pid else 'VACÍO'}",
+                    ],
+                    "accion": ("Configurá las dos variables en Render → "
+                               "Environment → Add Environment Variable. "
+                               "Las obtenés en Meta Business Manager → "
+                               "WhatsApp → API Setup."),
+                    "link": "https://dashboard.render.com",
+                    "link_label": "Render dashboard",
+                }}
     try:
         r = requests.get(
             f"https://graph.facebook.com/v20.0/{pid}",
@@ -4348,21 +4361,51 @@ def _check_whatsapp_api():
             headers={"Authorization": f"Bearer {tok}"},
             timeout=5)
         if r.status_code != 200:
+            body = r.text[:300]
             return {"nombre": "WhatsApp API (Meta)",
                     "status": "down",
                     "detalle": f"HTTP {r.status_code}",
-                    "bars": 0}
+                    "bars": 0,
+                    "diagnostico": {
+                        "titulo": f"Meta devolvió HTTP {r.status_code}",
+                        "lineas": [f"• {body}"],
+                        "accion": ("Probablemente el token expiró o fue "
+                                   "revocado. Regenerá META_ACCESS_TOKEN "
+                                   "en Meta Business Manager."),
+                        "link": "https://business.facebook.com",
+                        "link_label": "Meta Business Manager",
+                    }}
         d = r.json()
         name = d.get("verified_name", "?")
         qual = d.get("quality_rating", "?")
-        return {"nombre": "WhatsApp API (Meta)",
-                "status": "ok" if qual.upper() in ("GREEN", "UNKNOWN") else "warn",
-                "detalle": f"{name} · quality: {qual}",
-                "bars": 4 if qual.upper() == "GREEN" else 3}
+        result = {"nombre": "WhatsApp API (Meta)",
+                  "status": "ok" if qual.upper() in ("GREEN", "UNKNOWN") else "warn",
+                  "detalle": f"{name} · quality: {qual}",
+                  "bars": 4 if qual.upper() == "GREEN" else 3}
+        if qual.upper() not in ("GREEN", "UNKNOWN"):
+            result["diagnostico"] = {
+                "titulo": f"Quality rating degradado: {qual}",
+                "lineas": [
+                    "• Los propietarios bloquean/reportan los mensajes",
+                    "• O enviás a gente que no te escribió primero sin template",
+                ],
+                "accion": ("Bajá el volumen outbound, mejorá los templates, "
+                           "y nunca mandes mensajes libres fuera de 24h. "
+                           "Meta puede bajarte a amarillo/rojo si sigue."),
+                "link": "https://business.facebook.com",
+                "link_label": "Meta Business Manager",
+            }
+        return result
     except Exception as e:
         return {"nombre": "WhatsApp API (Meta)",
                 "status": "down", "detalle": f"{type(e).__name__}",
-                "bars": 0}
+                "bars": 0,
+                "diagnostico": {
+                    "titulo": "No se pudo contactar a Meta",
+                    "lineas": [f"• {type(e).__name__}: {str(e)[:200]}"],
+                    "accion": ("Puede ser timeout de red, token revocado, o "
+                               "Meta caído. Reintentá en 1 min."),
+                }}
 
 
 def _check_scheduler():
@@ -4372,7 +4415,17 @@ def _check_scheduler():
         if s is None or not getattr(s, "running", False):
             return {"nombre": "Scheduler (APScheduler)",
                     "status": "down", "detalle": "no corre",
-                    "bars": 0}
+                    "bars": 0,
+                    "diagnostico": {
+                        "titulo": "APScheduler no está corriendo",
+                        "lineas": ["• Todos los disparadores quedan congelados",
+                                   "• Normalmente se arranca al boot de la app"],
+                        "accion": ("Redeploy en Render para reiniciar la app. "
+                                   "Si persiste, revisá los logs al boot "
+                                   "— puede haber un job mal configurado."),
+                        "link": "https://dashboard.render.com",
+                        "link_label": "Render dashboard",
+                    }}
         jobs = s.get_jobs()
         n = len(jobs)
         proximos = [j.next_run_time for j in jobs if j.next_run_time]
@@ -4397,11 +4450,26 @@ def _check_webhook_queue():
                 "SELECT COUNT(*) FROM webhook_queue "
                 "WHERE estado='pending' AND recibido_at < NOW() - INTERVAL '2 minutes'"
             ).fetchone()[0] or 0
+            ultimo_error = conn.execute(
+                "SELECT ultimo_error FROM webhook_queue "
+                "WHERE ultimo_error IS NOT NULL "
+                "ORDER BY recibido_at DESC LIMIT 1").fetchone()
         if atrasado > 0:
             return {"nombre": "Cola de webhooks",
                     "status": "warn",
                     "detalle": f"{pending} pendientes · {atrasado} atrasados",
-                    "bars": 1 if atrasado > 20 else 2}
+                    "bars": 1 if atrasado > 20 else 2,
+                    "diagnostico": {
+                        "titulo": "El worker no está drenando",
+                        "lineas": ([f"• último error: {ultimo_error[0][:200]}"]
+                                   if ultimo_error else
+                                   ["• sin errores registrados — probablemente el worker está parado"]),
+                        "accion": ("Si el worker está parado, un redeploy en "
+                                   "Render lo re-arranca. Si hay errores, "
+                                   "revisá los logs del servicio."),
+                        "link": "https://dashboard.render.com",
+                        "link_label": "Render logs",
+                    }}
         return {"nombre": "Cola de webhooks",
                 "status": "ok",
                 "detalle": f"{pending} en cola · drena bien",
@@ -4447,15 +4515,50 @@ def _check_mensajes_out_24h():
                     "status": "warn", "detalle": "0 enviados — flujo quieto",
                     "bars": 2}
         pct_fail = int(fallidos * 100 / total) if total else 0
-        if pct_fail > 50:
-            return {"nombre": "Mensajes saliendo (24h)",
-                    "status": "down",
-                    "detalle": f"{total} enviados · {pct_fail}% fallidos",
-                    "bars": 1}
-        return {"nombre": "Mensajes saliendo (24h)",
-                "status": "ok" if pct_fail < 10 else "warn",
-                "detalle": f"{total} enviados · {pct_fail}% fallidos",
-                "bars": 4 if pct_fail < 5 else 3}
+        status = "ok" if pct_fail < 10 else ("warn" if pct_fail < 50 else "down")
+        bars = 4 if pct_fail < 5 else (3 if pct_fail < 10 else (2 if pct_fail < 50 else 1))
+        result = {"nombre": "Mensajes saliendo (24h)",
+                  "status": status,
+                  "detalle": f"{total} enviados · {pct_fail}% fallidos",
+                  "bars": bars}
+        if status != "ok":
+            # Diagnóstico: contar por tipo de error
+            with _db._conexion_directa(timeout=3) as conn:
+                errores = _rows(conn,
+                    """SELECT COALESCE(estado_entrega_error, 'sin detalle') AS err,
+                              COUNT(*) AS n
+                         FROM mensajes
+                        WHERE direccion='out'
+                          AND fecha > NOW() - INTERVAL '24 hours'
+                          AND estado_entrega='failed'
+                        GROUP BY err ORDER BY n DESC LIMIT 5""")
+            diag_lineas = [f"• {e['n']}× {e['err'][:100]}" for e in errores]
+            # Sugerencia según el error dominante
+            dominante = (errores[0]["err"] if errores else "").lower()
+            if "re-engagement" in dominante or "re_engagement" in dominante:
+                accion = ("Fuera de la ventana de 24h. Meta rechaza mensajes "
+                          "libres a propietarios que no te escribieron en las "
+                          "últimas 24h. Solución: crear un **template** "
+                          "aprobado en Meta Business y usarlo para el primer "
+                          "contacto outbound.")
+            elif "undeliverable" in dominante:
+                accion = ("Número inválido o no registrado en WhatsApp. "
+                          "Revisá que los teléfonos tengan '57' adelante y "
+                          "que sean celulares reales.")
+            elif "rate" in dominante or "limit" in dominante:
+                accion = ("Rate-limit de Meta. Esperá o aumentá tu tier en "
+                          "Meta Business Manager.")
+            else:
+                accion = ("Revisá el detalle de error arriba y consultá la "
+                          "doc de Meta Cloud API.")
+            result["diagnostico"] = {
+                "titulo": "Errores dominantes (últimas 24h):",
+                "lineas": diag_lineas,
+                "accion": accion,
+                "link": "https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes",
+                "link_label": "Códigos de error Meta",
+            }
+        return result
     except Exception as e:
         return {"nombre": "Mensajes saliendo (24h)",
                 "status": "down", "detalle": str(e), "bars": 0}
@@ -4533,11 +4636,13 @@ def salud_dashboard():
     _check_token()
     token = (request.args.get("token") or "").strip()
     checks = _run_checks()
+    funnels = _run_funnels()
     estado, mensaje = _global_status(checks)
     from datetime import datetime
     return render_template(
         "petra_salud.html",
-        checks=checks, estado=estado, mensaje=mensaje,
+        checks=checks, funnels=funnels,
+        estado=estado, mensaje=mensaje,
         verificado_en=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         token=token,
     )
@@ -4550,12 +4655,14 @@ def salud_json():
     from flask import jsonify
     from datetime import datetime
     checks = _run_checks()
+    funnels = _run_funnels()
     estado, mensaje = _global_status(checks)
     return jsonify({
         "estado": estado,
         "mensaje": mensaje,
         "verificado_en": datetime.now().strftime("%H:%M:%S"),
         "checks": checks,
+        "funnels": funnels,
     })
 
 
@@ -4584,3 +4691,126 @@ def salud_smoke_wa():
     except Exception as e:
         from flask import jsonify
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# SALUD — Funnels de progreso por tipo de persona
+# =============================================================================
+
+def _funnel_propietarios():
+    sql = """
+      SELECT
+        COUNT(*) FILTER (WHERE activo)                                          AS total,
+        COUNT(*) FILTER (WHERE activo AND datos_confirmado_at IS NULL)          AS pendiente,
+        COUNT(*) FILTER (WHERE activo AND datos_confirmado_at IS NOT NULL
+                         AND bienvenida_at IS NULL)                             AS confirmado,
+        COUNT(*) FILTER (WHERE activo AND bienvenida_at IS NOT NULL
+                         AND ofrecer_petra_at IS NULL)                          AS bienvenida,
+        COUNT(*) FILTER (WHERE activo AND ofrecer_petra_at IS NOT NULL
+                         AND ofrecer_credito_at IS NULL
+                         AND mandato_at IS NULL)                                AS ofrecer_petra,
+        COUNT(*) FILTER (WHERE activo AND ofrecer_credito_at IS NOT NULL
+                         AND mandato_at IS NULL)                                AS ofrecer_credito,
+        COUNT(*) FILTER (WHERE activo AND mandato_at IS NOT NULL)               AS mandato,
+        COUNT(*) FILTER (WHERE NOT activo)                                      AS desactivados
+      FROM inmuebles_visitante
+    """
+    with _db._conexion_directa(timeout=5) as conn:
+        r = conn.execute(sql).fetchone()
+    total = r[0] or 0
+    pasos = [
+        ("⚪ Pendiente contacto (Sebas)",   r[1] or 0),
+        ("🟡 Contactado · faltan datos",    r[2] or 0),
+        ("✉️ Bienvenida enviada",           r[3] or 0),
+        ("🏠 Ofrecida Petra",               r[4] or 0),
+        ("💵 Ofrecida Crédito",             r[5] or 0),
+        ("🤝 Mandato firmado",              r[6] or 0),
+    ]
+    return {
+        "titulo": "🏠 Propietarios — Embudo",
+        "total": total, "subtotal_label": "activos",
+        "extra": f"{r[7] or 0} desactivados (no cuentan)",
+        "pasos": [{"nombre": n, "n": v,
+                   "pct": int(v * 100 / total) if total else 0} for n, v in pasos],
+    }
+
+
+def _funnel_agentes():
+    sql = """
+      SELECT
+        COUNT(*)                                                                 AS total,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'recolectando')             AS recolec,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'en_capacitacion')          AS capa,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'autorizacion_pendiente')   AS auto,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' IN ('activa','activo'))       AS activa,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' = 'pausada')                  AS pausada,
+        COUNT(*) FILTER (WHERE metadata->>'estado_agente' IS NULL
+                         OR metadata->>'estado_agente' = '')                             AS sin_estado
+      FROM petra_contactos
+      WHERE rol = 'agente_petra'
+    """
+    with _db._conexion_directa(timeout=5) as conn:
+        r = conn.execute(sql).fetchone()
+    total = r[0] or 0
+    pasos = [
+        ("🌱 Recolectando datos",        r[1] or 0),
+        ("🎓 En capacitación",           r[2] or 0),
+        ("📋 Autorización pendiente",    r[3] or 0),
+        ("✅ Activa",                    r[4] or 0),
+        ("⏸ Pausada",                   r[5] or 0),
+    ]
+    extra = ""
+    if (r[6] or 0) > 0:
+        extra = f"{r[6]} sin estado definido"
+    return {
+        "titulo": "👤 Agentes Petra — Flujo",
+        "total": total, "subtotal_label": "agentes",
+        "extra": extra,
+        "pasos": [{"nombre": n, "n": v,
+                   "pct": int(v * 100 / total) if total else 0} for n, v in pasos],
+    }
+
+
+def _funnel_visitantes():
+    sql = """
+      SELECT
+        COUNT(DISTINCT pc.id)                                                    AS total,
+        COUNT(DISTINCT pc.id) FILTER (WHERE pc.updated_at > NOW() - INTERVAL '7 days') AS activos_7d,
+        COUNT(DISTINCT pc.id) FILTER (WHERE pc.meta->>'visitante_conjunto_id' IS NOT NULL) AS escaneo_qr,
+        COUNT(DISTINCT i.interesado_telefono)                                    AS pidieron_contacto,
+        COUNT(DISTINCT i.interesado_telefono) FILTER (WHERE i.estado = 'enviado') AS enviados_al_prop
+      FROM petra_contactos pc
+      LEFT JOIN petra_interesados_qr i ON i.interesado_telefono = pc.telefono
+      WHERE pc.rol IS NULL OR pc.rol = 'visitante'
+    """
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            r = conn.execute(sql).fetchone()
+    except Exception as e:
+        return {"titulo": "👀 Visitantes QR", "total": 0, "subtotal_label": "",
+                "extra": f"error: {type(e).__name__}", "pasos": []}
+    total = r[0] or 0
+    pasos = [
+        ("👋 Escaneó QR en algún conjunto",          r[2] or 0),
+        ("💬 Pidió contacto al propietario",          r[3] or 0),
+        ("📤 Contacto enviado al propietario",        r[4] or 0),
+    ]
+    return {
+        "titulo": "👀 Visitantes QR",
+        "total": total, "subtotal_label": "contactos totales",
+        "extra": f"{r[1] or 0} activos últimos 7 días",
+        "pasos": [{"nombre": n, "n": v,
+                   "pct": int(v * 100 / total) if total else 0} for n, v in pasos],
+    }
+
+
+def _run_funnels():
+    """Corre los 3 funnels aislados."""
+    funnels = []
+    for fn in [_funnel_propietarios, _funnel_agentes, _funnel_visitantes]:
+        try:
+            funnels.append(fn())
+        except Exception as e:
+            funnels.append({"titulo": fn.__name__, "total": 0, "subtotal_label": "",
+                            "extra": f"crasheó: {e}", "pasos": []})
+    return funnels

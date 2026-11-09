@@ -56,6 +56,29 @@
   .row .nombre b { font-size:14px; font-weight:600; display:block; }
   .row .nombre .detail { color: var(--muted); font-size:12.5px; margin-top:2px; }
 
+  /* Diagnóstico expandible */
+  .row.has-diag { flex-direction: column; align-items: stretch; }
+  .row-top { display:flex; align-items:center; gap:14px; width:100%; }
+  .row-top .nombre { flex:1; }
+  .diag { margin-top: 12px; padding: 12px 14px; background: #fff8f8;
+          border-left: 3px solid var(--down); border-radius: 6px; font-size: 12.5px;
+          display:none; }
+  .diag.open { display:block; }
+  .diag.warn-color { background:#fffbea; border-left-color: var(--warn); }
+  .diag .t { font-weight:600; margin-bottom: 6px; color: var(--text); }
+  .diag ul { margin: 4px 0 10px; padding-left: 18px; color: var(--text); }
+  .diag ul li { margin: 3px 0; }
+  .diag .accion { background: #fff; border:1px solid var(--border);
+                  padding: 10px 12px; border-radius: 6px; margin-top: 8px; }
+  .diag .accion b { color: var(--accent); }
+  .diag .accion a { display: inline-block; margin-top: 6px; font-size: 12px;
+                    color: var(--accent); text-decoration: none; }
+  .diag .accion a:hover { text-decoration: underline; }
+  .toggle-diag { background:#fff; border:1px solid var(--border);
+                 padding:4px 10px; border-radius:6px; font-size:11.5px;
+                 cursor:pointer; color: var(--text); font-weight:500; }
+  .toggle-diag:hover { background: var(--bg); border-color: var(--accent); }
+
   /* Barritas tipo WiFi */
   .bars { display:flex; align-items:flex-end; gap:3px; height:20px; }
   .bars span { width:5px; background: #d0d7de; border-radius:1px; }
@@ -73,6 +96,27 @@
   .pill.ok   { background: var(--ok-soft);   color: var(--ok); }
   .pill.warn { background: var(--warn-soft); color: var(--warn); }
   .pill.down { background: var(--down-soft); color: var(--down); }
+
+  /* Funnels de personas */
+  .funnels { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+             gap: 14px; margin-top: 10px; }
+  .funnel { background: var(--panel); border:1px solid var(--border);
+            border-radius:12px; padding: 16px 18px; }
+  .funnel h4 { margin:0 0 4px; font-size:14px; }
+  .funnel .totales { color: var(--muted); font-size:12px; margin-bottom: 12px; }
+  .funnel .extra { color: var(--muted); font-size:11.5px; font-style:italic;
+                   margin-top: 6px; }
+  .f-row { margin-bottom: 8px; }
+  .f-row-head { display:flex; justify-content:space-between; font-size:12.5px;
+                margin-bottom: 3px; }
+  .f-row-head .lbl { color: var(--text); }
+  .f-row-head .val { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .f-bar { height: 7px; background:#f0f3f6; border-radius:999px; overflow:hidden; }
+  .f-fill { height:100%; background: var(--accent); border-radius:999px;
+            transition: width .3s; }
+  .f-fill.c1 { background:#60a5fa; } .f-fill.c2 { background:#a78bfa; }
+  .f-fill.c3 { background:#f472b6; } .f-fill.c4 { background:#fb923c; }
+  .f-fill.c5 { background:#34d399; } .f-fill.c6 { background: var(--ok); }
 
   /* Smoke tests */
   .smoke { background: var(--panel); border:1px solid var(--border);
@@ -116,21 +160,67 @@
   <div class="section-h">Componentes</div>
   <div class="list" id="componentes">
     {% for c in checks %}
-    <div class="row">
-      <div class="bars {{ c.status }}">
-        {% for i in range(4) %}
-          <span class="{% if i < c.bars %}on{% endif %}"></span>
-        {% endfor %}
+    <div class="row {% if c.diagnostico %}has-diag{% endif %}">
+      <div class="row-top">
+        <div class="bars {{ c.status }}">
+          {% for i in range(4) %}
+            <span class="{% if i < c.bars %}on{% endif %}"></span>
+          {% endfor %}
+        </div>
+        <div class="nombre">
+          <b>{{ c.nombre }}</b>
+          <div class="detail">{{ c.detalle }}</div>
+        </div>
+        {% if c.diagnostico %}
+          <button class="toggle-diag"
+                  onclick="var d=this.parentElement.parentElement.querySelector('.diag'); d.classList.toggle('open'); this.textContent = d.classList.contains('open') ? 'Ocultar' : '💡 Qué está pasando';">💡 Qué está pasando</button>
+        {% endif %}
+        <span class="pill {{ c.status }}">
+          {% if c.status == 'ok' %}Operativo
+          {% elif c.status == 'warn' %}Advertencia
+          {% else %}Caído{% endif %}
+        </span>
       </div>
-      <div class="nombre">
-        <b>{{ c.nombre }}</b>
-        <div class="detail">{{ c.detalle }}</div>
+      {% if c.diagnostico %}
+      <div class="diag {% if c.status == 'warn' %}warn-color{% endif %}">
+        <div class="t">{{ c.diagnostico.titulo }}</div>
+        {% if c.diagnostico.lineas %}
+        <ul>
+          {% for l in c.diagnostico.lineas %}<li>{{ l }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        <div class="accion">
+          <b>💡 Qué hacer:</b> {{ c.diagnostico.accion }}
+          {% if c.diagnostico.link %}
+            <br><a href="{{ c.diagnostico.link }}" target="_blank">↗ {{ c.diagnostico.link_label or 'Más info' }}</a>
+          {% endif %}
+        </div>
       </div>
-      <span class="pill {{ c.status }}">
-        {% if c.status == 'ok' %}Operativo
-        {% elif c.status == 'warn' %}Advertencia
-        {% else %}Caído{% endif %}
-      </span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="section-h" style="margin-top:28px">Pasos de las personas</div>
+  <div class="funnels" id="funnels">
+    {% for f in funnels %}
+    <div class="funnel">
+      <h4>{{ f.titulo }}</h4>
+      <div class="totales">
+        <b>{{ f.total }}</b> {{ f.subtotal_label }}
+        {% if f.extra %}· {{ f.extra }}{% endif %}
+      </div>
+      {% for p in f.pasos %}
+      <div class="f-row">
+        <div class="f-row-head">
+          <span class="lbl">{{ p.nombre }}</span>
+          <span class="val">{{ p.n }} · {{ p.pct }}%</span>
+        </div>
+        <div class="f-bar">
+          <div class="f-fill c{{ loop.index }}" style="width: {{ p.pct }}%"></div>
+        </div>
+      </div>
+      {% endfor %}
     </div>
     {% endfor %}
   </div>
@@ -151,6 +241,13 @@
 (function(){
   const TOKEN = "{{ token }}";
   let timer;
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
 
   async function correrChecks() {
     document.getElementById('banner-msg').classList.add('pulse');
@@ -181,13 +278,52 @@
       }
       const pill = c.status === 'ok' ? 'Operativo' :
                    c.status === 'warn' ? 'Advertencia' : 'Caído';
+      let diagHtml = '', diagBtn = '';
+      if (c.diagnostico) {
+        const diag = c.diagnostico;
+        const lineas = (diag.lineas || []).map(l => '<li>' + escapeHtml(l) + '</li>').join('');
+        const linkHtml = diag.link ? '<br><a href="' + diag.link + '" target="_blank">↗ ' +
+                        escapeHtml(diag.link_label || 'Más info') + '</a>' : '';
+        diagHtml = '<div class="diag ' + (c.status === 'warn' ? 'warn-color' : '') + '">' +
+          '<div class="t">' + escapeHtml(diag.titulo) + '</div>' +
+          (lineas ? '<ul>' + lineas + '</ul>' : '') +
+          '<div class="accion"><b>💡 Qué hacer:</b> ' + escapeHtml(diag.accion) + linkHtml + '</div>' +
+          '</div>';
+        diagBtn = '<button class="toggle-diag" onclick="var d=this.parentElement.parentElement.querySelector(\'.diag\'); d.classList.toggle(\'open\'); this.textContent = d.classList.contains(\'open\') ? \'Ocultar\' : \'💡 Qué está pasando\';">💡 Qué está pasando</button>';
+      }
+      const extraCls = c.diagnostico ? ' has-diag' : '';
       list.insertAdjacentHTML('beforeend',
-        '<div class="row">' +
+        '<div class="row' + extraCls + '">' +
+        '<div class="row-top">' +
         '<div class="bars ' + c.status + '">' + bars + '</div>' +
         '<div class="nombre"><b>' + c.nombre + '</b>' +
         '<div class="detail">' + c.detalle + '</div></div>' +
+        diagBtn +
         '<span class="pill ' + c.status + '">' + pill + '</span>' +
+        '</div>' +
+        diagHtml +
         '</div>');
+    }
+
+    const funs = document.getElementById('funnels');
+    if (funs && d.funnels) {
+      funs.innerHTML = '';
+      for (const f of d.funnels) {
+        let rows = '';
+        let i = 0;
+        for (const p of f.pasos) {
+          i += 1;
+          rows += '<div class="f-row">' +
+            '<div class="f-row-head"><span class="lbl">' + p.nombre + '</span>' +
+            '<span class="val">' + p.n + ' · ' + p.pct + '%</span></div>' +
+            '<div class="f-bar"><div class="f-fill c' + i + '" style="width:' + p.pct + '%"></div></div>' +
+          '</div>';
+        }
+        funs.insertAdjacentHTML('beforeend',
+          '<div class="funnel"><h4>' + f.titulo + '</h4>' +
+          '<div class="totales"><b>' + f.total + '</b> ' + f.subtotal_label +
+          (f.extra ? ' · ' + f.extra : '') + '</div>' + rows + '</div>');
+      }
     }
   }
 
