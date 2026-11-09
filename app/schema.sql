@@ -2277,3 +2277,28 @@ INSERT INTO petra_flags (nombre, activo, categoria, descripcion) VALUES
   ('embudo_requiere_bienvenida', TRUE, 'embudo',
    'Si está ON: después de confirmar datos hay que mandar bienvenida+video antes de ofrecer Petra. Si está OFF: se salta la bienvenida y del paso datos completos pasa directo a listo-para-ofrecer-Petra.')
 ON CONFLICT (nombre) DO NOTHING;
+
+
+-- ============================================================================
+-- Observabilidad por paso (Experiencia 3). Cada evento del bot (handler,
+-- query DB, envío WA) se loguea acá. El dashboard lee de esta tabla para
+-- mostrar % éxito, latencia p50/p95, errores dominantes por etapa y
+-- por ambiente (prod vs staging).
+--
+-- Filas se auto-purgan después de 30 días (ver _purgar_metricas_viejas
+-- en app/metricas.py). No necesitamos retener telemetría indefinidamente.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS petra_paso_eventos (
+  id BIGSERIAL PRIMARY KEY,
+  ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  etapa TEXT NOT NULL,
+  resultado TEXT NOT NULL CHECK (resultado IN ('ok','fallo','timeout')),
+  tiempo_ms INT,
+  error TEXT,
+  telefono TEXT,
+  ambiente TEXT NOT NULL DEFAULT 'prod'
+);
+CREATE INDEX IF NOT EXISTS petra_paso_eventos_etapa_ts_idx
+  ON petra_paso_eventos(etapa, ts DESC);
+CREATE INDEX IF NOT EXISTS petra_paso_eventos_ambiente_ts_idx
+  ON petra_paso_eventos(ambiente, ts DESC);

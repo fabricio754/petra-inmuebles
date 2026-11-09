@@ -704,6 +704,14 @@ def _bot_fallback_y_alertar(phone, texto_usuario, rama, error):
 
     Alerta operador: rate-limit 1/min por rama para no floodear.
     """
+    # Marcar paso para observabilidad
+    try:
+        from app.metricas import marcar_paso
+        marcar_paso(f"bot_crash_{rama}", "fallo",
+                    error=f"{type(error).__name__}: {str(error)[:200]}",
+                    telefono=phone)
+    except Exception:
+        pass
     import time as _tm
     import traceback as _tb
     try:
