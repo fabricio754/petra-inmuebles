@@ -1,0 +1,13 @@
+{
+  "name": "visitante_qr_escanea_menu",
+  "description": "Visitante escanea el QR de Mitika PH y recibe el menú principal con opciones (ver arriendos, ver ventas, publicar). Verifica que el flow visitante arranca y es_visitante() lo captura.",
+  "telefono": "+99999000100",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "Hola. Vine a ver inmuebles. Cod: 1028",
+      "bot_contiene": ["Mitika"],
+      "bot_no_contiene": ["Perdón", "no entendí", "ONBAG_"]
+    }
+  ]
+}

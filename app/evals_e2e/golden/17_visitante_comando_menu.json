@@ -1,0 +1,13 @@
+{
+  "name": "visitante_comando_menu",
+  "description": "Visitante que nunca escaneó un QR tipea 'menu'. Debe recibir guía diciendo que escanee el QR del conjunto en la entrada (no debe crashear ni silenciarse).",
+  "telefono": "+99999000101",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "menu",
+      "bot_contiene": ["QR"],
+      "bot_no_contiene": ["Perdón, no entendí", "crash", "error"]
+    }
+  ]
+}
