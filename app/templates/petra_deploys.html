@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Despliegues · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f8fa; --panel: #fff; --border: #d0d7de;
+    --text: #1f2328; --muted: #656d76;
+    --ok: #1a7f37; --ok-soft: #dafbe1;
+    --warn: #9a6700; --warn-soft: #fff8c5;
+    --down: #cf222e; --down-soft: #ffebe9;
+    --accent: #0969da;
+    --accent-petra: #7c5cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background:#fff; border-bottom:1px solid var(--border);
+            display:flex; align-items:center; gap:14px; }
+  .topbar h1 { margin:0; font-size:17px; font-weight:600; }
+  .topbar a.back { color: var(--accent-petra); text-decoration:none; font-size:13px; margin-left:auto; }
+
+  main { padding: 24px; max-width: 880px; margin: 0 auto; }
+
+  .intro { background: var(--panel); border:1px solid var(--border);
+           border-radius: 10px; padding: 14px 18px; margin-bottom: 18px;
+           color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .intro b { color: var(--text); }
+
+  .status-card { background: var(--panel); border:1px solid var(--border);
+                 border-radius: 12px; padding: 22px 26px; margin-bottom: 18px; }
+  .status-card.ok    { background: var(--ok-soft);   border-color: var(--ok); }
+  .status-card.pend  { background: var(--warn-soft); border-color: var(--warn); }
+  .status-card.err   { background: var(--down-soft); border-color: var(--down); }
+  .status-card h2 { margin: 0 0 8px; font-size: 18px; }
+  .status-card .msg { color: var(--muted); font-size: 13px; }
+
+  .btn-promover {
+    display: inline-flex; align-items:center; gap:8px;
+    background: var(--accent-petra); color:#fff; border: none;
+    padding: 14px 28px; border-radius: 10px; font-size: 15px;
+    font-weight: 600; cursor: pointer; margin-top: 14px;
+    box-shadow: 0 2px 8px rgba(124,92,255,0.3);
+  }
+  .btn-promover:hover { background:#6a4ae8; }
+  .btn-promover:disabled { background:#cbc5db; cursor:not-allowed; box-shadow:none; }
+
+  h3.section-h { font-size: 13px; font-weight: 600; color: var(--muted);
+                 text-transform: uppercase; letter-spacing: .5px;
+                 margin: 20px 0 10px; }
+
+  .commits { background: var(--panel); border:1px solid var(--border);
+             border-radius: 10px; overflow:hidden; }
+  .commits .row { padding: 10px 16px; border-bottom: 1px solid var(--border);
+                  display:flex; align-items:center; gap:14px; }
+  .commits .row:last-child { border-bottom: none; }
+  .commits .sha { font-family: ui-monospace, Menlo, monospace;
+                  color: var(--accent); font-size: 12px; min-width: 60px; }
+  .commits .msg { flex: 1; min-width: 0; font-size: 13px; }
+  .commits .meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+  .out { margin-top: 14px; padding: 12px 14px; border-radius: 8px;
+         font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+         display: none; }
+  .out.ok  { background: var(--ok-soft);   color: var(--ok); display: block; }
+  .out.err { background: var(--down-soft); color: var(--down); display: block; }
+
+  .warn-staging { background: #f59e0b; color:#fff; padding:12px 18px;
+                  border-radius: 10px; margin-bottom: 18px; font-weight: 500;
+                  font-size: 13.5px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>🚀 Petra · Despliegues</h1>
+  <a class="back" href="/panel/petra?token={{ token }}">← Panel</a>
+</div>
+
+<main>
+
+  <div class="intro">
+    Esta pantalla compara la rama <b>develop</b> (staging) contra <b>main</b> (producción).
+    Si hay commits pendientes, podés promoverlos a prod con 1 click + tu PIN.
+  </div>
+
+  {% if is_staging %}
+  <div class="warn-staging">
+    🧪 Estás viendo esto desde <b>staging</b>. No se puede promover desde acá.
+    Abrí el panel de producción (<code>petra-inmuebles.onrender.com</code>) para usar esta función.
+  </div>
+  {% endif %}
+
+  {% if cmp.error %}
+    <div class="status-card err">
+      <h2>❌ No pude conectar con GitHub</h2>
+      <div class="msg">{{ cmp.error }}</div>
+      <div class="msg" style="margin-top:8px">
+        Si dice <code>HTTP 401</code> o <code>HTTP 404</code> probablemente falta configurar
+        <code>GITHUB_TOKEN</code> en Render con permiso de push a main.
+      </div>
+    </div>
+  {% elif cmp.ahead_by == 0 and cmp.behind_by == 0 %}
+    <div class="status-card ok">
+      <h2>✅ Staging y producción sincronizados</h2>
+      <div class="msg">No hay cambios pendientes de promover.</div>
+    </div>
+  {% elif cmp.ahead_by > 0 %}
+    <div class="status-card pend">
+      <h2>🟡 {{ cmp.ahead_by }} commit{{ 's' if cmp.ahead_by != 1 else '' }} pendiente{{ 's' if cmp.ahead_by != 1 else '' }} de promover a producción</h2>
+      <div class="msg">
+        Son los cambios que ya están en <b>staging</b> pero todavía no en <b>prod</b>.
+        Revisalos abajo y si todo anda, apretá "Promover".
+      </div>
+      {% if not is_staging %}
+      <button class="btn-promover" onclick="promover()">
+        🚀 Promover staging → producción
+      </button>
+      {% endif %}
+      <div class="out" id="out"></div>
+    </div>
+  {% else %}
+    <div class="status-card err">
+      <h2>⚠ Prod está adelante de staging ({{ cmp.behind_by }} commits)</h2>
+      <div class="msg">
+        Esto es raro: significa que se mergeó algo a <code>main</code> sin pasar por
+        <code>develop</code>. Sincronizá develop con main para seguir trabajando.
+      </div>
+    </div>
+  {% endif %}
+
+  {% if cmp.commits %}
+  <h3 class="section-h">Commits pendientes</h3>
+  <div class="commits">
+    {% for c in cmp.commits %}
+    <div class="row">
+      <span class="sha">{{ c.sha }}</span>
+      <span class="msg">{{ c.message }}</span>
+      <span class="meta">{{ c.author }} · {{ c.date }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</main>
+
+<script>
+async function promover() {
+  let pin = null;
+  try { pin = sessionStorage.getItem('petra_pin_fabricio'); } catch(e){}
+  if (!pin) {
+    pin = prompt('PIN de 4 dígitos de Fabricio:');
+    if (!pin || !/^\d{4}$/.test(pin)) return;
+    try { sessionStorage.setItem('petra_pin_fabricio', pin); } catch(e){}
+  }
+  if (!confirm("¿Promover staging → producción?\n\nVa a mergear develop → main y Render re-deployará prod en ~2 min.")) return;
+
+  const btn = document.querySelector('.btn-promover');
+  const out = document.getElementById('out');
+  btn.disabled = true;
+  btn.textContent = '⏳ Promoviendo…';
+  out.className = 'out';
+  out.textContent = '';
+
+  try {
+    const fd = new FormData();
+    fd.append('token', '{{ token }}');
+    fd.append('pin', pin);
+    const r = await fetch('/panel/petra/deploys/promover', {method: 'POST', body: fd});
+    const d = await r.json();
+    if (d.ok) {
+      out.className = 'out ok';
+      out.textContent = '✅ Promovido: commit ' + (d.sha || '(sin cambios)') +
+                         '. Render ya está deployando prod — refresca en 2 min para ver que staging y prod estén sincronizados.';
+      btn.textContent = '✔ Promoción enviada';
+    } else {
+      out.className = 'out err';
+      out.textContent = '❌ ' + (d.error || 'falló');
+      btn.disabled = false;
+      btn.textContent = '🚀 Promover staging → producción';
+      if (r.status === 401) { try { sessionStorage.removeItem('petra_pin_fabricio'); } catch(e){} }
+    }
+  } catch(e) {
+    out.className = 'out err';
+    out.textContent = '❌ ' + e.message;
+    btn.disabled = false;
+    btn.textContent = '🚀 Promover staging → producción';
+  }
+}
+</script>
+
+</body>
+</html>

@@ -5111,3 +5111,95 @@ def pasos_personas():
         tipo=tipo, grupos=grupos, titulo=titulo,
         total=total, token=token,
     )
+
+
+# =============================================================================
+# DESPLIEGUES — Botón "Promover staging → prod"
+# =============================================================================
+
+def _gh_compare(base="main", head="develop"):
+    """GitHub API: compara base vs head. Devuelve dict con ahead_by,
+    behind_by, commits (lista). Sin auth necesaria si el repo es público,
+    pero con GITHUB_TOKEN evita rate-limit de 60 req/h."""
+    import requests as _rq
+    tok = (os.environ.get("GITHUB_TOKEN") or "").strip()
+    headers = {"Accept": "application/vnd.github+json"}
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    r = _rq.get(
+        f"https://api.github.com/repos/fabricio754/petra-inmuebles/compare/{base}...{head}",
+        headers=headers, timeout=10,
+    )
+    if r.status_code != 200:
+        return {"error": f"HTTP {r.status_code}: {r.text[:200]}"}
+    d = r.json()
+    return {
+        "ahead_by": d.get("ahead_by", 0),
+        "behind_by": d.get("behind_by", 0),
+        "commits": [
+            {
+                "sha": c.get("sha", "")[:7],
+                "message": (c.get("commit", {}).get("message") or "").split("\n")[0][:120],
+                "author": c.get("commit", {}).get("author", {}).get("name", ""),
+                "date": c.get("commit", {}).get("author", {}).get("date", "")[:10],
+            }
+            for c in d.get("commits", [])[-30:]  # máximo 30 commits
+        ],
+    }
+
+
+def _gh_merge_dev_into_main(commit_message=None):
+    """Mergea develop → main via GitHub API. Requires GITHUB_TOKEN con
+    permiso de push a main."""
+    import requests as _rq
+    tok = (os.environ.get("GITHUB_TOKEN") or "").strip()
+    if not tok:
+        return {"ok": False, "error": "GITHUB_TOKEN no configurado en env"}
+    from datetime import datetime
+    msg = commit_message or f"🚀 Promoción staging → prod · {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    r = _rq.post(
+        "https://api.github.com/repos/fabricio754/petra-inmuebles/merges",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {tok}",
+            "Content-Type": "application/json",
+        },
+        json={"base": "main", "head": "develop", "commit_message": msg},
+        timeout=20,
+    )
+    if r.status_code == 201:
+        d = r.json()
+        return {"ok": True, "sha": d.get("sha", "")[:7], "message": msg}
+    if r.status_code == 204:
+        return {"ok": True, "noop": True, "message": "Nada para mergear — ya está todo en prod"}
+    if r.status_code == 409:
+        return {"ok": False, "error": "Conflicto de merge. Resolvé a mano."}
+    return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
+
+
+@petra_panel_bp.get("/deploys")
+def deploys_dashboard():
+    """Pantalla: ver pendientes + botón promover."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    cmp = _gh_compare(base="main", head="develop")
+    return render_template(
+        "petra_deploys.html",
+        cmp=cmp, token=token,
+        is_staging=(os.environ.get("MODO_STAGING") or "").strip() == "1",
+    )
+
+
+@petra_panel_bp.post("/deploys/promover")
+def deploys_promover():
+    """POST: ejecuta el merge develop → main. Requiere PIN de Fabricio."""
+    _check_token()
+    from flask import jsonify
+    if not _verificar_pin("fabricio"):
+        return jsonify({"ok": False, "error": "PIN incorrecto"}), 401
+    if (os.environ.get("MODO_STAGING") or "").strip() == "1":
+        return jsonify({"ok": False,
+                        "error": "No se puede promover desde el panel staging. "
+                                 "Hacelo desde prod."}), 400
+    res = _gh_merge_dev_into_main()
+    return jsonify(res)
