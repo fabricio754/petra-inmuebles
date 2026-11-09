@@ -698,15 +698,11 @@ def _procesar_webhook_petra(payload):
 _ALERTA_ULTIMO_ENVIO = {"ts": 0.0, "razones": {}}
 
 def _bot_fallback_y_alertar(phone, texto_usuario, rama, error):
-    """Cuando un handler crashea: enviar fallback al usuario + alertar operador.
+    """Cuando un handler crashea: responder automáticamente al usuario
+    + alertar operador en background (NO le decimos al usuario que vendrá
+    un humano — el bot debe ser 100% autónomo).
 
-    No intenta nada si ya se envió fallback en los últimos 60s para el mismo
-    teléfono (evita loops). La alerta al operador tiene rate-limit de 1 por
-    minuto por tipo de razón (ej. "visitante", "orquestador") para no
-    floodear si todo el bot está roto.
-
-    Marca el contacto con requires_humano=true en la DB para que aparezca
-    en el panel y un humano pueda tomar la conversación.
+    Alerta operador: rate-limit 1/min por rama para no floodear.
     """
     import time as _tm
     import traceback as _tb
@@ -715,23 +711,14 @@ def _bot_fallback_y_alertar(phone, texto_usuario, rama, error):
         petra_wa.send_message(phone, {
             "type": "text",
             "text": {"body":
-                "👋 Perdón, tuvimos un problema procesando tu mensaje.\n\n"
-                "Un asesor te responderá en un momento. Mientras tanto "
-                "podés escribirle a Fabricio a wa.me/573102303030."},
+                "🤖 Perdón, no entendí tu mensaje.\n\n"
+                "Escribí *menu* para ver las opciones disponibles, "
+                "o escaneá el QR del conjunto para arrancar."},
         })
     except Exception:
         log.exception("[petra] fallback user send fallo tel=%s", phone)
 
-    # Marcar requires_humano para que aparezca en el panel.
-    try:
-        from app import db as _db
-        _db.marcar_requiere_humano(
-            phone, motivo=f"bot_crash: {rama} — {type(error).__name__}"
-        )
-    except Exception:
-        log.exception("[petra] marcar_requiere_humano fallo tel=%s", phone)
-
-    # Alertar operador con rate-limit por rama (una por minuto por rama).
+    # Alertar operador en background (rate-limited). No bloquea al usuario.
     try:
         destino = (os.environ.get("PETRA_OPERADOR_PHONE") or "").strip()
         if not destino:
@@ -746,11 +733,11 @@ def _bot_fallback_y_alertar(phone, texto_usuario, rama, error):
         tb_tail = "".join(_tb.format_exception_only(type(error), error)).strip()[:300]
         petra_wa.send_text(
             destino,
-            f"🚨 Bot crash en rama *{rama}*\n\n"
+            f"🚨 Bot crash en rama *{rama}* (usuario ya recibió fallback auto)\n\n"
             f"Tel: {phone}\n"
             f"Texto: {texto}\n\n"
             f"Error: {tb_tail}\n\n"
-            f"Ver detalle en Render logs o panel/petra/salud."
+            f"Revisá /panel/petra/salud o Render logs."
         )
     except Exception:
         log.exception("[petra] alerta operador fallo")
