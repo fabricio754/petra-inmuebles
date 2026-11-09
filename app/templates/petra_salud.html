@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Salud · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f8fa; --panel: #fff; --border: #d0d7de;
+    --text: #1f2328; --muted: #656d76;
+    --ok: #1a7f37; --ok-soft: #dafbe1;
+    --warn: #9a6700; --warn-soft: #fff8c5;
+    --down: #cf222e; --down-soft: #ffebe9;
+    --accent: #0969da;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 18px 24px; background:#fff; border-bottom:1px solid var(--border);
+            display:flex; align-items:center; gap:12px; }
+  .topbar h1 { margin:0; font-size:16px; font-weight:600; }
+  .topbar a.back { color: var(--accent); text-decoration:none; font-size:13px; margin-left:auto; }
+
+  main { padding: 24px; max-width: 920px; margin: 0 auto; }
+
+  /* Banner global */
+  .banner { padding: 22px 26px; border-radius: 12px; margin-bottom: 20px;
+            display:flex; align-items:center; gap:16px; }
+  .banner.ok   { background: var(--ok-soft);   border:1px solid var(--ok); }
+  .banner.warn { background: var(--warn-soft); border:1px solid var(--warn); }
+  .banner.down { background: var(--down-soft); border:1px solid var(--down); }
+  .banner .dot { width:14px; height:14px; border-radius:50%; flex-shrink:0; }
+  .banner.ok   .dot { background: var(--ok);   box-shadow: 0 0 0 4px rgba(26,127,55,.15); }
+  .banner.warn .dot { background: var(--warn); box-shadow: 0 0 0 4px rgba(154,103,0,.15); }
+  .banner.down .dot { background: var(--down); box-shadow: 0 0 0 4px rgba(207,34,46,.15); }
+  .banner .msg { flex:1; }
+  .banner .msg b { display:block; font-size:18px; margin-bottom:2px; }
+  .banner .msg .t { color: var(--muted); font-size:12.5px; }
+  .banner .refresh-btn { background:#fff; border:1px solid var(--border);
+                        padding:6px 12px; border-radius:6px; font-size:13px;
+                        cursor:pointer; color: var(--text); font-weight:500; }
+  .banner .refresh-btn:hover { background: var(--bg); }
+
+  /* Componentes */
+  .section-h { font-size:13px; font-weight:600; color: var(--muted);
+               text-transform:uppercase; letter-spacing:.5px;
+               margin-bottom:10px; margin-top:10px; }
+  .list { background: var(--panel); border:1px solid var(--border);
+          border-radius: 12px; overflow:hidden; }
+  .row { padding: 14px 18px; display:flex; align-items:center; gap:14px;
+         border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom:none; }
+  .row .nombre { flex:1; }
+  .row .nombre b { font-size:14px; font-weight:600; display:block; }
+  .row .nombre .detail { color: var(--muted); font-size:12.5px; margin-top:2px; }
+
+  /* Barritas tipo WiFi */
+  .bars { display:flex; align-items:flex-end; gap:3px; height:20px; }
+  .bars span { width:5px; background: #d0d7de; border-radius:1px; }
+  .bars span:nth-child(1) { height: 25%; }
+  .bars span:nth-child(2) { height: 50%; }
+  .bars span:nth-child(3) { height: 75%; }
+  .bars span:nth-child(4) { height: 100%; }
+  .bars.ok   span.on { background: var(--ok);   }
+  .bars.warn span.on { background: var(--warn); }
+  .bars.down span.on { background: var(--down); }
+
+  /* Pill de estado */
+  .pill { padding: 3px 10px; border-radius:999px; font-size:11px;
+          font-weight:600; text-transform:uppercase; letter-spacing:.3px; }
+  .pill.ok   { background: var(--ok-soft);   color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.down { background: var(--down-soft); color: var(--down); }
+
+  /* Smoke tests */
+  .smoke { background: var(--panel); border:1px solid var(--border);
+           border-radius:12px; padding: 18px; margin-top:20px; }
+  .smoke h3 { margin:0 0 10px; font-size:14px; }
+  .smoke p { color: var(--muted); font-size:12.5px; margin: 0 0 12px; }
+  .btn { background:#fff; border:1px solid var(--border); padding:8px 14px;
+         border-radius:6px; font-size:13px; cursor:pointer; color: var(--text);
+         font-weight:500; display:inline-flex; align-items:center; gap:6px; }
+  .btn:hover { background: var(--bg); border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color:#fff; border-color: var(--accent); }
+  .btn.primary:hover { background: #0860c9; }
+  .smoke-out { margin-top:10px; padding:10px 12px; border-radius:6px;
+               font-family:ui-monospace,Menlo,monospace; font-size:12px;
+               display:none; }
+  .smoke-out.ok   { background: var(--ok-soft);   color: var(--ok); display:block; }
+  .smoke-out.err  { background: var(--down-soft); color: var(--down); display:block; }
+
+  .footer { margin-top:30px; text-align:center; color:var(--muted); font-size:11.5px; }
+  .pulse { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>📊 Petra · Salud del sistema</h1>
+  <a class="back" href="/panel/petra/visitante?token={{ token }}">← Volver al panel</a>
+</div>
+
+<main>
+  <div class="banner {{ estado }}" id="banner">
+    <div class="dot"></div>
+    <div class="msg">
+      <b id="banner-msg">{{ mensaje }}</b>
+      <div class="t">Última verificación: <span id="verificado-en">{{ verificado_en }}</span></div>
+    </div>
+    <button class="refresh-btn" onclick="correrChecks()">🔄 Volver a verificar</button>
+  </div>
+
+  <div class="section-h">Componentes</div>
+  <div class="list" id="componentes">
+    {% for c in checks %}
+    <div class="row">
+      <div class="bars {{ c.status }}">
+        {% for i in range(4) %}
+          <span class="{% if i < c.bars %}on{% endif %}"></span>
+        {% endfor %}
+      </div>
+      <div class="nombre">
+        <b>{{ c.nombre }}</b>
+        <div class="detail">{{ c.detalle }}</div>
+      </div>
+      <span class="pill {{ c.status }}">
+        {% if c.status == 'ok' %}Operativo
+        {% elif c.status == 'warn' %}Advertencia
+        {% else %}Caído{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="smoke">
+    <h3>🧪 Smoke tests</h3>
+    <p>Pruebas manuales end-to-end. Requieren tu PIN de Fabricio.</p>
+    <button class="btn primary" onclick="smokeWa()">💬 Enviar WA de prueba a mi número</button>
+    <div class="smoke-out" id="smoke-wa-out"></div>
+  </div>
+
+  <div class="footer">
+    Auto-refresh cada 30 segundos · <a href="/panel/petra/salud.json?token={{ token }}" target="_blank">API JSON</a>
+  </div>
+</main>
+
+<script>
+(function(){
+  const TOKEN = "{{ token }}";
+  let timer;
+
+  async function correrChecks() {
+    document.getElementById('banner-msg').classList.add('pulse');
+    try {
+      const r = await fetch('/panel/petra/salud.json?token=' + encodeURIComponent(TOKEN));
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      renderizar(d);
+    } catch(e) {
+      console.error(e);
+    } finally {
+      document.getElementById('banner-msg').classList.remove('pulse');
+    }
+  }
+
+  function renderizar(d) {
+    const banner = document.getElementById('banner');
+    banner.className = 'banner ' + d.estado;
+    document.getElementById('banner-msg').textContent = d.mensaje;
+    document.getElementById('verificado-en').textContent = d.verificado_en;
+
+    const list = document.getElementById('componentes');
+    list.innerHTML = '';
+    for (const c of d.checks) {
+      let bars = '';
+      for (let i = 0; i < 4; i++) {
+        bars += '<span class="' + (i < c.bars ? 'on' : '') + '"></span>';
+      }
+      const pill = c.status === 'ok' ? 'Operativo' :
+                   c.status === 'warn' ? 'Advertencia' : 'Caído';
+      list.insertAdjacentHTML('beforeend',
+        '<div class="row">' +
+        '<div class="bars ' + c.status + '">' + bars + '</div>' +
+        '<div class="nombre"><b>' + c.nombre + '</b>' +
+        '<div class="detail">' + c.detalle + '</div></div>' +
+        '<span class="pill ' + c.status + '">' + pill + '</span>' +
+        '</div>');
+    }
+  }
+
+  function pedirPin() {
+    try {
+      let p = sessionStorage.getItem('petra_pin_fabricio');
+      if (p) return p;
+    } catch(e){}
+    const p = prompt('PIN de 4 dígitos de Fabricio:');
+    if (!p || !/^\d{4}$/.test(p)) return null;
+    try { sessionStorage.setItem('petra_pin_fabricio', p); } catch(e){}
+    return p;
+  }
+
+  window.smokeWa = async function() {
+    const pin = pedirPin();
+    if (!pin) return;
+    const out = document.getElementById('smoke-wa-out');
+    out.className = 'smoke-out';
+    out.textContent = '⏳ enviando…';
+    out.style.display = 'block';
+    try {
+      const fd = new FormData();
+      fd.append('token', TOKEN);
+      fd.append('pin', pin);
+      const r = await fetch('/panel/petra/salud/smoke/wa', {method: 'POST', body: fd});
+      const d = await r.json();
+      if (d.ok) {
+        out.className = 'smoke-out ok';
+        out.textContent = '✅ Enviado a ' + d.destino + ' · wa_msg_id=' + d.wa_msg_id + ' · ' + d.hora;
+      } else {
+        out.className = 'smoke-out err';
+        out.textContent = '❌ ' + (d.error || 'falló');
+        if (r.status === 401) { try { sessionStorage.removeItem('petra_pin_fabricio'); } catch(e){} }
+      }
+    } catch(e) {
+      out.className = 'smoke-out err';
+      out.textContent = '❌ ' + e.message;
+    }
+  };
+
+  window.correrChecks = correrChecks;
+  // Auto-refresh cada 30s
+  timer = setInterval(correrChecks, 30000);
+})();
+</script>
+</body>
+</html>
