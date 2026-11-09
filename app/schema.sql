@@ -2270,3 +2270,9 @@ INSERT INTO petra_flags (nombre, activo, categoria, descripcion) VALUES
    'El botón "Marcar mandato" pide confirmación JS. Si se apaga, click directo.'),
   ('nuevo_inmueble_sin_precio',       TRUE,  'panel',
    'Permite crear inmueble con precio vacío (se guarda como 0). Si se apaga, precio obligatorio.');
+
+-- Flag nuevo (nov 2026) — permite saltar la etapa de bienvenida del embudo.
+INSERT INTO petra_flags (nombre, activo, categoria, descripcion) VALUES
+  ('embudo_requiere_bienvenida', TRUE, 'embudo',
+   'Si está ON: después de confirmar datos hay que mandar bienvenida+video antes de ofrecer Petra. Si está OFF: se salta la bienvenida y del paso datos completos pasa directo a listo-para-ofrecer-Petra.')
+ON CONFLICT (nombre) DO NOTHING;

@@ -4186,7 +4186,12 @@ def _wa_url(cel_e164, texto):
 
 
 def _etapa_inmueble(inm):
-    """Clasifica el inmueble en la etapa actual del embudo."""
+    """Clasifica el inmueble en la etapa actual del embudo.
+    Flag embudo_requiere_bienvenida: si está OFF, se salta la etapa
+    bienvenida — un inmueble con datos completos pasa directo al estado
+    'post_bienvenida' (listo para ofrecer Petra). Reversible desde
+    /panel/petra/flags.
+    """
     if not inm.get("activo"):
         return 'desactivado'
     if inm.get("mandato_at"):
@@ -4198,10 +4203,13 @@ def _etapa_inmueble(inm):
     if inm.get("bienvenida_at"):
         return 'post_bienvenida'
     if inm.get("datos_confirmado_at"):
-        # ¿Tiene precio Y m²?
         tiene_precio = (inm.get("precio") or 0) > 0
         tiene_m2 = (inm.get("m2") or 0) > 0
         if tiene_precio and tiene_m2:
+            # Si el flag está OFF, saltar bienvenida: tratar como listo
+            # para ofrecer Petra directamente.
+            if not _flag("embudo_requiere_bienvenida", default=True):
+                return 'post_bienvenida'
             return 'confirmado_completo'
         return 'confirmado_sin_datos'
     return 'pendiente_confirmar'
@@ -4718,18 +4726,33 @@ def _funnel_propietarios():
     with _db._conexion_directa(timeout=5) as conn:
         r = conn.execute(sql).fetchone()
     total = r[0] or 0
-    pasos = [
-        ("⚪ Pendiente contacto (Sebas)",   r[1] or 0),
-        ("🟡 Contactado · faltan datos",    r[2] or 0),
-        ("✉️ Bienvenida enviada",           r[3] or 0),
-        ("🏠 Ofrecida Petra",               r[4] or 0),
-        ("💵 Ofrecida Crédito",             r[5] or 0),
-        ("🤝 Mandato firmado",              r[6] or 0),
-    ]
+    requiere_bienvenida = _flag("embudo_requiere_bienvenida", default=True)
+    if requiere_bienvenida:
+        pasos = [
+            ("⚪ Pendiente contacto (Sebas)",   r[1] or 0),
+            ("🟡 Contactado · faltan datos",    r[2] or 0),
+            ("✉️ Bienvenida enviada",           r[3] or 0),
+            ("🏠 Ofrecida Petra",               r[4] or 0),
+            ("💵 Ofrecida Crédito",             r[5] or 0),
+            ("🤝 Mandato firmado",              r[6] or 0),
+        ]
+    else:
+        # Flag OFF: ocultar paso bienvenida. Lo que estaba en "bienvenida"
+        # se visualiza como "listo para ofrecer" (sin cambiar la DB).
+        pasos = [
+            ("⚪ Pendiente contacto (Sebas)",   r[1] or 0),
+            ("🟡 Contactado · faltan datos",    r[2] or 0),
+            ("🏠 Ofrecida Petra",               (r[4] or 0) + (r[3] or 0)),
+            ("💵 Ofrecida Crédito",             r[5] or 0),
+            ("🤝 Mandato firmado",              r[6] or 0),
+        ]
+    extra = f"{r[7] or 0} desactivados (no cuentan)"
+    if not requiere_bienvenida:
+        extra += " · paso bienvenida desactivado (flag)"
     return {
         "titulo": "🏠 Propietarios — Embudo",
         "total": total, "subtotal_label": "activos",
-        "extra": f"{r[7] or 0} desactivados (no cuentan)",
+        "extra": extra,
         "pasos": [{"nombre": n, "n": v,
                    "pct": int(v * 100 / total) if total else 0} for n, v in pasos],
     }
