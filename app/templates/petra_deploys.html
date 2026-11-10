@@ -95,22 +95,37 @@
   </div>
   {% endif %}
 
-  {% if not is_staging %}
-    {% if ventana_abierta %}
-    <div class="warn-staging" style="background:#dafbe1;border-color:#1a7f37;color:#1a7f37">
-      🟢 <b>Ventana de despliegue ABIERTA</b> ({{ "%02d"|format(ventana_inicio) }}:00–{{ "%02d"|format(ventana_fin) }}:00 Bogotá).
-      Hora actual: {{ "%02d"|format(hora_bogota) }}:xx. Podés promover.
+  {% if prs_abiertos %}
+  <div class="status-card pend">
+    <h2>🚦 PRs esperando aprobación para prod ({{ prs_abiertos|length }})</h2>
+    <div class="msg">
+      Claude ya abrió estos PRs. Solo vos podés aprobarlos + mergearlos
+      (con PIN). Si no los aprobás, nada entra a producción.
     </div>
-    {% else %}
-    <div class="warn-staging">
-      🌙 <b>Ventana de despliegue CERRADA</b> — solo podés promover entre
-      {{ "%02d"|format(ventana_inicio) }}:00 y {{ "%02d"|format(ventana_fin) }}:00 (Bogotá).
-      Hora actual: {{ "%02d"|format(hora_bogota) }}:xx.
-      <br><br>
-      Esto evita caídas durante el día. Si es <b>emergencia real</b>, podés forzar
-      con el checkbox "Forzar fuera de ventana" abajo.
+    {% for pr in prs_abiertos %}
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px;
+                padding:10px;background:#f6f8fa;border-radius:6px">
+      <div style="flex:1">
+        <div style="font-weight:600">#{{ pr.number }} · {{ pr.title }}</div>
+        <div style="font-size:12px;color:#656d76">{{ pr.head }} → main · <a href="{{ pr.url }}" target="_blank">ver en GitHub</a></div>
+      </div>
+      <button class="btn-promover" onclick="aprobar({{ pr.number }})"
+              {% if not ventana_abierta %}data-fuera-ventana="1"{% endif %}>
+        ✅ Aprobar + mergear
+      </button>
     </div>
+    {% endfor %}
+    {% if not ventana_abierta %}
+    <label style="display:block;margin-top:10px;font-size:12px;color:#656d76">
+      <input type="checkbox" id="forzar"> Forzar fuera de ventana (20–06 Bogotá)
+    </label>
     {% endif %}
+    <div class="out" id="out" style="margin-top:10px"></div>
+  </div>
+  {% else %}
+  <div class="warn-staging" style="background:#dafbe1;border-color:#1a7f37;color:#1a7f37">
+    ✅ No hay PRs pendientes de aprobar para producción.
+  </div>
   {% endif %}
 
   {% if cmp.error %}
@@ -132,20 +147,9 @@
       <h2>🟡 {{ cmp.ahead_by }} commit{{ 's' if cmp.ahead_by != 1 else '' }} pendiente{{ 's' if cmp.ahead_by != 1 else '' }} de promover a producción</h2>
       <div class="msg">
         Son los cambios que ya están en <b>staging</b> pero todavía no en <b>prod</b>.
-        Revisalos abajo y si todo anda, apretá "Promover".
+        Revisalos abajo; si todo anda, pedile <i>"deploy"</i> a Claude —
+        él abre el PR y vos lo aprobás arriba.
       </div>
-      {% if not is_staging %}
-      <button class="btn-promover" onclick="promover()"
-              {% if not ventana_abierta %}data-fuera-ventana="1"{% endif %}>
-        🚀 Promover staging → producción
-      </button>
-      {% if not ventana_abierta %}
-      <label style="display:block;margin-top:10px;font-size:12px;color:var(--muted)">
-        <input type="checkbox" id="forzar"> Forzar fuera de ventana (solo emergencias)
-      </label>
-      {% endif %}
-      {% endif %}
-      <div class="out" id="out"></div>
     </div>
   {% else %}
     <div class="status-card err">
@@ -173,7 +177,7 @@
 </main>
 
 <script>
-async function promover() {
+async function aprobar(pr) {
   let pin = null;
   try { pin = sessionStorage.getItem('petra_pin_fabricio'); } catch(e){}
   if (!pin) {
@@ -181,50 +185,46 @@ async function promover() {
     if (!pin || !/^\d{4}$/.test(pin)) return;
     try { sessionStorage.setItem('petra_pin_fabricio', pin); } catch(e){}
   }
-  const btnEl = document.querySelector('.btn-promover');
-  const fueraVentana = btnEl && btnEl.dataset.fueraVentana === "1";
+  const btn = event.currentTarget;
+  const fueraVentana = btn.dataset.fueraVentana === "1";
   const forzarCk = document.getElementById('forzar');
   const fuerza = forzarCk && forzarCk.checked;
   if (fueraVentana && !fuerza) {
-    alert("Estás fuera de la ventana de despliegue. Si es emergencia, marcá 'Forzar fuera de ventana'.");
+    alert("Fuera de ventana (20–06 Bogotá). Si es emergencia, marcá 'Forzar'.");
     return;
   }
-  const msgConfirm = fueraVentana && fuerza
-    ? "⚠ EMERGENCIA: estás promoviendo FUERA de la ventana horaria.\n\nEsto puede caer el bot mientras está en uso.\n\n¿Seguro?"
-    : "¿Promover staging → producción?\n\nVa a mergear develop → main y Render re-deployará prod en ~2 min.";
-  if (!confirm(msgConfirm)) return;
-
-  const btn = document.querySelector('.btn-promover');
+  const msg = fueraVentana
+    ? "⚠ EMERGENCIA: aprobar + mergear PR #" + pr + " FUERA de ventana. ¿Seguro?"
+    : "¿Aprobar + mergear PR #" + pr + " a producción?";
+  if (!confirm(msg)) return;
   const out = document.getElementById('out');
   btn.disabled = true;
-  btn.textContent = '⏳ Promoviendo…';
-  out.className = 'out';
-  out.textContent = '';
-
+  btn.textContent = '⏳ Aprobando…';
   try {
     const fd = new FormData();
     fd.append('token', '{{ token }}');
     fd.append('pin', pin);
+    fd.append('pr', pr);
     if (fuerza) fd.append('fuerza', '1');
-    const r = await fetch('/panel/petra/deploys/promover', {method: 'POST', body: fd});
+    const r = await fetch('/panel/petra/deploys/aprobar', {method:'POST', body:fd});
     const d = await r.json();
     if (d.ok) {
       out.className = 'out ok';
-      out.textContent = '✅ Promovido: commit ' + (d.sha || '(sin cambios)') +
-                         '. Render ya está deployando prod — refresca en 2 min para ver que staging y prod estén sincronizados.';
-      btn.textContent = '✔ Promoción enviada';
+      out.textContent = '✅ PR #' + pr + ' mergeado (commit ' + (d.sha || '') +
+                        '). Render deploya en ~2 min.';
+      btn.textContent = '✔ Mergeado';
     } else {
       out.className = 'out err';
       out.textContent = '❌ ' + (d.error || 'falló');
       btn.disabled = false;
-      btn.textContent = '🚀 Promover staging → producción';
+      btn.textContent = '✅ Aprobar + mergear';
       if (r.status === 401) { try { sessionStorage.removeItem('petra_pin_fabricio'); } catch(e){} }
     }
   } catch(e) {
     out.className = 'out err';
     out.textContent = '❌ ' + e.message;
     btn.disabled = false;
-    btn.textContent = '🚀 Promover staging → producción';
+    btn.textContent = '✅ Aprobar + mergear';
   }
 }
 </script>
