@@ -3021,6 +3021,44 @@ def _fmt_precio_cop(valor):
             return "Sin precio"
 
 
+@petra_panel_bp.get("/v2")
+def panel_v2_home():
+    """Preview del rediseño del panel (Fase 1 — shell + navegación).
+    No reemplaza el panel actual; convive mientras se migra."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    stats = {"agentes": "—", "inmuebles": "—",
+             "demanda_7d": "—", "visitas_7d": "—"}
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            r = conn.execute(
+                "SELECT COUNT(*) FROM petra_contacto_roles "
+                " WHERE rol='agente_petra' "
+                "   AND metadata->>'estado_agente' IN "
+                "       ('inscrito','capacitacion_completa','autorizacion_pendiente',"
+                "        'kit_pendiente','kit_recibido','activa')"
+            ).fetchone()
+            stats["agentes"] = r[0] if r else "—"
+            r = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante WHERE activo=TRUE"
+            ).fetchone()
+            stats["inmuebles"] = r[0] if r else "—"
+            r = conn.execute(
+                "SELECT COUNT(*) FROM interesados_visitante "
+                " WHERE creado_en > NOW() - INTERVAL '7 days'"
+            ).fetchone()
+            stats["demanda_7d"] = r[0] if r else "—"
+            r = conn.execute(
+                "SELECT COUNT(*) FROM petra_visitas "
+                " WHERE creado_en > NOW() - INTERVAL '7 days'"
+            ).fetchone()
+            stats["visitas_7d"] = r[0] if r else "—"
+    except Exception:
+        log.exception("[panel_v2] stats query fallo (no crítico)")
+    return render_template("petra_panel_v2_home.html",
+                           token=token, stats=stats)
+
+
 @petra_panel_bp.get("/visitante")
 def visitante_conjuntos():
     """Index de conjuntos registrados en el flujo visitante QR.
