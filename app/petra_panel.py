@@ -5293,3 +5293,10 @@ def observabilidad_json():
         "prod": _stats_por_etapa("prod", horas),
         "staging": _stats_por_etapa("staging", horas),
     })
+
+
+@petra_panel_bp.get("/mock-v2")
+def mock_panel_v2():
+    """Mock visual del rediseño del panel (sidebar + dark mode tipo Linear)."""
+    _check_token()
+    return render_template("mock_panel_v2.html")

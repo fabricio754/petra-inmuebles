@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Petra · Mock v2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Paleta tipo Linear/Vercel — oscura elegante */
+    --bg: #0a0a0a;
+    --sidebar-bg: #0f0f10;
+    --content-bg: #0a0a0a;
+    --card-bg: #141416;
+    --card-border: #26262b;
+    --text: #ffffff;
+    --text-dim: #a1a1a6;
+    --text-muted: #6e6e75;
+    --accent: #8b5cf6;       /* violeta Petra */
+    --accent-dim: #6d28d9;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --down: #ef4444;
+    --divider: #1c1c20;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg);
+         color: var(--text); font-size: 14px; display: flex; min-height: 100vh; }
+
+  /* === SIDEBAR === */
+  .sidebar { width: 240px; background: var(--sidebar-bg); border-right: 1px solid var(--divider);
+             padding: 20px 0; display: flex; flex-direction: column;
+             position: sticky; top: 0; height: 100vh; overflow-y: auto; flex-shrink: 0; }
+  .sidebar .brand { padding: 0 20px 24px; display: flex; align-items: center; gap: 10px; }
+  .sidebar .brand .logo { width: 28px; height: 28px; background: var(--accent);
+                          border-radius: 8px; display: flex; align-items: center;
+                          justify-content: center; color: white; font-weight: 700; font-size: 14px; }
+  .sidebar .brand .name { font-weight: 600; font-size: 15px; }
+  .sidebar .brand .env { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase;
+                         letter-spacing: 0.5px; margin-left: auto; padding: 2px 6px;
+                         background: var(--card-bg); border-radius: 4px; }
+
+  .nav-section { margin-top: 18px; }
+  .nav-section .title { padding: 0 20px 6px; font-size: 10.5px; color: var(--text-muted);
+                        text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
+  .nav-item { padding: 7px 20px; color: var(--text-dim); text-decoration: none;
+              display: flex; align-items: center; gap: 10px; font-size: 13px;
+              border-left: 2px solid transparent; }
+  .nav-item:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+  .nav-item.active { color: var(--text); background: rgba(139,92,246,0.08);
+                     border-left-color: var(--accent); }
+  .nav-item .icon { width: 16px; display: inline-flex; justify-content: center; font-size: 13px; }
+  .nav-item .count { margin-left: auto; font-size: 11px; color: var(--text-muted);
+                     background: var(--card-bg); padding: 1px 7px; border-radius: 999px; }
+  .nav-item.sub { padding-left: 42px; font-size: 12.5px; color: var(--text-muted); }
+  .nav-item.sub:hover { color: var(--text-dim); }
+  .nav-item.sub.active { color: var(--text); }
+
+  .sidebar .footer { margin-top: auto; padding: 16px 20px; border-top: 1px solid var(--divider);
+                     font-size: 11px; color: var(--text-muted); }
+
+  /* === CONTENT === */
+  .main { flex: 1; min-width: 0; }
+  .topbar { padding: 18px 32px; border-bottom: 1px solid var(--divider);
+            display: flex; align-items: center; gap: 16px; background: var(--content-bg);
+            position: sticky; top: 0; z-index: 10; }
+  .topbar h1 { font-size: 17px; font-weight: 600; margin: 0; }
+  .topbar .breadcrumb { color: var(--text-muted); font-size: 13px; }
+  .topbar .breadcrumb a { color: var(--text-muted); text-decoration: none; }
+  .topbar .breadcrumb .sep { margin: 0 8px; opacity: 0.4; }
+  .topbar .actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  .btn-sm { padding: 6px 12px; background: var(--card-bg); color: var(--text-dim);
+            border: 1px solid var(--card-border); border-radius: 6px; font-size: 12.5px;
+            cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-sm:hover { color: var(--text); border-color: var(--text-muted); }
+  .btn-sm.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn-sm.primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); color: white; }
+
+  .content { padding: 28px 32px; }
+
+  /* === DASHBOARD CARDS === */
+  .section-head { display: flex; align-items: baseline; justify-content: space-between;
+                  margin-bottom: 14px; }
+  .section-head h2 { font-size: 13px; font-weight: 600; color: var(--text-muted);
+                     text-transform: uppercase; letter-spacing: 0.5px; }
+  .section-head .link { font-size: 12px; color: var(--accent); text-decoration: none; }
+
+  .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                gap: 12px; margin-bottom: 28px; }
+  .stat-card { background: var(--card-bg); border: 1px solid var(--card-border);
+               border-radius: 10px; padding: 16px 18px; }
+  .stat-card .lbl { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase;
+                    letter-spacing: 0.4px; margin-bottom: 6px; }
+  .stat-card .val { font-size: 26px; font-weight: 700; color: var(--text); }
+  .stat-card .delta { font-size: 11px; margin-top: 4px; }
+  .stat-card .delta.up { color: var(--ok); }
+  .stat-card .delta.down { color: var(--down); }
+
+  .panel-card { background: var(--card-bg); border: 1px solid var(--card-border);
+                border-radius: 10px; padding: 18px 20px; margin-bottom: 20px; }
+  .panel-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 14px; }
+
+  .row-item { padding: 10px 0; border-bottom: 1px solid var(--divider);
+              display: flex; align-items: center; gap: 12px; }
+  .row-item:last-child { border-bottom: none; }
+  .row-item .name { flex: 1; font-size: 13px; }
+  .row-item .meta { font-size: 11.5px; color: var(--text-muted); }
+  .pill { padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 600; }
+  .pill.ok { background: rgba(16,185,129,0.15); color: var(--ok); }
+  .pill.warn { background: rgba(245,158,11,0.15); color: var(--warn); }
+  .pill.down { background: rgba(239,68,68,0.15); color: var(--down); }
+
+  /* Mini bar chart */
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+             font-size: 12.5px; }
+  .bar-row .label { width: 160px; color: var(--text-dim); }
+  .bar-row .bar { flex: 1; height: 6px; background: var(--divider); border-radius: 999px;
+                  overflow: hidden; }
+  .bar-row .fill { height: 100%; background: var(--accent); border-radius: 999px; }
+  .bar-row .num { width: 50px; text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="brand">
+    <div class="logo">P</div>
+    <div class="name">Petra</div>
+    <div class="env">PROD</div>
+  </div>
+
+  <a class="nav-item active" href="#"><span class="icon">⚡</span> Dashboard</a>
+
+  <div class="nav-section">
+    <div class="title">Contenido</div>
+    <a class="nav-item sub" href="#">Agentes</a>
+    <a class="nav-item sub" href="#">Envío de Kit</a>
+    <a class="nav-item sub" href="#">FAQ</a>
+    <a class="nav-item sub" href="#">Demanda</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="title">Base de usuarios</div>
+    <a class="nav-item sub" href="#">Agentes <span class="count">25</span></a>
+    <a class="nav-item sub" href="#">Demanda <span class="count">87</span></a>
+    <a class="nav-item sub" href="#">Oferta <span class="count">44</span></a>
+  </div>
+
+  <div class="nav-section">
+    <div class="title">Conjuntos</div>
+    <a class="nav-item sub" href="#">Inmuebles <span class="count">44</span></a>
+  </div>
+
+  <div class="nav-section">
+    <div class="title">Ventas</div>
+    <a class="nav-item sub" href="#">Nudges + disparadores</a>
+    <a class="nav-item sub" href="#">Embudo</a>
+    <a class="nav-item sub" href="#">Mandatos <span class="count">0</span></a>
+  </div>
+
+  <div class="nav-section">
+    <div class="title">Operaciones</div>
+    <a class="nav-item sub" href="#">Visitas</a>
+    <a class="nav-item sub" href="#">Community</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="title">Sistema</div>
+    <a class="nav-item" href="#"><span class="icon">📊</span> Salud</a>
+    <a class="nav-item sub" href="#">Observabilidad</a>
+    <a class="nav-item" href="#"><span class="icon">🚀</span> Despliegues</a>
+  </div>
+
+  <div class="footer">
+    Fabricio · v3.2.1<br>
+    Deploy hace 12m
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="topbar">
+    <h1>Dashboard</h1>
+    <span class="breadcrumb">
+      <a href="#">Petra</a>
+      <span class="sep">/</span>
+      <span>Dashboard</span>
+    </span>
+    <div class="actions">
+      <button class="btn-sm">🔔</button>
+      <button class="btn-sm primary">🚀 Promover a prod</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- KPIs -->
+    <div class="section-head">
+      <h2>Últimas 24 horas</h2>
+      <a class="link" href="#">Ver histórico →</a>
+    </div>
+    <div class="cards-grid">
+      <div class="stat-card">
+        <div class="lbl">Mensajes IN</div>
+        <div class="val">142</div>
+        <div class="delta up">▲ 18% vs ayer</div>
+      </div>
+      <div class="stat-card">
+        <div class="lbl">Mensajes OUT</div>
+        <div class="val">89</div>
+        <div class="delta up">▲ 12% vs ayer</div>
+      </div>
+      <div class="stat-card">
+        <div class="lbl">Propietarios activos</div>
+        <div class="val">44</div>
+        <div class="delta">Sin cambios</div>
+      </div>
+      <div class="stat-card">
+        <div class="lbl">Mandatos</div>
+        <div class="val">0</div>
+        <div class="delta down">— pendiente 1er cierre</div>
+      </div>
+    </div>
+
+    <!-- Embudo -->
+    <div class="panel-card">
+      <h3>🏠 Embudo propietarios</h3>
+      <div class="bar-row">
+        <span class="label">Pendiente contacto</span>
+        <div class="bar"><div class="fill" style="width: 14%; background: #64748b"></div></div>
+        <span class="num">6 · 14%</span>
+      </div>
+      <div class="bar-row">
+        <span class="label">Contactado · faltan datos</span>
+        <div class="bar"><div class="fill" style="width: 86%; background: #f59e0b"></div></div>
+        <span class="num">38 · 86%</span>
+      </div>
+      <div class="bar-row">
+        <span class="label">Bienvenida enviada</span>
+        <div class="bar"><div class="fill" style="width: 0%"></div></div>
+        <span class="num">0 · 0%</span>
+      </div>
+      <div class="bar-row">
+        <span class="label">Ofrecida Petra</span>
+        <div class="bar"><div class="fill" style="width: 0%"></div></div>
+        <span class="num">0 · 0%</span>
+      </div>
+      <div class="bar-row">
+        <span class="label">Mandato firmado</span>
+        <div class="bar"><div class="fill" style="width: 0%; background: var(--ok)"></div></div>
+        <span class="num">0 · 0%</span>
+      </div>
+    </div>
+
+    <!-- Salud rápida -->
+    <div class="panel-card">
+      <h3>📊 Salud del sistema</h3>
+      <div class="row-item">
+        <span class="name">Base de datos (Postgres)</span>
+        <span class="meta">respondió en 18ms</span>
+        <span class="pill ok">OK</span>
+      </div>
+      <div class="row-item">
+        <span class="name">WhatsApp API (Meta)</span>
+        <span class="meta">quality: GREEN</span>
+        <span class="pill ok">OK</span>
+      </div>
+      <div class="row-item">
+        <span class="name">Scheduler</span>
+        <span class="meta">19 jobs · próximo 12:22</span>
+        <span class="pill ok">OK</span>
+      </div>
+      <div class="row-item">
+        <span class="name">Mensajes saliendo (24h)</span>
+        <span class="meta">1 enviado · 100% fallidos</span>
+        <span class="pill down">CAÍDO</span>
+      </div>
+    </div>
+
+    <!-- Actividad reciente -->
+    <div class="panel-card">
+      <h3>📬 Última actividad</h3>
+      <div class="row-item">
+        <span class="name">P0046 · Casa en Conjunto Arrayanes</span>
+        <span class="meta">Sebastián envió "Confirmar datos" hace 2h</span>
+      </div>
+      <div class="row-item">
+        <span class="name">Visitante QR nuevo en Mitika PH</span>
+        <span class="meta">Pidió ver arriendos · hace 3h</span>
+      </div>
+      <div class="row-item">
+        <span class="name">Agente Carolina Guerrero</span>
+        <span class="meta">4/14 videos · última conexión hace 1d</span>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+</body>
+</html>
