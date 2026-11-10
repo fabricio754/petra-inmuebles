@@ -188,12 +188,31 @@ def _simular_cron(cron):
 
 
 def _procesar_mensaje(telefono, texto):
-    """Entra un mensaje al bot como si fuera un webhook de WhatsApp."""
+    """Entra un mensaje al bot como si fuera un webhook de WhatsApp.
+
+    Replica el dispatch de webhook_worker: primero chequea es_visitante()
+    y rutea al flow visitante si corresponde; si no, al flow de agentes.
+    Sin este dispatch, los goldens de visitante nunca llegan al flow correcto
+    y el bot responde con el welcome de onboarding."""
+    try:
+        from app import petra_visitante
+        if petra_visitante.es_visitante(telefono, texto):
+            petra_visitante.handle_message(
+                telefono=telefono, texto=texto,
+                button_id=None, list_id=None,
+                contacto_nombre=None, wa_msg_id=None,
+                flow_response=None,
+            )
+            return True
+    except Exception:
+        traceback.print_exc()
+        return False
+
     from app.petra_agents import flow_onboarding_agente as flow
     try:
         flow.handle(telefono, texto)
         return True
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
         return False
 
