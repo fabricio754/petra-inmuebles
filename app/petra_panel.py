@@ -5210,9 +5210,31 @@ def _en_ventana_despliegue():
     return h >= inicio or h < fin
 
 
+def _gh_prs_abiertos_a_main():
+    """Lista PRs abiertos con base=main. Devuelve [{number, title, head, url}]."""
+    import requests as _rq
+    tok = (os.environ.get("GITHUB_TOKEN_FABRICIO")
+           or os.environ.get("GITHUB_TOKEN") or "").strip()
+    headers = {"Accept": "application/vnd.github+json"}
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    r = _rq.get(
+        "https://api.github.com/repos/fabricio754/petra-inmuebles/pulls"
+        "?state=open&base=main", headers=headers, timeout=10,
+    )
+    if r.status_code != 200:
+        return []
+    return [{
+        "number": p.get("number"),
+        "title": p.get("title", "")[:120],
+        "head": (p.get("head") or {}).get("ref", ""),
+        "url": p.get("html_url", ""),
+    } for p in r.json()]
+
+
 @petra_panel_bp.get("/deploys")
 def deploys_dashboard():
-    """Pantalla: ver pendientes + botón promover."""
+    """Pantalla: ver pendientes + PRs abiertos para aprobar+mergear."""
     _check_token()
     token = (request.args.get("token") or "").strip()
     cmp = _gh_compare(base="main", head="develop")
@@ -5226,11 +5248,62 @@ def deploys_dashboard():
         ventana_inicio=inicio,
         ventana_fin=fin,
         hora_bogota=_ahora_bogota_hora(),
+        prs_abiertos=_gh_prs_abiertos_a_main(),
     )
 
 
-# Ruta /deploys/promover eliminada: los deploys los hace Claude Code por pedido
-# del usuario con PIN verificado en chat. Ver docs internas.
+def _gh_aprobar_y_mergear_pr(pr_number):
+    """Aprueba el PR como @fabricio754 y lo mergea. Requiere
+    GITHUB_TOKEN_FABRICIO (PAT personal, scope repo). Si falta, falla."""
+    import requests as _rq
+    tok = (os.environ.get("GITHUB_TOKEN_FABRICIO")
+           or os.environ.get("GITHUB_TOKEN") or "").strip()
+    if not tok:
+        return {"ok": False, "error": "GITHUB_TOKEN_FABRICIO no configurado en env"}
+    repo = "fabricio754/petra-inmuebles"
+    headers = {"Accept": "application/vnd.github+json",
+               "Authorization": f"Bearer {tok}",
+               "Content-Type": "application/json"}
+    # 1) Aprobar como Fabricio.
+    r = _rq.post(
+        f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews",
+        headers=headers, json={"event": "APPROVE"}, timeout=20,
+    )
+    if r.status_code not in (200, 201):
+        return {"ok": False, "error": f"Approve fallo HTTP {r.status_code}: {r.text[:200]}"}
+    # 2) Mergear.
+    r = _rq.put(
+        f"https://api.github.com/repos/{repo}/pulls/{pr_number}/merge",
+        headers=headers, json={"merge_method": "merge"}, timeout=20,
+    )
+    if r.status_code == 200:
+        return {"ok": True, "sha": (r.json().get("sha") or "")[:7]}
+    return {"ok": False, "error": f"Merge fallo HTTP {r.status_code}: {r.text[:200]}"}
+
+
+@petra_panel_bp.post("/deploys/aprobar")
+def deploys_aprobar():
+    """Aprueba+mergea un PR develop→main. Requiere PIN de Fabricio.
+
+    Este es el ÚNICO camino para mergear a prod. GitHub tiene branch
+    protection con CODEOWNERS=@fabricio754 → ningún otro merge pasa.
+    El panel usa GITHUB_TOKEN_FABRICIO (PAT personal) para aprobar
+    como Fabricio y mergear en una sola acción atómica."""
+    _check_token()
+    from flask import jsonify
+    if not _verificar_pin("fabricio"):
+        return jsonify({"ok": False, "error": "PIN incorrecto"}), 401
+    if (os.environ.get("MODO_STAGING") or "").strip() == "1":
+        return jsonify({"ok": False,
+                        "error": "No se puede aprobar desde staging. Hacelo desde prod."}), 400
+    if not _en_ventana_despliegue() and not (request.form.get("fuerza") or "").strip() == "1":
+        return jsonify({"ok": False, "error": "Fuera de ventana (20–06 Bogotá). "
+                        "Si es emergencia, mandá fuerza=1.", "fuera_ventana": True}), 423
+    try:
+        pr_number = int((request.form.get("pr") or "").strip())
+    except Exception:
+        return jsonify({"ok": False, "error": "Falta ?pr=NNN"}), 400
+    return jsonify(_gh_aprobar_y_mergear_pr(pr_number))
 
 
 # =============================================================================
