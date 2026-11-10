@@ -4,201 +4,236 @@
 {% block content %}
 
 <style>
-  /* ---- Hero ---------------------------------------------------------- */
-  .hero {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    flex-wrap: wrap; gap: 16px; margin-bottom: 28px;
-  }
-  .hero h1 {
-    margin: 0 0 6px; font-size: 26px; font-weight: 700;
-    letter-spacing: -0.3px;
-  }
-  .hero .sub {
-    color: var(--text-sub); font-size: 14px;
-  }
-  .hero .export {
-    padding: 11px 18px; border-radius: 14px;
+  /* ====================================================================
+     DASHBOARD — clon del look Rexora
+     ==================================================================== */
+
+  /* Hero */
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 22px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700;
+             letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+  .export-btn {
+    padding: 11px 18px; border-radius: 12px;
     background: var(--panel); border: 1px solid var(--border);
-    color: var(--text); font-weight: 500; cursor: pointer; font-size: 13.5px;
+    color: var(--text); font-weight: 500; cursor: pointer; font-size: 13px;
     display: inline-flex; align-items: center; gap: 8px;
-    box-shadow: 0 1px 2px rgba(0,0,0,.03);
   }
+  .export-btn:hover { background: #fafbfc; }
 
-  /* ---- Grid layout: 2 columns of stats + 1 big chart + 1 gauge ------- */
-  .top-grid {
+  /* Layout principal: columna izquierda (4 stats + table) +
+                       columna centro (chart) + columna derecha (gauge + sales ov) */
+  .main-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 18px;
-    margin-bottom: 20px;
-  }
-  @media (max-width: 1280px) { .top-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 640px)  { .top-grid { grid-template-columns: 1fr; } }
-
-  /* Stat card — Rexora style */
-  .stat-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 24px 24px 22px;
-    display: flex; flex-direction: column;
-    min-height: 170px;
-  }
-  .stat-card .top {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    margin-bottom: 18px;
-  }
-  .stat-card .label {
-    font-size: 14px; color: var(--text-sub); font-weight: 500;
-  }
-  .stat-card .icon-circle {
-    width: 36px; height: 36px; border-radius: 50%;
-    background: var(--bg);
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 15px;
-    color: var(--text-sub);
-  }
-  .stat-card .value {
-    font-size: 44px; font-weight: 700; letter-spacing: -1.2px;
-    line-height: 1; margin-bottom: 14px;
-  }
-  .stat-card .foot {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-top: auto;
-    font-size: 12.5px;
-  }
-  .stat-card .delta {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-weight: 600;
-  }
-  .delta.up   { color: var(--ok); }
-  .delta.down { color: var(--down); }
-  .delta.flat { color: var(--text-sub); font-weight: 500; }
-  .details {
-    color: var(--text-sub); text-decoration: none;
-    display: inline-flex; align-items: center; gap: 4px;
-  }
-  .details:hover { color: var(--accent); }
-
-  /* ---- Middle row: chart + gauge ------------------------------------- */
-  .mid-grid {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: 18px;
-    margin-bottom: 20px;
-  }
-  @media (max-width: 1024px) { .mid-grid { grid-template-columns: 1fr; } }
-
-  .big-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 24px;
-  }
-  .big-card h3 {
-    margin: 0; font-size: 15px; font-weight: 600;
-  }
-  .big-card .sub { color: var(--text-sub); font-size: 12.5px; margin-top: 3px; }
-  .big-card .head {
-    display: flex; justify-content: space-between; align-items: flex-start;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 0.9fr);
+    gap: 16px;
     margin-bottom: 16px;
   }
-
-  .chart-numbers {
-    display: flex; align-items: baseline; gap: 10px; margin: 2px 0 14px;
+  @media (max-width: 1280px) {
+    .main-grid { grid-template-columns: 1fr 1fr; }
+    .main-grid .chart-card { grid-column: 1 / -1; }
   }
-  .chart-numbers .n { font-size: 32px; font-weight: 700; letter-spacing: -0.6px; }
-  .chart-numbers .d {
-    font-size: 11.5px; padding: 2px 9px; border-radius: 999px;
-    background: #dcfce7; color: #166534; font-weight: 600;
+  @media (max-width: 768px) {
+    .main-grid { grid-template-columns: 1fr; }
   }
-  :root[data-theme="dark"] .chart-numbers .d { background: #052e1a; color: #4ade80; }
 
-  canvas#msgChart { width: 100% !important; height: 240px !important; }
+  .left-pane { display: flex; flex-direction: column; gap: 16px; }
+  .stats-2x2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
-  /* Gauge-like semicircle */
-  .gauge-wrap {
-    display: flex; flex-direction: column; align-items: center;
-    padding: 10px 0 2px;
-  }
-  .gauge {
+  /* Stat card */
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 20px 22px;
+    display: flex; flex-direction: column; min-height: 150px;
     position: relative;
-    width: 220px; height: 120px; overflow: hidden;
+  }
+  .stat .top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .stat .lab { font-size: 13.5px; color: var(--text); font-weight: 500; }
+  .stat .ic {
+    width: 32px; height: 32px; border-radius: 10px;
+    background: var(--bg);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text-sub); font-size: 14px;
+  }
+  .stat .val {
+    font-size: 36px; font-weight: 700; letter-spacing: -1px;
+    line-height: 1.1; margin-top: 18px;
+  }
+  .stat .foot {
+    margin-top: auto; padding-top: 14px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11.5px;
+  }
+  .stat .delta-up { color: var(--green); font-weight: 600; }
+  .stat .delta-down { color: var(--red); font-weight: 600; }
+  .stat .delta-flat { color: var(--text-sub); }
+  .stat .delta .vs { color: var(--text-sub); font-weight: 400; }
+  .stat .details { color: var(--text-sub); display: inline-flex; align-items: center; gap: 2px; }
+
+  /* Chart card (center column, spans full height) */
+  .chart-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 22px 24px;
+    display: flex; flex-direction: column;
+  }
+  .chart-card .ch-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
     margin-bottom: 8px;
   }
-  .gauge svg { width: 100%; height: 220px; }
-  .gauge .ring-bg { fill: none; stroke: var(--bg); stroke-width: 24; }
-  .gauge .ring-fg { fill: none; stroke-width: 24; stroke-linecap: round;
-                    stroke: url(#gaugeGrad); }
-  .gauge-num {
-    position: absolute; left: 0; right: 0; bottom: 8px;
+  .chart-card h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .chart-card .menu { color: var(--muted); cursor: pointer; font-size: 18px; }
+  .chart-card .big-n {
+    font-size: 36px; font-weight: 700; letter-spacing: -0.7px;
+    margin-top: 2px; display: inline-flex; align-items: baseline; gap: 10px;
+  }
+  .chart-card .big-n .pill {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    background: var(--green-fade); color: #15803d; font-weight: 600;
+  }
+  .chart-card .legend {
+    display: flex; gap: 14px; margin-top: 4px;
+    font-size: 12px; color: var(--text-sub);
+  }
+  .chart-card .legend .dot {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    margin-right: 6px; vertical-align: middle;
+  }
+  .chart-wrap { flex: 1; position: relative; min-height: 280px; margin-top: 14px; }
+  canvas#profitChart { width: 100% !important; height: 100% !important; }
+
+  /* Gauge card (right column top) */
+  .right-col { display: flex; flex-direction: column; gap: 16px; }
+  .gauge-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 22px 24px;
+  }
+  .gauge-card .g-head { display: flex; justify-content: space-between; align-items: flex-start;
+                        margin-bottom: 16px; }
+  .gauge-card h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .gauge-card .menu { color: var(--muted); cursor: pointer; font-size: 18px; }
+  .gauge-vis { position: relative; width: 100%; max-width: 260px; margin: 0 auto 10px; }
+  .gauge-vis svg { width: 100%; height: auto; display: block; }
+  .gauge-vis .pct-float {
+    position: absolute; left: 50%; top: 4%; transform: translateX(-50%);
+    background: var(--orange); color: #fff;
+    padding: 4px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 700;
+  }
+  .gauge-vis .pct-float::after {
+    content: ""; position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%);
+    width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-top: 4px solid var(--orange);
+  }
+  .gauge-vis .center {
+    position: absolute; left: 0; right: 0; bottom: 20%;
     text-align: center;
   }
-  .gauge-num .n { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
-  .gauge-num .l { font-size: 12px; color: var(--text-sub); margin-top: 4px; }
-  .gauge-foot {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-    width: 100%; margin-top: 14px;
+  .gauge-vis .center .n { font-size: 36px; font-weight: 700; letter-spacing: -0.8px; line-height: 1; }
+  .gauge-vis .center .l { font-size: 12px; color: var(--text-sub); margin-top: 4px; }
+  .gauge-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+  .mini-stat {
+    background: var(--bg); border-radius: 14px; padding: 12px 14px;
   }
-  .gauge-foot .box {
-    background: var(--bg); border-radius: 12px; padding: 10px 12px;
-    font-size: 12px;
-  }
-  .gauge-foot .box .lab { color: var(--text-sub); display: flex; align-items: center; gap: 4px; }
-  .gauge-foot .box .num { font-weight: 700; font-size: 15px; margin-top: 2px; }
-  .gauge-foot .box .p {
-    font-size: 11px; padding: 1px 7px; border-radius: 999px; margin-left: 4px;
-    background: #dcfce7; color: #166534; font-weight: 600;
+  .mini-stat .lab { font-size: 11.5px; color: var(--text-sub);
+                    display: inline-flex; align-items: center; gap: 4px; }
+  .mini-stat .num { font-weight: 700; font-size: 17px; margin-top: 4px; display: inline-flex; align-items: baseline; gap: 6px; }
+  .mini-stat .num .pp {
+    font-size: 11px; background: var(--green-fade); color: #15803d;
+    padding: 2px 7px; border-radius: 999px; font-weight: 600;
   }
 
-  /* ---- Bottom row: table + distribution ------------------------------ */
+  /* Bottom row: table (wide) + sales overview (narrow) */
   .bot-grid {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: 18px;
+    display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 16px;
   }
   @media (max-width: 1024px) { .bot-grid { grid-template-columns: 1fr; } }
 
-  .table { width: 100%; border-collapse: collapse; }
-  .table th {
-    text-align: left; font-size: 11.5px; font-weight: 500;
-    color: var(--text-sub); padding: 14px 16px 12px;
-    border-bottom: 1px solid var(--border);
+  .orders-card, .so-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 22px 24px;
   }
-  .table td {
-    padding: 14px 16px; border-bottom: 1px solid var(--border);
+  .orders-card .oc-head { display: flex; justify-content: space-between; align-items: center;
+                           margin-bottom: 16px; }
+  .orders-card h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .orders-card .ctrls { display: flex; gap: 8px; }
+  .orders-card .search-box {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--bg); border-radius: 10px; padding: 7px 12px;
+    font-size: 12.5px; color: var(--text-sub);
+  }
+  .orders-card .search-box input {
+    border: none; background: transparent; outline: none;
+    font-family: inherit; font-size: 12.5px; width: 140px; color: var(--text);
+  }
+  .table-x { width: 100%; border-collapse: collapse; }
+  .table-x th {
+    text-align: left; font-size: 11.5px; font-weight: 500; color: var(--text-sub);
+    padding: 14px 10px 10px; border-bottom: 1px solid var(--border);
+  }
+  .table-x td { padding: 14px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .table-x tr:last-child td { border-bottom: none; }
+  .msg-cell { display: flex; align-items: center; gap: 10px; }
+  .msg-thumb {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: var(--bg);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 15px;
+  }
+  .status-pill {
+    display: inline-flex; padding: 5px 12px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+  }
+  .status-pill.in  { background: #dcfce7; color: #15803d; }
+  .status-pill.out { background: #fef3c7; color: #a16207; }
+  .status-pill.err { background: #fee2e2; color: #991b1b; }
+  :root[data-theme="dark"] .status-pill.in  { background: #052e1a; color: #4ade80; }
+  :root[data-theme="dark"] .status-pill.out { background: #2d2410; color: #fbbf24; }
+
+  /* Sales overview */
+  .so-card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  .so-card .so-sub { color: var(--text-sub); font-size: 12px; margin-bottom: 14px; }
+  .so-pct-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+    margin-bottom: 14px;
+  }
+  .so-pct { display: flex; flex-direction: column; }
+  .so-pct .lab {
+    font-size: 11.5px; color: var(--text-sub);
+    display: inline-flex; align-items: center; gap: 5px; margin-bottom: 4px;
+  }
+  .so-pct .lab::before {
+    content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--d, var(--accent));
+  }
+  .so-pct .n { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+
+  .barcode-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 20px; }
+  .barcode {
+    height: 40px; display: flex; gap: 2px; align-items: stretch;
+    overflow: hidden; border-radius: 4px;
+  }
+  .barcode .b { flex: 1; background: var(--c); border-radius: 1px;
+                opacity: var(--op, 1); }
+
+  .so-list { display: flex; flex-direction: column; gap: 12px; }
+  .so-list .row {
+    display: grid; grid-template-columns: 24px 1fr auto auto; gap: 10px; align-items: center;
     font-size: 13px;
   }
-  .table tr:last-child td { border-bottom: none; }
-  .pill {
-    display: inline-flex; padding: 3px 10px; border-radius: 999px;
-    font-size: 11.5px; font-weight: 500;
+  .so-list .row .emoji {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--bg);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 14px;
   }
-  .pill.in  { background: #dbeafe; color: #1d4ed8; }
-  .pill.out { background: #efeaff; color: #7c5cff; }
-  :root[data-theme="dark"] .pill.in  { background: #0a1f3d; color: #60a5fa; }
-  :root[data-theme="dark"] .pill.out { background: #241f3d; color: #a78bfa; }
+  .so-list .row .name { font-weight: 500; }
+  .so-list .row .pct { color: var(--text-sub); font-size: 12px; margin-right: 10px; }
+  .so-list .row .ern { font-weight: 600; }
 
-  .dist-list { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
-  .dist-item .dr {
-    display: flex; justify-content: space-between;
-    font-size: 12.5px; margin-bottom: 5px;
-  }
-  .dist-item .dl { color: var(--text); font-weight: 500; text-transform: capitalize; }
-  .dist-item .dv { color: var(--text-sub); }
-  .dist-bar {
-    height: 7px; background: var(--bg); border-radius: 999px; overflow: hidden;
-  }
-  .dist-bar > span {
-    display: block; height: 100%;
-    background: linear-gradient(90deg, #a78bfa, #7c5cff);
-    border-radius: 999px;
-  }
-
-  .empty { padding: 40px 10px; text-align: center; color: var(--text-sub); font-size: 13px; }
-  .table-head {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 4px;
-  }
+  .empty { padding: 30px; text-align: center; color: var(--text-sub); font-size: 13px; }
 </style>
 
 <div class="hero">
@@ -206,149 +241,180 @@
     <h1>Welcome, Fabricio 👋</h1>
     <div class="sub">Qué está pasando en Petra hoy.</div>
   </div>
-  <button class="export">↗ Export report</button>
+  <button class="export-btn">↗  Export report</button>
 </div>
 
-<div class="top-grid">
-  <div class="stat-card">
-    <div class="top">
-      <div class="label">Agentes activas</div>
-      <div class="icon-circle">👥</div>
-    </div>
-    <div class="value">{{ stats.agentes }}</div>
-    <div class="foot">
-      <span class="delta flat">—</span>
-      <a class="details" href="/panel/petra/agentes?token={{ token }}">Details ↗</a>
-    </div>
-  </div>
-
-  <div class="stat-card">
-    <div class="top">
-      <div class="label">Inmuebles activos</div>
-      <div class="icon-circle">🏠</div>
-    </div>
-    <div class="value">{{ stats.inmuebles }}</div>
-    <div class="foot">
-      {% if stats.inmuebles_delta %}
-        <span class="delta up">▲ {{ stats.inmuebles_delta }} nuevos 7d</span>
-      {% else %}
-        <span class="delta flat">sin nuevos 7d</span>
-      {% endif %}
-      <a class="details" href="/panel/petra/visitante/conjuntos?token={{ token }}">Details ↗</a>
-    </div>
-  </div>
-
-  <div class="stat-card">
-    <div class="top">
-      <div class="label">Demanda (7d)</div>
-      <div class="icon-circle">🙋</div>
-    </div>
-    <div class="value">{{ stats.demanda_7d }}</div>
-    <div class="foot">
-      {% if stats.demanda_delta is not none and stats.demanda_delta != 0 %}
-        <span class="delta {% if stats.demanda_delta > 0 %}up{% else %}down{% endif %}">
-          {% if stats.demanda_delta > 0 %}▲{% else %}▼{% endif %} {{ stats.demanda_delta|abs }}% vs semana
-        </span>
-      {% else %}
-        <span class="delta flat">sin cambio</span>
-      {% endif %}
-      <a class="details" href="/panel/petra/visitante/interesados?token={{ token }}">Details ↗</a>
-    </div>
-  </div>
-
-  <div class="stat-card">
-    <div class="top">
-      <div class="label">Visitas (7d)</div>
-      <div class="icon-circle">📅</div>
-    </div>
-    <div class="value">{{ stats.visitas_7d }}</div>
-    <div class="foot">
-      {% if stats.visitas_delta is not none and stats.visitas_delta != 0 %}
-        <span class="delta {% if stats.visitas_delta > 0 %}up{% else %}down{% endif %}">
-          {% if stats.visitas_delta > 0 %}▲{% else %}▼{% endif %} {{ stats.visitas_delta|abs }}% vs semana
-        </span>
-      {% else %}
-        <span class="delta flat">sin cambio</span>
-      {% endif %}
-      <a class="details" href="/panel/petra/visitas?token={{ token }}">Details ↗</a>
-    </div>
-  </div>
-</div>
-
-<div class="mid-grid">
-  <div class="big-card">
-    <div class="head">
-      <div>
-        <h3>Mensajes últimos 14 días</h3>
-        <div class="sub">Entrantes vs. salientes</div>
-      </div>
-    </div>
-    <div class="chart-numbers">
-      <span class="n">{{ total_14d }}</span>
-      <span class="d">▲ interacciones</span>
-    </div>
-    <canvas id="msgChart"></canvas>
-  </div>
-
-  <div class="big-card">
-    <div class="head">
-      <div>
-        <h3>Salud del bot</h3>
-        <div class="sub">% de interacciones OK · última hora</div>
-      </div>
-    </div>
-    <div class="gauge-wrap">
-      <div class="gauge">
-        <svg viewBox="0 0 200 110">
-          <defs>
-            <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0" stop-color="#86efac"/>
-              <stop offset="1" stop-color="#16a34a"/>
-            </linearGradient>
-          </defs>
-          <path class="ring-bg" d="M 20 100 A 80 80 0 0 1 180 100"/>
-          {% set pct = salud_pct if salud_pct is not none else 0 %}
-          {% set circ = 251 %}
-          {% set offset = (circ * (1 - pct / 100)) | int %}
-          <path class="ring-fg" d="M 20 100 A 80 80 0 0 1 180 100"
-                stroke-dasharray="{{ circ }}" stroke-dashoffset="{{ offset }}"/>
-        </svg>
-        <div class="gauge-num">
-          <div class="n">{{ salud_pct if salud_pct is not none else '—' }}{% if salud_pct is not none %}%{% endif %}</div>
-          <div class="l">{% if salud_pct is not none and salud_pct >= 95 %}Excelente{% elif salud_pct is not none and salud_pct >= 80 %}Estable{% elif salud_pct is not none %}Degradado{% else %}sin datos{% endif %}</div>
+<div class="main-grid">
+  <!-- LEFT: 4 stat cards 2x2 -->
+  <div class="left-pane">
+    <div class="stats-2x2">
+      <div class="stat">
+        <div class="top">
+          <span class="lab">Agentes activas</span>
+          <span class="ic">👥</span>
+        </div>
+        <div class="val">{{ stats.agentes }}</div>
+        <div class="foot">
+          <span class="delta delta-flat">—</span>
+          <a class="details" href="/panel/petra/agentes?token={{ token }}">Details ↗</a>
         </div>
       </div>
+
+      <div class="stat">
+        <div class="top">
+          <span class="lab">Inmuebles activos</span>
+          <span class="ic">🏠</span>
+        </div>
+        <div class="val">{{ stats.inmuebles }}</div>
+        <div class="foot">
+          {% if stats.inmuebles_delta %}
+            <span class="delta delta-up">▲ +{{ stats.inmuebles_delta }} <span class="vs">nuevos 7d</span></span>
+          {% else %}
+            <span class="delta delta-flat">sin nuevos 7d</span>
+          {% endif %}
+          <a class="details" href="/panel/petra/visitante/conjuntos?token={{ token }}">Details ↗</a>
+        </div>
+      </div>
+
+      <div class="stat">
+        <div class="top">
+          <span class="lab">Demanda (7d)</span>
+          <span class="ic">🙋</span>
+        </div>
+        <div class="val">{{ stats.demanda_7d }}</div>
+        <div class="foot">
+          {% if stats.demanda_delta is not none and stats.demanda_delta != 0 %}
+            <span class="delta {% if stats.demanda_delta > 0 %}delta-up{% else %}delta-down{% endif %}">
+              {% if stats.demanda_delta > 0 %}▲{% else %}▼{% endif %} {{ stats.demanda_delta|abs }}%
+              <span class="vs">vs semana</span>
+            </span>
+          {% else %}
+            <span class="delta delta-flat">sin cambio</span>
+          {% endif %}
+          <a class="details" href="/panel/petra/visitante/interesados?token={{ token }}">Details ↗</a>
+        </div>
+      </div>
+
+      <div class="stat">
+        <div class="top">
+          <span class="lab">Visitas (7d)</span>
+          <span class="ic">📅</span>
+        </div>
+        <div class="val">{{ stats.visitas_7d }}</div>
+        <div class="foot">
+          {% if stats.visitas_delta is not none and stats.visitas_delta != 0 %}
+            <span class="delta {% if stats.visitas_delta > 0 %}delta-up{% else %}delta-down{% endif %}">
+              {% if stats.visitas_delta > 0 %}▲{% else %}▼{% endif %} {{ stats.visitas_delta|abs }}%
+              <span class="vs">vs semana</span>
+            </span>
+          {% else %}
+            <span class="delta delta-flat">sin cambio</span>
+          {% endif %}
+          <a class="details" href="/panel/petra/visitas?token={{ token }}">Details ↗</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: chart -->
+  <div class="chart-card">
+    <div class="ch-head">
+      <h3>Interacciones del bot</h3>
+      <span class="menu">⋯</span>
+    </div>
+    <div class="big-n">
+      {{ total_14d }}
+      <span class="pill">▲ mensajes 14d</span>
+    </div>
+    <div class="legend">
+      <span><span class="dot" style="background:#e5e7eb"></span>Entrantes</span>
+      <span><span class="dot" style="background:#f97316"></span>Salientes</span>
+    </div>
+    <div class="chart-wrap"><canvas id="profitChart"></canvas></div>
+  </div>
+
+  <!-- RIGHT: gauge + sales overview will be in a separate block -->
+  <div class="right-col">
+    <div class="gauge-card">
+      <div class="g-head">
+        <h3>Salud del bot</h3>
+        <span class="menu">⋯</span>
+      </div>
+      {% set pct = salud_pct if salud_pct is not none else 0 %}
+      <div class="gauge-vis">
+        <!-- Pill flotante con el % -->
+        {% if salud_pct is not none %}
+        <div class="pct-float">● {{ salud_pct }}%</div>
+        {% endif %}
+
+        <!-- Gauge segmentado: 20 arcos -->
+        <svg viewBox="0 0 300 180">
+          {% set segments = 20 %}
+          {% set radius = 110 %}
+          {% set cx = 150 %}
+          {% set cy = 160 %}
+          {# Distribuimos arcos del ángulo 180 (izq) al 360 (der), un semicírculo superior #}
+          {% for i in range(segments) %}
+            {% set a0 = 180 + (i * 180 / segments) %}
+            {% set a1 = 180 + ((i + 0.85) * 180 / segments) %}
+            {% set r0 = (a0 * 3.141592653589793 / 180) %}
+            {% set r1 = (a1 * 3.141592653589793 / 180) %}
+            {% set x0 = cx + radius * r0.__class__.__sub__(0, 0) %}
+            {# Usamos trig vía atributos directos, pero Jinja no tiene cos/sin
+               — generamos aproximación con tabla precalculada. #}
+          {% endfor %}
+          <!-- Fallback: usamos JS para dibujar los arcos abajo -->
+          <g id="gaugeSegs"></g>
+
+          <!-- Centro: número grande -->
+          <foreignObject x="0" y="80" width="300" height="80">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="text-align:center">
+              <div style="font-size:34px;font-weight:700;letter-spacing:-0.6px;line-height:1;color:var(--text)">{{ salud_pct if salud_pct is not none else '—' }}{% if salud_pct is not none %}%{% endif %}</div>
+              <div style="font-size:12px;color:var(--text-sub);margin-top:5px">
+                {% if salud_pct is not none and salud_pct >= 95 %}Excelente{% elif salud_pct is not none and salud_pct >= 80 %}Estable{% elif salud_pct is not none %}Degradado{% else %}Sin datos{% endif %}
+              </div>
+            </div>
+          </foreignObject>
+        </svg>
+      </div>
       <div class="gauge-foot">
-        <div class="box">
+        <div class="mini-stat">
           <div class="lab">⚡ Latencia p95</div>
           <div class="num">{{ p95 if p95 else '—' }}{% if p95 %} ms{% endif %}</div>
         </div>
-        <div class="box">
-          <div class="lab">💬 Total eventos</div>
-          <div class="num">{{ total_eventos if total_eventos else 0 }}</div>
+        <div class="mini-stat">
+          <div class="lab">💬 Eventos</div>
+          <div class="num">{{ total_eventos if total_eventos else 0 }}
+            {% if salud_pct is not none and salud_pct >= 95 %}<span class="pp">↑ ok</span>{% endif %}
+          </div>
         </div>
       </div>
     </div>
   </div>
 </div>
 
+<!-- Bottom: actividad reciente + sales overview -->
 <div class="bot-grid">
-  <div class="big-card">
-    <div class="table-head">
+  <div class="orders-card">
+    <div class="oc-head">
       <div>
         <h3>Actividad reciente</h3>
-        <div class="sub">Últimos 8 mensajes</div>
+        <div style="color:var(--text-sub);font-size:12px">Últimos mensajes del bot</div>
+      </div>
+      <div class="ctrls">
+        <div class="search-box">🔍 <input type="text" placeholder="Buscar" disabled></div>
+        <div class="search-box" style="cursor:pointer">▽ Filter</div>
       </div>
     </div>
     {% if actividad %}
-    <table class="table">
+    <table class="table-x">
       <thead>
         <tr>
           <th>Hora</th>
-          <th>Dir</th>
-          <th>Tipo</th>
+          <th>Contacto</th>
           <th>Resumen</th>
-          <th>Teléfono</th>
+          <th>Tipo</th>
+          <th>Dirección</th>
         </tr>
       </thead>
       <tbody>
@@ -356,12 +422,20 @@
         <tr>
           <td>
             <div style="font-weight:500">{{ a.fecha }}</div>
-            <div style="color:var(--text-sub);font-size:11.5px">{{ a.dia }}</div>
+            <div style="color:var(--text-sub);font-size:11px">{{ a.dia }}</div>
           </td>
-          <td><span class="pill {{ a.dir }}">{{ a.dir }}</span></td>
+          <td>
+            <div class="msg-cell">
+              <div class="msg-thumb">{% if a.dir == 'in' %}📥{% else %}📤{% endif %}</div>
+              <div>
+                <div style="font-weight:500">+{{ a.telefono[-10:] if a.telefono else '—' }}</div>
+                <div style="color:var(--text-sub);font-size:11px">{{ a.tipo }}</div>
+              </div>
+            </div>
+          </td>
+          <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.resumen }}</td>
           <td style="color:var(--text-sub)">{{ a.tipo }}</td>
-          <td>{{ a.resumen }}</td>
-          <td style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--text-sub)">{{ a.telefono }}</td>
+          <td><span class="status-pill {{ a.dir }}">{{ 'IN' if a.dir == 'in' else 'OUT' }}</span></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -371,41 +445,140 @@
     {% endif %}
   </div>
 
-  <div class="big-card">
-    <div class="head">
-      <div>
-        <h3>Agentes por estado</h3>
-        <div class="sub">Embudo de inscripción</div>
-      </div>
-    </div>
-    {% if distribucion %}
-    <div class="dist-list">
-      {% set tot = distribucion | sum(attribute='count') %}
-      {% for d in distribucion %}
-      <div class="dist-item">
-        <div class="dr">
-          <span class="dl">{{ d.estado }}</span>
-          <span class="dv">{{ d.count }}</span>
-        </div>
-        <div class="dist-bar"><span style="width: {{ (d.count * 100 / tot) if tot else 0 }}%"></span></div>
+  <div class="so-card">
+    <h3>Distribución por conjunto</h3>
+    <div class="so-sub">Inmuebles activos</div>
+    {% if conjuntos_pct %}
+    <div class="so-pct-row">
+      {% set colors = ['#7c5cff', '#60a5fa', '#f97316'] %}
+      {% for c in conjuntos_pct[:3] %}
+      <div class="so-pct" style="--d: {{ colors[loop.index0] }}">
+        <span class="lab">{{ c.nombre[:12] }}</span>
+        <span class="n">{{ c.pct }}%</span>
       </div>
       {% endfor %}
     </div>
-    {% else %}
-    <div class="empty">Sin datos todavía.</div>
+    <div class="barcode-row">
+      {% for c in conjuntos_pct[:3] %}
+      <div class="barcode">
+        {% for _ in range(c.pct // 3 + 1) %}
+          <div class="b" style="--c: {{ colors[loop.index0] if loop.index0 < 3 else '#e5e7eb' }}; --op: {{ (loop.index0 % 3 + 2) / 4 }}"></div>
+        {% endfor %}
+        {% set rest = 33 - (c.pct // 3 + 1) %}
+        {% if rest > 0 %}
+        {% for _ in range(rest) %}
+          <div class="b" style="--c: var(--bg); --op: 1"></div>
+        {% endfor %}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if top_inmuebles %}
+    <div style="font-size:11.5px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Top inmuebles</div>
+    <div class="so-list">
+      {% for i in top_inmuebles %}
+      <div class="row">
+        <span class="emoji">{% if i.operacion == 'arriendo' %}🏠{% else %}💰{% endif %}</span>
+        <span class="name">{{ i.nombre[:18] }}</span>
+        <span class="pct">{{ i.conjunto[:10] }}</span>
+        <span class="ern">${{ i.precio_fmt }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if not conjuntos_pct and not top_inmuebles %}
+    <div class="empty">Sin datos.</div>
     {% endif %}
   </div>
 </div>
 
+<!-- SVG pattern for hatched bars + gauge segment generator -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script>
 (function() {
+  // ---- Gauge segmentado (20 arcos) --------------------------------
+  const svgNS = "http://www.w3.org/2000/svg";
+  const grp = document.getElementById('gaugeSegs');
+  if (grp) {
+    const segments = 20;
+    const pct = {{ salud_pct if salud_pct is not none else 0 }};
+    const filled = Math.round(segments * pct / 100);
+    const cx = 150, cy = 160;
+    const rOuter = 115, rInner = 85;
+    const startAngle = 180;  // izquierda
+    const endAngle = 360;    // derecha
+    const totalSpan = endAngle - startAngle;
+    const segAngle = totalSpan / segments;
+    const gap = 1.5;  // deg gap entre segmentos
+
+    for (let i = 0; i < segments; i++) {
+      const a0 = startAngle + i * segAngle + gap/2;
+      const a1 = startAngle + (i + 1) * segAngle - gap/2;
+      const r0 = (a0 * Math.PI) / 180;
+      const r1 = (a1 * Math.PI) / 180;
+      const x0o = cx + rOuter * Math.cos(r0);
+      const y0o = cy + rOuter * Math.sin(r0);
+      const x1o = cx + rOuter * Math.cos(r1);
+      const y1o = cy + rOuter * Math.sin(r1);
+      const x0i = cx + rInner * Math.cos(r0);
+      const y0i = cy + rInner * Math.sin(r0);
+      const x1i = cx + rInner * Math.cos(r1);
+      const y1i = cy + rInner * Math.sin(r1);
+
+      const d = [
+        `M ${x0o} ${y0o}`,
+        `A ${rOuter} ${rOuter} 0 0 1 ${x1o} ${y1o}`,
+        `L ${x1i} ${y1i}`,
+        `A ${rInner} ${rInner} 0 0 0 ${x0i} ${y0i}`,
+        `Z`
+      ].join(' ');
+
+      const path = document.createElementNS(svgNS, 'path');
+      path.setAttribute('d', d);
+      if (i < filled) {
+        // Gradient de verde claro (izq) a verde oscuro (centro/derecha)
+        const t = i / Math.max(segments - 1, 1);
+        const lightness = 70 - t * 30;  // 70% → 40%
+        path.setAttribute('fill', `hsl(142, 71%, ${lightness}%)`);
+      } else {
+        path.setAttribute('fill', '#e5e7eb');
+      }
+      grp.appendChild(path);
+    }
+  }
+
+  // ---- Chart: barras con hatched + barra destacada --------------
   const data = {{ chart_json|safe }};
-  const ctx = document.getElementById('msgChart');
+  const ctx = document.getElementById('profitChart');
   if (!ctx || !window.Chart) return;
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const txtColor = isDark ? '#9099a8' : '#656d76';
-  const grid = isDark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.04)';
+  const gridCol = isDark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.04)';
+
+  // Crear pattern hatched canvas-native para las barras IN (gris con rayas)
+  function makeHatchPattern(color) {
+    const c = document.createElement('canvas');
+    c.width = 8; c.height = 8;
+    const g = c.getContext('2d');
+    g.strokeStyle = color; g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(0, 8); g.lineTo(8, 0);
+    g.moveTo(-2, 2); g.lineTo(2, -2);
+    g.moveTo(6, 10); g.lineTo(10, 6);
+    g.stroke();
+    return ctx.getContext('2d').createPattern(c, 'repeat');
+  }
+
+  const hatch = makeHatchPattern(isDark ? '#3b4252' : '#d1d5db');
+
+  // Encontrar índice del máximo (SALIENTES) para destacar
+  const outs = data.mensajes_out;
+  let maxIdx = 0, maxVal = -1;
+  outs.forEach((v, i) => { if (v > maxVal) { maxVal = v; maxIdx = i; } });
+
+  // Colorear la barra destacada con naranja sólido
+  const outColors = outs.map((_, i) => i === maxIdx ? '#f97316' : (isDark ? '#4b5563' : '#e5e7eb'));
 
   new Chart(ctx, {
     type: 'bar',
@@ -415,18 +588,20 @@
         {
           label: 'Entrantes',
           data: data.mensajes_in,
-          backgroundColor: '#7c5cff',
-          borderRadius: 6,
-          barPercentage: 0.6,
-          categoryPercentage: 0.7,
+          backgroundColor: hatch,
+          borderColor: isDark ? '#3b4252' : '#d1d5db',
+          borderWidth: 0,
+          borderRadius: 4,
+          barPercentage: 0.7,
+          categoryPercentage: 0.6,
         },
         {
           label: 'Salientes',
-          data: data.mensajes_out,
-          backgroundColor: '#c7d2fe',
-          borderRadius: 6,
-          barPercentage: 0.6,
-          categoryPercentage: 0.7,
+          data: outs,
+          backgroundColor: outColors,
+          borderRadius: 4,
+          barPercentage: 0.7,
+          categoryPercentage: 0.6,
         },
       ],
     },
@@ -434,19 +609,21 @@
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { position: 'top', align: 'end',
-                  labels: { boxWidth: 10, boxHeight: 10, padding: 12,
-                            color: txtColor, font: { size: 12 },
-                            usePointStyle: true, pointStyle: 'circle' } },
-        tooltip: { backgroundColor: isDark ? '#161b22' : '#fff',
-                   titleColor: isDark ? '#e6edf3' : '#1a1d29',
-                   bodyColor: isDark ? '#e6edf3' : '#1a1d29',
-                   borderColor: isDark ? '#2a3140' : '#e4e7ee',
-                   borderWidth: 1, padding: 10 },
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: isDark ? '#161b22' : '#1a1d29',
+          titleColor: '#fff', bodyColor: '#fff',
+          borderColor: isDark ? '#2a3140' : '#1a1d29',
+          borderWidth: 0, padding: 10, cornerRadius: 8,
+          displayColors: true,
+        },
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: txtColor, font: { size: 11 } } },
-        y: { grid: { color: grid }, ticks: { color: txtColor, font: { size: 11 } },
+        x: { grid: { display: false, drawBorder: false },
+             ticks: { color: txtColor, font: { size: 11 } } },
+        y: { grid: { color: gridCol, drawBorder: false },
+             ticks: { color: txtColor, font: { size: 11 },
+                      callback: v => v >= 1000 ? (v/1000)+'k' : v },
              beginAtZero: true },
       },
     },
