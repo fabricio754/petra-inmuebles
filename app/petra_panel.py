@@ -3223,6 +3223,109 @@ def panel_v2_home():
                            top_inmuebles=_topi)
 
 
+@petra_panel_bp.get("/v2/inmuebles")
+def panel_v2_inmuebles():
+    """Panel v2: página de Inmuebles con shell Rexora.
+    Si viene cid → muestra inmuebles de ese conjunto. Si no → muestra
+    selector de conjuntos."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    cid_raw = (request.args.get("cid") or "").strip()
+    cid = int(cid_raw) if cid_raw.isdigit() else None
+    op_filtro = (request.args.get("op") or "todos").strip()
+    estado_filtro = (request.args.get("estado") or "todos").strip()
+    tipo_filtro = (request.args.get("tipo") or "todos").strip()
+    etapa_filtro = (request.args.get("etapa") or "").strip()
+
+    conjuntos = []
+    conjunto = None
+    inmuebles = []
+    cont = {k: 0 for k in (
+        'pendiente_confirmar', 'confirmado_sin_datos', 'confirmado_completo',
+        'post_bienvenida', 'post_petra', 'post_credito', 'mandato',
+    )}
+
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            # Lista de conjuntos (pills del selector) con conteo
+            conjuntos = _rows(conn,
+                "SELECT c.id, c.codigo, c.nombre, c.ciudad, "
+                "       COUNT(CASE WHEN i.activo THEN 1 END) AS act "
+                "  FROM conjuntos_visitante c "
+                "  LEFT JOIN inmuebles_visitante i ON i.conjunto_id = c.id "
+                " GROUP BY c.id "
+                " ORDER BY c.nombre")
+            if cid:
+                row = conn.execute(
+                    "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
+                    "WHERE id=%s", (cid,),
+                ).fetchone()
+                if row:
+                    conjunto = {"id": row[0], "codigo": row[1],
+                                "nombre": row[2], "ciudad": row[3] or ""}
+                    where = ["conjunto_id=%s"]
+                    params = [cid]
+                    if op_filtro in ("arriendo", "venta"):
+                        where.append("operacion=%s")
+                        params.append(op_filtro)
+                    if estado_filtro == "activos":
+                        where.append("activo=TRUE")
+                    elif estado_filtro == "inactivos":
+                        where.append("activo=FALSE")
+                    if tipo_filtro in ("apartamento", "casa", "parqueadero",
+                                       "deposito", "habitacion", "local", "oficina"):
+                        where.append("tipo=%s")
+                        params.append(tipo_filtro)
+                    sql = (
+                        "SELECT id, tipo, nro, operacion, habitaciones, banos, m2, "
+                        "       precio, fuente, activo, creado_en, "
+                        "       propietario_telefono, gestionado_por_petra, "
+                        "       propietario_telefono_original, "
+                        "       datos_confirmado_at, bienvenida_at, "
+                        "       ofrecer_petra_at, ofrecer_credito_at, mandato_at, "
+                        "       es_inmobiliaria "
+                        "  FROM inmuebles_visitante "
+                        " WHERE " + " AND ".join(where) +
+                        " ORDER BY activo DESC, creado_en DESC"
+                    )
+                    inmuebles = _rows(conn, sql, tuple(params))
+                    for i in inmuebles:
+                        i["precio_fmt"] = _fmt_precio_cop(i.get("precio"))
+                        i["codigo"] = f"P{i['id']:04d}"
+                        i["conjunto_nombre"] = conjunto["nombre"]
+                        i["etapa"] = _etapa_inmueble(i)
+                        cel = _normalizar_celular_co(i.get("propietario_telefono"))
+                        i["celular_e164"] = cel
+                        i["celular_valido"] = bool(cel)
+                    if etapa_filtro:
+                        inmuebles = [i for i in inmuebles if i["etapa"] == etapa_filtro]
+                    # Contadores por etapa (universo del conjunto)
+                    all_rows = _rows(conn,
+                        """SELECT activo, precio, m2,
+                                  datos_confirmado_at, bienvenida_at,
+                                  ofrecer_petra_at, ofrecer_credito_at, mandato_at
+                             FROM inmuebles_visitante WHERE conjunto_id=%s""",
+                        (cid,))
+                    for r in all_rows:
+                        if not r.get("activo"):
+                            continue
+                        e = _etapa_inmueble(r)
+                        if e in cont:
+                            cont[e] += 1
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] inmuebles query fallo")
+
+    return render_template(
+        "petra_panel_v2_inmuebles.html",
+        token=token, conjuntos=conjuntos, conjunto=conjunto,
+        inmuebles=inmuebles, cid=cid,
+        op_filtro=op_filtro, estado_filtro=estado_filtro,
+        tipo_filtro=tipo_filtro, etapa_filtro=etapa_filtro,
+        cont=cont,
+    )
+
+
 @petra_panel_bp.get("/visitante")
 def visitante_conjuntos():
     """Index de conjuntos registrados en el flujo visitante QR.

@@ -1,0 +1,316 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'inmuebles' %}
+{% block title %}Inmuebles · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 20px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  /* Pills de conjuntos */
+  .conj-pills {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .conj-pill {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 12px 16px;
+    cursor: pointer; display: inline-flex; flex-direction: column; gap: 2px;
+    min-width: 140px;
+    transition: all 150ms ease;
+  }
+  .conj-pill:hover { border-color: var(--accent); }
+  .conj-pill.active {
+    background: #1a1d29; color: #fff; border-color: #1a1d29;
+  }
+  .conj-pill .n { font-size: 14px; font-weight: 600; }
+  .conj-pill .c { font-size: 11.5px; opacity: .7; }
+  .conj-pill .cnt {
+    font-size: 11px; background: var(--bg); color: var(--text-sub);
+    padding: 2px 8px; border-radius: 999px; display: inline-block; margin-top: 4px;
+    width: fit-content;
+  }
+  .conj-pill.active .cnt { background: rgba(255,255,255,.12); color: #fff; }
+
+  /* Card principal */
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 0; overflow: hidden;
+  }
+  .filter-bar {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+  }
+  .filter-group { display: inline-flex; gap: 4px; align-items: center; }
+  .filter-group .lbl {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); font-weight: 600; margin-right: 6px;
+  }
+  .filter-group a {
+    padding: 5px 11px; border-radius: 8px; font-size: 12px; font-weight: 500;
+    color: var(--text-sub);
+    background: transparent;
+  }
+  .filter-group a:hover { background: var(--bg); color: var(--text); }
+  .filter-group a.on {
+    background: #1a1d29; color: #fff;
+  }
+  .count-badge {
+    margin-left: auto; font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  /* Embudo chips */
+  .embudo-row {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; flex-wrap: wrap;
+    background: var(--bg);
+  }
+  .embudo-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 500;
+    background: var(--panel); color: var(--text-sub);
+    border: 1px solid var(--border);
+  }
+  .embudo-chip:hover { border-color: var(--accent); }
+  .embudo-chip.on { background: #1a1d29; color: #fff; border-color: #1a1d29; }
+  .embudo-chip .cn {
+    font-size: 11px; background: var(--bg); color: var(--text-sub);
+    padding: 1px 7px; border-radius: 999px;
+  }
+  .embudo-chip.on .cn { background: rgba(255,255,255,.15); color: #fff; }
+
+  /* Table */
+  .table-x { width: 100%; border-collapse: collapse; }
+  .table-x th {
+    text-align: left; font-size: 11px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 14px 14px 10px; border-bottom: 1px solid var(--border);
+  }
+  .table-x td { padding: 14px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  .table-x tr:last-child td { border-bottom: none; }
+  .table-x tr.inactivo td { opacity: .5; }
+  .code-col {
+    font-family: ui-monospace, Menlo, monospace; font-weight: 700;
+    color: var(--accent); font-size: 12.5px;
+  }
+  .op-pill {
+    display: inline-flex; padding: 3px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; text-transform: lowercase;
+  }
+  .op-pill.arriendo { background: #dbeafe; color: #1d4ed8; }
+  .op-pill.venta    { background: #fef3c7; color: #a16207; }
+  :root[data-theme="dark"] .op-pill.arriendo { background: #0a1f3d; color: #60a5fa; }
+  :root[data-theme="dark"] .op-pill.venta    { background: #2d2410; color: #fbbf24; }
+  .state-pill {
+    display: inline-flex; padding: 4px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+  }
+  .state-pill.activo   { background: #dcfce7; color: #166534; }
+  .state-pill.inactivo { background: #fee2e2; color: #991b1b; }
+  :root[data-theme="dark"] .state-pill.activo   { background: #052e1a; color: #4ade80; }
+
+  .etapa-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 8px; font-size: 11.5px; font-weight: 500;
+  }
+  .etapa-pill.e1 { background: #f3f4f6; color: #374151; }
+  .etapa-pill.e2 { background: #fef3c7; color: #854d0e; }
+  .etapa-pill.e3 { background: #dbeafe; color: #1e40af; }
+  .etapa-pill.e4 { background: #dcfce7; color: #166534; }
+  .etapa-pill.e5 { background: #fae8ff; color: #86198f; }
+  .etapa-pill.e6 { background: #e0e7ff; color: #3730a3; }
+  .etapa-pill.e7 { background: #d1fae5; color: #065f46; }
+
+  .row-actions {
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+  }
+  .row-actions button, .row-actions a.btn-like {
+    padding: 6px 12px; border-radius: 8px;
+    font-size: 11.5px; font-weight: 500;
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); cursor: pointer;
+    font-family: inherit;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .row-actions button:hover { background: var(--bg); }
+  .row-actions .btn-petra.on      { background: #efeaff; color: #6a4ae8; border-color: #c7b8ff; }
+  .row-actions .btn-inmob.on      { background: #fff8c5; color: #9a6700; border-color: #e2c84a; }
+
+  .inline-form { display: inline; }
+
+  .pick-prompt {
+    text-align: center; padding: 60px 20px;
+    color: var(--text-sub);
+  }
+  .pick-prompt .big { font-size: 32px; margin-bottom: 12px; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Inmuebles</h1>
+    <div class="sub">{% if conjunto %}{{ conjunto.nombre }} · Código {{ conjunto.codigo }}{% else %}Elegí un conjunto para ver sus inmuebles{% endif %}</div>
+  </div>
+</div>
+
+<!-- Selector de conjuntos -->
+<div class="conj-pills">
+  {% for c in conjuntos %}
+  <a class="conj-pill {% if cid == c.id %}active{% endif %}"
+     href="?token={{ token }}&cid={{ c.id }}">
+    <div class="n">{{ c.nombre }}</div>
+    <div class="c">{{ c.ciudad or '—' }}</div>
+    <div class="cnt">{{ c.act }} activos</div>
+  </a>
+  {% endfor %}
+</div>
+
+{% if not conjunto %}
+  <div class="main-card">
+    <div class="pick-prompt">
+      <div class="big">🏢</div>
+      <div>Elegí un conjunto arriba para ver su listado de inmuebles.</div>
+    </div>
+  </div>
+{% else %}
+  <div class="main-card">
+    <!-- Filtros -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <span class="lbl">Op</span>
+        {% for v, lbl in [('todos','Todos'),('arriendo','Arriendo'),('venta','Venta')] %}
+          <a class="{% if op_filtro == v %}on{% endif %}"
+             href="?token={{ token }}&cid={{ cid }}&op={{ v }}&estado={{ estado_filtro }}&tipo={{ tipo_filtro }}&etapa={{ etapa_filtro }}">{{ lbl }}</a>
+        {% endfor %}
+      </div>
+      <div class="filter-group">
+        <span class="lbl">Estado</span>
+        {% for v, lbl in [('todos','Todos'),('activos','Activos'),('inactivos','Inactivos')] %}
+          <a class="{% if estado_filtro == v %}on{% endif %}"
+             href="?token={{ token }}&cid={{ cid }}&op={{ op_filtro }}&estado={{ v }}&tipo={{ tipo_filtro }}&etapa={{ etapa_filtro }}">{{ lbl }}</a>
+        {% endfor %}
+      </div>
+      <div class="filter-group">
+        <span class="lbl">Tipo</span>
+        {% for v, lbl in [('todos','Todos'),('apartamento','🏢 Apto'),('casa','🏡 Casa'),('parqueadero','🚗 Parq'),('deposito','📦 Depo'),('habitacion','🛏 Hab'),('local','🏪 Local'),('oficina','🏬 Ofic')] %}
+          <a class="{% if tipo_filtro == v %}on{% endif %}"
+             href="?token={{ token }}&cid={{ cid }}&op={{ op_filtro }}&estado={{ estado_filtro }}&tipo={{ v }}&etapa={{ etapa_filtro }}">{{ lbl }}</a>
+        {% endfor %}
+      </div>
+      <span class="count-badge">{{ inmuebles|length }} resultados</span>
+    </div>
+
+    <!-- Embudo chips -->
+    <div class="embudo-row">
+      <a class="embudo-chip {% if not etapa_filtro %}on{% endif %}"
+         href="?token={{ token }}&cid={{ cid }}&op={{ op_filtro }}&estado={{ estado_filtro }}&tipo={{ tipo_filtro }}">
+        📋 Todos
+      </a>
+      {% for key, emoji, lbl in [
+        ('pendiente_confirmar','🌑','Falta Sebas'),
+        ('confirmado_sin_datos','🌘','Confirmado sin datos'),
+        ('confirmado_completo','🌕','Listo bienvenida'),
+        ('post_bienvenida','🏡','Listo ofrecer Petra'),
+        ('post_petra','💳','Listo crédito'),
+        ('post_credito','📝','Listo mandato'),
+        ('mandato','🤝','Con mandato')] %}
+      <a class="embudo-chip {% if etapa_filtro == key %}on{% endif %}"
+         href="?token={{ token }}&cid={{ cid }}&op={{ op_filtro }}&estado={{ estado_filtro }}&tipo={{ tipo_filtro }}&etapa={{ key }}">
+        {{ emoji }} {{ lbl }}
+        <span class="cn">{{ cont[key] }}</span>
+      </a>
+      {% endfor %}
+    </div>
+
+    <!-- Tabla -->
+    {% if inmuebles %}
+    <table class="table-x">
+      <thead>
+        <tr>
+          <th>Código</th><th>Op</th><th>Tipo</th><th>m²</th>
+          <th>Precio</th><th>Teléfono</th><th>Embudo</th><th>Estado</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in inmuebles %}
+        <tr class="{% if not i.activo %}inactivo{% endif %}">
+          <td class="code-col">{{ i.codigo }}</td>
+          <td><span class="op-pill {{ i.operacion }}">{{ i.operacion }}</span></td>
+          <td style="font-size:12.5px">
+            {% set _emo = {'apartamento':'🏢','casa':'🏡','parqueadero':'🚗','deposito':'📦','habitacion':'🛏','local':'🏪','oficina':'🏬'} %}
+            {{ _emo.get(i.tipo, '') }} {{ i.tipo or '—' }}
+          </td>
+          <td>{{ i.m2 if i.m2 is not none else '—' }}</td>
+          <td>{{ i.precio_fmt }}</td>
+          <td style="font-family:ui-monospace,Menlo,monospace;font-size:12px">
+            {% if i.celular_valido %}{{ i.propietario_telefono }}
+            {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
+            {% else %}<span style="color:var(--muted)">—</span>{% endif %}
+          </td>
+          <td>
+            {% set e = i.etapa %}
+            {% if e == 'pendiente_confirmar' %}
+              <span class="etapa-pill e1">🌑 Falta Sebas</span>
+            {% elif e == 'confirmado_sin_datos' %}
+              <span class="etapa-pill e2">🌘 Faltan datos</span>
+            {% elif e == 'confirmado_completo' %}
+              <span class="etapa-pill e3">🌕 Listo bienvenida</span>
+            {% elif e == 'post_bienvenida' %}
+              <span class="etapa-pill e4">🏡 Listo Petra</span>
+            {% elif e == 'post_petra' %}
+              <span class="etapa-pill e5">💳 Listo crédito</span>
+            {% elif e == 'post_credito' %}
+              <span class="etapa-pill e6">📝 Listo mandato</span>
+            {% elif e == 'mandato' %}
+              <span class="etapa-pill e7">🤝 Firmado</span>
+            {% elif e == 'desactivado' %}
+              <span class="etapa-pill">⛔ Desactivado</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="state-pill {% if i.activo %}activo{% else %}inactivo{% endif %}">
+              {% if i.activo %}activo{% else %}inactivo{% endif %}
+            </span>
+          </td>
+          <td>
+            <div class="row-actions">
+              <a class="btn-like" href="/panel/petra/visitante/conjuntos/{{ cid }}/inmuebles#edit-{{ i.id }}" title="Editar en v1">✎ Editar</a>
+              <form class="inline-form" method="POST"
+                    action="{{ url_for('petra_panel.visitante_inmueble_toggle', iid=i.id) }}">
+                <input type="hidden" name="token" value="{{ token }}">
+                <button type="submit">{% if i.activo %}Pausar{% else %}Activar{% endif %}</button>
+              </form>
+              <form class="inline-form" method="POST"
+                    action="{{ url_for('petra_panel.visitante_inmueble_toggle_inmobiliaria', iid=i.id) }}">
+                <input type="hidden" name="token" value="{{ token }}">
+                <button type="submit" class="btn-inmob {% if i.es_inmobiliaria %}on{% endif %}">
+                  {% if i.es_inmobiliaria %}✓{% else %}🏢{% endif %} Inmob
+                </button>
+              </form>
+              <form class="inline-form" method="POST"
+                    action="{{ url_for('petra_panel.visitante_inmueble_toggle_gestion', iid=i.id) }}"
+                    onsubmit="return confirm({% if i.gestionado_por_petra %}'¿Devolver al propietario?'{% else %}'¿Pasar a gestión Petra?'{% endif %})">
+                <input type="hidden" name="token" value="{{ token }}">
+                <button type="submit" class="btn-petra {% if i.gestionado_por_petra %}on{% endif %}">
+                  {% if i.gestionado_por_petra %}✓{% else %}💜{% endif %} Petra
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="pick-prompt">
+      <div class="big">🔍</div>
+      <div>No hay inmuebles con esos filtros.</div>
+    </div>
+    {% endif %}
+  </div>
+{% endif %}
+
+{% endblock %}
