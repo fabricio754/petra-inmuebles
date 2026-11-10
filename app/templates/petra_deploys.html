@@ -95,6 +95,24 @@
   </div>
   {% endif %}
 
+  {% if not is_staging %}
+    {% if ventana_abierta %}
+    <div class="warn-staging" style="background:#dafbe1;border-color:#1a7f37;color:#1a7f37">
+      🟢 <b>Ventana de despliegue ABIERTA</b> ({{ "%02d"|format(ventana_inicio) }}:00–{{ "%02d"|format(ventana_fin) }}:00 Bogotá).
+      Hora actual: {{ "%02d"|format(hora_bogota) }}:xx. Podés promover.
+    </div>
+    {% else %}
+    <div class="warn-staging">
+      🌙 <b>Ventana de despliegue CERRADA</b> — solo podés promover entre
+      {{ "%02d"|format(ventana_inicio) }}:00 y {{ "%02d"|format(ventana_fin) }}:00 (Bogotá).
+      Hora actual: {{ "%02d"|format(hora_bogota) }}:xx.
+      <br><br>
+      Esto evita caídas durante el día. Si es <b>emergencia real</b>, podés forzar
+      con el checkbox "Forzar fuera de ventana" abajo.
+    </div>
+    {% endif %}
+  {% endif %}
+
   {% if cmp.error %}
     <div class="status-card err">
       <h2>❌ No pude conectar con GitHub</h2>
@@ -117,9 +135,15 @@
         Revisalos abajo y si todo anda, apretá "Promover".
       </div>
       {% if not is_staging %}
-      <button class="btn-promover" onclick="promover()">
+      <button class="btn-promover" onclick="promover()"
+              {% if not ventana_abierta %}data-fuera-ventana="1"{% endif %}>
         🚀 Promover staging → producción
       </button>
+      {% if not ventana_abierta %}
+      <label style="display:block;margin-top:10px;font-size:12px;color:var(--muted)">
+        <input type="checkbox" id="forzar"> Forzar fuera de ventana (solo emergencias)
+      </label>
+      {% endif %}
       {% endif %}
       <div class="out" id="out"></div>
     </div>
@@ -157,7 +181,18 @@ async function promover() {
     if (!pin || !/^\d{4}$/.test(pin)) return;
     try { sessionStorage.setItem('petra_pin_fabricio', pin); } catch(e){}
   }
-  if (!confirm("¿Promover staging → producción?\n\nVa a mergear develop → main y Render re-deployará prod en ~2 min.")) return;
+  const btnEl = document.querySelector('.btn-promover');
+  const fueraVentana = btnEl && btnEl.dataset.fueraVentana === "1";
+  const forzarCk = document.getElementById('forzar');
+  const fuerza = forzarCk && forzarCk.checked;
+  if (fueraVentana && !fuerza) {
+    alert("Estás fuera de la ventana de despliegue. Si es emergencia, marcá 'Forzar fuera de ventana'.");
+    return;
+  }
+  const msgConfirm = fueraVentana && fuerza
+    ? "⚠ EMERGENCIA: estás promoviendo FUERA de la ventana horaria.\n\nEsto puede caer el bot mientras está en uso.\n\n¿Seguro?"
+    : "¿Promover staging → producción?\n\nVa a mergear develop → main y Render re-deployará prod en ~2 min.";
+  if (!confirm(msgConfirm)) return;
 
   const btn = document.querySelector('.btn-promover');
   const out = document.getElementById('out');
@@ -170,6 +205,7 @@ async function promover() {
     const fd = new FormData();
     fd.append('token', '{{ token }}');
     fd.append('pin', pin);
+    if (fuerza) fd.append('fuerza', '1');
     const r = await fetch('/panel/petra/deploys/promover', {method: 'POST', body: fd});
     const d = await r.json();
     if (d.ok) {
