@@ -1,0 +1,19 @@
+{
+  "name": "visitante_menu_global",
+  "description": "El botón Menú debe funcionar desde cualquier estado — después de ver arriendos, pulsar Menú vuelve al home del conjunto.",
+  "telefono": "+99999000205",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "Hola. Cod: 1001",
+      "bot_contiene": ["Arrayanes"]
+    },
+    {
+      "boton": "VIS_ARRIENDO"
+    },
+    {
+      "boton": "VIS_MENU",
+      "bot_contiene": ["Arrayanes"]
+    }
+  ]
+}

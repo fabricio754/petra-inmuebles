@@ -1,0 +1,16 @@
+{
+  "name": "visitante_publicar_inicia",
+  "description": "Visitante escanea QR, clickea 'Publicar inmueble'. El bot debe iniciar el flujo de publicación (pedir operación o abrir el Flow).",
+  "telefono": "+99999000204",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "Hola. Cod: 1001",
+      "bot_contiene": ["Arrayanes"]
+    },
+    {
+      "boton": "VIS_PUBLICAR",
+      "bot_regex": ["(publicar|arriendo|venta|operaci)"]
+    }
+  ]
+}
