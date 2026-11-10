@@ -3023,14 +3023,21 @@ def _fmt_precio_cop(valor):
 
 @petra_panel_bp.get("/v2")
 def panel_v2_home():
-    """Preview del rediseño del panel (Fase 1 — shell + navegación).
-    No reemplaza el panel actual; convive mientras se migra."""
+    """Dashboard v2 — Fase 2 polish: stat cards con delta, chart real,
+    distribución de agentes."""
     _check_token()
     token = (request.args.get("token") or "").strip()
-    stats = {"agentes": "—", "inmuebles": "—",
-             "demanda_7d": "—", "visitas_7d": "—"}
+
+    stats = {"agentes": 0, "inmuebles": 0, "demanda_7d": 0, "visitas_7d": 0,
+             "agentes_delta": None, "inmuebles_delta": None,
+             "demanda_delta": None, "visitas_delta": None}
+    chart = {"labels": [], "mensajes_in": [], "mensajes_out": []}
+    distribucion = []
+    actividad = []
+
     try:
         with _db._conexion_directa(timeout=5) as conn:
+            # ---- Agentes activas (estados productivos) ----
             r = conn.execute(
                 "SELECT COUNT(*) FROM petra_contacto_roles "
                 " WHERE rol='agente_petra' "
@@ -3038,26 +3045,97 @@ def panel_v2_home():
                 "       ('inscrito','capacitacion_completa','autorizacion_pendiente',"
                 "        'kit_pendiente','kit_recibido','activa')"
             ).fetchone()
-            stats["agentes"] = r[0] if r else "—"
+            stats["agentes"] = (r[0] if r else 0) or 0
+
+            # ---- Inmuebles activos + delta (vs. semana pasada) ----
             r = conn.execute(
                 "SELECT COUNT(*) FROM inmuebles_visitante WHERE activo=TRUE"
             ).fetchone()
-            stats["inmuebles"] = r[0] if r else "—"
+            stats["inmuebles"] = (r[0] if r else 0) or 0
             r = conn.execute(
-                "SELECT COUNT(*) FROM petra_interesados_qr "
-                " WHERE creado_en > NOW() - INTERVAL '7 days'"
+                "SELECT COUNT(*) FROM inmuebles_visitante "
+                " WHERE creado_en > NOW() - INTERVAL '7 days' AND activo=TRUE"
             ).fetchone()
-            stats["demanda_7d"] = r[0] if r else "—"
+            stats["inmuebles_delta"] = (r[0] if r else 0) or 0
+
+            # ---- Demanda (interesados por QR, 7d) + delta ----
             r = conn.execute(
-                "SELECT COUNT(*) FROM petra_visitas "
-                " WHERE created_at > NOW() - INTERVAL '7 days'"
+                "SELECT COUNT(*) FILTER (WHERE creado_en > NOW() - INTERVAL '7 days'), "
+                "       COUNT(*) FILTER (WHERE creado_en > NOW() - INTERVAL '14 days' "
+                "                          AND creado_en <= NOW() - INTERVAL '7 days') "
+                "  FROM petra_interesados_qr"
             ).fetchone()
-            stats["visitas_7d"] = r[0] if r else "—"
+            if r:
+                stats["demanda_7d"] = r[0] or 0
+                prev = r[1] or 0
+                if prev:
+                    stats["demanda_delta"] = int((stats["demanda_7d"] - prev) * 100 / prev)
+
+            # ---- Visitas 7d + delta ----
+            r = conn.execute(
+                "SELECT COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days'), "
+                "       COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '14 days' "
+                "                          AND created_at <= NOW() - INTERVAL '7 days') "
+                "  FROM petra_visitas"
+            ).fetchone()
+            if r:
+                stats["visitas_7d"] = r[0] or 0
+                prev = r[1] or 0
+                if prev:
+                    stats["visitas_delta"] = int((stats["visitas_7d"] - prev) * 100 / prev)
+
+            # ---- Chart: mensajes IN/OUT por día (últimos 14 días) ----
+            rows = conn.execute(
+                "SELECT DATE(fecha) AS d, "
+                "       COUNT(*) FILTER (WHERE direccion='in')  AS inm, "
+                "       COUNT(*) FILTER (WHERE direccion='out') AS outm "
+                "  FROM mensajes "
+                " WHERE fecha > NOW() - INTERVAL '14 days' "
+                " GROUP BY DATE(fecha) "
+                " ORDER BY d ASC"
+            ).fetchall()
+            for d, inm, outm in rows:
+                chart["labels"].append(d.strftime("%d %b") if d else "")
+                chart["mensajes_in"].append(int(inm or 0))
+                chart["mensajes_out"].append(int(outm or 0))
+
+            # ---- Distribución agentes por estado ----
+            rows = conn.execute(
+                "SELECT metadata->>'estado_agente' AS estado, COUNT(*) "
+                "  FROM petra_contacto_roles "
+                " WHERE rol='agente_petra' "
+                " GROUP BY estado "
+                " ORDER BY 2 DESC"
+            ).fetchall()
+            for estado, cnt in rows:
+                distribucion.append({
+                    "estado": (estado or "sin estado").replace("_", " "),
+                    "count": int(cnt or 0),
+                })
+
+            # ---- Actividad reciente ----
+            rows = conn.execute(
+                "SELECT fecha, direccion, tipo, LEFT(resumen, 60) AS r, telefono "
+                "  FROM mensajes "
+                " ORDER BY fecha DESC LIMIT 8"
+            ).fetchall()
+            for fecha, dire, tipo, r, tel in rows:
+                actividad.append({
+                    "fecha": fecha.strftime("%H:%M") if fecha else "",
+                    "dia": fecha.strftime("%d %b") if fecha else "",
+                    "dir": dire, "tipo": tipo or "",
+                    "resumen": r or "", "telefono": tel or "",
+                })
     except Exception:
         import logging as _lg
         _lg.getLogger(__name__).exception("[panel_v2] stats query fallo (no crítico)")
+
+    import json as _json
     return render_template("petra_panel_v2_home.html",
-                           token=token, stats=stats)
+                           token=token, stats=stats,
+                           chart_json=_json.dumps(chart),
+                           distribucion=distribucion,
+                           actividad=actividad)
 
 
 @petra_panel_bp.get("/visitante")
