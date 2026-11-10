@@ -3991,6 +3991,89 @@ def visitante_usuarios_vista():
     )
 
 
+@petra_panel_bp.get("/v2/usuarios")
+def panel_v2_usuarios():
+    """v2: Base de usuarios. Reusa la query de /visitante/usuarios."""
+    # Reutilizamos la lógica de la ruta v1 llamando su función.
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    filtro = (request.args.get("rol") or "").strip()
+    with _db._conexion_directa(timeout=15) as conn:
+        rows = _rows(conn,
+            """
+            WITH anunciantes AS (
+              SELECT DISTINCT propietario_telefono AS tel, COUNT(*) AS n_inm
+                FROM inmuebles_visitante
+               WHERE activo = TRUE
+                 AND propietario_telefono IS NOT NULL
+                 AND propietario_telefono <> ''
+               GROUP BY propietario_telefono
+            ),
+            buscando AS (
+              SELECT DISTINCT telefono AS tel, COUNT(*) AS n_cont
+                FROM visitante_contactos
+               WHERE telefono IS NOT NULL AND telefono <> ''
+               GROUP BY telefono
+            ),
+            interesados_qr AS (
+              SELECT DISTINCT interesado_telefono AS tel, COUNT(*) AS n_int
+                FROM petra_interesados_qr
+               WHERE interesado_telefono IS NOT NULL
+                 AND interesado_telefono <> ''
+               GROUP BY interesado_telefono
+            ),
+            telefonos AS (
+              SELECT telefono FROM petra_contactos
+                WHERE meta ? 'visitante_estado'
+                   OR meta ? 'visitante_conjunto_id'
+                   OR meta ? 'flow_publicar_conjunto_id'
+              UNION
+              SELECT pc.telefono FROM petra_contactos pc
+                JOIN petra_contacto_roles r ON r.contacto_id = pc.id
+               WHERE r.rol = 'agente_petra'
+              UNION SELECT tel FROM anunciantes
+              UNION SELECT tel FROM buscando
+              UNION SELECT tel FROM interesados_qr
+            )
+            SELECT t.telefono, pc.nombre, pc.username,
+                   pc.updated_at AS ultima_conexion,
+                   cv.nombre AS conjunto_nombre,
+                   COALESCE(a.n_inm, 0) AS n_inmuebles_publicados,
+                   COALESCE(b.n_cont, 0) + COALESCE(i.n_int, 0) AS n_contactos_pedidos,
+                   EXISTS (
+                     SELECT 1 FROM petra_contacto_roles r
+                      WHERE r.contacto_id = pc.id AND r.rol = 'agente_petra'
+                   ) AS es_agente
+              FROM telefonos t
+              LEFT JOIN petra_contactos pc ON pc.telefono = t.telefono
+              LEFT JOIN anunciantes a ON a.tel = t.telefono
+              LEFT JOIN buscando b ON b.tel = t.telefono
+              LEFT JOIN interesados_qr i ON i.tel = t.telefono
+              LEFT JOIN conjuntos_visitante cv
+                ON cv.id = NULLIF(pc.meta->>'visitante_conjunto_id', '')::int
+             ORDER BY pc.updated_at DESC NULLS LAST, t.telefono
+             LIMIT 1000
+            """)
+    for r in rows:
+        r["es_anunciante"] = (r.get("n_inmuebles_publicados") or 0) > 0
+        r["es_buscando"] = (r.get("n_contactos_pedidos") or 0) > 0
+    if filtro == "anun":
+        rows = [r for r in rows if r["es_anunciante"]]
+    elif filtro == "busc":
+        rows = [r for r in rows if r["es_buscando"]]
+    elif filtro == "agente":
+        rows = [r for r in rows if r.get("es_agente")]
+    total_all = len(rows) if not filtro else None
+    n_anun = sum(1 for r in rows if r["es_anunciante"])
+    n_busc = sum(1 for r in rows if r["es_buscando"])
+    n_agente = sum(1 for r in rows if r.get("es_agente"))
+    return render_template(
+        "petra_panel_v2_usuarios.html",
+        token=token, usuarios=rows, filtro=filtro,
+        total=len(rows), n_anun=n_anun, n_busc=n_busc, n_agente=n_agente,
+    )
+
+
 @petra_panel_bp.get("/visitante/usuario/<telefono>")
 def visitante_usuario_detalle(telefono):
     """Historial completo de lo que ha hecho un usuario del flujo visitante.
