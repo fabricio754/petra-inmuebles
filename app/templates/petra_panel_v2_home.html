@@ -3,109 +3,337 @@
 {% block title %}Dashboard · Petra{% endblock %}
 {% block content %}
 
-<h1>Dashboard</h1>
-<p style="color: var(--text-sub); margin: 0 0 24px;">Bienvenido de vuelta, Fabricio 👋</p>
-
 <style>
+  .hero {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    flex-wrap: wrap; gap: 12px; margin-bottom: 24px;
+  }
+  .hero h1 { margin: 0; font-size: 24px; font-weight: 700; }
+  .hero p  { margin: 4px 0 0; color: var(--text-sub); font-size: 13.5px; }
+  .hero .export {
+    padding: 9px 16px; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); font-weight: 500; cursor: pointer; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+
+  /* Stat cards */
   .stat-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 16px;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
   }
   .stat-card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 18px 20px;
+    border-radius: 16px;
+    padding: 20px 22px;
+    display: flex; flex-direction: column;
+    position: relative;
   }
   .stat-card .label {
-    font-size: 12px; color: var(--text-sub); font-weight: 500;
-    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--text-sub); font-weight: 500;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .stat-card .icon-chip {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 16px;
   }
   .stat-card .value {
-    font-size: 26px; font-weight: 700; margin: 8px 0 6px;
+    font-size: 30px; font-weight: 700; letter-spacing: -0.4px;
+    line-height: 1.1;
   }
-  .stat-card .delta { font-size: 12px; font-weight: 600; }
-  .stat-card .delta.up   { color: var(--ok); }
-  .stat-card .delta.down { color: var(--down); }
-  .stat-card .delta.flat { color: var(--text-sub); }
+  .stat-card .footer {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 10px;
+  }
+  .stat-card .delta {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+  }
+  .delta.up   { background: #dcfce7; color: #166534; }
+  .delta.down { background: #fee2e2; color: #991b1b; }
+  .delta.flat { background: var(--bg); color: var(--text-sub); }
+  :root[data-theme="dark"] .delta.up   { background: #052e1a; color: #4ade80; }
+  :root[data-theme="dark"] .delta.down { background: #310c0f; color: #f87171; }
 
-  .cards-row {
+  .details-link {
+    font-size: 11.5px; color: var(--text-sub); text-decoration: none;
+  }
+  .details-link:hover { color: var(--accent); }
+
+  /* Chip colors */
+  .chip-violet { background: #efeaff; color: #7c5cff; }
+  .chip-green  { background: #dcfce7; color: #166534; }
+  .chip-blue   { background: #dbeafe; color: #1d4ed8; }
+  .chip-orange { background: #fed7aa; color: #9a3412; }
+  :root[data-theme="dark"] .chip-violet { background: #241f3d; color: #a78bfa; }
+  :root[data-theme="dark"] .chip-green  { background: #052e1a; color: #4ade80; }
+  :root[data-theme="dark"] .chip-blue   { background: #0a1f3d; color: #60a5fa; }
+  :root[data-theme="dark"] .chip-orange { background: #2d1409; color: #fdba74; }
+
+  /* Row 2 — chart + distribution */
+  .row2 {
     display: grid;
     grid-template-columns: 2fr 1fr;
     gap: 16px;
-    margin-bottom: 24px;
-  }
-  @media (max-width: 860px) { .cards-row { grid-template-columns: 1fr; } }
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
-  }
-  .card h3 {
-    margin: 0 0 14px; font-size: 14px; font-weight: 600;
-  }
-
-  .preview-banner {
-    background: #fff8c5; color: #9a6700;
-    border: 1px solid #d4a72c;
-    padding: 10px 14px; border-radius: 10px; font-size: 13px;
     margin-bottom: 20px;
   }
-  :root[data-theme="dark"] .preview-banner {
-    background: #2d2410; color: #e8c468; border-color: #5a4810;
+  @media (max-width: 1024px) { .row2 { grid-template-columns: 1fr; } }
+
+  .card-big {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 22px 24px;
   }
+  .card-big h3 {
+    margin: 0 0 4px; font-size: 15px; font-weight: 600;
+  }
+  .card-big .sub {
+    color: var(--text-sub); font-size: 12.5px; margin-bottom: 18px;
+  }
+
+  canvas#msgChart { width: 100% !important; height: 280px !important; }
+
+  /* Distribution bars */
+  .dist-list { display: flex; flex-direction: column; gap: 10px; }
+  .dist-item .dr {
+    display: flex; justify-content: space-between;
+    font-size: 12.5px; margin-bottom: 4px;
+  }
+  .dist-item .dl { color: var(--text); font-weight: 500; text-transform: capitalize; }
+  .dist-item .dv { color: var(--text-sub); }
+  .dist-bar {
+    height: 6px; background: var(--bg); border-radius: 999px; overflow: hidden;
+  }
+  .dist-bar > span {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, #a78bfa, #7c5cff);
+    border-radius: 999px;
+  }
+
+  /* Table */
+  .table {
+    width: 100%; border-collapse: collapse;
+  }
+  .table th {
+    text-align: left; font-size: 11px; font-weight: 500;
+    color: var(--text-sub); text-transform: uppercase; letter-spacing: .5px;
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+  }
+  .table td {
+    padding: 14px; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .table tr:last-child td { border-bottom: none; }
+  .pill {
+    display: inline-flex; padding: 3px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 500;
+  }
+  .pill.in  { background: #dbeafe; color: #1d4ed8; }
+  .pill.out { background: #efeaff; color: #7c5cff; }
+  :root[data-theme="dark"] .pill.in  { background: #0a1f3d; color: #60a5fa; }
+  :root[data-theme="dark"] .pill.out { background: #241f3d; color: #a78bfa; }
+
+  .empty { padding: 40px 10px; text-align: center; color: var(--text-sub); font-size: 13px; }
 </style>
 
-<div class="preview-banner">
-  🚧 <b>Preview Panel v2</b> — esto es un rediseño en progreso. Los links del sidebar llevan al panel actual. Cuando esté listo, reemplaza el panel viejo.
+<div class="hero">
+  <div>
+    <h1>Welcome, Fabricio 👋</h1>
+    <p>Qué está pasando en Petra hoy.</p>
+  </div>
+  <button class="export">📄 Export report</button>
 </div>
 
 <div class="stat-grid">
   <div class="stat-card">
-    <div class="label">👥 Agentes activas</div>
+    <div class="label">
+      <span>Agentes activas</span>
+      <span class="icon-chip chip-violet">👥</span>
+    </div>
     <div class="value">{{ stats.agentes }}</div>
-    <div class="delta flat">—</div>
+    <div class="footer">
+      <span class="delta flat">—</span>
+      <a class="details-link" href="/panel/petra/agentes?token={{ token }}">Details ↗</a>
+    </div>
   </div>
+
   <div class="stat-card">
-    <div class="label">🏠 Inmuebles</div>
+    <div class="label">
+      <span>Inmuebles activos</span>
+      <span class="icon-chip chip-green">🏠</span>
+    </div>
     <div class="value">{{ stats.inmuebles }}</div>
-    <div class="delta flat">—</div>
+    <div class="footer">
+      {% if stats.inmuebles_delta %}
+        <span class="delta up">↑ {{ stats.inmuebles_delta }} nuevos 7d</span>
+      {% else %}
+        <span class="delta flat">sin nuevos 7d</span>
+      {% endif %}
+      <a class="details-link" href="/panel/petra/visitante/conjuntos?token={{ token }}">Details ↗</a>
+    </div>
   </div>
+
   <div class="stat-card">
-    <div class="label">🙋 Demanda (7d)</div>
+    <div class="label">
+      <span>Demanda (7d)</span>
+      <span class="icon-chip chip-blue">🙋</span>
+    </div>
     <div class="value">{{ stats.demanda_7d }}</div>
-    <div class="delta flat">—</div>
+    <div class="footer">
+      {% if stats.demanda_delta is not none and stats.demanda_delta != 0 %}
+        <span class="delta {% if stats.demanda_delta > 0 %}up{% else %}down{% endif %}">
+          {% if stats.demanda_delta > 0 %}↑{% else %}↓{% endif %} {{ stats.demanda_delta|abs }}% vs 7d
+        </span>
+      {% else %}
+        <span class="delta flat">sin cambio</span>
+      {% endif %}
+      <a class="details-link" href="/panel/petra/visitante/interesados?token={{ token }}">Details ↗</a>
+    </div>
   </div>
+
   <div class="stat-card">
-    <div class="label">📅 Visitas (7d)</div>
+    <div class="label">
+      <span>Visitas (7d)</span>
+      <span class="icon-chip chip-orange">📅</span>
+    </div>
     <div class="value">{{ stats.visitas_7d }}</div>
-    <div class="delta flat">—</div>
+    <div class="footer">
+      {% if stats.visitas_delta is not none and stats.visitas_delta != 0 %}
+        <span class="delta {% if stats.visitas_delta > 0 %}up{% else %}down{% endif %}">
+          {% if stats.visitas_delta > 0 %}↑{% else %}↓{% endif %} {{ stats.visitas_delta|abs }}% vs 7d
+        </span>
+      {% else %}
+        <span class="delta flat">sin cambio</span>
+      {% endif %}
+      <a class="details-link" href="/panel/petra/visitas?token={{ token }}">Details ↗</a>
+    </div>
   </div>
 </div>
 
-<div class="cards-row">
-  <div class="card">
+<div class="row2">
+  <div class="card-big">
     <h3>📈 Mensajes últimos 14 días</h3>
-    <div style="padding:30px;color:var(--text-sub);text-align:center">
-      Gráfico pendiente — se agrega en Fase 2.
-    </div>
+    <div class="sub">Entrantes vs. salientes · tráfico del bot</div>
+    <canvas id="msgChart"></canvas>
   </div>
-  <div class="card">
-    <h3>🚨 Alertas activas</h3>
-    <div style="padding:30px;color:var(--text-sub);text-align:center">
-      Sin alertas activas.
+
+  <div class="card-big">
+    <h3>👥 Agentes por estado</h3>
+    <div class="sub">Distribución del embudo de inscripción</div>
+    {% if distribucion %}
+    <div class="dist-list">
+      {% set tot = distribucion | sum(attribute='count') %}
+      {% for d in distribucion %}
+      <div class="dist-item">
+        <div class="dr">
+          <span class="dl">{{ d.estado }}</span>
+          <span class="dv">{{ d.count }}</span>
+        </div>
+        <div class="dist-bar"><span style="width: {{ (d.count * 100 / tot) if tot else 0 }}%"></span></div>
+      </div>
+      {% endfor %}
     </div>
+    {% else %}
+    <div class="empty">Sin datos todavía.</div>
+    {% endif %}
   </div>
 </div>
 
-<div class="card">
-  <h3>🏢 Embudo por conjunto</h3>
-  <div style="padding:30px;color:var(--text-sub);text-align:center">
-    Pendiente — se agrega en Fase 2.
-  </div>
+<div class="card-big">
+  <h3>📬 Actividad reciente</h3>
+  <div class="sub">Últimos 8 mensajes del bot</div>
+  {% if actividad %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Hora</th>
+        <th>Dir</th>
+        <th>Tipo</th>
+        <th>Resumen</th>
+        <th>Teléfono</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in actividad %}
+      <tr>
+        <td>
+          <div style="font-weight:500">{{ a.fecha }}</div>
+          <div style="color:var(--text-sub);font-size:11.5px">{{ a.dia }}</div>
+        </td>
+        <td><span class="pill {{ a.dir }}">{{ a.dir }}</span></td>
+        <td style="color:var(--text-sub)">{{ a.tipo }}</td>
+        <td>{{ a.resumen }}</td>
+        <td style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--text-sub)">{{ a.telefono }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">Sin actividad reciente.</div>
+  {% endif %}
 </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script>
+(function() {
+  const data = {{ chart_json|safe }};
+  const ctx = document.getElementById('msgChart');
+  if (!ctx || !window.Chart) return;
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const txtColor = isDark ? '#9099a8' : '#656d76';
+  const grid = isDark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.05)';
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.labels,
+      datasets: [
+        {
+          label: 'Entrantes',
+          data: data.mensajes_in,
+          borderColor: '#7c5cff',
+          backgroundColor: 'rgba(124,92,255,.12)',
+          tension: 0.4, fill: true, borderWidth: 2,
+          pointRadius: 0, pointHoverRadius: 5,
+        },
+        {
+          label: 'Salientes',
+          data: data.mensajes_out,
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96,165,250,.08)',
+          tension: 0.4, fill: true, borderWidth: 2,
+          pointRadius: 0, pointHoverRadius: 5,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', align: 'end',
+                  labels: { boxWidth: 12, boxHeight: 12, padding: 14,
+                            color: txtColor, font: { size: 12 } } },
+        tooltip: { backgroundColor: isDark ? '#161b22' : '#fff',
+                   titleColor: isDark ? '#e6edf3' : '#1a1d29',
+                   bodyColor: isDark ? '#e6edf3' : '#1a1d29',
+                   borderColor: isDark ? '#2a3140' : '#e4e7ee',
+                   borderWidth: 1, padding: 10 },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: txtColor, font: { size: 11 } } },
+        y: { grid: { color: grid }, ticks: { color: txtColor, font: { size: 11 } },
+             beginAtZero: true },
+      },
+    },
+  });
+})();
+</script>
 
 {% endblock %}
