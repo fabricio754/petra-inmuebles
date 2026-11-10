@@ -311,17 +311,24 @@ def send_media_o_texto(to, titulo, url):
 
 def send_typing_indicator(wa_msg_id):
     """Marca el mensaje como leído y muestra los 3 puntitos de typing.
-    WhatsApp los muestra hasta que llegue el próximo mensaje nuestro, o
-    máximo 25 segundos. API nueva de Meta (2024): status=read +
-    typing_indicator.type=text."""
+    Fire-and-forget REAL en thread: no bloquea el flujo principal (antes
+    agregaba 200-800ms por el round-trip HTTP a Meta antes de procesar
+    la respuesta)."""
     if not wa_msg_id:
         return {"ok": True, "skip": "sin wa_msg_id"}
-    return _post({
-        "messaging_product": "whatsapp",
-        "status": "read",
-        "message_id": wa_msg_id,
-        "typing_indicator": {"type": "text"},
-    })
+    import threading as _th
+    def _enviar():
+        try:
+            _post({
+                "messaging_product": "whatsapp",
+                "status": "read",
+                "message_id": wa_msg_id,
+                "typing_indicator": {"type": "text"},
+            })
+        except Exception:
+            log.exception("[petra_wa] typing indicator async fallo")
+    _th.Thread(target=_enviar, daemon=True).start()
+    return {"ok": True, "async": True}
 
 
 def send_buttons(to, body, buttons):

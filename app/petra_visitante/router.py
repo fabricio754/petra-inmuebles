@@ -170,6 +170,43 @@ def _leer_contacto(conn, telefono):
     return estado_c, meta
 
 
+def _upsert_y_leer_contacto(conn, telefono, nombre=None):
+    """Combina _upsert_contacto + _leer_contacto en 1 roundtrip con
+    ON CONFLICT RETURNING. Evita el ciclo SELECT→UPDATE→SELECT que corría
+    secuencial (3 roundtrips) y ahora es un solo INSERT ... DO UPDATE.
+    Devuelve (contacto_id, estado_agente, meta_dict)."""
+    try:
+        row = conn.execute(
+            "WITH ins AS ("
+            "  INSERT INTO petra_contactos (telefono, nombre) "
+            "  VALUES (%s, %s) "
+            "  ON CONFLICT (telefono) DO UPDATE SET "
+            "    nombre = COALESCE(petra_contactos.nombre, EXCLUDED.nombre), "
+            "    updated_at = NOW() "
+            "  RETURNING id, meta"
+            ") "
+            "SELECT ins.id, ins.meta, r.metadata->>'estado_agente' "
+            "  FROM ins "
+            "  LEFT JOIN petra_contacto_roles r "
+            "    ON r.contacto_id = ins.id AND r.rol = 'agente_petra'",
+            (telefono, nombre),
+        ).fetchone()
+        if row:
+            cid = row[0]
+            meta_raw = row[1]
+            meta = dict(meta_raw) if isinstance(meta_raw, dict) else (meta_raw or {})
+            if not isinstance(meta, dict):
+                meta = {}
+            estado = row[2]
+            return cid, estado, meta
+    except Exception:
+        log.exception("[visitante] _upsert_y_leer_contacto fallo tel=%s", telefono)
+    # Fallback al camino viejo (2 queries) si el combinado falla.
+    _upsert_contacto(conn, telefono, nombre=nombre)
+    estado, meta = _leer_contacto(conn, telefono)
+    return None, estado, meta
+
+
 def es_visitante(telefono, texto):
     """¿Este mensaje le toca al flujo visitante o al de agentes?
 
@@ -600,8 +637,7 @@ def _handle_message_impl(telefono, texto, button_id=None, list_id=None,
     """
     try:
         with _db._conexion_directa(timeout=5) as conn:
-            _upsert_contacto(conn, telefono, nombre=contacto_nombre)
-            _, meta = _leer_contacto(conn, telefono)
+            _, _, meta = _upsert_y_leer_contacto(conn, telefono, nombre=contacto_nombre)
 
             # ---- Comando global "menu" / "menú" / "opciones" / "ayuda" ----
             # Si el usuario tiene un conjunto en meta (último escaneado),

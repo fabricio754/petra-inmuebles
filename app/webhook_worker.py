@@ -563,22 +563,26 @@ def _procesar_webhook_petra(payload):
         button_id = btn.get("payload") or btn.get("text")
         texto = btn.get("text") or ""
 
-    # Log del IN en la tabla `mensajes` para que el panel renderice el chat.
-    # No depende del dispatch posterior — si el handler falla, igual queda
-    # registrado qué llegó.
+    # Log del IN en la tabla `mensajes` — fire-and-forget en thread para
+    # no bloquear el dispatch (antes agregaba 20-100ms de DB write antes
+    # de que el bot empezara a procesar). El panel lo ve igual, con un
+    # pequeño delay aceptable.
     wamid_in = message.get("id") if isinstance(message, dict) else None
-    try:
-        resumen_in = texto or f"[{mtype or 'unknown'}]"
-        tipo_log = "nfm_reply" if flow_response is not None else (mtype or "unknown")
-        db.log_mensaje(
-            phone, "in", tipo_log, resumen_in[:500],
-            {"wa_msg_id": wamid_in, "button_id": button_id,
-             "list_id": list_id, "flow_response": flow_response,
-             "message": message},
-            wa_msg_id=wamid_in,
-        )
-    except Exception:
-        log.exception("[petra] log_mensaje in fallo (no crítico)")
+    def _log_in_async():
+        try:
+            resumen_in = texto or f"[{mtype or 'unknown'}]"
+            tipo_log = "nfm_reply" if flow_response is not None else (mtype or "unknown")
+            db.log_mensaje(
+                phone, "in", tipo_log, resumen_in[:500],
+                {"wa_msg_id": wamid_in, "button_id": button_id,
+                 "list_id": list_id, "flow_response": flow_response,
+                 "message": message},
+                wa_msg_id=wamid_in,
+            )
+        except Exception:
+            log.exception("[petra] log_mensaje in async fallo (no crítico)")
+    import threading as _th
+    _th.Thread(target=_log_in_async, daemon=True).start()
 
     # ---- Intercept: botón "No, gracias" del template petra_pregunta_dos_opciones
     # Si la agente pulsó el botón de opt-out del template de reactivación,
