@@ -50,15 +50,13 @@
   }
   .brand {
     display: flex; align-items: center; gap: 10px;
-    font-size: 19px; font-weight: 800;
-    letter-spacing: -0.3px;
   }
-  .brand .logo {
-    width: 36px; height: 36px; border-radius: 10px;
-    background: linear-gradient(135deg, var(--accent), #6a4ae8);
-    display: inline-flex; align-items: center; justify-content: center;
-    color: #fff; font-weight: 800; font-size: 16px;
+  .brand .logo-wrap {
+    background: #000; padding: 6px 12px; border-radius: 10px;
+    display: inline-flex; align-items: center;
+    height: 36px;
   }
+  .brand svg { display: block; height: 20px; width: auto; }
   .nav-pill {
     margin: 0 auto;
     display: inline-flex; align-items: center; gap: 4px;
@@ -129,8 +127,24 @@
 
 <header class="topbar">
   <div class="brand">
-    <span class="logo">P</span>
-    <span>Petra</span>
+    <span class="logo-wrap">
+      <!-- Logo PETRA: texto blanco + A estilizada con triángulo verde y banda naranja -->
+      <svg viewBox="0 0 220 44" xmlns="http://www.w3.org/2000/svg" aria-label="Petra">
+        <!-- PETR -->
+        <text x="0" y="36" font-family="Inter, system-ui, sans-serif"
+              font-weight="800" font-size="40" fill="#fff"
+              letter-spacing="-2">PETR</text>
+        <!-- A custom: triángulo verde arriba, banda naranja -->
+        <g transform="translate(160, 0)">
+          <!-- Pata izquierda blanca -->
+          <polygon points="0,42 10,42 30,8 25,2" fill="#fff"/>
+          <!-- Pata derecha: triángulo verde superior -->
+          <polygon points="25,2 30,8 50,42 40,42" fill="#4ad295"/>
+          <!-- Banda naranja (travesaño de la A) -->
+          <rect x="11" y="26" width="30" height="6" fill="#ff6b4a"/>
+        </g>
+      </svg>
+    </span>
   </div>
   <nav class="nav-pill">
     <a class="{% if block == 'dashboard' %}active{% endif %}"
