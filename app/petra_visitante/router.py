@@ -1676,7 +1676,7 @@ def _publicar_insertar_pendiente(conn, telefono, conjunto, meta):
             " precio, admin_valor, admin_incluida, "
             " propietario_telefono, fuente, activo, gestionado_por_petra) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-            "        'petra', TRUE, TRUE) "
+            "        'petra', TRUE, FALSE) "
             "RETURNING id",
             (p["conjunto_id"], p["tipo"], p["nro"], p["operacion"],
              p.get("habitaciones"), p.get("banos"), p.get("m2"), p.get("precio"),
