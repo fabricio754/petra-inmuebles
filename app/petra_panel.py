@@ -5229,31 +5229,8 @@ def deploys_dashboard():
     )
 
 
-@petra_panel_bp.post("/deploys/promover")
-def deploys_promover():
-    """POST: ejecuta el merge develop → main. Requiere PIN de Fabricio.
-
-    Gate: solo dentro de la ventana horaria (23-6 Bogotá por default).
-    Override: fuerza=1 permite promover fuera de la ventana (emergencias)."""
-    _check_token()
-    from flask import jsonify
-    if not _verificar_pin("fabricio"):
-        return jsonify({"ok": False, "error": "PIN incorrecto"}), 401
-    if (os.environ.get("MODO_STAGING") or "").strip() == "1":
-        return jsonify({"ok": False,
-                        "error": "No se puede promover desde el panel staging. "
-                                 "Hacelo desde prod."}), 400
-    fuerza = (request.form.get("fuerza") or "").strip() == "1"
-    if not _en_ventana_despliegue() and not fuerza:
-        spec = (os.environ.get("PETRA_DEPLOY_WINDOW") or _DEPLOY_WINDOW_DEFAULT).strip()
-        inicio, fin = _parse_window(spec)
-        return jsonify({
-            "ok": False,
-            "error": (f"Fuera de ventana de despliegue ({inicio:02d}:00–{fin:02d}:00 "
-                      f"Bogotá). Hora actual: {_ahora_bogota_hora():02d}:xx. "
-                      "Si es emergencia, confirmá con 'forzar'."),
-            "fuera_ventana": True,
-        }), 423
+# Ruta /deploys/promover eliminada: los deploys los hace Claude Code por pedido
+# del usuario con PIN verificado en chat. Ver docs internas.
 
 
 # =============================================================================
