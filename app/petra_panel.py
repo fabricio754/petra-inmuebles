@@ -3220,7 +3220,7 @@ def visitante_inmuebles(cid):
             "       fuente, activo, creado_en, propietario_telefono, "
             "       gestionado_por_petra, propietario_telefono_original, "
             "       datos_confirmado_at, bienvenida_at, ofrecer_petra_at, "
-            "       ofrecer_credito_at, mandato_at "
+            "       ofrecer_credito_at, mandato_at, es_inmobiliaria "
             "  FROM inmuebles_visitante "
             " WHERE " + " AND ".join(where) +
             " ORDER BY activo DESC, creado_en DESC"
@@ -3473,6 +3473,35 @@ def visitante_inmueble_toggle_gestion(iid):
             "petra_panel.visitante_conjuntos", token=token))
     return redirect(url_for("petra_panel.visitante_inmuebles",
                             cid=cid_conj, token=token, flash="gestion_toggled"))
+
+
+@petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle-inmobiliaria")
+def visitante_inmueble_toggle_inmobiliaria(iid):
+    """Toggle del flag es_inmobiliaria. Solo marca/desmarca; no toca
+    teléfonos. Para taguear comercialmente."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    cid_conj = None
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT conjunto_id FROM inmuebles_visitante WHERE id=%s",
+                (iid,),
+            ).fetchone()
+            if not row:
+                abort(404)
+            cid_conj = row[0]
+            conn.execute(
+                "UPDATE inmuebles_visitante "
+                "   SET es_inmobiliaria = NOT es_inmobiliaria "
+                " WHERE id=%s", (iid,),
+            )
+            conn.commit()
+    except Exception:
+        return redirect(request.referrer or url_for(
+            "petra_panel.visitante_conjuntos", token=token))
+    return redirect(url_for("petra_panel.visitante_inmuebles",
+                            cid=cid_conj, token=token, flash="inmob_toggled"))
 
 
 @petra_panel_bp.get("/visitante/interesados")

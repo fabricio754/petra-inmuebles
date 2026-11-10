@@ -2116,6 +2116,12 @@ ALTER TABLE inmuebles_visitante
 ALTER TABLE inmuebles_visitante
   ADD COLUMN IF NOT EXISTS propietario_telefono_original TEXT;
 
+-- Flag es_inmobiliaria: el inmueble lo trae una inmobiliaria externa.
+-- Independiente de gestionado_por_petra (que modifica el teléfono).
+-- Se usa en el panel para taguear la fuente comercial.
+ALTER TABLE inmuebles_visitante
+  ADD COLUMN IF NOT EXISTS es_inmobiliaria BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Administración (solo aplica a arriendos). admin_valor = costo mensual
 -- de la cuota de administración. admin_incluida = si está dentro del
 -- canon anunciado o si el inquilino la paga aparte.

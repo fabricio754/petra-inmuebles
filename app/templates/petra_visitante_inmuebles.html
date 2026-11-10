@@ -378,6 +378,23 @@
               <input type="hidden" name="token" value="{{ token }}">
               <button type="submit">{% if i.activo %}Desactivar{% else %}Activar{% endif %}</button>
             </form>
+            <form class="inline" method="POST" action="{{ url_for('petra_panel.visitante_inmueble_toggle_inmobiliaria', iid=i.id) }}"
+                  title="Marcar como inmueble de una inmobiliaria externa">
+              <input type="hidden" name="token" value="{{ token }}">
+              <button type="submit" style="background:{% if i.es_inmobiliaria %}#fff8c5{% else %}#fff{% endif %};
+                                           border:1px solid #d0d7de;color:#1f2328;font-size:11.5px">
+                {% if i.es_inmobiliaria %}✓ Inmobiliaria{% else %}🏢 Inmobiliaria{% endif %}
+              </button>
+            </form>
+            <form class="inline" method="POST" action="{{ url_for('petra_panel.visitante_inmueble_toggle_gestion', iid=i.id) }}"
+                  title="Marcar como gestionado por Petra (reemplaza teléfono por el operador)"
+                  onsubmit="return confirm({% if i.gestionado_por_petra %}'¿Devolver gestión al propietario original?'{% else %}'¿Marcar como gestionado por Petra? Se reemplaza el teléfono del propietario por el operador.'{% endif %})">
+              <input type="hidden" name="token" value="{{ token }}">
+              <button type="submit" style="background:{% if i.gestionado_por_petra %}#dafbe1{% else %}#fff{% endif %};
+                                           border:1px solid #d0d7de;color:#1f2328;font-size:11.5px">
+                {% if i.gestionado_por_petra %}✓ Petra{% else %}💜 Petra{% endif %}
+              </button>
+            </form>
           </td>
         </tr>
         <tr id="edit-{{ i.id }}" class="edit-row">
