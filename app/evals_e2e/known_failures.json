@@ -1,21 +1,4 @@
 {
-  "known_failures": [
-    "capacitacion_dia7_completa",
-    "escape_hatch_llamame",
-    "inscripcion_cancela",
-    "inscripcion_conjunto_duplicado",
-    "inscripcion_corregir_dato",
-    "inscripcion_happy_path",
-    "kit_direccion_a_foto_libro"
-  ],
-  "notas": {
-    "capacitacion_dia7_completa": "Bot avanza a 'autorizacion_pendiente' antes de lo que espera el test. Revisar transición.",
-    "escape_hatch_llamame": "Segundo 'llámame' insistente: falta 'aviso'/'equipo' en la respuesta.",
-    "inscripcion_cancela": "Mismo bug que happy_path: el bot confirma antes de recolectar barrio.",
-    "inscripcion_conjunto_duplicado": "Mismo bug + falta 'Ya hay un QR instalado'.",
-    "inscripcion_corregir_dato": "Flow de corregir rompe el orden de pasos.",
-    "inscripcion_happy_path": "Después de 'Chapinero' (barrio) el bot ya pide confirmar — se saltea el paso conjunto.",
-    "kit_direccion_a_foto_libro": "ONBAG_KIT_PERFECTO no incluye 'libro'/'arriendos' en la respuesta."
-  },
-  "contrato": "El workflow pasa mientras el set actual NO CREZCA (no hay regresión). Si un test que ANTES pasaba ahora falla, el workflow falla. Si arreglás uno de acá, regenerá con: python -m app.evals_e2e --update-known-failures"
+  "known_failures": [],
+  "contrato": "Lista vacía: no aceptamos fallos preexistentes. Si un test falla, el CI falla. Agregar entradas acá solo como medida temporal con justificación."
 }

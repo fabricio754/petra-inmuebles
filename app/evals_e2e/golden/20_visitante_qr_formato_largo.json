@@ -1,0 +1,13 @@
+{
+  "name": "visitante_qr_formato_largo",
+  "description": "Formato completo del QR: 'Estoy en el edificio X en Y. Cod: 1001'. El bot debe reconocer y mostrar el menú de Arrayanes con los 3 botones principales.",
+  "telefono": "+99999000200",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "Estoy en el edificio Arrayanes en Bogota. Cod: 1001",
+      "bot_contiene": ["Arrayanes", "arriendo"],
+      "bot_no_contiene": ["Perdón", "no entendí", "ONBAG_", "inválido"]
+    }
+  ]
+}

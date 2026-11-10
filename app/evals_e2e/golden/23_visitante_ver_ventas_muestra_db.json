@@ -1,0 +1,17 @@
+{
+  "name": "visitante_ver_ventas_muestra_db",
+  "description": "Visitante escanea QR de Arrayanes, clickea 'Ver ventas'. El bot debe mostrar la lista con inmuebles reales del seed (1102, 602 son las ventas seedeadas en schema.sql).",
+  "telefono": "+99999000203",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "Hola. Cod: 1001",
+      "bot_contiene": ["Arrayanes"]
+    },
+    {
+      "boton": "VIS_COMPRAR",
+      "bot_contiene": ["Arrayanes"],
+      "bot_regex": ["(1102|602)"]
+    }
+  ]
+}
