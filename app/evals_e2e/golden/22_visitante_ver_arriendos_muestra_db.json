@@ -1,0 +1,17 @@
+{
+  "name": "visitante_ver_arriendos_muestra_db",
+  "description": "Visitante escanea QR de Arrayanes, clickea 'Ver arriendos'. El bot debe mostrar la lista con inmuebles reales del seed (204, 508, 804 son los arriendos seedeados en schema.sql).",
+  "telefono": "+99999000202",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "Hola. Cod: 1001",
+      "bot_contiene": ["Arrayanes"]
+    },
+    {
+      "boton": "VIS_ARRIENDO",
+      "bot_contiene": ["Arrayanes"],
+      "bot_regex": ["(204|508|804)"]
+    }
+  ]
+}

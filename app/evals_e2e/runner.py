@@ -188,19 +188,20 @@ def _simular_cron(cron):
         raise ValueError(f"simular_cron desconocido: {cron}")
 
 
-def _procesar_mensaje(telefono, texto):
+def _procesar_mensaje(telefono, texto, button_id=None, list_id=None):
     """Entra un mensaje al bot como si fuera un webhook de WhatsApp.
 
     Replica el dispatch de webhook_worker: primero chequea es_visitante()
     y rutea al flow visitante si corresponde; si no, al flow de agentes.
-    Sin este dispatch, los goldens de visitante nunca llegan al flow correcto
-    y el bot responde con el welcome de onboarding."""
+    button_id y list_id propagan clicks de botones / selección de list items
+    tal como lo haría webhook_worker (antes no se propagaban y por eso
+    los goldens de botones no funcionaban)."""
     try:
         from app import petra_visitante
         if petra_visitante.es_visitante(telefono, texto):
             petra_visitante.handle_message(
                 telefono=telefono, texto=texto,
-                button_id=None, list_id=None,
+                button_id=button_id, list_id=list_id,
                 contacto_nombre=None, wa_msg_id=None,
                 flow_response=None,
             )
@@ -222,7 +223,19 @@ def _check_assertions(turno, captured, estado_actual):
     """Verifica las aserciones del turno contra lo capturado. Devuelve
     (ok, list_of_errors)."""
     errors = []
-    all_text = "\n".join(m.texto for m in captured)
+    # Concatenamos: body text + titles de rows de listas + titles de
+    # botones. Así bot_contiene puede buscar un número de inmueble que
+    # aparece en el title de una row de WhatsApp interactive list.
+    bits = []
+    for m in captured:
+        bits.append(m.texto or "")
+        ex = m.extras or {}
+        for row in ex.get("rows", []) or []:
+            bits.append(row.get("title") or "")
+            bits.append(row.get("description") or "")
+        for b in ex.get("botones", []) or []:
+            bits.append(b)
+    all_text = "\n".join(bits)
     all_text_lower = all_text.lower()
 
     for expected in turno.get("bot_contiene", []):
@@ -291,7 +304,17 @@ def run_golden(path, verbose=True):
                     _procesar_mensaje(telefono, turno["user"])
                 elif "boton" in turno:
                     input_desc = f"boton: {turno['boton']}"
-                    _procesar_mensaje(telefono, turno["boton"])
+                    # El bot necesita button_id (no texto) para enrutar
+                    # correctamente. El texto visible en WhatsApp es el
+                    # title del botón; para el eval pasamos el id como
+                    # texto también (así los checks de texto pueden
+                    # buscar el id si quieren) y como button_id real.
+                    _procesar_mensaje(telefono, turno["boton"],
+                                      button_id=turno["boton"])
+                elif "lista" in turno:
+                    input_desc = f"lista: {turno['lista']}"
+                    _procesar_mensaje(telefono, turno["lista"],
+                                      list_id=turno["lista"])
                 elif "simular_cron" in turno:
                     cron = turno["simular_cron"]
                     input_desc = f"cron: {cron}"

@@ -1,0 +1,13 @@
+{
+  "name": "visitante_qr_invalido",
+  "description": "Código QR que no existe en DB. El bot debe avisar con un mensaje de código inválido, no mostrar un menú de un conjunto cualquiera.",
+  "telefono": "+99999000201",
+  "meta_inicial": {},
+  "turnos": [
+    {
+      "user": "Hola. Cod: 9999",
+      "bot_regex": ["(inválido|no.{0,15}encontr|no.{0,15}existe|no.{0,15}reconoc)"],
+      "bot_no_contiene": ["ONBAG_"]
+    }
+  ]
+}
