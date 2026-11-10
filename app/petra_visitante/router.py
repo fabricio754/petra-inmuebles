@@ -403,12 +403,11 @@ def _listar_inmuebles(conn, conjunto_id, operacion, limite=10, excluir_ids=None)
         sql += " AND NOT (id = ANY(%s))"
         params.append(excluir_ids)
     # Orden: menor a mayor por metros, luego por precio.
-    # Inmuebles sin datos (m² NULL o precio=0) van al final.
+    # Inmuebles SIN m² van al final; sin precio mantienen su posición por m².
     sql += (" ORDER BY"
-            "  CASE WHEN m2 IS NULL OR precio IS NULL OR precio = 0"
-            "       THEN 1 ELSE 0 END ASC,"
             "  m2 ASC NULLS LAST,"
-            "  precio ASC NULLS LAST,"
+            "  (precio IS NULL OR precio = 0) ASC,"
+            "  precio ASC,"
             "  creado_en DESC"
             " LIMIT %s")
     params.append(limite)
