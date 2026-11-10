@@ -347,23 +347,8 @@
         <div class="pct-float">● {{ salud_pct }}%</div>
         {% endif %}
 
-        <!-- Gauge segmentado: 20 arcos -->
+        <!-- Gauge segmentado: 20 arcos dibujados por JS abajo -->
         <svg viewBox="0 0 300 180">
-          {% set segments = 20 %}
-          {% set radius = 110 %}
-          {% set cx = 150 %}
-          {% set cy = 160 %}
-          {# Distribuimos arcos del ángulo 180 (izq) al 360 (der), un semicírculo superior #}
-          {% for i in range(segments) %}
-            {% set a0 = 180 + (i * 180 / segments) %}
-            {% set a1 = 180 + ((i + 0.85) * 180 / segments) %}
-            {% set r0 = (a0 * 3.141592653589793 / 180) %}
-            {% set r1 = (a1 * 3.141592653589793 / 180) %}
-            {% set x0 = cx + radius * r0.__class__.__sub__(0, 0) %}
-            {# Usamos trig vía atributos directos, pero Jinja no tiene cos/sin
-               — generamos aproximación con tabla precalculada. #}
-          {% endfor %}
-          <!-- Fallback: usamos JS para dibujar los arcos abajo -->
           <g id="gaugeSegs"></g>
 
           <!-- Centro: número grande -->
