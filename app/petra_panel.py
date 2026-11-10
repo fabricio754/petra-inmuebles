@@ -3397,6 +3397,7 @@ def visitante_inmuebles(cid):
     flash = (request.args.get("flash") or "").strip()
     op_filtro = (request.args.get("op") or "todos").strip()
     estado_filtro = (request.args.get("estado") or "todos").strip()
+    tipo_filtro = (request.args.get("tipo") or "todos").strip()
 
     with _db._conexion_directa(timeout=10) as conn:
         row = conn.execute(
@@ -3417,6 +3418,10 @@ def visitante_inmuebles(cid):
             where.append("activo=TRUE")
         elif estado_filtro == "inactivos":
             where.append("activo=FALSE")
+        if tipo_filtro in ("apartamento", "casa", "parqueadero",
+                           "deposito", "habitacion", "local", "oficina"):
+            where.append("tipo=%s")
+            params.append(tipo_filtro)
         sql = (
             "SELECT id, tipo, nro, operacion, habitaciones, banos, m2, precio, "
             "       fuente, activo, creado_en, propietario_telefono, "
@@ -3478,6 +3483,7 @@ def visitante_inmuebles(cid):
         "petra_visitante_inmuebles.html",
         conjunto=conjunto, inmuebles=inmuebles, token=token, flash=flash,
         op_filtro=op_filtro, estado_filtro=estado_filtro,
+        tipo_filtro=tipo_filtro,
         etapa_filtro=etapa_filtro, cont=cont,
     )
 

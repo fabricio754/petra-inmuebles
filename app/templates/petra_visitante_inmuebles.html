@@ -209,7 +209,7 @@
         ('mandato', 'Con mandato', '🤝'),
     ] %}
       <a class="chip {% if etapa_filtro == v %}on{% endif %}"
-         href="?token={{ token }}&op={{ op_filtro }}&estado={{ estado_filtro }}&etapa={{ v }}">
+         href="?token={{ token }}&op={{ op_filtro }}&estado={{ estado_filtro }}&etapa={{ v }}&tipo={{ tipo_filtro }}">
         {{ ico }} {{ lbl }}
         {% if v and cont.get(v, 0) %}<span class="n">{{ cont[v] }}</span>{% endif %}
       </a>
@@ -223,12 +223,17 @@
         <span class="lbl">Op:</span>
         {% for v, lbl in [('todos','Todos'),('arriendo','Arriendo'),('venta','Venta')] %}
           <a class="{% if op_filtro == v %}on{% endif %}"
-             href="?token={{ token }}&op={{ v }}&estado={{ estado_filtro }}&etapa={{ etapa_filtro }}">{{ lbl }}</a>
+             href="?token={{ token }}&op={{ v }}&estado={{ estado_filtro }}&etapa={{ etapa_filtro }}&tipo={{ tipo_filtro }}">{{ lbl }}</a>
         {% endfor %}
         <span class="lbl" style="margin-left:12px">Estado:</span>
         {% for v, lbl in [('activos','Activos'),('inactivos','Inactivos'),('todos','Todos')] %}
           <a class="{% if estado_filtro == v %}on{% endif %}"
-             href="?token={{ token }}&op={{ op_filtro }}&estado={{ v }}&etapa={{ etapa_filtro }}">{{ lbl }}</a>
+             href="?token={{ token }}&op={{ op_filtro }}&estado={{ v }}&etapa={{ etapa_filtro }}&tipo={{ tipo_filtro }}">{{ lbl }}</a>
+        {% endfor %}
+        <span class="lbl" style="margin-left:12px">Tipo:</span>
+        {% for v, lbl in [('todos','Todos'),('apartamento','🏢 Apto'),('casa','🏡 Casa'),('parqueadero','🚗 Parq'),('deposito','📦 Depósito'),('habitacion','🛏 Hab'),('local','🏪 Local'),('oficina','🏬 Oficina')] %}
+          <a class="{% if tipo_filtro == v %}on{% endif %}"
+             href="?token={{ token }}&op={{ op_filtro }}&estado={{ estado_filtro }}&etapa={{ etapa_filtro }}&tipo={{ v }}">{{ lbl }}</a>
         {% endfor %}
       </div>
       <span class="count">{{ inmuebles|length }} resultado(s)</span>
@@ -238,7 +243,7 @@
     <table>
       <thead>
         <tr>
-          <th>Código</th><th>Op</th><th>m²</th>
+          <th>Código</th><th>Op</th><th>Tipo</th><th>m²</th>
           <th>Precio</th><th>Tel</th><th>Embudo</th><th>Estado</th><th></th>
         </tr>
       </thead>
@@ -247,6 +252,10 @@
         <tr class="{% if not i.activo %}inactivo{% endif %}">
           <td class="mono"><strong style="color:#7c5cff">{{ i.codigo }}</strong></td>
           <td><span class="pill {% if i.operacion == 'arriendo' %}arr{% else %}ven{% endif %}">{{ i.operacion }}</span></td>
+          <td style="font-size:12px">
+            {% set _emo = {'apartamento':'🏢','casa':'🏡','parqueadero':'🚗','deposito':'📦','habitacion':'🛏','local':'🏪','oficina':'🏬'} %}
+            {{ _emo.get(i.tipo, '') }} {{ i.tipo or '—' }}
+          </td>
           <td>{{ i.m2 if i.m2 is not none else '—' }}</td>
           <td class="mono">{{ i.precio_fmt }}</td>
           <td class="mono" style="font-size:11.5px">
@@ -398,7 +407,7 @@
           </td>
         </tr>
         <tr id="edit-{{ i.id }}" class="edit-row">
-          <td colspan="8">
+          <td colspan="9">
             <form method="POST" action="{{ url_for('petra_panel.visitante_inmueble_editar', iid=i.id) }}">
               <input type="hidden" name="token" value="{{ token }}">
               <div class="form-grid">
