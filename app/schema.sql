@@ -2302,3 +2302,16 @@ CREATE INDEX IF NOT EXISTS petra_paso_eventos_etapa_ts_idx
   ON petra_paso_eventos(etapa, ts DESC);
 CREATE INDEX IF NOT EXISTS petra_paso_eventos_ambiente_ts_idx
   ON petra_paso_eventos(ambiente, ts DESC);
+
+
+-- ============================================================================
+-- Whitelist para el router staging. Teléfonos que están acá hacen que prod
+-- reenvíe sus mensajes a staging para probar código nuevo sin tocar el
+-- experimento a propietarios reales.
+-- Se edita desde /panel/petra/staging-whitelist (bloque B).
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS petra_staging_whitelist (
+  telefono TEXT PRIMARY KEY,
+  nota TEXT,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

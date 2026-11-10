@@ -5177,22 +5177,64 @@ def _gh_merge_dev_into_main(commit_message=None):
     return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
 
 
+# Ventana horaria de despliegue: por default 23:00–06:00 Colombia (America/Bogota).
+# Configurable con PETRA_DEPLOY_WINDOW="23-6" o similar. Fuera de la ventana el
+# botón promover se deshabilita (el bot está siendo usado, no queremos caídas).
+# Override de emergencia: pasar fuerza=1 en el POST (requiere PIN igual).
+_DEPLOY_WINDOW_DEFAULT = "20-6"
+
+
+def _parse_window(spec):
+    """'23-6' → (23, 6). Rango cruza medianoche si inicio > fin."""
+    try:
+        a, b = spec.split("-")
+        return int(a) % 24, int(b) % 24
+    except Exception:
+        return 23, 6
+
+
+def _ahora_bogota_hora():
+    """Devuelve la hora (0-23) en America/Bogota (UTC-5, sin DST)."""
+    from datetime import datetime, timezone, timedelta
+    return (datetime.now(timezone.utc) + timedelta(hours=-5)).hour
+
+
+def _en_ventana_despliegue():
+    """True si la hora local (Bogotá) cae en la ventana configurada."""
+    spec = (os.environ.get("PETRA_DEPLOY_WINDOW") or _DEPLOY_WINDOW_DEFAULT).strip()
+    inicio, fin = _parse_window(spec)
+    h = _ahora_bogota_hora()
+    if inicio <= fin:
+        return inicio <= h < fin
+    # Cruza medianoche: 23-6 = [23,24) ∪ [0,6)
+    return h >= inicio or h < fin
+
+
 @petra_panel_bp.get("/deploys")
 def deploys_dashboard():
     """Pantalla: ver pendientes + botón promover."""
     _check_token()
     token = (request.args.get("token") or "").strip()
     cmp = _gh_compare(base="main", head="develop")
+    spec = (os.environ.get("PETRA_DEPLOY_WINDOW") or _DEPLOY_WINDOW_DEFAULT).strip()
+    inicio, fin = _parse_window(spec)
     return render_template(
         "petra_deploys.html",
         cmp=cmp, token=token,
         is_staging=(os.environ.get("MODO_STAGING") or "").strip() == "1",
+        ventana_abierta=_en_ventana_despliegue(),
+        ventana_inicio=inicio,
+        ventana_fin=fin,
+        hora_bogota=_ahora_bogota_hora(),
     )
 
 
 @petra_panel_bp.post("/deploys/promover")
 def deploys_promover():
-    """POST: ejecuta el merge develop → main. Requiere PIN de Fabricio."""
+    """POST: ejecuta el merge develop → main. Requiere PIN de Fabricio.
+
+    Gate: solo dentro de la ventana horaria (23-6 Bogotá por default).
+    Override: fuerza=1 permite promover fuera de la ventana (emergencias)."""
     _check_token()
     from flask import jsonify
     if not _verificar_pin("fabricio"):
@@ -5201,8 +5243,17 @@ def deploys_promover():
         return jsonify({"ok": False,
                         "error": "No se puede promover desde el panel staging. "
                                  "Hacelo desde prod."}), 400
-    res = _gh_merge_dev_into_main()
-    return jsonify(res)
+    fuerza = (request.form.get("fuerza") or "").strip() == "1"
+    if not _en_ventana_despliegue() and not fuerza:
+        spec = (os.environ.get("PETRA_DEPLOY_WINDOW") or _DEPLOY_WINDOW_DEFAULT).strip()
+        inicio, fin = _parse_window(spec)
+        return jsonify({
+            "ok": False,
+            "error": (f"Fuera de ventana de despliegue ({inicio:02d}:00–{fin:02d}:00 "
+                      f"Bogotá). Hora actual: {_ahora_bogota_hora():02d}:xx. "
+                      "Si es emergencia, confirmá con 'forzar'."),
+            "fuera_ventana": True,
+        }), 423
 
 
 # =============================================================================
@@ -5293,3 +5344,88 @@ def observabilidad_json():
         "prod": _stats_por_etapa("prod", horas),
         "staging": _stats_por_etapa("staging", horas),
     })
+
+
+# =============================================================================
+# STAGING WHITELIST — gestión desde el panel
+# =============================================================================
+
+@petra_panel_bp.get("/staging-whitelist")
+def staging_whitelist_dashboard():
+    """Pantalla para gestionar la whitelist del router staging."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    with _db._conexion_directa(timeout=5) as conn:
+        rows = _rows(conn,
+            "SELECT telefono, nota, creado_en "
+            "FROM petra_staging_whitelist ORDER BY creado_en DESC")
+    router_url = (os.environ.get("PETRA_STAGING_URL") or "").strip()
+    is_staging_panel = (os.environ.get("MODO_STAGING") or "").strip() == "1"
+    return render_template(
+        "petra_staging_whitelist.html",
+        rows=rows, token=token, flash=flash,
+        router_url=router_url, is_staging_panel=is_staging_panel,
+    )
+
+
+@petra_panel_bp.post("/staging-whitelist/agregar")
+def staging_whitelist_agregar():
+    """Agrega un teléfono a la whitelist. Requiere PIN de Fabricio."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    if not _verificar_pin("fabricio"):
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="pin_malo"))
+    telefono = (request.form.get("telefono") or "").strip()
+    nota = (request.form.get("nota") or "").strip() or None
+    # Normalizar: solo dígitos, debe empezar con 57 (Colombia)
+    import re as _re
+    tel_limpio = _re.sub(r"\D", "", telefono)
+    if not tel_limpio or len(tel_limpio) < 10:
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="telefono_invalido"))
+    if len(tel_limpio) == 10 and tel_limpio.startswith("3"):
+        tel_limpio = "57" + tel_limpio
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            conn.execute(
+                "INSERT INTO petra_staging_whitelist (telefono, nota) "
+                "VALUES (%s, %s) ON CONFLICT (telefono) DO UPDATE "
+                "SET nota = EXCLUDED.nota",
+                (tel_limpio, nota))
+        # Invalidar cache del router
+        try:
+            from app.staging_router import whitelist_cache_bust
+            whitelist_cache_bust()
+        except Exception:
+            pass
+    except Exception:
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="error"))
+    return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                            token=token, flash="agregado"))
+
+
+@petra_panel_bp.post("/staging-whitelist/<telefono>/eliminar")
+def staging_whitelist_eliminar(telefono):
+    """Quita un teléfono de la whitelist. Requiere PIN de Fabricio."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    if not _verificar_pin("fabricio"):
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="pin_malo"))
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            conn.execute("DELETE FROM petra_staging_whitelist WHERE telefono=%s",
+                         (telefono,))
+        try:
+            from app.staging_router import whitelist_cache_bust
+            whitelist_cache_bust()
+        except Exception:
+            pass
+    except Exception:
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="error"))
+    return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                            token=token, flash="eliminado"))

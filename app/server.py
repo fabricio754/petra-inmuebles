@@ -226,6 +226,20 @@ def receive_webhook():
         except (KeyError, IndexError, TypeError):
             phone, event = None, None
 
+        # STAGING ROUTER: si el remitente está en petra_staging_whitelist
+        # y hay STAGING_FORWARD_URL configurado, reenviamos el payload a
+        # staging y NO procesamos en prod. Permite probar código nuevo
+        # con un número real sin afectar al resto de propietarios.
+        # Fire-and-forget: no bloquea la respuesta 200 a Meta.
+        if phone:
+            try:
+                from app.staging_router import redirigir_a_staging
+                if redirigir_a_staging(phone, payload):
+                    log.info("Mensaje de %s → forwardeado a STAGING (whitelist)", phone)
+                    return jsonify({"status": "forwarded-to-staging"}), 200
+            except Exception:
+                log.exception("[staging-router] fallo — fallback a procesar en prod")
+
         webhook_worker.encolar(payload)
 
         if phone is not None:

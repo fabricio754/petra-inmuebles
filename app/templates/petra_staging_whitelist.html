@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Staging Whitelist · Petra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f8fa; --panel: #fff; --border: #d0d7de;
+    --text: #1f2328; --muted: #656d76;
+    --ok: #1a7f37; --ok-soft: #dafbe1;
+    --warn: #9a6700; --warn-soft: #fff8c5;
+    --down: #cf222e; --down-soft: #ffebe9;
+    --accent: #7c5cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  .topbar { padding: 16px 24px; background:#fff; border-bottom:1px solid var(--border);
+            display:flex; align-items:center; gap:14px; }
+  .topbar h1 { margin:0; font-size:17px; font-weight:600; }
+  .topbar a.back { color: var(--accent); text-decoration:none; font-size:13px; margin-left:auto; }
+  main { padding: 24px; max-width: 880px; margin: 0 auto; }
+
+  .intro { background: var(--panel); border:1px solid var(--border);
+           border-radius: 10px; padding: 14px 18px; margin-bottom: 18px;
+           color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .intro b { color: var(--text); }
+
+  .status-badge { padding: 8px 14px; border-radius: 8px; font-size: 13px;
+                  margin-bottom: 18px; display: inline-block; }
+  .status-badge.on   { background: var(--ok-soft);   color: var(--ok); }
+  .status-badge.off  { background: var(--warn-soft); color: var(--warn); }
+
+  .flash { padding:10px 14px; border-radius:8px; margin-bottom:14px; font-size:13px; }
+  .flash.ok   { background: var(--ok-soft);   color: var(--ok); }
+  .flash.err  { background: var(--down-soft); color: var(--down); }
+
+  .add-card { background: var(--panel); border:1px solid var(--border);
+              border-radius:10px; padding: 18px 20px; margin-bottom: 20px; }
+  .add-card h3 { margin:0 0 12px; font-size:14px; font-weight:600; }
+  .add-form { display:flex; gap:10px; align-items:end; flex-wrap:wrap; }
+  .add-form .field { flex: 1; min-width: 180px; }
+  .add-form label { display:block; font-size:11px; color: var(--muted);
+                    text-transform:uppercase; letter-spacing:.4px; margin-bottom: 4px; }
+  .add-form input { width:100%; padding: 9px 12px; border:1px solid var(--border);
+                    border-radius:6px; font-size:13px; font-family: inherit; }
+  .btn { background: var(--accent); color:#fff; border:none; padding: 10px 18px;
+         border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn:hover { background:#6a4ae8; }
+
+  .list { background: var(--panel); border:1px solid var(--border);
+          border-radius: 10px; overflow:hidden; }
+  .row { padding: 12px 18px; display:flex; align-items:center; gap:14px;
+         border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom:none; }
+  .row .tel { font-family: ui-monospace, Menlo, monospace; font-weight: 600;
+              font-size: 13px; min-width: 150px; }
+  .row .nota { flex:1; color: var(--muted); font-size: 12.5px; }
+  .row .fecha { color: var(--muted); font-size:11.5px; font-family: ui-monospace, Menlo, monospace; }
+  .btn-del { background:#fff; color: var(--down); border:1px solid var(--down);
+             padding:4px 10px; border-radius:6px; font-size:11.5px; cursor:pointer; font-weight:500; }
+  .btn-del:hover { background: var(--down-soft); }
+
+  .empty { padding: 50px 20px; text-align: center; color: var(--muted); }
+  .empty .big { font-size: 36px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>🧪 Petra · Staging Whitelist</h1>
+  <a class="back" href="/panel/petra?token={{ token }}">← Panel</a>
+</div>
+
+<main>
+
+  <div class="intro">
+    Teléfonos que <b>reciben respuesta del bot staging</b> (código en pruebas) en vez del bot prod.
+    El resto de propietarios reales sigue hablando con prod normal — no se enteran.
+    <br><br>
+    <b>Cuándo usarlo:</b> probar un cambio nuevo del bot con tu número antes de promoverlo a prod.
+    <b>Para deshabilitar:</b> quitar tu teléfono de la lista.
+  </div>
+
+  {% if is_staging_panel %}
+    <div class="status-badge off">
+      ⚠ Estás viendo esto desde STAGING. Los cambios se guardan en la DB compartida
+      pero el router vive en PROD. Editá desde el panel de prod para que surta efecto.
+    </div>
+  {% elif router_url %}
+    <div class="status-badge on">
+      ✅ Router ACTIVO · PETRA_STAGING_URL = <code>{{ router_url }}</code>
+    </div>
+  {% else %}
+    <div class="status-badge off">
+      ⚠ Router DESACTIVADO · falta env var <code>PETRA_STAGING_URL</code> en prod.
+      Agregala en Render → petra-inmuebles → Environment:
+      <code>https://petra-staging.onrender.com/webhook</code>
+    </div>
+  {% endif %}
+
+  {% if flash == 'agregado' %}
+    <div class="flash ok">✔ Teléfono agregado a la whitelist</div>
+  {% elif flash == 'eliminado' %}
+    <div class="flash ok">✔ Teléfono removido</div>
+  {% elif flash == 'pin_malo' %}
+    <div class="flash err">❌ PIN incorrecto</div>
+  {% elif flash == 'telefono_invalido' %}
+    <div class="flash err">❌ Teléfono inválido (mínimo 10 dígitos)</div>
+  {% elif flash == 'error' %}
+    <div class="flash err">❌ Error — revisá los logs</div>
+  {% endif %}
+
+  <div class="add-card">
+    <h3>➕ Agregar teléfono a la whitelist</h3>
+    <form class="add-form" method="post"
+          action="/panel/petra/staging-whitelist/agregar"
+          onsubmit="return pedirPinYAgregar(this)">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="pin" value="">
+      <div class="field">
+        <label>Teléfono</label>
+        <input name="telefono" placeholder="3181419767 o 573181419767" required>
+      </div>
+      <div class="field">
+        <label>Nota (opcional)</label>
+        <input name="nota" placeholder="Mi número · Sebas · etc">
+      </div>
+      <button type="submit" class="btn">Agregar</button>
+    </form>
+    <div style="margin-top:8px;font-size:11.5px;color:var(--muted)">
+      Formato: 10 dígitos (3181419767) → se normaliza a 573181419767 automático.
+    </div>
+  </div>
+
+  {% if rows %}
+  <div class="list">
+    {% for r in rows %}
+    <div class="row">
+      <span class="tel">{{ r.telefono }}</span>
+      <span class="nota">{{ r.nota or '(sin nota)' }}</span>
+      <span class="fecha">{{ r.creado_en.strftime('%Y-%m-%d %H:%M') if r.creado_en }}</span>
+      <form method="post"
+            action="/panel/petra/staging-whitelist/{{ r.telefono }}/eliminar"
+            onsubmit="return pedirPinYAgregar(this) && confirm('¿Quitar {{ r.telefono }} de la whitelist?');"
+            style="margin:0">
+        <input type="hidden" name="token" value="{{ token }}">
+        <input type="hidden" name="pin" value="">
+        <button type="submit" class="btn-del">🗑 Quitar</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="list">
+    <div class="empty">
+      <div class="big">📭</div>
+      <div>La whitelist está vacía.</div>
+      <div style="font-size:11.5px;margin-top:6px">
+        Agregá tu teléfono arriba para empezar a probar código nuevo contra el bot staging.
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</main>
+
+<script>
+function pedirPinYAgregar(form) {
+  let pin = null;
+  try { pin = sessionStorage.getItem('petra_pin_fabricio'); } catch(e){}
+  if (!pin) {
+    pin = prompt('PIN de 4 dígitos de Fabricio:');
+    if (!pin || !/^\d{4}$/.test(pin)) return false;
+    try { sessionStorage.setItem('petra_pin_fabricio', pin); } catch(e){}
+  }
+  form.querySelector('input[name="pin"]').value = pin;
+  return true;
+}
+</script>
+
+</body>
+</html>
