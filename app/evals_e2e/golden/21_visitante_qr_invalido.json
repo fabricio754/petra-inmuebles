@@ -6,8 +6,8 @@
   "turnos": [
     {
       "user": "Hola. Cod: 9999",
-      "bot_regex": ["(inválido|no.{0,15}encontr|no.{0,15}existe|no.{0,15}reconoc)"],
-      "bot_no_contiene": ["ONBAG_"]
+      "bot_contiene": ["No reconozco"],
+      "bot_no_contiene": ["ONBAG_", "Arrayanes"]
     }
   ]
 }
