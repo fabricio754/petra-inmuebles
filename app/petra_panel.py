@@ -3085,33 +3085,41 @@ def panel_v2_home():
                     stats["visitas_delta"] = int((stats["visitas_7d"] - prev) * 100 / prev)
 
             # ---- Chart: mensajes IN/OUT por día (últimos 14 días) ----
-            rows = conn.execute(
-                "SELECT DATE(fecha) AS d, "
-                "       COUNT(*) FILTER (WHERE direccion='in')  AS inm, "
-                "       COUNT(*) FILTER (WHERE direccion='out') AS outm "
-                "  FROM mensajes "
-                " WHERE fecha > NOW() - INTERVAL '14 days' "
-                " GROUP BY DATE(fecha) "
-                " ORDER BY d ASC"
-            ).fetchall()
-            for d, inm, outm in rows:
-                chart["labels"].append(d.strftime("%d %b") if d else "")
-                chart["mensajes_in"].append(int(inm or 0))
-                chart["mensajes_out"].append(int(outm or 0))
+            try:
+                rows = conn.execute(
+                    "SELECT DATE(fecha) AS d, "
+                    "       COUNT(*) FILTER (WHERE direccion='in')  AS inm, "
+                    "       COUNT(*) FILTER (WHERE direccion='out') AS outm "
+                    "  FROM mensajes "
+                    " WHERE fecha > NOW() - INTERVAL '14 days' "
+                    " GROUP BY DATE(fecha) "
+                    " ORDER BY d ASC"
+                ).fetchall()
+                for d, inm, outm in rows:
+                    chart["labels"].append(d.strftime("%d %b") if d else "")
+                    chart["mensajes_in"].append(int(inm or 0))
+                    chart["mensajes_out"].append(int(outm or 0))
+            except Exception:
+                import logging as _lg
+                _lg.getLogger(__name__).exception("[panel_v2] chart fallo")
 
             # ---- Distribución agentes por estado ----
-            rows = conn.execute(
-                "SELECT metadata->>'estado_agente' AS estado, COUNT(*) "
-                "  FROM petra_contacto_roles "
-                " WHERE rol='agente_petra' "
-                " GROUP BY estado "
-                " ORDER BY 2 DESC"
-            ).fetchall()
-            for estado, cnt in rows:
-                distribucion.append({
-                    "estado": (estado or "sin estado").replace("_", " "),
-                    "count": int(cnt or 0),
-                })
+            try:
+                rows = conn.execute(
+                    "SELECT metadata->>'estado_agente' AS estado, COUNT(*) "
+                    "  FROM petra_contacto_roles "
+                    " WHERE rol='agente_petra' "
+                    " GROUP BY metadata->>'estado_agente' "
+                    " ORDER BY 2 DESC"
+                ).fetchall()
+                for estado, cnt in rows:
+                    distribucion.append({
+                        "estado": (estado or "sin estado").replace("_", " "),
+                        "count": int(cnt or 0),
+                    })
+            except Exception:
+                import logging as _lg
+                _lg.getLogger(__name__).exception("[panel_v2] distribucion fallo")
 
             # ---- Salud (% OK última hora, p95, total eventos) ----
             try:
@@ -3132,18 +3140,22 @@ def panel_v2_home():
                 salud = {"pct": None, "p95": None, "total": 0}
 
             # ---- Actividad reciente ----
-            rows = conn.execute(
-                "SELECT fecha, direccion, tipo, LEFT(resumen, 60) AS r, telefono "
-                "  FROM mensajes "
-                " ORDER BY fecha DESC LIMIT 8"
-            ).fetchall()
-            for fecha, dire, tipo, r, tel in rows:
-                actividad.append({
-                    "fecha": fecha.strftime("%H:%M") if fecha else "",
-                    "dia": fecha.strftime("%d %b") if fecha else "",
-                    "dir": dire, "tipo": tipo or "",
-                    "resumen": r or "", "telefono": tel or "",
-                })
+            try:
+                rows = conn.execute(
+                    "SELECT fecha, direccion, tipo, LEFT(resumen, 60) AS r, telefono "
+                    "  FROM mensajes "
+                    " ORDER BY fecha DESC LIMIT 8"
+                ).fetchall()
+                for fecha, dire, tipo, r, tel in rows:
+                    actividad.append({
+                        "fecha": fecha.strftime("%H:%M") if fecha else "",
+                        "dia": fecha.strftime("%d %b") if fecha else "",
+                        "dir": dire, "tipo": tipo or "",
+                        "resumen": r or "", "telefono": tel or "",
+                    })
+            except Exception:
+                import logging as _lg
+                _lg.getLogger(__name__).exception("[panel_v2] actividad fallo")
     except Exception:
         import logging as _lg
         _lg.getLogger(__name__).exception("[panel_v2] stats query fallo (no crítico)")
