@@ -3144,6 +3144,51 @@ def panel_v2_home():
                     "dir": dire, "tipo": tipo or "",
                     "resumen": r or "", "telefono": tel or "",
                 })
+
+            # ---- Conjuntos % (distribución de inmuebles) ----
+            conjuntos_pct = []
+            try:
+                rows = conn.execute(
+                    "SELECT c.nombre, COUNT(i.*) AS cnt "
+                    "  FROM conjuntos_visitante c "
+                    "  LEFT JOIN inmuebles_visitante i "
+                    "    ON i.conjunto_id = c.id AND i.activo=TRUE "
+                    " GROUP BY c.id, c.nombre "
+                    " HAVING COUNT(i.*) > 0 "
+                    " ORDER BY cnt DESC LIMIT 5"
+                ).fetchall()
+                total_inm = sum(cnt for _, cnt in rows) or 1
+                for nombre, cnt in rows:
+                    conjuntos_pct.append({
+                        "nombre": nombre,
+                        "cnt": int(cnt),
+                        "pct": int(100 * cnt / total_inm),
+                    })
+            except Exception:
+                conjuntos_pct = []
+
+            # ---- Top inmuebles (más nuevos activos) ----
+            top_inmuebles = []
+            try:
+                rows = conn.execute(
+                    "SELECT i.id, i.nro, i.operacion, i.precio, c.nombre "
+                    "  FROM inmuebles_visitante i "
+                    "  JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                    " WHERE i.activo=TRUE "
+                    " ORDER BY i.creado_en DESC LIMIT 4"
+                ).fetchall()
+                for iid, nro, op, precio, cjto in rows:
+                    p = int(precio or 0)
+                    precio_fmt = (f"{p//1_000_000}M" if op == "venta" and p >= 1_000_000
+                                  else f"{p:,}" if p > 0 else "—")
+                    top_inmuebles.append({
+                        "nombre": f"{(nro or 'Inm').replace('(sin especificar)','Inm')}",
+                        "operacion": op,
+                        "precio_fmt": precio_fmt,
+                        "conjunto": cjto or "",
+                    })
+            except Exception:
+                top_inmuebles = []
     except Exception:
         import logging as _lg
         _lg.getLogger(__name__).exception("[panel_v2] stats query fallo (no crítico)")
@@ -3151,6 +3196,8 @@ def panel_v2_home():
     import json as _json
     total_14d = sum(chart["mensajes_in"]) + sum(chart["mensajes_out"])
     _salud = locals().get("salud") or {"pct": None, "p95": None, "total": 0}
+    _cpct = locals().get("conjuntos_pct") or []
+    _topi = locals().get("top_inmuebles") or []
     return render_template("petra_panel_v2_home.html",
                            token=token, stats=stats,
                            chart_json=_json.dumps(chart),
@@ -3159,7 +3206,9 @@ def panel_v2_home():
                            total_14d=total_14d,
                            salud_pct=_salud["pct"],
                            p95=_salud["p95"],
-                           total_eventos=_salud["total"])
+                           total_eventos=_salud["total"],
+                           conjuntos_pct=_cpct,
+                           top_inmuebles=_topi)
 
 
 @petra_panel_bp.get("/visitante")
