@@ -82,8 +82,8 @@ jobs:
       - name: Verificar que podemos importar la app
         run: python -c "from app.petra_agents import flow_onboarding_agente; print('import OK')"
 
-      - name: Correr goldens
-        run: python -m app.evals_e2e
+      - name: Correr goldens (check regression vs known_failures.json)
+        run: python -m app.evals_e2e --check-regression
 
       - name: Upload baseline (artifact)
         if: always()

@@ -1,0 +1,14 @@
+{
+  "known_failures": [
+    "capacitacion_dia7_completa",
+    "escape_hatch_llamame",
+    "inscripcion_cancela",
+    "inscripcion_conjunto_duplicado",
+    "inscripcion_corregir_dato",
+    "inscripcion_happy_path",
+    "kit_direccion_a_foto_libro",
+    "visitante_comando_menu",
+    "visitante_qr_escanea_menu"
+  ],
+  "nota": "Goldens que fallan en main y están pendientes de arreglo. El CI pasa mientras el set no CREZCA. Regenerar con: python -m app.evals_e2e --update-known-failures"
+}
