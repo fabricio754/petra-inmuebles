@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}Petra Panel{% endblock %}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          #f6f7fb;
+    --panel:       #ffffff;
+    --border:      #e4e7ee;
+    --text:        #1a1d29;
+    --text-sub:    #656d76;
+    --muted:       #9099a8;
+    --accent:      #7c5cff;
+    --accent-soft: #efeaff;
+    --ok:          #1a7f37;
+    --warn:        #9a6700;
+    --down:        #cf222e;
+    --sidebar-bg:  #ffffff;
+    --sidebar-active-bg: #f3efff;
+    --sidebar-active-fg: #7c5cff;
+  }
+  :root[data-theme="dark"] {
+    --bg:          #0e1117;
+    --panel:       #161b22;
+    --border:      #2a3140;
+    --text:        #e6edf3;
+    --text-sub:    #9099a8;
+    --muted:       #656d76;
+    --accent:      #a78bfa;
+    --accent-soft: #241f3d;
+    --sidebar-bg:  #0e1117;
+    --sidebar-active-bg: #1f1b36;
+    --sidebar-active-fg: #a78bfa;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+    line-height: 1.5;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  /* Layout */
+  .layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 100vh;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    padding: 20px 14px;
+    position: sticky; top: 0;
+    height: 100vh; overflow-y: auto;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 4px 8px 20px;
+    font-size: 17px; font-weight: 700;
+  }
+  .brand .logo {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent) 0%, #6a4ae8 100%);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 15px;
+  }
+  .nav-group {
+    margin-top: 16px;
+  }
+  .nav-group > .label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--muted); font-weight: 600;
+    padding: 0 10px 6px;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 7px;
+    color: var(--text-sub); font-size: 13.5px; font-weight: 500;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .nav-item:hover { background: var(--accent-soft); color: var(--text); }
+  .nav-item.active {
+    background: var(--sidebar-active-bg);
+    color: var(--sidebar-active-fg);
+    font-weight: 600;
+  }
+  .nav-item .icon { width: 18px; text-align: center; font-size: 15px; }
+  .nav-sub {
+    margin: 2px 0 2px 28px;
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .nav-sub .nav-item { font-size: 13px; padding: 6px 10px; font-weight: 400; }
+  .nav-sub .nav-item.active { font-weight: 600; }
+
+  /* Topbar */
+  .topbar {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex; align-items: center; gap: 14px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar .search {
+    flex: 1; max-width: 420px;
+    position: relative;
+  }
+  .topbar .search input {
+    width: 100%;
+    padding: 8px 12px 8px 34px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg); color: var(--text);
+    font-size: 13px; font-family: inherit;
+  }
+  .topbar .search::before {
+    content: "🔍";
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    font-size: 12px; opacity: .6;
+  }
+  .topbar .topbar-spacer { flex: 1; }
+  .topbar .icon-btn {
+    width: 36px; height: 36px; border-radius: 8px;
+    border: none; background: transparent; cursor: pointer;
+    color: var(--text-sub); font-size: 15px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .topbar .icon-btn:hover { background: var(--accent-soft); color: var(--text); }
+  .topbar .user {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: linear-gradient(135deg, #7c5cff, #6a4ae8);
+    color: #fff; display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 12.5px;
+  }
+
+  /* Main content */
+  main.content {
+    padding: 24px 28px;
+    min-width: 0;
+  }
+  main.content > h1:first-child {
+    margin: 0 0 4px; font-size: 22px; font-weight: 700;
+  }
+
+  /* Mobile */
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar {
+      position: fixed; left: 0; top: 0; z-index: 20;
+      width: 240px; transform: translateX(-100%);
+      transition: transform 200ms ease;
+      box-shadow: 0 4px 24px rgba(0,0,0,.15);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .topbar .menu-btn { display: inline-flex; }
+    main.content { padding: 16px; }
+  }
+  @media (min-width: 861px) {
+    .topbar .menu-btn { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="logo">P</span>
+      <span>Petra</span>
+    </div>
+
+    <div class="nav-group">
+      {% set active = request.endpoint %}
+      {% set tok = token or '' %}
+
+      <a class="nav-item {% if block == 'dashboard' %}active{% endif %}"
+         href="/panel/petra/v2?token={{ tok }}">
+        <span class="icon">◻</span> Dashboard
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <div class="label">Contenido</div>
+      <a class="nav-item {% if block == 'contenido_agentes' %}active{% endif %}"
+         href="/panel/petra?token={{ tok }}">
+        <span class="icon">📩</span> Agentes
+      </a>
+      <div class="nav-sub">
+        <a class="nav-item" href="/panel/petra?token={{ tok }}"><span class="icon">·</span> Envío de Kit</a>
+        <a class="nav-item" href="/panel/petra?token={{ tok }}"><span class="icon">·</span> FAQ</a>
+      </div>
+      <a class="nav-item {% if block == 'contenido_demanda' %}active{% endif %}"
+         href="/panel/petra?token={{ tok }}">
+        <span class="icon">🎯</span> Demanda
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <div class="label">Base de usuarios</div>
+      <a class="nav-item {% if block == 'users_agentes' %}active{% endif %}"
+         href="/panel/petra/agentes?token={{ tok }}">
+        <span class="icon">👥</span> Agentes
+      </a>
+      <a class="nav-item {% if block == 'users_demanda' %}active{% endif %}"
+         href="/panel/petra/visitante/interesados?token={{ tok }}">
+        <span class="icon">🙋</span> Demanda
+      </a>
+      <a class="nav-item {% if block == 'users_oferta' %}active{% endif %}"
+         href="/panel/petra/visitante/contactos-propietarios?token={{ tok }}">
+        <span class="icon">🏠</span> Oferta
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <div class="label">Conjuntos</div>
+      <a class="nav-item {% if block == 'conjuntos' %}active{% endif %}"
+         href="/panel/petra/visitante/conjuntos?token={{ tok }}">
+        <span class="icon">🏢</span> Inmuebles
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <div class="label">Ventas</div>
+      <a class="nav-item {% if block == 'ventas_nudges' %}active{% endif %}"
+         href="/panel/petra/nudges?token={{ tok }}">
+        <span class="icon">🔔</span> Nudges + disparadores
+      </a>
+      <a class="nav-item {% if block == 'ventas_embudo' %}active{% endif %}"
+         href="/panel/petra/embudo?token={{ tok }}">
+        <span class="icon">📊</span> Embudo
+      </a>
+      <a class="nav-item {% if block == 'ventas_mandatos' %}active{% endif %}"
+         href="/panel/petra/mandatos?token={{ tok }}">
+        <span class="icon">🤝</span> Mandatos
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <div class="label">Operaciones</div>
+      <a class="nav-item {% if block == 'ops_visitas' %}active{% endif %}"
+         href="/panel/petra/visitas?token={{ tok }}">
+        <span class="icon">📅</span> Visitas
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <a class="nav-item {% if block == 'community' %}active{% endif %}"
+         href="/panel/petra/community?token={{ tok }}">
+        <span class="icon">💬</span> Community
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <div class="label">Salud</div>
+      <a class="nav-item {% if block == 'salud_obs' %}active{% endif %}"
+         href="/panel/petra/observabilidad?token={{ tok }}">
+        <span class="icon">❤️</span> Observabilidad
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <a class="nav-item {% if block == 'deploys' %}active{% endif %}"
+         href="/panel/petra/deploys?token={{ tok }}">
+        <span class="icon">🚀</span> Despliegues
+      </a>
+    </div>
+  </aside>
+
+  <div style="min-width: 0;">
+    <div class="topbar">
+      <button class="icon-btn menu-btn" onclick="document.getElementById('sidebar').classList.toggle('open')" title="Menú">☰</button>
+      <div class="search">
+        <input type="text" placeholder="Buscar inmueble, agente, conjunto…" disabled>
+      </div>
+      <div class="topbar-spacer"></div>
+      <button class="icon-btn" onclick="toggleTheme()" title="Tema">🌓</button>
+      <button class="icon-btn" title="Notificaciones">🔔</button>
+      <div class="user" title="Fabricio">F</div>
+    </div>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+</div>
+
+<script>
+function toggleTheme() {
+  var r = document.documentElement;
+  var cur = r.getAttribute('data-theme');
+  var next = cur === 'dark' ? 'light' : 'dark';
+  r.setAttribute('data-theme', next);
+  try { localStorage.setItem('petra_theme_v2', next); } catch(e){}
+}
+try {
+  var saved = localStorage.getItem('petra_theme_v2');
+  if (saved) document.documentElement.setAttribute('data-theme', saved);
+} catch(e){}
+</script>
+
+</body>
+</html>

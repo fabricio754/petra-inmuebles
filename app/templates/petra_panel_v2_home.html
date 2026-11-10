@@ -1,0 +1,111 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'dashboard' %}
+{% block title %}Dashboard · Petra{% endblock %}
+{% block content %}
+
+<h1>Dashboard</h1>
+<p style="color: var(--text-sub); margin: 0 0 24px;">Bienvenido de vuelta, Fabricio 👋</p>
+
+<style>
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .stat-card .label {
+    font-size: 12px; color: var(--text-sub); font-weight: 500;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .stat-card .value {
+    font-size: 26px; font-weight: 700; margin: 8px 0 6px;
+  }
+  .stat-card .delta { font-size: 12px; font-weight: 600; }
+  .stat-card .delta.up   { color: var(--ok); }
+  .stat-card .delta.down { color: var(--down); }
+  .stat-card .delta.flat { color: var(--text-sub); }
+
+  .cards-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 860px) { .cards-row { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card h3 {
+    margin: 0 0 14px; font-size: 14px; font-weight: 600;
+  }
+
+  .preview-banner {
+    background: #fff8c5; color: #9a6700;
+    border: 1px solid #d4a72c;
+    padding: 10px 14px; border-radius: 10px; font-size: 13px;
+    margin-bottom: 20px;
+  }
+  :root[data-theme="dark"] .preview-banner {
+    background: #2d2410; color: #e8c468; border-color: #5a4810;
+  }
+</style>
+
+<div class="preview-banner">
+  🚧 <b>Preview Panel v2</b> — esto es un rediseño en progreso. Los links del sidebar llevan al panel actual. Cuando esté listo, reemplaza el panel viejo.
+</div>
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="label">👥 Agentes activas</div>
+    <div class="value">{{ stats.agentes }}</div>
+    <div class="delta flat">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">🏠 Inmuebles</div>
+    <div class="value">{{ stats.inmuebles }}</div>
+    <div class="delta flat">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">🙋 Demanda (7d)</div>
+    <div class="value">{{ stats.demanda_7d }}</div>
+    <div class="delta flat">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">📅 Visitas (7d)</div>
+    <div class="value">{{ stats.visitas_7d }}</div>
+    <div class="delta flat">—</div>
+  </div>
+</div>
+
+<div class="cards-row">
+  <div class="card">
+    <h3>📈 Mensajes últimos 14 días</h3>
+    <div style="padding:30px;color:var(--text-sub);text-align:center">
+      Gráfico pendiente — se agrega en Fase 2.
+    </div>
+  </div>
+  <div class="card">
+    <h3>🚨 Alertas activas</h3>
+    <div style="padding:30px;color:var(--text-sub);text-align:center">
+      Sin alertas activas.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>🏢 Embudo por conjunto</h3>
+  <div style="padding:30px;color:var(--text-sub);text-align:center">
+    Pendiente — se agrega en Fase 2.
+  </div>
+</div>
+
+{% endblock %}
