@@ -402,7 +402,15 @@ def _listar_inmuebles(conn, conjunto_id, operacion, limite=10, excluir_ids=None)
     if excluir_ids:
         sql += " AND NOT (id = ANY(%s))"
         params.append(excluir_ids)
-    sql += " ORDER BY creado_en DESC LIMIT %s"
+    # Orden: menor a mayor por metros, luego por precio.
+    # Inmuebles sin datos (m² NULL o precio=0) van al final.
+    sql += (" ORDER BY"
+            "  CASE WHEN m2 IS NULL OR precio IS NULL OR precio = 0"
+            "       THEN 1 ELSE 0 END ASC,"
+            "  m2 ASC NULLS LAST,"
+            "  precio ASC NULLS LAST,"
+            "  creado_en DESC"
+            " LIMIT %s")
     params.append(limite)
     rows = conn.execute(sql, tuple(params)).fetchall()
     return [
