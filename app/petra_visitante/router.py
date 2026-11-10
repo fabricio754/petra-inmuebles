@@ -820,24 +820,28 @@ def _handle_message_impl(telefono, texto, button_id=None, list_id=None,
 
 def _dispatch(conn, telefono, texto, button_id, list_id,
               conjunto, meta, estado):
-    # Botón global "VIS_MENU" vuelve al menú desde cualquier parte.
+    # Botones globales del menú principal — funcionan desde CUALQUIER
+    # estado. Si el user clickea un botón viejo del menú mientras está
+    # viendo arriendos/ventas/publicar, respeta su intención en vez de
+    # devolverlo al menú principal (bug: antes el fallback de _dispatch
+    # mandaba la bienvenida de nuevo).
     if button_id == "VIS_MENU":
         _ir_a_menu(conn, telefono, conjunto, meta)
+        return
+    if button_id == "VIS_ARRIENDO":
+        _mostrar_lista(conn, telefono, conjunto, meta, "arriendo")
+        return
+    if button_id == "VIS_COMPRAR":
+        _mostrar_lista(conn, telefono, conjunto, meta, "venta")
+        return
+    if button_id == "VIS_PUBLICAR":
+        _publicar_inicio(conn, telefono, conjunto, meta)
         return
 
     base = estado.split(":", 1)[0]
 
     # ---------- MENU ---------------------------------------------------
     if base == "menu":
-        if button_id == "VIS_ARRIENDO":
-            _mostrar_lista(conn, telefono, conjunto, meta, "arriendo")
-            return
-        if button_id == "VIS_COMPRAR":
-            _mostrar_lista(conn, telefono, conjunto, meta, "venta")
-            return
-        if button_id == "VIS_PUBLICAR":
-            _publicar_inicio(conn, telefono, conjunto, meta)
-            return
         _ir_a_menu(conn, telefono, conjunto, meta)
         return
 
