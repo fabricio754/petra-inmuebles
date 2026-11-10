@@ -1,0 +1,5 @@
+# Todo el repo requiere review de Fabricio para mergear a main.
+# Esto, combinado con "Require review from Code Owners" en la branch
+# protection de main, bloquea cualquier merge sin su aprobación —
+# aunque el PR lo haya abierto otro user o Claude.
+* @fabricio754

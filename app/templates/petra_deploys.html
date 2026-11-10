@@ -95,11 +95,38 @@
   </div>
   {% endif %}
 
-  <div class="warn-staging" style="background:#fff8c5;border-color:#9a6700;color:#9a6700">
-    💬 <b>Los despliegues se hacen por Claude Code.</b>
-    Decile <i>"deploy"</i> y te va a pedir el PIN. Así se respeta la ventana horaria
-    (20:00–06:00 Bogotá) y la branch protection de GitHub.
+  {% if prs_abiertos %}
+  <div class="status-card pend">
+    <h2>🚦 PRs esperando aprobación para prod ({{ prs_abiertos|length }})</h2>
+    <div class="msg">
+      Claude ya abrió estos PRs. Solo vos podés aprobarlos + mergearlos
+      (con PIN). Si no los aprobás, nada entra a producción.
+    </div>
+    {% for pr in prs_abiertos %}
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px;
+                padding:10px;background:#f6f8fa;border-radius:6px">
+      <div style="flex:1">
+        <div style="font-weight:600">#{{ pr.number }} · {{ pr.title }}</div>
+        <div style="font-size:12px;color:#656d76">{{ pr.head }} → main · <a href="{{ pr.url }}" target="_blank">ver en GitHub</a></div>
+      </div>
+      <button class="btn-promover" onclick="aprobar({{ pr.number }})"
+              {% if not ventana_abierta %}data-fuera-ventana="1"{% endif %}>
+        ✅ Aprobar + mergear
+      </button>
+    </div>
+    {% endfor %}
+    {% if not ventana_abierta %}
+    <label style="display:block;margin-top:10px;font-size:12px;color:#656d76">
+      <input type="checkbox" id="forzar"> Forzar fuera de ventana (20–06 Bogotá)
+    </label>
+    {% endif %}
+    <div class="out" id="out" style="margin-top:10px"></div>
   </div>
+  {% else %}
+  <div class="warn-staging" style="background:#dafbe1;border-color:#1a7f37;color:#1a7f37">
+    ✅ No hay PRs pendientes de aprobar para producción.
+  </div>
+  {% endif %}
 
   {% if cmp.error %}
     <div class="status-card err">
@@ -120,7 +147,8 @@
       <h2>🟡 {{ cmp.ahead_by }} commit{{ 's' if cmp.ahead_by != 1 else '' }} pendiente{{ 's' if cmp.ahead_by != 1 else '' }} de promover a producción</h2>
       <div class="msg">
         Son los cambios que ya están en <b>staging</b> pero todavía no en <b>prod</b>.
-        Revisalos abajo; si todo anda, pedile <i>"deploy"</i> a Claude.
+        Revisalos abajo; si todo anda, pedile <i>"deploy"</i> a Claude —
+        él abre el PR y vos lo aprobás arriba.
       </div>
     </div>
   {% else %}
@@ -147,5 +175,59 @@
   {% endif %}
 
 </main>
+
+<script>
+async function aprobar(pr) {
+  let pin = null;
+  try { pin = sessionStorage.getItem('petra_pin_fabricio'); } catch(e){}
+  if (!pin) {
+    pin = prompt('PIN de 4 dígitos de Fabricio:');
+    if (!pin || !/^\d{4}$/.test(pin)) return;
+    try { sessionStorage.setItem('petra_pin_fabricio', pin); } catch(e){}
+  }
+  const btn = event.currentTarget;
+  const fueraVentana = btn.dataset.fueraVentana === "1";
+  const forzarCk = document.getElementById('forzar');
+  const fuerza = forzarCk && forzarCk.checked;
+  if (fueraVentana && !fuerza) {
+    alert("Fuera de ventana (20–06 Bogotá). Si es emergencia, marcá 'Forzar'.");
+    return;
+  }
+  const msg = fueraVentana
+    ? "⚠ EMERGENCIA: aprobar + mergear PR #" + pr + " FUERA de ventana. ¿Seguro?"
+    : "¿Aprobar + mergear PR #" + pr + " a producción?";
+  if (!confirm(msg)) return;
+  const out = document.getElementById('out');
+  btn.disabled = true;
+  btn.textContent = '⏳ Aprobando…';
+  try {
+    const fd = new FormData();
+    fd.append('token', '{{ token }}');
+    fd.append('pin', pin);
+    fd.append('pr', pr);
+    if (fuerza) fd.append('fuerza', '1');
+    const r = await fetch('/panel/petra/deploys/aprobar', {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.ok) {
+      out.className = 'out ok';
+      out.textContent = '✅ PR #' + pr + ' mergeado (commit ' + (d.sha || '') +
+                        '). Render deploya en ~2 min.';
+      btn.textContent = '✔ Mergeado';
+    } else {
+      out.className = 'out err';
+      out.textContent = '❌ ' + (d.error || 'falló');
+      btn.disabled = false;
+      btn.textContent = '✅ Aprobar + mergear';
+      if (r.status === 401) { try { sessionStorage.removeItem('petra_pin_fabricio'); } catch(e){} }
+    }
+  } catch(e) {
+    out.className = 'out err';
+    out.textContent = '❌ ' + e.message;
+    btn.disabled = false;
+    btn.textContent = '✅ Aprobar + mergear';
+  }
+}
+</script>
+
 </body>
 </html>
