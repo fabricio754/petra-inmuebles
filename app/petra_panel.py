@@ -3113,6 +3113,24 @@ def panel_v2_home():
                     "count": int(cnt or 0),
                 })
 
+            # ---- Salud (% OK última hora, p95, total eventos) ----
+            try:
+                r = conn.execute(
+                    "SELECT "
+                    "  ROUND(100.0 * COUNT(*) FILTER (WHERE resultado='ok') / "
+                    "        NULLIF(COUNT(*),0))::int AS pct, "
+                    "  PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY tiempo_ms) AS p95, "
+                    "  COUNT(*) AS tot "
+                    "  FROM petra_paso_eventos "
+                    " WHERE ts > NOW() - INTERVAL '1 hour' AND ambiente='prod'"
+                ).fetchone()
+                if r and r[2]:
+                    salud = {"pct": r[0], "p95": r[1], "total": r[2]}
+                else:
+                    salud = {"pct": None, "p95": None, "total": 0}
+            except Exception:
+                salud = {"pct": None, "p95": None, "total": 0}
+
             # ---- Actividad reciente ----
             rows = conn.execute(
                 "SELECT fecha, direccion, tipo, LEFT(resumen, 60) AS r, telefono "
@@ -3131,11 +3149,17 @@ def panel_v2_home():
         _lg.getLogger(__name__).exception("[panel_v2] stats query fallo (no crítico)")
 
     import json as _json
+    total_14d = sum(chart["mensajes_in"]) + sum(chart["mensajes_out"])
+    _salud = locals().get("salud") or {"pct": None, "p95": None, "total": 0}
     return render_template("petra_panel_v2_home.html",
                            token=token, stats=stats,
                            chart_json=_json.dumps(chart),
                            distribucion=distribucion,
-                           actividad=actividad)
+                           actividad=actividad,
+                           total_14d=total_14d,
+                           salud_pct=_salud["pct"],
+                           p95=_salud["p95"],
+                           total_eventos=_salud["total"])
 
 
 @petra_panel_bp.get("/visitante")

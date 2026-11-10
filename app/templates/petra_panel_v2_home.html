@@ -4,130 +4,168 @@
 {% block content %}
 
 <style>
+  /* ---- Hero ---------------------------------------------------------- */
   .hero {
     display: flex; justify-content: space-between; align-items: flex-start;
-    flex-wrap: wrap; gap: 12px; margin-bottom: 24px;
+    flex-wrap: wrap; gap: 16px; margin-bottom: 28px;
   }
-  .hero h1 { margin: 0; font-size: 24px; font-weight: 700; }
-  .hero p  { margin: 4px 0 0; color: var(--text-sub); font-size: 13.5px; }
+  .hero h1 {
+    margin: 0 0 6px; font-size: 26px; font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .hero .sub {
+    color: var(--text-sub); font-size: 14px;
+  }
   .hero .export {
-    padding: 9px 16px; border-radius: 10px;
+    padding: 11px 18px; border-radius: 14px;
     background: var(--panel); border: 1px solid var(--border);
-    color: var(--text); font-weight: 500; cursor: pointer; font-size: 13px;
-    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--text); font-weight: 500; cursor: pointer; font-size: 13.5px;
+    display: inline-flex; align-items: center; gap: 8px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03);
   }
 
-  /* Stat cards */
-  .stat-grid {
+  /* ---- Grid layout: 2 columns of stats + 1 big chart + 1 gauge ------- */
+  .top-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
     margin-bottom: 20px;
   }
+  @media (max-width: 1280px) { .top-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px)  { .top-grid { grid-template-columns: 1fr; } }
+
+  /* Stat card — Rexora style */
   .stat-card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 20px 22px;
+    border-radius: 20px;
+    padding: 24px 24px 22px;
     display: flex; flex-direction: column;
-    position: relative;
+    min-height: 170px;
+  }
+  .stat-card .top {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 18px;
   }
   .stat-card .label {
-    font-size: 13px; color: var(--text-sub); font-weight: 500;
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 14px;
+    font-size: 14px; color: var(--text-sub); font-weight: 500;
   }
-  .stat-card .icon-chip {
-    width: 34px; height: 34px; border-radius: 10px;
+  .stat-card .icon-circle {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--bg);
     display: inline-flex; align-items: center; justify-content: center;
-    font-size: 16px;
+    font-size: 15px;
+    color: var(--text-sub);
   }
   .stat-card .value {
-    font-size: 30px; font-weight: 700; letter-spacing: -0.4px;
-    line-height: 1.1;
+    font-size: 44px; font-weight: 700; letter-spacing: -1.2px;
+    line-height: 1; margin-bottom: 14px;
   }
-  .stat-card .footer {
+  .stat-card .foot {
     display: flex; justify-content: space-between; align-items: center;
-    margin-top: 10px;
+    margin-top: auto;
+    font-size: 12.5px;
   }
   .stat-card .delta {
     display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 8px; border-radius: 999px;
-    font-size: 11.5px; font-weight: 600;
+    font-weight: 600;
   }
-  .delta.up   { background: #dcfce7; color: #166534; }
-  .delta.down { background: #fee2e2; color: #991b1b; }
-  .delta.flat { background: var(--bg); color: var(--text-sub); }
-  :root[data-theme="dark"] .delta.up   { background: #052e1a; color: #4ade80; }
-  :root[data-theme="dark"] .delta.down { background: #310c0f; color: #f87171; }
-
-  .details-link {
-    font-size: 11.5px; color: var(--text-sub); text-decoration: none;
+  .delta.up   { color: var(--ok); }
+  .delta.down { color: var(--down); }
+  .delta.flat { color: var(--text-sub); font-weight: 500; }
+  .details {
+    color: var(--text-sub); text-decoration: none;
+    display: inline-flex; align-items: center; gap: 4px;
   }
-  .details-link:hover { color: var(--accent); }
+  .details:hover { color: var(--accent); }
 
-  /* Chip colors */
-  .chip-violet { background: #efeaff; color: #7c5cff; }
-  .chip-green  { background: #dcfce7; color: #166534; }
-  .chip-blue   { background: #dbeafe; color: #1d4ed8; }
-  .chip-orange { background: #fed7aa; color: #9a3412; }
-  :root[data-theme="dark"] .chip-violet { background: #241f3d; color: #a78bfa; }
-  :root[data-theme="dark"] .chip-green  { background: #052e1a; color: #4ade80; }
-  :root[data-theme="dark"] .chip-blue   { background: #0a1f3d; color: #60a5fa; }
-  :root[data-theme="dark"] .chip-orange { background: #2d1409; color: #fdba74; }
-
-  /* Row 2 — chart + distribution */
-  .row2 {
+  /* ---- Middle row: chart + gauge ------------------------------------- */
+  .mid-grid {
     display: grid;
     grid-template-columns: 2fr 1fr;
-    gap: 16px;
+    gap: 18px;
     margin-bottom: 20px;
   }
-  @media (max-width: 1024px) { .row2 { grid-template-columns: 1fr; } }
+  @media (max-width: 1024px) { .mid-grid { grid-template-columns: 1fr; } }
 
-  .card-big {
+  .big-card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 22px 24px;
+    border-radius: 20px;
+    padding: 24px;
   }
-  .card-big h3 {
-    margin: 0 0 4px; font-size: 15px; font-weight: 600;
+  .big-card h3 {
+    margin: 0; font-size: 15px; font-weight: 600;
   }
-  .card-big .sub {
-    color: var(--text-sub); font-size: 12.5px; margin-bottom: 18px;
-  }
-
-  canvas#msgChart { width: 100% !important; height: 280px !important; }
-
-  /* Distribution bars */
-  .dist-list { display: flex; flex-direction: column; gap: 10px; }
-  .dist-item .dr {
-    display: flex; justify-content: space-between;
-    font-size: 12.5px; margin-bottom: 4px;
-  }
-  .dist-item .dl { color: var(--text); font-weight: 500; text-transform: capitalize; }
-  .dist-item .dv { color: var(--text-sub); }
-  .dist-bar {
-    height: 6px; background: var(--bg); border-radius: 999px; overflow: hidden;
-  }
-  .dist-bar > span {
-    display: block; height: 100%;
-    background: linear-gradient(90deg, #a78bfa, #7c5cff);
-    border-radius: 999px;
+  .big-card .sub { color: var(--text-sub); font-size: 12.5px; margin-top: 3px; }
+  .big-card .head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 16px;
   }
 
-  /* Table */
-  .table {
-    width: 100%; border-collapse: collapse;
+  .chart-numbers {
+    display: flex; align-items: baseline; gap: 10px; margin: 2px 0 14px;
   }
+  .chart-numbers .n { font-size: 32px; font-weight: 700; letter-spacing: -0.6px; }
+  .chart-numbers .d {
+    font-size: 11.5px; padding: 2px 9px; border-radius: 999px;
+    background: #dcfce7; color: #166534; font-weight: 600;
+  }
+  :root[data-theme="dark"] .chart-numbers .d { background: #052e1a; color: #4ade80; }
+
+  canvas#msgChart { width: 100% !important; height: 240px !important; }
+
+  /* Gauge-like semicircle */
+  .gauge-wrap {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 10px 0 2px;
+  }
+  .gauge {
+    position: relative;
+    width: 220px; height: 120px; overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .gauge svg { width: 100%; height: 220px; }
+  .gauge .ring-bg { fill: none; stroke: var(--bg); stroke-width: 24; }
+  .gauge .ring-fg { fill: none; stroke-width: 24; stroke-linecap: round;
+                    stroke: url(#gaugeGrad); }
+  .gauge-num {
+    position: absolute; left: 0; right: 0; bottom: 8px;
+    text-align: center;
+  }
+  .gauge-num .n { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+  .gauge-num .l { font-size: 12px; color: var(--text-sub); margin-top: 4px; }
+  .gauge-foot {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    width: 100%; margin-top: 14px;
+  }
+  .gauge-foot .box {
+    background: var(--bg); border-radius: 12px; padding: 10px 12px;
+    font-size: 12px;
+  }
+  .gauge-foot .box .lab { color: var(--text-sub); display: flex; align-items: center; gap: 4px; }
+  .gauge-foot .box .num { font-weight: 700; font-size: 15px; margin-top: 2px; }
+  .gauge-foot .box .p {
+    font-size: 11px; padding: 1px 7px; border-radius: 999px; margin-left: 4px;
+    background: #dcfce7; color: #166534; font-weight: 600;
+  }
+
+  /* ---- Bottom row: table + distribution ------------------------------ */
+  .bot-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 1024px) { .bot-grid { grid-template-columns: 1fr; } }
+
+  .table { width: 100%; border-collapse: collapse; }
   .table th {
-    text-align: left; font-size: 11px; font-weight: 500;
-    color: var(--text-sub); text-transform: uppercase; letter-spacing: .5px;
-    padding: 12px 14px; border-bottom: 1px solid var(--border);
+    text-align: left; font-size: 11.5px; font-weight: 500;
+    color: var(--text-sub); padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--border);
   }
   .table td {
-    padding: 14px; border-bottom: 1px solid var(--border);
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
     font-size: 13px;
   }
   .table tr:last-child td { border-bottom: none; }
@@ -140,93 +178,206 @@
   :root[data-theme="dark"] .pill.in  { background: #0a1f3d; color: #60a5fa; }
   :root[data-theme="dark"] .pill.out { background: #241f3d; color: #a78bfa; }
 
+  .dist-list { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
+  .dist-item .dr {
+    display: flex; justify-content: space-between;
+    font-size: 12.5px; margin-bottom: 5px;
+  }
+  .dist-item .dl { color: var(--text); font-weight: 500; text-transform: capitalize; }
+  .dist-item .dv { color: var(--text-sub); }
+  .dist-bar {
+    height: 7px; background: var(--bg); border-radius: 999px; overflow: hidden;
+  }
+  .dist-bar > span {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, #a78bfa, #7c5cff);
+    border-radius: 999px;
+  }
+
   .empty { padding: 40px 10px; text-align: center; color: var(--text-sub); font-size: 13px; }
+  .table-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 4px;
+  }
 </style>
 
 <div class="hero">
   <div>
     <h1>Welcome, Fabricio 👋</h1>
-    <p>Qué está pasando en Petra hoy.</p>
+    <div class="sub">Qué está pasando en Petra hoy.</div>
   </div>
-  <button class="export">📄 Export report</button>
+  <button class="export">↗ Export report</button>
 </div>
 
-<div class="stat-grid">
+<div class="top-grid">
   <div class="stat-card">
-    <div class="label">
-      <span>Agentes activas</span>
-      <span class="icon-chip chip-violet">👥</span>
+    <div class="top">
+      <div class="label">Agentes activas</div>
+      <div class="icon-circle">👥</div>
     </div>
     <div class="value">{{ stats.agentes }}</div>
-    <div class="footer">
+    <div class="foot">
       <span class="delta flat">—</span>
-      <a class="details-link" href="/panel/petra/agentes?token={{ token }}">Details ↗</a>
+      <a class="details" href="/panel/petra/agentes?token={{ token }}">Details ↗</a>
     </div>
   </div>
 
   <div class="stat-card">
-    <div class="label">
-      <span>Inmuebles activos</span>
-      <span class="icon-chip chip-green">🏠</span>
+    <div class="top">
+      <div class="label">Inmuebles activos</div>
+      <div class="icon-circle">🏠</div>
     </div>
     <div class="value">{{ stats.inmuebles }}</div>
-    <div class="footer">
+    <div class="foot">
       {% if stats.inmuebles_delta %}
-        <span class="delta up">↑ {{ stats.inmuebles_delta }} nuevos 7d</span>
+        <span class="delta up">▲ {{ stats.inmuebles_delta }} nuevos 7d</span>
       {% else %}
         <span class="delta flat">sin nuevos 7d</span>
       {% endif %}
-      <a class="details-link" href="/panel/petra/visitante/conjuntos?token={{ token }}">Details ↗</a>
+      <a class="details" href="/panel/petra/visitante/conjuntos?token={{ token }}">Details ↗</a>
     </div>
   </div>
 
   <div class="stat-card">
-    <div class="label">
-      <span>Demanda (7d)</span>
-      <span class="icon-chip chip-blue">🙋</span>
+    <div class="top">
+      <div class="label">Demanda (7d)</div>
+      <div class="icon-circle">🙋</div>
     </div>
     <div class="value">{{ stats.demanda_7d }}</div>
-    <div class="footer">
+    <div class="foot">
       {% if stats.demanda_delta is not none and stats.demanda_delta != 0 %}
         <span class="delta {% if stats.demanda_delta > 0 %}up{% else %}down{% endif %}">
-          {% if stats.demanda_delta > 0 %}↑{% else %}↓{% endif %} {{ stats.demanda_delta|abs }}% vs 7d
+          {% if stats.demanda_delta > 0 %}▲{% else %}▼{% endif %} {{ stats.demanda_delta|abs }}% vs semana
         </span>
       {% else %}
         <span class="delta flat">sin cambio</span>
       {% endif %}
-      <a class="details-link" href="/panel/petra/visitante/interesados?token={{ token }}">Details ↗</a>
+      <a class="details" href="/panel/petra/visitante/interesados?token={{ token }}">Details ↗</a>
     </div>
   </div>
 
   <div class="stat-card">
-    <div class="label">
-      <span>Visitas (7d)</span>
-      <span class="icon-chip chip-orange">📅</span>
+    <div class="top">
+      <div class="label">Visitas (7d)</div>
+      <div class="icon-circle">📅</div>
     </div>
     <div class="value">{{ stats.visitas_7d }}</div>
-    <div class="footer">
+    <div class="foot">
       {% if stats.visitas_delta is not none and stats.visitas_delta != 0 %}
         <span class="delta {% if stats.visitas_delta > 0 %}up{% else %}down{% endif %}">
-          {% if stats.visitas_delta > 0 %}↑{% else %}↓{% endif %} {{ stats.visitas_delta|abs }}% vs 7d
+          {% if stats.visitas_delta > 0 %}▲{% else %}▼{% endif %} {{ stats.visitas_delta|abs }}% vs semana
         </span>
       {% else %}
         <span class="delta flat">sin cambio</span>
       {% endif %}
-      <a class="details-link" href="/panel/petra/visitas?token={{ token }}">Details ↗</a>
+      <a class="details" href="/panel/petra/visitas?token={{ token }}">Details ↗</a>
     </div>
   </div>
 </div>
 
-<div class="row2">
-  <div class="card-big">
-    <h3>📈 Mensajes últimos 14 días</h3>
-    <div class="sub">Entrantes vs. salientes · tráfico del bot</div>
+<div class="mid-grid">
+  <div class="big-card">
+    <div class="head">
+      <div>
+        <h3>Mensajes últimos 14 días</h3>
+        <div class="sub">Entrantes vs. salientes</div>
+      </div>
+    </div>
+    <div class="chart-numbers">
+      <span class="n">{{ total_14d }}</span>
+      <span class="d">▲ interacciones</span>
+    </div>
     <canvas id="msgChart"></canvas>
   </div>
 
-  <div class="card-big">
-    <h3>👥 Agentes por estado</h3>
-    <div class="sub">Distribución del embudo de inscripción</div>
+  <div class="big-card">
+    <div class="head">
+      <div>
+        <h3>Salud del bot</h3>
+        <div class="sub">% de interacciones OK · última hora</div>
+      </div>
+    </div>
+    <div class="gauge-wrap">
+      <div class="gauge">
+        <svg viewBox="0 0 200 110">
+          <defs>
+            <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#86efac"/>
+              <stop offset="1" stop-color="#16a34a"/>
+            </linearGradient>
+          </defs>
+          <path class="ring-bg" d="M 20 100 A 80 80 0 0 1 180 100"/>
+          {% set pct = salud_pct if salud_pct is not none else 0 %}
+          {% set circ = 251 %}
+          {% set offset = (circ * (1 - pct / 100)) | int %}
+          <path class="ring-fg" d="M 20 100 A 80 80 0 0 1 180 100"
+                stroke-dasharray="{{ circ }}" stroke-dashoffset="{{ offset }}"/>
+        </svg>
+        <div class="gauge-num">
+          <div class="n">{{ salud_pct if salud_pct is not none else '—' }}{% if salud_pct is not none %}%{% endif %}</div>
+          <div class="l">{% if salud_pct is not none and salud_pct >= 95 %}Excelente{% elif salud_pct is not none and salud_pct >= 80 %}Estable{% elif salud_pct is not none %}Degradado{% else %}sin datos{% endif %}</div>
+        </div>
+      </div>
+      <div class="gauge-foot">
+        <div class="box">
+          <div class="lab">⚡ Latencia p95</div>
+          <div class="num">{{ p95 if p95 else '—' }}{% if p95 %} ms{% endif %}</div>
+        </div>
+        <div class="box">
+          <div class="lab">💬 Total eventos</div>
+          <div class="num">{{ total_eventos if total_eventos else 0 }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="bot-grid">
+  <div class="big-card">
+    <div class="table-head">
+      <div>
+        <h3>Actividad reciente</h3>
+        <div class="sub">Últimos 8 mensajes</div>
+      </div>
+    </div>
+    {% if actividad %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Hora</th>
+          <th>Dir</th>
+          <th>Tipo</th>
+          <th>Resumen</th>
+          <th>Teléfono</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in actividad %}
+        <tr>
+          <td>
+            <div style="font-weight:500">{{ a.fecha }}</div>
+            <div style="color:var(--text-sub);font-size:11.5px">{{ a.dia }}</div>
+          </td>
+          <td><span class="pill {{ a.dir }}">{{ a.dir }}</span></td>
+          <td style="color:var(--text-sub)">{{ a.tipo }}</td>
+          <td>{{ a.resumen }}</td>
+          <td style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--text-sub)">{{ a.telefono }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Sin actividad reciente.</div>
+    {% endif %}
+  </div>
+
+  <div class="big-card">
+    <div class="head">
+      <div>
+        <h3>Agentes por estado</h3>
+        <div class="sub">Embudo de inscripción</div>
+      </div>
+    </div>
     {% if distribucion %}
     <div class="dist-list">
       {% set tot = distribucion | sum(attribute='count') %}
@@ -246,40 +397,6 @@
   </div>
 </div>
 
-<div class="card-big">
-  <h3>📬 Actividad reciente</h3>
-  <div class="sub">Últimos 8 mensajes del bot</div>
-  {% if actividad %}
-  <table class="table">
-    <thead>
-      <tr>
-        <th>Hora</th>
-        <th>Dir</th>
-        <th>Tipo</th>
-        <th>Resumen</th>
-        <th>Teléfono</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for a in actividad %}
-      <tr>
-        <td>
-          <div style="font-weight:500">{{ a.fecha }}</div>
-          <div style="color:var(--text-sub);font-size:11.5px">{{ a.dia }}</div>
-        </td>
-        <td><span class="pill {{ a.dir }}">{{ a.dir }}</span></td>
-        <td style="color:var(--text-sub)">{{ a.tipo }}</td>
-        <td>{{ a.resumen }}</td>
-        <td style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--text-sub)">{{ a.telefono }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty">Sin actividad reciente.</div>
-  {% endif %}
-</div>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script>
 (function() {
@@ -288,28 +405,28 @@
   if (!ctx || !window.Chart) return;
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const txtColor = isDark ? '#9099a8' : '#656d76';
-  const grid = isDark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.05)';
+  const grid = isDark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.04)';
 
   new Chart(ctx, {
-    type: 'line',
+    type: 'bar',
     data: {
       labels: data.labels,
       datasets: [
         {
           label: 'Entrantes',
           data: data.mensajes_in,
-          borderColor: '#7c5cff',
-          backgroundColor: 'rgba(124,92,255,.12)',
-          tension: 0.4, fill: true, borderWidth: 2,
-          pointRadius: 0, pointHoverRadius: 5,
+          backgroundColor: '#7c5cff',
+          borderRadius: 6,
+          barPercentage: 0.6,
+          categoryPercentage: 0.7,
         },
         {
           label: 'Salientes',
           data: data.mensajes_out,
-          borderColor: '#60a5fa',
-          backgroundColor: 'rgba(96,165,250,.08)',
-          tension: 0.4, fill: true, borderWidth: 2,
-          pointRadius: 0, pointHoverRadius: 5,
+          backgroundColor: '#c7d2fe',
+          borderRadius: 6,
+          barPercentage: 0.6,
+          categoryPercentage: 0.7,
         },
       ],
     },
@@ -318,8 +435,9 @@
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { position: 'top', align: 'end',
-                  labels: { boxWidth: 12, boxHeight: 12, padding: 14,
-                            color: txtColor, font: { size: 12 } } },
+                  labels: { boxWidth: 10, boxHeight: 10, padding: 12,
+                            color: txtColor, font: { size: 12 },
+                            usePointStyle: true, pointStyle: 'circle' } },
         tooltip: { backgroundColor: isDark ? '#161b22' : '#fff',
                    titleColor: isDark ? '#e6edf3' : '#1a1d29',
                    bodyColor: isDark ? '#e6edf3' : '#1a1d29',
