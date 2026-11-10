@@ -3194,7 +3194,7 @@ def visitante_inmuebles(cid):
     token = (request.args.get("token") or "").strip()
     flash = (request.args.get("flash") or "").strip()
     op_filtro = (request.args.get("op") or "todos").strip()
-    estado_filtro = (request.args.get("estado") or "activos").strip()
+    estado_filtro = (request.args.get("estado") or "todos").strip()
 
     with _db._conexion_directa(timeout=10) as conn:
         row = conn.execute(
