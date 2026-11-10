@@ -310,25 +310,37 @@ def send_media_o_texto(to, titulo, url):
 
 
 def send_typing_indicator(wa_msg_id):
-    """Marca el mensaje como leído y muestra los 3 puntitos de typing.
-    Fire-and-forget REAL en thread: no bloquea el flujo principal (antes
-    agregaba 200-800ms por el round-trip HTTP a Meta antes de procesar
-    la respuesta)."""
+    """Marca el mensaje como leído + typing. Sync con timeout TIGHT (2s):
+    si Meta tarda más, abortamos rápido y seguimos. Los chulos azules
+    deben llegar al user ASAP — por eso lo mantenemos en el main thread
+    con timeout bajo en vez de thread async (Python GIL puede demorar
+    thread scheduling en Render 0.5 CPU, lo que hacía que el 'read'
+    llegara a Meta tarde)."""
     if not wa_msg_id:
         return {"ok": True, "skip": "sin wa_msg_id"}
-    import threading as _th
-    def _enviar():
-        try:
-            _post({
-                "messaging_product": "whatsapp",
-                "status": "read",
-                "message_id": wa_msg_id,
-                "typing_indicator": {"type": "text"},
-            })
-        except Exception:
-            log.exception("[petra_wa] typing indicator async fallo")
-    _th.Thread(target=_enviar, daemon=True).start()
-    return {"ok": True, "async": True}
+    import os as _os
+    if (_os.environ.get("MODO_STAGING") or "").strip() == "1":
+        return {"ok": True, "staging_skip": True}
+    phone_id, token = _creds()
+    if not phone_id or not token:
+        return {"ok": True, "stub": True}
+    try:
+        r = requests.post(
+            _url(phone_id),
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json"},
+            json={"messaging_product": "whatsapp",
+                  "status": "read",
+                  "message_id": wa_msg_id,
+                  "typing_indicator": {"type": "text"}},
+            timeout=(1, 2),  # 1s connect + 2s read — muy ajustado
+        )
+        if r.status_code >= 300:
+            log.warning("[petra_wa] typing HTTP %s", r.status_code)
+        return {"ok": r.status_code < 300}
+    except requests.RequestException:
+        log.debug("[petra_wa] typing timeout (no crítico)")
+        return {"ok": False, "timeout": True}
 
 
 def send_buttons(to, body, buttons):
