@@ -3044,17 +3044,18 @@ def panel_v2_home():
             ).fetchone()
             stats["inmuebles"] = r[0] if r else "—"
             r = conn.execute(
-                "SELECT COUNT(*) FROM interesados_visitante "
+                "SELECT COUNT(*) FROM petra_interesados_qr "
                 " WHERE creado_en > NOW() - INTERVAL '7 days'"
             ).fetchone()
             stats["demanda_7d"] = r[0] if r else "—"
             r = conn.execute(
                 "SELECT COUNT(*) FROM petra_visitas "
-                " WHERE creado_en > NOW() - INTERVAL '7 days'"
+                " WHERE created_at > NOW() - INTERVAL '7 days'"
             ).fetchone()
             stats["visitas_7d"] = r[0] if r else "—"
     except Exception:
-        log.exception("[panel_v2] stats query fallo (no crítico)")
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] stats query fallo (no crítico)")
     return render_template("petra_panel_v2_home.html",
                            token=token, stats=stats)
 
