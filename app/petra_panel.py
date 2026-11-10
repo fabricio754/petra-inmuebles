@@ -5293,3 +5293,88 @@ def observabilidad_json():
         "prod": _stats_por_etapa("prod", horas),
         "staging": _stats_por_etapa("staging", horas),
     })
+
+
+# =============================================================================
+# STAGING WHITELIST — gestión desde el panel
+# =============================================================================
+
+@petra_panel_bp.get("/staging-whitelist")
+def staging_whitelist_dashboard():
+    """Pantalla para gestionar la whitelist del router staging."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    with _db._conexion_directa(timeout=5) as conn:
+        rows = _rows(conn,
+            "SELECT telefono, nota, creado_en "
+            "FROM petra_staging_whitelist ORDER BY creado_en DESC")
+    router_url = (os.environ.get("PETRA_STAGING_URL") or "").strip()
+    is_staging_panel = (os.environ.get("MODO_STAGING") or "").strip() == "1"
+    return render_template(
+        "petra_staging_whitelist.html",
+        rows=rows, token=token, flash=flash,
+        router_url=router_url, is_staging_panel=is_staging_panel,
+    )
+
+
+@petra_panel_bp.post("/staging-whitelist/agregar")
+def staging_whitelist_agregar():
+    """Agrega un teléfono a la whitelist. Requiere PIN de Fabricio."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    if not _verificar_pin("fabricio"):
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="pin_malo"))
+    telefono = (request.form.get("telefono") or "").strip()
+    nota = (request.form.get("nota") or "").strip() or None
+    # Normalizar: solo dígitos, debe empezar con 57 (Colombia)
+    import re as _re
+    tel_limpio = _re.sub(r"\D", "", telefono)
+    if not tel_limpio or len(tel_limpio) < 10:
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="telefono_invalido"))
+    if len(tel_limpio) == 10 and tel_limpio.startswith("3"):
+        tel_limpio = "57" + tel_limpio
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            conn.execute(
+                "INSERT INTO petra_staging_whitelist (telefono, nota) "
+                "VALUES (%s, %s) ON CONFLICT (telefono) DO UPDATE "
+                "SET nota = EXCLUDED.nota",
+                (tel_limpio, nota))
+        # Invalidar cache del router
+        try:
+            from app.staging_router import whitelist_cache_bust
+            whitelist_cache_bust()
+        except Exception:
+            pass
+    except Exception:
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="error"))
+    return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                            token=token, flash="agregado"))
+
+
+@petra_panel_bp.post("/staging-whitelist/<telefono>/eliminar")
+def staging_whitelist_eliminar(telefono):
+    """Quita un teléfono de la whitelist. Requiere PIN de Fabricio."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    if not _verificar_pin("fabricio"):
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="pin_malo"))
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            conn.execute("DELETE FROM petra_staging_whitelist WHERE telefono=%s",
+                         (telefono,))
+        try:
+            from app.staging_router import whitelist_cache_bust
+            whitelist_cache_bust()
+        except Exception:
+            pass
+    except Exception:
+        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                                token=token, flash="error"))
+    return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                            token=token, flash="eliminado"))
