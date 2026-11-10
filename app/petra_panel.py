@@ -5181,7 +5181,7 @@ def _gh_merge_dev_into_main(commit_message=None):
 # Configurable con PETRA_DEPLOY_WINDOW="23-6" o similar. Fuera de la ventana el
 # botón promover se deshabilita (el bot está siendo usado, no queremos caídas).
 # Override de emergencia: pasar fuerza=1 en el POST (requiere PIN igual).
-_DEPLOY_WINDOW_DEFAULT = "23-6"
+_DEPLOY_WINDOW_DEFAULT = "20-6"
 
 
 def _parse_window(spec):
