@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 BASELINE_FILE = Path(__file__).parent / "baseline.json"
+KNOWN_FAILURES_FILE = Path(__file__).parent / "known_failures.json"
 
 
 class CapturedMessage:
@@ -340,6 +341,10 @@ def main():
     parser.add_argument("golden", nargs="?", help="Nombre del archivo golden (opcional)")
     parser.add_argument("--list", action="store_true", help="Lista goldens disponibles")
     parser.add_argument("--baseline", action="store_true", help="Guarda snapshot del output")
+    parser.add_argument("--check-regression", action="store_true",
+                        help="Falla solo si hay nuevos fails vs known_failures.json")
+    parser.add_argument("--update-known-failures", action="store_true",
+                        help="Reescribe known_failures.json con el set actual")
     parser.add_argument("--quiet", action="store_true", help="Menos verbose")
     args = parser.parse_args()
 
@@ -382,6 +387,42 @@ def main():
         with open(BASELINE_FILE, "w") as f:
             json.dump(resultados, f, indent=2, ensure_ascii=False, default=str)
         print(f"Baseline guardado en {BASELINE_FILE}")
+
+    fallos_actuales = sorted(r["name"] for r in resultados if not r.get("ok"))
+
+    if args.update_known_failures:
+        data = {"known_failures": fallos_actuales,
+                "contrato": "El workflow pasa mientras el set actual NO CREZCA."}
+        if KNOWN_FAILURES_FILE.exists():
+            prev = json.loads(KNOWN_FAILURES_FILE.read_text())
+            if "notas" in prev:
+                data["notas"] = {k: v for k, v in prev["notas"].items() if k in fallos_actuales}
+        with open(KNOWN_FAILURES_FILE, "w") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print(f"known_failures actualizado ({len(fallos_actuales)} tests)")
+        return 0
+
+    if args.check_regression:
+        if not KNOWN_FAILURES_FILE.exists():
+            print(f"❌ falta {KNOWN_FAILURES_FILE}")
+            return 1
+        known = set(json.loads(KNOWN_FAILURES_FILE.read_text()).get("known_failures", []))
+        actuales = set(fallos_actuales)
+        nuevos = actuales - known
+        fixes = known - actuales
+        print(f"\n{'─' * 50}")
+        print(f"Known failures: {len(known)} · Actuales: {len(actuales)}")
+        if fixes:
+            print(f"🎉 Arreglados ({len(fixes)}) — actualizá known_failures.json con --update-known-failures:")
+            for n in sorted(fixes):
+                print(f"   ✅ {n}")
+        if nuevos:
+            print(f"🚨 REGRESIÓN ({len(nuevos)}) — tests que antes pasaban ahora fallan:")
+            for n in sorted(nuevos):
+                print(f"   ❌ {n}")
+            return 1
+        print("✅ Sin regresión.")
+        return 0
 
     return 0 if failed == 0 else 1
 
