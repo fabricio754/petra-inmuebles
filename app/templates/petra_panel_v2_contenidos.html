@@ -1,0 +1,229 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'contenidos' %}
+{% block title %}Contenidos · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 20px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .banner {
+    padding: 10px 14px; border-radius: 10px; margin-bottom: 16px;
+    font-size: 12.5px;
+  }
+  .banner.ok  { background: #dcfce7; color: #166534; }
+  .banner.err { background: #fee2e2; color: #991b1b; }
+  :root[data-theme="dark"] .banner.ok  { background: #052e1a; color: #4ade80; }
+  :root[data-theme="dark"] .banner.err { background: #3f0a0a; color: #fca5a5; }
+
+  .admin-card {
+    background: #fff8c5; border: 1px solid #fcd34d;
+    border-radius: 16px; padding: 18px 20px; margin-bottom: 22px;
+  }
+  :root[data-theme="dark"] .admin-card { background: #2d2410; border-color: #78350f; }
+  .admin-card h3 { margin: 0 0 6px; font-size: 14px; }
+  .admin-card p { margin: 0 0 12px; font-size: 12.5px; color: var(--text-sub); }
+  .admin-card .row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .admin-card button {
+    padding: 8px 14px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); border-radius: 8px;
+    font-size: 12.5px; cursor: pointer; font-family: inherit; font-weight: 500;
+  }
+  .admin-card button:hover { border-color: var(--accent); }
+  .admin-card form { margin: 0; }
+
+  .wrap { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 18px; padding: 20px;
+  }
+  .card h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+  .card label {
+    display: block; font-size: 11px; color: var(--text-sub);
+    margin: 10px 0 5px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+  }
+  .card select, .card input, .card textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px; background: var(--bg);
+    color: var(--text); font-family: inherit;
+  }
+  .card textarea { min-height: 70px; resize: vertical; }
+  .card button {
+    width: 100%; margin-top: 14px; padding: 10px;
+    background: var(--accent); color: #fff; border: none;
+    border-radius: 10px; font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+
+  .grp-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin: 18px 0 8px;
+  }
+  .grp-head h2 {
+    margin: 0; font-size: 13px; color: var(--text); font-weight: 700;
+  }
+  .grp-head .cnt { font-size: 11.5px; color: var(--text-sub); }
+
+  .list {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+  }
+  .item {
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 14px; align-items: center;
+  }
+  .item:last-child { border-bottom: none; }
+  .item.off { opacity: 0.55; }
+  .item .main { flex: 1; min-width: 0; }
+  .item .main .ttl {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-weight: 600; font-size: 13px;
+  }
+  .item .main .url {
+    font-size: 11.5px; margin-top: 3px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .item .main .url a { color: var(--accent); font-family: ui-monospace, Menlo, monospace; word-break: break-all; }
+  .item .main .meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .ord-bubble {
+    background: var(--bg); padding: 3px 9px; border-radius: 999px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700;
+    color: var(--text-sub);
+  }
+  .check {
+    color: #16a34a; font-size: 18px; width: 28px; text-align: center;
+  }
+
+  .row-actions { display: flex; gap: 6px; }
+  .btn-row {
+    padding: 5px 10px; border: 1px solid var(--border);
+    background: var(--panel); border-radius: 6px;
+    font-size: 11.5px; cursor: pointer; font-family: inherit; color: var(--text);
+  }
+  .btn-row.danger:hover { border-color: #dc2626; color: #dc2626; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Contenidos</h1>
+    <div class="sub">Videos de capacitación, bienvenida, autorización, kit y más</div>
+  </div>
+</div>
+
+{% if flash == 'contenido_creado' %}
+<div class="banner ok">✅ Contenido creado.</div>
+{% elif flash == 'contenido_toggled' %}
+<div class="banner ok">✅ Contenido actualizado.</div>
+{% elif flash == 'contenido_eliminado' %}
+<div class="banner ok">✅ Contenido eliminado.</div>
+{% elif flash == 'cap_cron_ok' %}
+<div class="banner ok">✅ Cron de capacitación disparado.</div>
+{% elif flash == 'cap_revertido' %}
+<div class="banner ok">✅ Envíos bloqueados por whitelist revertidos.</div>
+{% elif flash and flash.startswith('error') %}
+<div class="banner err">❌ {{ flash }}</div>
+{% endif %}
+
+<div class="admin-card">
+  <h3>⚡ Disparar capacitación ahora</h3>
+  <p>Ejecuta el cron de capacitación en el momento (sin esperar las 8am del día siguiente). Respeta <code>PETRA_PILOTO_WHITELIST</code> y la regla "solo avanza si confirmó". Útil para pruebas.</p>
+  <div class="row">
+    <form method="post" action="/panel/petra/admin/run_capacitacion">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit">⚡ Disparar cron capacitación</button>
+    </form>
+    <form method="post" action="/panel/petra/admin/run_capacitacion">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="ignore_date" value="1">
+      <button type="submit">⚡ Disparar cron (ignorar dedup fecha)</button>
+    </form>
+    <form method="post" action="/panel/petra/admin/revertir_cap_hoy">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit">↩️ Revertir envíos bloqueados por whitelist</button>
+    </form>
+  </div>
+</div>
+
+<div class="wrap">
+  {# ── CREAR ─────────────────────────────────────────────── #}
+  <div class="card">
+    <h3>☁️ Subir contenido</h3>
+    <form method="post" action="/panel/petra/contenido/crear" enctype="multipart/form-data">
+      <input type="hidden" name="token" value="{{ token }}">
+      <label>Tipo</label>
+      <select name="tipo" required>
+        {% for k, lbl in tipos.items() %}
+          {% if k != 'faq' %}
+          <option value="{{ k }}">{{ lbl }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+      <label>Título</label>
+      <input type="text" name="titulo" placeholder="Ej: Día 1 Video 1 — Qué es Petra" required>
+      <label>URL (TikTok, YouTube, Drive…)</label>
+      <input type="url" name="url" placeholder="https://…">
+      <label>O subí un archivo (imagen o video, máx 16MB)</label>
+      <input type="file" name="archivo" accept="image/*,video/*">
+      <label>O texto inline (si no es URL/archivo)</label>
+      <textarea name="texto" placeholder="Script, plantilla, FAQ…"></textarea>
+      <label>Orden (1-12 para capacitación; 1 para bienvenida)</label>
+      <input type="number" name="orden" value="1" min="0">
+      <label>Duración (segundos, opcional)</label>
+      <input type="number" name="duracion_seg" placeholder="60">
+      <label>Descripción (opcional)</label>
+      <textarea name="descripcion" placeholder="Para qué sirve, a quién va dirigido…"></textarea>
+      <button type="submit">Guardar</button>
+    </form>
+  </div>
+
+  {# ── LISTA POR TIPO ────────────────────────────────────── #}
+  <div>
+    {% if not por_tipo %}
+    <div class="list"><div class="item" style="justify-content:center;color:var(--text-sub);padding:30px">
+      Todavía no hay contenidos subidos.
+    </div></div>
+    {% endif %}
+    {% for tipo, items in por_tipo.items() %}
+    <div class="grp-head">
+      <h2>{{ tipos.get(tipo, tipo) }}</h2>
+      <span class="cnt">{{ items|length }} slot(s)</span>
+    </div>
+    <div class="list">
+      {% for c in items %}
+      <div class="item {% if not c.activo %}off{% endif %}">
+        <span class="check">{% if c.activo %}✓{% endif %}</span>
+        <span class="ord-bubble">D{{ c.orden // 2 + 1 }}·{{ (c.orden % 2) + 1 if c.orden > 0 else c.orden }}</span>
+        <div class="main">
+          <div class="ttl">{{ c.titulo }}</div>
+          {% if c.url %}
+          <div class="url">🔗 <a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.url[:90] }}{% if c.url|length > 90 %}…{% endif %}</a></div>
+          {% elif c.texto %}
+          <div class="url" style="color:var(--text-sub)">📝 {{ c.texto[:140] }}{% if c.texto|length > 140 %}…{% endif %}</div>
+          {% endif %}
+          {% if c.descripcion %}
+          <div class="meta">{{ c.descripcion[:100] }}{% if c.descripcion|length > 100 %}…{% endif %}</div>
+          {% endif %}
+        </div>
+        <div class="row-actions">
+          <form method="post" action="/panel/petra/contenido/{{ c.id }}/toggle">
+            <input type="hidden" name="token" value="{{ token }}">
+            <button type="submit" class="btn-row">{% if c.activo %}Pausar{% else %}Activar{% endif %}</button>
+          </form>
+          <form method="post" action="/panel/petra/contenido/{{ c.id }}/eliminar"
+                onsubmit="return confirm('¿Eliminar este contenido?')">
+            <input type="hidden" name="token" value="{{ token }}">
+            <button type="submit" class="btn-row danger">🗑</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}
