@@ -245,6 +245,11 @@
   .wa-step:hover { opacity: 0.9; }
   .wa-step.wa-sec { background: #7c5cff; }
   .wa-step.wa-mandato { background: #dcfce7; color: #166534; }
+  .undo-step {
+    display: inline-block; margin-top: 5px; font-size: 10.5px;
+    color: var(--muted); cursor: pointer; text-decoration: underline;
+  }
+  .undo-step:hover { color: #dc2626; }
   :root[data-theme="dark"] .wa-step.wa-mandato { background: #052e1a; color: #4ade80; }
   .attach {
     font-size: 11px; color: var(--text-sub); margin-top: 5px;
@@ -423,6 +428,11 @@
                 <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
               </form>
               {% endif %}
+              <a class="undo-step" onclick="return petraDeshacer(event, 'fabricio', 'u-bv-{{ i.id }}', 'bienvenida')">↶ deshacer bienvenida</a>
+              <form id="u-bv-{{ i.id }}" method="post" style="display:none"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/bienvenida/deshacer?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
+              </form>
             {% elif not s_cred %}
               {% if i.celular_valido %}
               <a class="wa-step wa-sec" href="{{ i.wa_ofrecer_credito }}" target="_blank"
@@ -432,8 +442,18 @@
                 <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
               </form>
               {% endif %}
+              <a class="undo-step" onclick="return petraDeshacer(event, 'fabricio', 'u-op-{{ i.id }}', 'ofrecer inmob')">↶ deshacer ofrecer inmob</a>
+              <form id="u-op-{{ i.id }}" method="post" style="display:none"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_petra/deshacer?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
+              </form>
             {% else %}
               <span class="muted">✅ Sales completo</span>
+              <a class="undo-step" onclick="return petraDeshacer(event, 'fabricio', 'u-cr-{{ i.id }}', 'ofrecer crédito')">↶ deshacer ofrecer crédito</a>
+              <form id="u-cr-{{ i.id }}" method="post" style="display:none"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_credito/deshacer?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
+              </form>
             {% endif %}
           </td>
 
@@ -751,6 +771,35 @@ function petraEjecutar(ev, quien, formId) {
     })
     .catch(function(e){ alert('Error de red: ' + e); });
   return true; // deja que el <a href="wa.me/..."> abra WhatsApp
+}
+
+// Deshacer una etapa Sales: setea col=NULL y recarga.
+function petraDeshacer(ev, quien, formId, label) {
+  ev.preventDefault();
+  if (!confirm('¿Deshacer "' + label + '"? Vas a volver al paso anterior.')) return false;
+  var pin = _pinGetCached(quien);
+  if (!pin) {
+    var who = quien === 'sebastian' ? 'Sebas' : 'Fabricio';
+    pin = prompt('PIN de ' + who + ' (válido 30 min):');
+    if (!pin) return false;
+    _pinSaveCache(quien, pin);
+  }
+  var f = document.getElementById(formId);
+  if (!f) return false;
+  var pinInput = f.querySelector('input[name=pin]');
+  if (pinInput) pinInput.value = pin;
+  var data = new FormData(f);
+  fetch(f.action, { method: 'POST', body: data })
+    .then(function(r){ return r.text().then(function(t){ return {ok: r.ok, t: t}; }); })
+    .then(function(r){
+      if (r.ok) { location.reload(); }
+      else {
+        if (/pin/i.test(r.t)) _pinClear(quien);
+        alert('Error deshaciendo: ' + r.t.slice(0, 200));
+      }
+    })
+    .catch(function(e){ alert('Error de red: ' + e); });
+  return false;
 }
 </script>
 
