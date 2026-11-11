@@ -90,7 +90,7 @@
     color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
     padding: 14px 14px 10px; border-bottom: 1px solid var(--border);
   }
-  .table-x td { padding: 14px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  .table-x td { padding: 14px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
   .table-x tr:last-child td { border-bottom: none; }
   .table-x tr.inactivo td { opacity: .5; }
   .code-col {
@@ -126,15 +126,17 @@
   .etapa-pill.e7 { background: #d1fae5; color: #065f46; }
 
   .row-actions {
-    display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    justify-content: flex-end; min-width: 150px;
   }
   .row-actions button, .row-actions a.btn-like {
-    padding: 6px 12px; border-radius: 8px;
-    font-size: 11.5px; font-weight: 500;
+    padding: 5px 8px; border-radius: 7px;
+    font-size: 11px; font-weight: 500;
     background: var(--panel); border: 1px solid var(--border);
     color: var(--text); cursor: pointer;
     font-family: inherit;
-    display: inline-flex; align-items: center; gap: 4px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+    white-space: nowrap;
   }
   .row-actions button:hover { background: var(--bg); }
   .row-actions .btn-petra.on      { background: #efeaff; color: #6a4ae8; border-color: #c7b8ff; }
@@ -241,6 +243,7 @@
     margin-top: 6px; padding: 6px 11px; border-radius: 8px;
     background: #16a34a; color: #fff; font-size: 11.5px; font-weight: 600;
     text-decoration: none; border: none; cursor: pointer; font-family: inherit;
+    white-space: nowrap;
   }
   .wa-step:hover { opacity: 0.9; }
   .wa-step.wa-sec { background: #7c5cff; }
