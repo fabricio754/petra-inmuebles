@@ -440,8 +440,15 @@
           </td>
           <td>
             <div class="row-actions">
-              <button type="button" class="btn-like"
-                      onclick="editarInm({{ i.id }}, {{ (i.nro or '')|tojson }}, {{ i.operacion|tojson }}, {{ i.habitaciones|tojson if i.habitaciones is not none else '""'|safe }}, {{ i.banos|tojson if i.banos is not none else '""'|safe }}, {{ i.m2|tojson if i.m2 is not none else '""'|safe }}, {{ i.precio|tojson if i.precio is not none else '""'|safe }}, {{ (i.propietario_telefono or '')|tojson }})">✎ Editar</button>
+              <button type="button" class="btn-like editar-inm-btn"
+                      data-id="{{ i.id }}"
+                      data-nro="{{ i.nro or '' }}"
+                      data-op="{{ i.operacion or 'arriendo' }}"
+                      data-hab="{{ i.habitaciones if i.habitaciones is not none else '' }}"
+                      data-banos="{{ i.banos if i.banos is not none else '' }}"
+                      data-m2="{{ i.m2 if i.m2 is not none else '' }}"
+                      data-precio="{{ i.precio if i.precio is not none else '' }}"
+                      data-tel="{{ i.propietario_telefono or '' }}">✎ Editar</button>
               <form class="inline-form" method="POST"
                     action="{{ url_for('petra_panel.visitante_inmueble_toggle', iid=i.id) }}">
                 <input type="hidden" name="token" value="{{ token }}">
@@ -524,18 +531,27 @@
 {% endif %}
 
 <script>
-function editarInm(id, nro, op, hab, banos, m2, precio, tel) {
-  var f = document.getElementById('form-ed-inm');
-  f.action = '/panel/petra/visitante/inmuebles/' + id + '/editar';
-  document.getElementById('ei-nro').value = nro || '';
-  document.getElementById('ei-op').value = op || 'arriendo';
-  document.getElementById('ei-hab').value = (hab === null || hab === undefined) ? '' : hab;
-  document.getElementById('ei-banos').value = (banos === null || banos === undefined) ? '' : banos;
-  document.getElementById('ei-m2').value = (m2 === null || m2 === undefined) ? '' : m2;
-  document.getElementById('ei-precio').value = (precio === null || precio === undefined) ? '' : precio;
-  document.getElementById('ei-tel').value = tel || '';
-  document.getElementById('dlg-ed-inm').showModal();
-}
+document.querySelectorAll('.editar-inm-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var d = btn.dataset;
+    var dlg = document.getElementById('dlg-ed-inm');
+    var f = document.getElementById('form-ed-inm');
+    if (!dlg || !f) return;
+    f.action = '/panel/petra/visitante/inmuebles/' + d.id + '/editar';
+    document.getElementById('ei-nro').value = d.nro || '';
+    document.getElementById('ei-op').value = d.op || 'arriendo';
+    document.getElementById('ei-hab').value = d.hab || '';
+    document.getElementById('ei-banos').value = d.banos || '';
+    document.getElementById('ei-m2').value = d.m2 || '';
+    document.getElementById('ei-precio').value = d.precio || '';
+    document.getElementById('ei-tel').value = d.tel || '';
+    if (typeof dlg.showModal === 'function') {
+      dlg.showModal();
+    } else {
+      dlg.setAttribute('open', '');
+    }
+  });
+});
 
 // PIN prompt + POST async. Devuelve true para que el <a> abra WhatsApp
 // después del POST (igual que v1). Devuelve false si cancela.
