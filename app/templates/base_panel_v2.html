@@ -169,6 +169,8 @@
        href="/panel/petra/v2/salud?token={{ token }}">Salud</a>
     <a class="{% if block == 'despliegues' %}active{% endif %}"
        href="/panel/petra/v2/despliegues?token={{ token }}">Despliegues</a>
+    <a class="{% if block == 'whitelist' %}active{% endif %}"
+       href="/panel/petra/v2/whitelist?token={{ token }}">Whitelist</a>
   </nav>
   <div class="topbar-right">
     <button class="icon-btn" onclick="(function(r){var c=r.getAttribute('data-theme'),n=c==='dark'?'light':'dark';r.setAttribute('data-theme',n);try{localStorage.setItem('petra_theme_v2',n)}catch(e){}})(document.documentElement)">🌓</button>
