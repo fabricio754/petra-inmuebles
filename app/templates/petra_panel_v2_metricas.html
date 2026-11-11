@@ -1,0 +1,269 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'metricas' %}
+{% block title %}Métricas · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 20px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .section {
+    margin-bottom: 26px;
+  }
+  .section-head {
+    display: flex; align-items: center; gap: 10px;
+    margin: 0 0 12px;
+  }
+  .section-head h2 {
+    margin: 0; font-size: 12.5px; font-weight: 600;
+    color: var(--text-sub); text-transform: uppercase; letter-spacing: .6px;
+  }
+  .section-head .ic { font-size: 14px; }
+
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px 18px;
+    display: flex; flex-direction: column;
+  }
+  .kpi .lab {
+    font-size: 10.5px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: .4px; font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .kpi .val {
+    font-size: 30px; font-weight: 700; letter-spacing: -0.5px; line-height: 1;
+    color: var(--accent);
+  }
+  .kpi .val.ok   { color: #16a34a; }
+  .kpi .val.warn { color: #f59e0b; }
+  .kpi .val.err  { color: #dc2626; }
+  .kpi .val.neutral { color: var(--text); }
+  .kpi .foot {
+    font-size: 11px; color: var(--text-sub); margin-top: 4px; min-height: 14px;
+  }
+  .kpi .pct {
+    font-size: 15px; color: var(--text-sub); margin-left: 4px; font-weight: 500;
+  }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Métricas · Operaciones</h1>
+    <div class="sub">KPIs agregados del piloto Petra</div>
+  </div>
+</div>
+
+{# ─── AGENTES PETRA ─────────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head"><span class="ic">💼</span><h2>Agentes Petra</h2></div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Total</div>
+      <div class="val neutral">{{ kpis.get('agentes_total', 0) }}</div>
+      <div class="foot">+{{ kpis.get('agentes_7d', 0) }} esta semana</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Activas</div>
+      <div class="val ok">{{ kpis.get('agentes_activas', 0) }}</div>
+      <div class="foot">QR instalado + operando</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">En capacitación</div>
+      <div class="val">{{ kpis.get('agentes_capacitacion', 0) }}</div>
+      <div class="foot">viendo videos / esperando día</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Autorización + Kit</div>
+      <div class="val warn">{{ kpis.get('agentes_autorizando', 0) }}</div>
+      <div class="foot">entre capacitación y activa</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Recolectando datos</div>
+      <div class="val">{{ kpis.get('agentes_recolectando', 0) }}</div>
+      <div class="foot">no completó inscripción</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Pausadas / rechazadas</div>
+      <div class="val err">{{ kpis.get('agentes_pausadas', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Tasa inscripción</div>
+      <div class="val ok">{{ kpis.get('tasa_inscripcion_pct', 0) }}<span class="pct">%</span></div>
+      <div class="foot">completó registro</div>
+    </div>
+  </div>
+</div>
+
+{# ─── RED PETRA ─────────────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head"><span class="ic">🏢</span><h2>Red Petra (inventario)</h2></div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Edificios</div>
+      <div class="val neutral">{{ kpis.get('conjuntos_total', 0) }}</div>
+      <div class="foot">+{{ kpis.get('conjuntos_7d', 0) }} esta semana</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Inmuebles activos</div>
+      <div class="val neutral">{{ kpis.get('inmuebles_vis_activos', 0) }}</div>
+      <div class="foot">+{{ kpis.get('inmuebles_vis_7d', 0) }} esta semana</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Arriendo</div>
+      <div class="val neutral">{{ kpis.get('inmuebles_vis_arr', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Venta</div>
+      <div class="val neutral">{{ kpis.get('inmuebles_vis_ven', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">💜 Petra gestiona</div>
+      <div class="val">{{ kpis.get('inmuebles_vis_petra', 0) }}</div>
+      <div class="foot">captados por Petra directo</div>
+    </div>
+  </div>
+</div>
+
+{# ─── VISITANTES QR ─────────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head"><span class="ic">👀</span><h2>Visitantes QR</h2></div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Solicitudes (24h)</div>
+      <div class="val neutral">{{ kpis.get('interesados_qr_24h', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Solicitudes (7d)</div>
+      <div class="val neutral">{{ kpis.get('interesados_qr_7d', 0) }}</div>
+      <div class="foot">{{ kpis.get('interesados_qr_total', 0) }} total histórico</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Inmuebles por solicitud</div>
+      <div class="val neutral">{{ kpis.get('interesados_avg_items', 0) }}</div>
+      <div class="foot">promedio 30d — multi-select</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Interesados únicos (7d)</div>
+      <div class="val neutral">{{ kpis.get('visitante_contactos_7d', 0) }}</div>
+      <div class="foot">por teléfono distinto</div>
+    </div>
+  </div>
+</div>
+
+{# ─── CONVERSACIONES ────────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head"><span class="ic">💬</span><h2>Conversaciones (24h)</h2></div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Mensajes IN</div>
+      <div class="val neutral">{{ kpis.get('msgs_in_24h', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Mensajes OUT</div>
+      <div class="val neutral">{{ kpis.get('msgs_out_24h', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Tasa de fallo</div>
+      <div class="val {% if kpis.get('msgs_failed_24h_pct', 0) >= 10 %}err{% elif kpis.get('msgs_failed_24h_pct', 0) > 0 %}warn{% else %}ok{% endif %}">
+        {{ kpis.get('msgs_failed_24h_pct', 0) }}<span class="pct">%</span>
+      </div>
+      <div class="foot">{{ kpis.get('msgs_failed_24h', 0) }} failed · health signal</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">LLM requests (24h)</div>
+      <div class="val neutral">{{ kpis.get('llm_requests_24h', 0) }}</div>
+      <div class="foot">{{ kpis.get('llm_latencia_promedio_ms', 0) }} ms avg · {{ kpis.get('llm_errores_24h', 0) }} errores</div>
+    </div>
+  </div>
+</div>
+
+{# ─── PIPELINE COMERCIAL ────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head"><span class="ic">💼</span><h2>Pipeline comercial</h2></div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Oportunidades abiertas</div>
+      <div class="val neutral">{{ kpis.get('ops_abiertas', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Ganadas (30d)</div>
+      <div class="val ok">{{ kpis.get('ops_ganadas_30d', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Perdidas (30d)</div>
+      <div class="val warn">{{ kpis.get('ops_perdidas_30d', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Conversión 30d</div>
+      <div class="val {% if kpis.get('conversion_30d_pct', 0) >= 30 %}ok{% elif kpis.get('conversion_30d_pct', 0) >= 10 %}warn{% else %}err{% endif %}">
+        {{ kpis.get('conversion_30d_pct', 0) }}<span class="pct">%</span>
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Inmuebles cerrados (7d)</div>
+      <div class="val neutral">{{ kpis.get('inmuebles_cerrados_7d', 0) }}</div>
+    </div>
+  </div>
+</div>
+
+{# ─── SOPORTE ──────────────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head"><span class="ic">🛎️</span><h2>Soporte</h2></div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Casos abiertos</div>
+      <div class="val neutral">{{ kpis.get('casos_abiertos', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Escalados</div>
+      <div class="val warn">{{ kpis.get('casos_escalados', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">SLA vencido</div>
+      <div class="val err">{{ kpis.get('casos_sla_vencido', 0) }}</div>
+      <div class="foot">sin primera respuesta</div>
+    </div>
+  </div>
+</div>
+
+{# ─── VISITAS ──────────────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head"><span class="ic">📅</span><h2>Visitas</h2></div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Próximas (7d)</div>
+      <div class="val neutral">{{ kpis.get('visitas_proximas_7d', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Realizadas (30d)</div>
+      <div class="val ok">{{ kpis.get('visitas_realizadas_30d', 0) }}</div>
+    </div>
+  </div>
+</div>
+
+{# ─── INTEGRACIONES ────────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head"><span class="ic">🔌</span><h2>Integraciones</h2></div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Errores pendientes</div>
+      <div class="val {% if kpis.get('errores_pendientes', 0) > 0 %}warn{% else %}ok{% endif %}">
+        {{ kpis.get('errores_pendientes', 0) }}
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Dead letters</div>
+      <div class="val {% if kpis.get('dead_letters', 0) > 0 %}err{% else %}ok{% endif %}">
+        {{ kpis.get('dead_letters', 0) }}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
