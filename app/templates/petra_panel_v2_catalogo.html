@@ -1,0 +1,200 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'catalogo' %}
+{% block title %}Catálogo · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px 20px;
+    display: flex; flex-direction: column;
+  }
+  .stat .lab { font-size: 12.5px; color: var(--text-sub); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
+  .stat .val { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; color: var(--accent); }
+
+  .chips {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 999px;
+    background: var(--panel); color: var(--text-sub);
+    font-size: 12.5px; font-weight: 500;
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .chip:hover { color: var(--text); }
+  .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .card-head {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 14px; flex-wrap: wrap;
+  }
+  .card-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .card-head select {
+    padding: 7px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px;
+    background: var(--panel); color: var(--text); font-family: inherit;
+  }
+  .count-badge {
+    font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .table-x { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .table-x th {
+    text-align: left; font-size: 10.5px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 12px 14px 8px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .table-x td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .table-x tr:last-child td { border-bottom: none; }
+
+  .code-col {
+    background: #efeaff; color: #6a4ae8;
+    padding: 2px 10px; border-radius: 999px;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11.5px; font-weight: 700;
+  }
+  :root[data-theme="dark"] .code-col { background: #241f3d; color: #a78bfa; }
+
+  .op-pill {
+    display: inline-flex; padding: 2px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+  }
+  .op-pill.arriendo { background: #dbeafe; color: #1d4ed8; }
+  .op-pill.venta    { background: #fef3c7; color: #92400e; }
+  :root[data-theme="dark"] .op-pill.arriendo { background: #0a1f3d; color: #60a5fa; }
+  :root[data-theme="dark"] .op-pill.venta    { background: #2d2410; color: #fbbf24; }
+
+  .state-pill {
+    display: inline-flex; padding: 2px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+  }
+  .state-pill.on  { background: #dcfce7; color: #166534; }
+  .state-pill.off { background: #fee2e2; color: #991b1b; }
+  :root[data-theme="dark"] .state-pill.on  { background: #052e1a; color: #4ade80; }
+  :root[data-theme="dark"] .state-pill.off { background: #3f0a0a; color: #fca5a5; }
+
+  .tel { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .dim { color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Catálogo de inmuebles</h1>
+    <div class="sub">Listado completo del flujo visitante (todos los conjuntos)</div>
+  </div>
+</div>
+
+<div class="stats-row">
+  <div class="stat"><div class="lab">Total</div><div class="val">{{ n_total }}</div></div>
+  <div class="stat"><div class="lab">Activos</div><div class="val">{{ n_activos }}</div></div>
+  <div class="stat"><div class="lab">Arriendos</div><div class="val">{{ n_arriendos }}</div></div>
+  <div class="stat"><div class="lab">Ventas</div><div class="val">{{ n_ventas }}</div></div>
+</div>
+
+<div class="chips">
+  <a class="chip {% if not estado and not op %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj }}">Todos</a>
+  <a class="chip {% if estado == 'activos' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj }}&estado=activos">Activos</a>
+  <a class="chip {% if estado == 'inactivos' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj }}&estado=inactivos">Inactivos</a>
+  <a class="chip {% if op == 'arriendo' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj }}&op=arriendo">Arriendo</a>
+  <a class="chip {% if op == 'venta' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj }}&op=venta">Venta</a>
+</div>
+
+<div class="main-card">
+  <div class="card-head">
+    <h3>Inmuebles</h3>
+    <form method="get" action="" style="display:inline-flex;gap:10px;align-items:center">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="estado" value="{{ estado }}">
+      <input type="hidden" name="op" value="{{ op }}">
+      <label style="font-size:12px;color:var(--text-sub)">Conjunto</label>
+      <select name="conjunto" onchange="this.form.submit()">
+        <option value="">Todos</option>
+        {% for c in conjuntos %}
+        <option value="{{ c.id }}" {% if conj == c.id|string %}selected{% endif %}>
+          {{ c.codigo }} · {{ c.nombre }}
+        </option>
+        {% endfor %}
+      </select>
+    </form>
+    <span class="count-badge">{{ inmuebles|length }} resultados</span>
+  </div>
+
+  {% if inmuebles %}
+  <div style="overflow-x:auto">
+  <table class="table-x">
+    <thead>
+      <tr>
+        <th>Código</th>
+        <th>Tipo</th>
+        <th>Edificio</th>
+        <th>Ciudad</th>
+        <th>Operación</th>
+        <th class="num">Precio</th>
+        <th class="num">M²</th>
+        <th>Propietario</th>
+        <th>Estado</th>
+        <th>Fecha</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in inmuebles %}
+      <tr>
+        <td><span class="code-col">{{ it.codigo }}</span></td>
+        <td>{{ (it.tipo or '—')|capitalize }}</td>
+        <td>
+          {% if it.conjunto_nombre %}
+            <div style="font-weight:500">{{ it.conjunto_nombre }}</div>
+            <div style="font-size:11px;color:var(--muted)">
+              cod {{ it.conjunto_codigo }} {% if it.nro %}· #{{ it.nro }}{% endif %}
+            </div>
+          {% else %}<span class="dim">—</span>{% endif %}
+        </td>
+        <td class="dim">{{ it.ciudad or '—' }}</td>
+        <td>
+          {% if it.operacion %}<span class="op-pill {{ it.operacion }}">{{ it.operacion|capitalize }}</span>{% else %}<span class="dim">—</span>{% endif %}
+        </td>
+        <td class="num">{{ it.precio_fmt or '—' }}</td>
+        <td class="num">{% if it.m2 %}{{ it.m2 }}{% else %}<span class="dim">—</span>{% endif %}</td>
+        <td class="tel dim">{{ it.propietario_telefono or '—' }}</td>
+        <td>
+          {% if it.activo %}<span class="state-pill on">Activo</span>
+          {% else %}<span class="state-pill off">Inactivo</span>{% endif %}
+        </td>
+        <td class="dim" style="font-size:11.5px">
+          {% if it.creado_en %}{{ it.creado_en.strftime('%Y-%m-%d') }}{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:30px;margin-bottom:8px">🏠</div>
+    <div>Sin inmuebles con esos filtros.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
