@@ -165,7 +165,8 @@
        href="/panel/petra/v2/embudo?token={{ token }}">Embudo</a>
     <a class="{% if block == 'visitas' %}active{% endif %}"
        href="/panel/petra/v2/visitas?token={{ token }}">Visitas</a>
-    <a href="/panel/petra/observabilidad?token={{ token }}">Salud</a>
+    <a class="{% if block == 'salud' %}active{% endif %}"
+       href="/panel/petra/v2/salud?token={{ token }}">Salud</a>
   </nav>
   <div class="topbar-right">
     <button class="icon-btn" onclick="(function(r){var c=r.getAttribute('data-theme'),n=c==='dark'?'light':'dark';r.setAttribute('data-theme',n);try{localStorage.setItem('petra_theme_v2',n)}catch(e){}})(document.documentElement)">🌓</button>
