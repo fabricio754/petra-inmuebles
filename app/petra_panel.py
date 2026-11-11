@@ -4037,6 +4037,121 @@ def panel_v2_faq():
     )
 
 
+@petra_panel_bp.get("/v2/solicitudes")
+def panel_v2_solicitudes():
+    """v2: Solicitudes de contacto (visitante_contactos)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    conj_f = (request.args.get("conjunto") or "").strip()
+    op_f = (request.args.get("op") or "").strip()
+
+    where = []
+    params = []
+    if conj_f.isdigit():
+        where.append("vc.conjunto_id = %s")
+        params.append(int(conj_f))
+    if op_f in ("arriendo", "venta"):
+        where.append("im.operacion = %s")
+        params.append(op_f)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    with _db._conexion_directa(timeout=10) as conn:
+        rows = _rows(conn,
+            "SELECT vc.id, vc.creado_en, vc.telefono, vc.contacto_nombre, "
+            "       cj.id AS conjunto_id, cj.codigo AS conjunto_codigo, "
+            "       cj.nombre AS conjunto_nombre, "
+            "       im.id AS inmueble_id, im.nro AS inmueble_nro, "
+            "       im.operacion, im.precio, im.m2, im.tipo "
+            "  FROM visitante_contactos vc "
+            "  JOIN conjuntos_visitante cj ON cj.id = vc.conjunto_id "
+            "  JOIN inmuebles_visitante im ON im.id = vc.inmueble_id "
+            + where_sql +
+            " ORDER BY vc.creado_en DESC LIMIT 500",
+            tuple(params))
+        for r in rows:
+            r["precio_fmt"] = _fmt_precio_cop(r.get("precio"))
+        totales = _rows(conn,
+            "SELECT "
+            "  COUNT(*) AS total, "
+            "  COUNT(DISTINCT telefono) AS visitantes, "
+            "  COUNT(DISTINCT inmueble_id) AS inmuebles, "
+            "  COUNT(*) FILTER (WHERE creado_en >= NOW() - INTERVAL '7 days') AS ult_7d "
+            "FROM visitante_contactos")
+        t = totales[0] if totales else {}
+        conjuntos = _rows(conn,
+            "SELECT id, codigo, nombre FROM conjuntos_visitante "
+            " WHERE id IN (SELECT DISTINCT conjunto_id FROM visitante_contactos) "
+            " ORDER BY codigo")
+    return render_template(
+        "petra_panel_v2_solicitudes.html",
+        solicitudes=rows, conjuntos=conjuntos, token=token,
+        conj=conj_f, op=op_f,
+        n_total=t.get("total", 0),
+        n_visitantes=t.get("visitantes", 0),
+        n_inmuebles=t.get("inmuebles", 0),
+        n_7d=t.get("ult_7d", 0),
+    )
+
+
+@petra_panel_bp.get("/v2/catalogo")
+def panel_v2_catalogo():
+    """v2: Listado completo de inmuebles (todos los conjuntos)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    estado_f = (request.args.get("estado") or "").strip()  # activos|inactivos
+    op_f = (request.args.get("op") or "").strip()  # arriendo|venta
+    conj_f = (request.args.get("conjunto") or "").strip()
+
+    where = []
+    params = []
+    if estado_f == "activos":
+        where.append("i.activo = TRUE")
+    elif estado_f == "inactivos":
+        where.append("i.activo = FALSE")
+    if op_f in ("arriendo", "venta"):
+        where.append("i.operacion = %s")
+        params.append(op_f)
+    if conj_f.isdigit():
+        where.append("i.conjunto_id = %s")
+        params.append(int(conj_f))
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    with _db._conexion_directa(timeout=12) as conn:
+        inmuebles = _rows(conn,
+            "SELECT i.id, i.tipo, i.nro, i.operacion, i.m2, i.precio, "
+            "       i.activo, i.creado_en, i.propietario_telefono, "
+            "       cv.id AS conjunto_id, cv.codigo AS conjunto_codigo, "
+            "       cv.nombre AS conjunto_nombre, cv.ciudad "
+            "  FROM inmuebles_visitante i "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = i.conjunto_id "
+            + where_sql +
+            " ORDER BY i.creado_en DESC LIMIT 500",
+            tuple(params))
+        for it in inmuebles:
+            it["codigo"] = f"P{it['id']:04d}"
+            it["precio_fmt"] = _fmt_precio_cop(it.get("precio"))
+        totales = _rows(conn,
+            "SELECT "
+            "  COUNT(*) AS total, "
+            "  COUNT(*) FILTER (WHERE activo)                              AS activos, "
+            "  COUNT(*) FILTER (WHERE operacion = 'arriendo')              AS arriendos, "
+            "  COUNT(*) FILTER (WHERE operacion = 'venta')                 AS ventas "
+            "FROM inmuebles_visitante")
+        t = totales[0] if totales else {}
+        conjuntos = _rows(conn,
+            "SELECT id, codigo, nombre FROM conjuntos_visitante ORDER BY codigo")
+
+    return render_template(
+        "petra_panel_v2_catalogo.html",
+        inmuebles=inmuebles, conjuntos=conjuntos, token=token,
+        estado=estado_f, op=op_f, conj=conj_f,
+        n_total=t.get("total", 0),
+        n_activos=t.get("activos", 0),
+        n_arriendos=t.get("arriendos", 0),
+        n_ventas=t.get("ventas", 0),
+    )
+
+
 @petra_panel_bp.get("/v2/conjuntos")
 def panel_v2_conjuntos():
     """v2: Conjuntos registrados con embudo por conjunto."""
