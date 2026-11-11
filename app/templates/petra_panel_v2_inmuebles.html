@@ -477,9 +477,8 @@
                   📋 Falta info del propietario
                 {% endif %}
               </div>
-              {% if i.datos_estado != 'ok' %}
+              {% if i.datos_estado != 'ok' and i.celular_valido %}
               <div class="datos-actions">
-                {% if i.celular_valido %}
                 <a class="wa-step wa-datos" href="{{ i.wa_pedir_datos }}" target="_blank"
                    onclick="return petraEjecutar(event, 'sebastian', 'f-pd-{{ i.id }}')">
                   💬 {% if i.datos_estado == 'stale' %}Re-pedir{% else %}Contactar propietario{% endif %}
@@ -488,18 +487,6 @@
                       action="/panel/petra/inmueble/{{ i.id }}/etapa/pedir_datos?token={{ token }}">
                   <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
                 </form>
-                {% endif %}
-                <button type="button" class="btn-yocargo editar-inm-btn"
-                        data-id="{{ i.id }}"
-                        data-nro="{{ i.nro or '' }}"
-                        data-op="{{ i.operacion or 'arriendo' }}"
-                        data-hab="{{ i.habitaciones if i.habitaciones is not none else '' }}"
-                        data-banos="{{ i.banos if i.banos is not none else '' }}"
-                        data-m2="{{ i.m2 if i.m2 is not none else '' }}"
-                        data-precio="{{ i.precio if i.precio is not none else '' }}"
-                        data-tel="{{ i.propietario_telefono or '' }}">
-                  ✎ Yo cargo
-                </button>
               </div>
               {% endif %}
             </div>
