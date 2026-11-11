@@ -4,616 +4,301 @@
 {% block content %}
 
 <style>
-  /* ====================================================================
-     DASHBOARD — clon del look Rexora
-     ==================================================================== */
-
-  /* Hero */
   .hero { display: flex; justify-content: space-between; align-items: flex-start;
-          flex-wrap: wrap; gap: 16px; margin: 10px 0 22px; }
-  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700;
-             letter-spacing: -0.4px; }
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 20px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
   .hero .sub { color: var(--text-sub); font-size: 13.5px; }
-  .export-btn {
-    padding: 11px 18px; border-radius: 12px;
+
+  .section { margin-bottom: 28px; }
+  .section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin: 0 0 12px; gap: 10px; flex-wrap: wrap;
+  }
+  .section-head .lhs {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-head h2 {
+    margin: 0; font-size: 13px; font-weight: 700;
+    color: var(--text-sub); text-transform: uppercase; letter-spacing: .6px;
+  }
+  .section-head .ic { font-size: 16px; }
+  .section-head a.more {
+    font-size: 12px; color: var(--accent); text-decoration: none;
+  }
+
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .kpi {
     background: var(--panel); border: 1px solid var(--border);
-    color: var(--text); font-weight: 500; cursor: pointer; font-size: 13px;
-    display: inline-flex; align-items: center; gap: 8px;
-  }
-  .export-btn:hover { background: #fafbfc; }
-
-  /* Layout principal: columna izquierda (4 stats + table) +
-                       columna centro (chart) + columna derecha (gauge + sales ov) */
-  .main-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 0.9fr);
-    gap: 16px;
-    margin-bottom: 16px;
-  }
-  @media (max-width: 1280px) {
-    .main-grid { grid-template-columns: 1fr 1fr; }
-    .main-grid .chart-card { grid-column: 1 / -1; }
-  }
-  @media (max-width: 768px) {
-    .main-grid { grid-template-columns: 1fr; }
-  }
-
-  .left-pane { display: flex; flex-direction: column; gap: 16px; }
-  .stats-2x2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-
-  /* Stat card */
-  .stat {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 20px 22px;
-    display: flex; flex-direction: column; min-height: 150px;
-    position: relative;
-  }
-  .stat .top { display: flex; justify-content: space-between; align-items: flex-start; }
-  .stat .lab { font-size: 13.5px; color: var(--text); font-weight: 500; }
-  .stat .ic {
-    width: 32px; height: 32px; border-radius: 10px;
-    background: var(--bg);
-    display: inline-flex; align-items: center; justify-content: center;
-    color: var(--text-sub); font-size: 14px;
-  }
-  .stat .val {
-    font-size: 36px; font-weight: 700; letter-spacing: -1px;
-    line-height: 1.1; margin-top: 18px;
-  }
-  .stat .foot {
-    margin-top: auto; padding-top: 14px;
-    display: flex; justify-content: space-between; align-items: center;
-    font-size: 11.5px;
-  }
-  .stat .delta-up { color: var(--green); font-weight: 600; }
-  .stat .delta-down { color: var(--red); font-weight: 600; }
-  .stat .delta-flat { color: var(--text-sub); }
-  .stat .delta .vs { color: var(--text-sub); font-weight: 400; }
-  .stat .details { color: var(--text-sub); display: inline-flex; align-items: center; gap: 2px; }
-
-  /* Chart card (center column, spans full height) */
-  .chart-card {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 20px; padding: 22px 24px;
+    border-radius: 14px; padding: 16px 18px;
     display: flex; flex-direction: column;
   }
-  .chart-card .ch-head {
-    display: flex; justify-content: space-between; align-items: flex-start;
+  .kpi .lab {
+    font-size: 10.5px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: .4px; font-weight: 600;
     margin-bottom: 8px;
   }
-  .chart-card h3 { margin: 0; font-size: 15px; font-weight: 600; }
-  .chart-card .menu { color: var(--muted); cursor: pointer; font-size: 18px; }
-  .chart-card .big-n {
-    font-size: 36px; font-weight: 700; letter-spacing: -0.7px;
-    margin-top: 2px; display: inline-flex; align-items: baseline; gap: 10px;
+  .kpi .val {
+    font-size: 30px; font-weight: 700; letter-spacing: -0.5px; line-height: 1;
+    color: var(--accent);
   }
-  .chart-card .big-n .pill {
-    font-size: 12px; padding: 3px 10px; border-radius: 999px;
-    background: var(--green-fade); color: #15803d; font-weight: 600;
+  .kpi .val.ok   { color: #16a34a; }
+  .kpi .val.warn { color: #f59e0b; }
+  .kpi .val.err  { color: #dc2626; }
+  .kpi .val.neutral { color: var(--text); }
+  .kpi .foot {
+    font-size: 11px; color: var(--text-sub); margin-top: 4px; min-height: 14px;
   }
-  .chart-card .legend {
-    display: flex; gap: 14px; margin-top: 4px;
-    font-size: 12px; color: var(--text-sub);
+  .kpi .pct {
+    font-size: 15px; color: var(--text-sub); margin-left: 4px; font-weight: 500;
   }
-  .chart-card .legend .dot {
-    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
-    margin-right: 6px; vertical-align: middle;
-  }
-  .chart-wrap { flex: 1; position: relative; min-height: 280px; margin-top: 14px; }
-  canvas#profitChart { width: 100% !important; height: 100% !important; }
 
-  /* Gauge card (right column top) */
-  .right-col { display: flex; flex-direction: column; gap: 16px; }
-  .gauge-card {
+  /* Salud card compacta */
+  .salud-card {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 20px; padding: 22px 24px;
+    border-radius: 18px; padding: 20px;
+    display: grid; grid-template-columns: auto 1fr; gap: 16px;
+    align-items: center;
   }
-  .gauge-card .g-head { display: flex; justify-content: space-between; align-items: flex-start;
-                        margin-bottom: 16px; }
-  .gauge-card h3 { margin: 0; font-size: 15px; font-weight: 600; }
-  .gauge-card .menu { color: var(--muted); cursor: pointer; font-size: 18px; }
-  .gauge-vis { position: relative; width: 100%; max-width: 260px; margin: 0 auto 10px; }
-  .gauge-vis svg { width: 100%; height: auto; display: block; }
-  .gauge-vis .pct-float {
-    position: absolute; left: 50%; top: 4%; transform: translateX(-50%);
-    background: var(--orange); color: #fff;
-    padding: 4px 10px; border-radius: 999px;
-    font-size: 11.5px; font-weight: 700;
+  .salud-card.ok   { border-color: #86efac; }
+  .salud-card.warn { border-color: #fcd34d; }
+  .salud-card.down { border-color: #fca5a5; }
+  .salud-dot {
+    width: 48px; height: 48px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 24px;
   }
-  .gauge-vis .pct-float::after {
-    content: ""; position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%);
-    width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
-    border-top: 4px solid var(--orange);
-  }
-  .gauge-vis .center {
-    position: absolute; left: 0; right: 0; bottom: 20%;
-    text-align: center;
-  }
-  .gauge-vis .center .n { font-size: 36px; font-weight: 700; letter-spacing: -0.8px; line-height: 1; }
-  .gauge-vis .center .l { font-size: 12px; color: var(--text-sub); margin-top: 4px; }
-  .gauge-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
-  .mini-stat {
-    background: var(--bg); border-radius: 14px; padding: 12px 14px;
-  }
-  .mini-stat .lab { font-size: 11.5px; color: var(--text-sub);
-                    display: inline-flex; align-items: center; gap: 4px; }
-  .mini-stat .num { font-weight: 700; font-size: 17px; margin-top: 4px; display: inline-flex; align-items: baseline; gap: 6px; }
-  .mini-stat .num .pp {
-    font-size: 11px; background: var(--green-fade); color: #15803d;
-    padding: 2px 7px; border-radius: 999px; font-weight: 600;
+  .salud-card.ok   .salud-dot { background: #dcfce7; }
+  .salud-card.warn .salud-dot { background: #fef3c7; }
+  .salud-card.down .salud-dot { background: #fee2e2; }
+  :root[data-theme="dark"] .salud-card.ok   .salud-dot { background: #052e1a; }
+  :root[data-theme="dark"] .salud-card.warn .salud-dot { background: #2d2410; }
+  :root[data-theme="dark"] .salud-card.down .salud-dot { background: #3f0a0a; }
+
+  .salud-body h3 { margin: 0 0 4px; font-size: 17px; font-weight: 700; }
+  .salud-body p  { margin: 0; font-size: 12.5px; color: var(--text-sub); }
+  .salud-body .ver {
+    display: inline-block; margin-top: 8px; font-size: 12px; color: var(--accent);
   }
 
-  /* Bottom row: table (wide) + sales overview (narrow) */
-  .bot-grid {
-    display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    gap: 16px;
+  .components-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px; margin-top: 14px;
   }
-  @media (max-width: 1024px) { .bot-grid { grid-template-columns: 1fr; } }
-
-  .orders-card, .so-card {
+  .component-pill {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 20px; padding: 22px 24px;
+    border-radius: 12px; padding: 12px 14px;
+    display: flex; align-items: center; gap: 10px; font-size: 12.5px;
   }
-  .orders-card .oc-head { display: flex; justify-content: space-between; align-items: center;
-                           margin-bottom: 16px; }
-  .orders-card h3 { margin: 0; font-size: 15px; font-weight: 600; }
-  .orders-card .ctrls { display: flex; gap: 8px; }
-  .orders-card .search-box {
-    display: inline-flex; align-items: center; gap: 8px;
-    background: var(--bg); border-radius: 10px; padding: 7px 12px;
-    font-size: 12.5px; color: var(--text-sub);
+  .component-pill .status-dot {
+    width: 9px; height: 9px; border-radius: 50%;
   }
-  .orders-card .search-box input {
-    border: none; background: transparent; outline: none;
-    font-family: inherit; font-size: 12.5px; width: 140px; color: var(--text);
-  }
-  .table-x { width: 100%; border-collapse: collapse; }
-  .table-x th {
-    text-align: left; font-size: 11.5px; font-weight: 500; color: var(--text-sub);
-    padding: 14px 10px 10px; border-bottom: 1px solid var(--border);
-  }
-  .table-x td { padding: 14px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
-  .table-x tr:last-child td { border-bottom: none; }
-  .msg-cell { display: flex; align-items: center; gap: 10px; }
-  .msg-thumb {
-    width: 34px; height: 34px; border-radius: 10px;
-    background: var(--bg);
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 15px;
-  }
-  .status-pill {
-    display: inline-flex; padding: 5px 12px; border-radius: 999px;
-    font-size: 11.5px; font-weight: 600;
-  }
-  .status-pill.in  { background: #dcfce7; color: #15803d; }
-  .status-pill.out { background: #fef3c7; color: #a16207; }
-  .status-pill.err { background: #fee2e2; color: #991b1b; }
-  :root[data-theme="dark"] .status-pill.in  { background: #052e1a; color: #4ade80; }
-  :root[data-theme="dark"] .status-pill.out { background: #2d2410; color: #fbbf24; }
-
-  /* Sales overview */
-  .so-card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
-  .so-card .so-sub { color: var(--text-sub); font-size: 12px; margin-bottom: 14px; }
-  .so-pct-row {
-    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
-    margin-bottom: 14px;
-  }
-  .so-pct { display: flex; flex-direction: column; }
-  .so-pct .lab {
-    font-size: 11.5px; color: var(--text-sub);
-    display: inline-flex; align-items: center; gap: 5px; margin-bottom: 4px;
-  }
-  .so-pct .lab::before {
-    content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--d, var(--accent));
-  }
-  .so-pct .n { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
-
-  .barcode-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 20px; }
-  .barcode {
-    height: 40px; display: flex; gap: 2px; align-items: stretch;
-    overflow: hidden; border-radius: 4px;
-  }
-  .barcode .b { flex: 1; background: var(--c); border-radius: 1px;
-                opacity: var(--op, 1); }
-
-  .so-list { display: flex; flex-direction: column; gap: 12px; }
-  .so-list .row {
-    display: grid; grid-template-columns: 24px 1fr auto auto; gap: 10px; align-items: center;
-    font-size: 13px;
-  }
-  .so-list .row .emoji {
-    width: 28px; height: 28px; border-radius: 8px;
-    background: var(--bg);
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 14px;
-  }
-  .so-list .row .name { font-weight: 500; }
-  .so-list .row .pct { color: var(--text-sub); font-size: 12px; margin-right: 10px; }
-  .so-list .row .ern { font-weight: 600; }
-
-  .empty { padding: 30px; text-align: center; color: var(--text-sub); font-size: 13px; }
+  .component-pill .status-dot.ok   { background: #16a34a; }
+  .component-pill .status-dot.warn { background: #f59e0b; }
+  .component-pill .status-dot.down { background: #dc2626; }
+  .component-pill .nm { font-weight: 600; flex: 1; }
 </style>
 
 <div class="hero">
   <div>
-    <h1>Welcome, Fabricio 👋</h1>
-    <div class="sub">Qué está pasando en Petra hoy.</div>
+    <h1>Dashboard · Petra</h1>
+    <div class="sub">KPIs unificados — Agentes, Oferta, Demanda, Bot, Marketing, Salud</div>
   </div>
-  <button class="export-btn">↗  Export report</button>
 </div>
 
-<div class="main-grid">
-  <!-- LEFT: 4 stat cards 2x2 -->
-  <div class="left-pane">
-    <div class="stats-2x2">
-      <div class="stat">
-        <div class="top">
-          <span class="lab">Agentes activas</span>
-          <span class="ic">👥</span>
-        </div>
-        <div class="val">{{ stats.agentes }}</div>
-        <div class="foot">
-          <span class="delta delta-flat">—</span>
-          <a class="details" href="/panel/petra/agentes?token={{ token }}">Details ↗</a>
-        </div>
-      </div>
-
-      <div class="stat">
-        <div class="top">
-          <span class="lab">Inmuebles activos</span>
-          <span class="ic">🏠</span>
-        </div>
-        <div class="val">{{ stats.inmuebles }}</div>
-        <div class="foot">
-          {% if stats.inmuebles_delta %}
-            <span class="delta delta-up">▲ +{{ stats.inmuebles_delta }} <span class="vs">nuevos 7d</span></span>
-          {% else %}
-            <span class="delta delta-flat">sin nuevos 7d</span>
-          {% endif %}
-          <a class="details" href="/panel/petra/visitante/conjuntos?token={{ token }}">Details ↗</a>
-        </div>
-      </div>
-
-      <div class="stat">
-        <div class="top">
-          <span class="lab">Demanda (7d)</span>
-          <span class="ic">🙋</span>
-        </div>
-        <div class="val">{{ stats.demanda_7d }}</div>
-        <div class="foot">
-          {% if stats.demanda_delta is not none and stats.demanda_delta != 0 %}
-            <span class="delta {% if stats.demanda_delta > 0 %}delta-up{% else %}delta-down{% endif %}">
-              {% if stats.demanda_delta > 0 %}▲{% else %}▼{% endif %} {{ stats.demanda_delta|abs }}%
-              <span class="vs">vs semana</span>
-            </span>
-          {% else %}
-            <span class="delta delta-flat">sin cambio</span>
-          {% endif %}
-          <a class="details" href="/panel/petra/visitante/interesados?token={{ token }}">Details ↗</a>
-        </div>
-      </div>
-
-      <div class="stat">
-        <div class="top">
-          <span class="lab">Visitas (7d)</span>
-          <span class="ic">📅</span>
-        </div>
-        <div class="val">{{ stats.visitas_7d }}</div>
-        <div class="foot">
-          {% if stats.visitas_delta is not none and stats.visitas_delta != 0 %}
-            <span class="delta {% if stats.visitas_delta > 0 %}delta-up{% else %}delta-down{% endif %}">
-              {% if stats.visitas_delta > 0 %}▲{% else %}▼{% endif %} {{ stats.visitas_delta|abs }}%
-              <span class="vs">vs semana</span>
-            </span>
-          {% else %}
-            <span class="delta delta-flat">sin cambio</span>
-          {% endif %}
-          <a class="details" href="/panel/petra/visitas?token={{ token }}">Details ↗</a>
-        </div>
-      </div>
-    </div>
+{# ─── 1. AGENTES ───────────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head">
+    <div class="lhs"><span class="ic">💼</span><h2>Agentes Petra</h2></div>
+    <a class="more" href="/panel/petra/v2/agentes?token={{ token }}">Ver todas →</a>
   </div>
-
-  <!-- CENTER: chart -->
-  <div class="chart-card">
-    <div class="ch-head">
-      <h3>Interacciones del bot</h3>
-      <span class="menu">⋯</span>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Total</div>
+      <div class="val neutral">{{ kpis.get('agentes_total', 0) }}</div>
+      <div class="foot">+{{ kpis.get('agentes_nuevas_7d', kpis.get('agentes_7d', 0)) }} esta semana</div>
     </div>
-    <div class="big-n">
-      {{ total_14d }}
-      <span class="pill">▲ mensajes 14d</span>
+    <div class="kpi">
+      <div class="lab">Activas</div>
+      <div class="val ok">{{ kpis.get('agentes_activas', 0) }}</div>
+      <div class="foot">QR instalado + operando</div>
     </div>
-    <div class="legend">
-      <span><span class="dot" style="background:#e5e7eb"></span>Entrantes</span>
-      <span><span class="dot" style="background:#f97316"></span>Salientes</span>
+    <div class="kpi">
+      <div class="lab">En capacitación</div>
+      <div class="val">{{ kpis.get('agentes_capacitacion', 0) }}</div>
+      <div class="foot">viendo videos / esperando</div>
     </div>
-    <div class="chart-wrap"><canvas id="profitChart"></canvas></div>
-  </div>
-
-  <!-- RIGHT: gauge + sales overview will be in a separate block -->
-  <div class="right-col">
-    <div class="gauge-card">
-      <div class="g-head">
-        <h3>Salud del bot</h3>
-        <span class="menu">⋯</span>
-      </div>
-      {% set pct = salud_pct if salud_pct is not none else 0 %}
-      <div class="gauge-vis">
-        <!-- Pill flotante con el % -->
-        {% if salud_pct is not none %}
-        <div class="pct-float">● {{ salud_pct }}%</div>
-        {% endif %}
-
-        <!-- Gauge segmentado: 20 arcos dibujados por JS abajo -->
-        <svg viewBox="0 0 300 180">
-          <g id="gaugeSegs"></g>
-
-          <!-- Centro: número grande -->
-          <foreignObject x="0" y="80" width="300" height="80">
-            <div xmlns="http://www.w3.org/1999/xhtml" style="text-align:center">
-              <div style="font-size:34px;font-weight:700;letter-spacing:-0.6px;line-height:1;color:var(--text)">{{ salud_pct if salud_pct is not none else '—' }}{% if salud_pct is not none %}%{% endif %}</div>
-              <div style="font-size:12px;color:var(--text-sub);margin-top:5px">
-                {% if salud_pct is not none and salud_pct >= 95 %}Excelente{% elif salud_pct is not none and salud_pct >= 80 %}Estable{% elif salud_pct is not none %}Degradado{% else %}Sin datos{% endif %}
-              </div>
-            </div>
-          </foreignObject>
-        </svg>
-      </div>
-      <div class="gauge-foot">
-        <div class="mini-stat">
-          <div class="lab">⚡ Latencia p95</div>
-          <div class="num">{{ p95 if p95 else '—' }}{% if p95 %} ms{% endif %}</div>
-        </div>
-        <div class="mini-stat">
-          <div class="lab">💬 Eventos</div>
-          <div class="num">{{ total_eventos if total_eventos else 0 }}
-            {% if salud_pct is not none and salud_pct >= 95 %}<span class="pp">↑ ok</span>{% endif %}
-          </div>
-        </div>
-      </div>
+    <div class="kpi">
+      <div class="lab">Autorización + Kit</div>
+      <div class="val warn">{{ kpis.get('agentes_autorizando', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Pausadas / rechazadas</div>
+      <div class="val err">{{ kpis.get('agentes_pausadas', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Tasa inscripción</div>
+      <div class="val ok">{{ kpis.get('tasa_inscripcion_pct', 0) }}<span class="pct">%</span></div>
     </div>
   </div>
 </div>
 
-<!-- Bottom: actividad reciente + sales overview -->
-<div class="bot-grid">
-  <div class="orders-card">
-    <div class="oc-head">
-      <div>
-        <h3>Actividad reciente</h3>
-        <div style="color:var(--text-sub);font-size:12px">Últimos mensajes del bot</div>
-      </div>
-      <div class="ctrls">
-        <div class="search-box">🔍 <input type="text" placeholder="Buscar" disabled></div>
-        <div class="search-box" style="cursor:pointer">▽ Filter</div>
-      </div>
-    </div>
-    {% if actividad %}
-    <table class="table-x">
-      <thead>
-        <tr>
-          <th>Hora</th>
-          <th>Contacto</th>
-          <th>Resumen</th>
-          <th>Tipo</th>
-          <th>Dirección</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for a in actividad %}
-        <tr>
-          <td>
-            <div style="font-weight:500">{{ a.fecha }}</div>
-            <div style="color:var(--text-sub);font-size:11px">{{ a.dia }}</div>
-          </td>
-          <td>
-            <div class="msg-cell">
-              <div class="msg-thumb">{% if a.dir == 'in' %}📥{% else %}📤{% endif %}</div>
-              <div>
-                <div style="font-weight:500">+{{ a.telefono[-10:] if a.telefono else '—' }}</div>
-                <div style="color:var(--text-sub);font-size:11px">{{ a.tipo }}</div>
-              </div>
-            </div>
-          </td>
-          <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.resumen }}</td>
-          <td style="color:var(--text-sub)">{{ a.tipo }}</td>
-          <td><span class="status-pill {{ a.dir }}">{{ 'IN' if a.dir == 'in' else 'OUT' }}</span></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <div class="empty">Sin actividad reciente.</div>
-    {% endif %}
+{# ─── 2. OFERTA ──────────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head">
+    <div class="lhs"><span class="ic">🏢</span><h2>Oferta (inventario)</h2></div>
+    <a class="more" href="/panel/petra/v2/oferta?token={{ token }}">Ver propietarios →</a>
   </div>
-
-  <div class="so-card">
-    <h3>Distribución por conjunto</h3>
-    <div class="so-sub">Inmuebles activos</div>
-    {% if conjuntos_pct %}
-    <div class="so-pct-row">
-      {% set colors = ['#7c5cff', '#60a5fa', '#f97316'] %}
-      {% for c in conjuntos_pct[:3] %}
-      <div class="so-pct" style="--d: {{ colors[loop.index0] }}">
-        <span class="lab">{{ c.nombre[:12] }}</span>
-        <span class="n">{{ c.pct }}%</span>
-      </div>
-      {% endfor %}
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Edificios</div>
+      <div class="val neutral">{{ kpis.get('conjuntos_total', 0) }}</div>
+      <div class="foot">+{{ kpis.get('conjuntos_7d', 0) }} esta semana</div>
     </div>
-    <div class="barcode-row">
-      {% for c in conjuntos_pct[:3] %}
-      <div class="barcode">
-        {% for _ in range(c.pct // 3 + 1) %}
-          <div class="b" style="--c: {{ colors[loop.index0] if loop.index0 < 3 else '#e5e7eb' }}; --op: {{ (loop.index0 % 3 + 2) / 4 }}"></div>
-        {% endfor %}
-        {% set rest = 33 - (c.pct // 3 + 1) %}
-        {% if rest > 0 %}
-        {% for _ in range(rest) %}
-          <div class="b" style="--c: var(--bg); --op: 1"></div>
-        {% endfor %}
-        {% endif %}
-      </div>
-      {% endfor %}
+    <div class="kpi">
+      <div class="lab">Inmuebles activos</div>
+      <div class="val neutral">{{ kpis.get('inmuebles_vis_activos', 0) }}</div>
+      <div class="foot">+{{ kpis.get('inmuebles_vis_7d', 0) }} esta semana</div>
     </div>
-    {% endif %}
-    {% if top_inmuebles %}
-    <div style="font-size:11.5px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Top inmuebles</div>
-    <div class="so-list">
-      {% for i in top_inmuebles %}
-      <div class="row">
-        <span class="emoji">{% if i.operacion == 'arriendo' %}🏠{% else %}💰{% endif %}</span>
-        <span class="name">{{ i.nombre[:18] }}</span>
-        <span class="pct">{{ i.conjunto[:10] }}</span>
-        <span class="ern">${{ i.precio_fmt }}</span>
-      </div>
-      {% endfor %}
+    <div class="kpi">
+      <div class="lab">Arriendo</div>
+      <div class="val neutral">{{ kpis.get('inmuebles_vis_arr', 0) }}</div>
     </div>
-    {% endif %}
-    {% if not conjuntos_pct and not top_inmuebles %}
-    <div class="empty">Sin datos.</div>
-    {% endif %}
+    <div class="kpi">
+      <div class="lab">Venta</div>
+      <div class="val neutral">{{ kpis.get('inmuebles_vis_ven', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">💜 Petra gestiona</div>
+      <div class="val">{{ kpis.get('inmuebles_vis_petra', 0) }}</div>
+    </div>
   </div>
 </div>
 
-<!-- SVG pattern for hatched bars + gauge segment generator -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
-<script>
-(function() {
-  // ---- Gauge segmentado (20 arcos) --------------------------------
-  const svgNS = "http://www.w3.org/2000/svg";
-  const grp = document.getElementById('gaugeSegs');
-  if (grp) {
-    const segments = 20;
-    const pct = {{ salud_pct if salud_pct is not none else 0 }};
-    const filled = Math.round(segments * pct / 100);
-    const cx = 150, cy = 160;
-    const rOuter = 115, rInner = 85;
-    const startAngle = 180;  // izquierda
-    const endAngle = 360;    // derecha
-    const totalSpan = endAngle - startAngle;
-    const segAngle = totalSpan / segments;
-    const gap = 1.5;  // deg gap entre segmentos
+{# ─── 3. DEMANDA ───────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head">
+    <div class="lhs"><span class="ic">👀</span><h2>Demanda (visitantes)</h2></div>
+    <a class="more" href="/panel/petra/v2/buscadores?token={{ token }}">Ver buscadores →</a>
+  </div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Solicitudes QR (24h)</div>
+      <div class="val neutral">{{ kpis.get('interesados_qr_24h', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Solicitudes QR (7d)</div>
+      <div class="val neutral">{{ kpis.get('interesados_qr_7d', 0) }}</div>
+      <div class="foot">{{ kpis.get('interesados_qr_total', 0) }} total</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Pedidos contacto (7d)</div>
+      <div class="val neutral">{{ kpis.get('solicitudes_7d', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Inmuebles por solicitud</div>
+      <div class="val neutral">{{ kpis.get('interesados_avg_items', 0) }}</div>
+      <div class="foot">promedio 30d · multi-select</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Interesados únicos (7d)</div>
+      <div class="val neutral">{{ kpis.get('visitante_contactos_7d', 0) }}</div>
+    </div>
+  </div>
+</div>
 
-    for (let i = 0; i < segments; i++) {
-      const a0 = startAngle + i * segAngle + gap/2;
-      const a1 = startAngle + (i + 1) * segAngle - gap/2;
-      const r0 = (a0 * Math.PI) / 180;
-      const r1 = (a1 * Math.PI) / 180;
-      const x0o = cx + rOuter * Math.cos(r0);
-      const y0o = cy + rOuter * Math.sin(r0);
-      const x1o = cx + rOuter * Math.cos(r1);
-      const y1o = cy + rOuter * Math.sin(r1);
-      const x0i = cx + rInner * Math.cos(r0);
-      const y0i = cy + rInner * Math.sin(r0);
-      const x1i = cx + rInner * Math.cos(r1);
-      const y1i = cy + rInner * Math.sin(r1);
+{# ─── 4. BOT ───────────────────────────────────────── #}
+<div class="section">
+  <div class="section-head">
+    <div class="lhs"><span class="ic">💬</span><h2>Bot (conversaciones 24h)</h2></div>
+  </div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">Mensajes IN</div>
+      <div class="val neutral">{{ kpis.get('msgs_in_24h', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Mensajes OUT</div>
+      <div class="val neutral">{{ kpis.get('msgs_out_24h', 0) }}</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Tasa de fallo</div>
+      <div class="val {% if kpis.get('msgs_failed_24h_pct', 0) >= 10 %}err{% elif kpis.get('msgs_failed_24h_pct', 0) > 0 %}warn{% else %}ok{% endif %}">
+        {{ kpis.get('msgs_failed_24h_pct', 0) }}<span class="pct">%</span>
+      </div>
+      <div class="foot">{{ kpis.get('msgs_failed_24h', 0) }} failed</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">LLM requests</div>
+      <div class="val neutral">{{ kpis.get('llm_requests_24h', 0) }}</div>
+      <div class="foot">{{ kpis.get('llm_latencia_promedio_ms', 0) }} ms avg · {{ kpis.get('llm_errores_24h', 0) }} errores</div>
+    </div>
+  </div>
+</div>
 
-      const d = [
-        `M ${x0o} ${y0o}`,
-        `A ${rOuter} ${rOuter} 0 0 1 ${x1o} ${y1o}`,
-        `L ${x1i} ${y1i}`,
-        `A ${rInner} ${rInner} 0 0 0 ${x0i} ${y0i}`,
-        `Z`
-      ].join(' ');
+{# ─── 5. MARKETING ───────────────────────────────────── #}
+<div class="section">
+  <div class="section-head">
+    <div class="lhs"><span class="ic">📣</span><h2>Marketing (crecimiento últimos 7d)</h2></div>
+  </div>
+  <div class="grid">
+    <div class="kpi">
+      <div class="lab">QR scans únicos</div>
+      <div class="val neutral">{{ kpis.get('qr_scans_7d', 0) }}</div>
+      <div class="foot">visitantes que escanearon un QR</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Usuarios nuevos</div>
+      <div class="val neutral">{{ kpis.get('usuarios_nuevos_7d', 0) }}</div>
+      <div class="foot">altas en petra_contactos</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Agentes nuevas</div>
+      <div class="val neutral">{{ kpis.get('agentes_nuevas_7d', 0) }}</div>
+      <div class="foot">altas rol agente_petra</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Inmuebles publicados</div>
+      <div class="val neutral">{{ kpis.get('inmuebles_vis_7d', 0) }}</div>
+      <div class="foot">altas en inmuebles_visitante</div>
+    </div>
+    <div class="kpi">
+      <div class="lab">Edificios nuevos</div>
+      <div class="val neutral">{{ kpis.get('conjuntos_7d', 0) }}</div>
+    </div>
+  </div>
+</div>
 
-      const path = document.createElementNS(svgNS, 'path');
-      path.setAttribute('d', d);
-      if (i < filled) {
-        // Gradient de verde claro (izq) a verde oscuro (centro/derecha)
-        const t = i / Math.max(segments - 1, 1);
-        const lightness = 70 - t * 30;  // 70% → 40%
-        path.setAttribute('fill', `hsl(142, 71%, ${lightness}%)`);
-      } else {
-        path.setAttribute('fill', '#e5e7eb');
-      }
-      grp.appendChild(path);
-    }
-  }
+{# ─── 6. SALUD DEL SISTEMA ────────────────────────────── #}
+<div class="section">
+  <div class="section-head">
+    <div class="lhs"><span class="ic">🫀</span><h2>Salud del sistema</h2></div>
+    <a class="more" href="/panel/petra/v2/salud?token={{ token }}">Ver detalle →</a>
+  </div>
 
-  // ---- Chart: barras con hatched + barra destacada --------------
-  const data = {{ chart_json|safe }};
-  const ctx = document.getElementById('profitChart');
-  if (!ctx || !window.Chart) return;
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  const txtColor = isDark ? '#9099a8' : '#656d76';
-  const gridCol = isDark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.04)';
+  <div class="salud-card {{ salud_estado }}">
+    <div class="salud-dot">
+      {% if salud_estado == 'ok' %}✅{% elif salud_estado == 'warn' %}⚠️{% else %}🔴{% endif %}
+    </div>
+    <div class="salud-body">
+      <h3>{{ salud_mensaje }}</h3>
+      <p>{{ checks|length }} componentes monitoreados</p>
+      <a class="ver" href="/panel/petra/v2/salud?token={{ token }}">Ver componentes →</a>
+    </div>
+  </div>
 
-  // Crear pattern hatched canvas-native para las barras IN (gris con rayas)
-  function makeHatchPattern(color) {
-    const c = document.createElement('canvas');
-    c.width = 8; c.height = 8;
-    const g = c.getContext('2d');
-    g.strokeStyle = color; g.lineWidth = 1;
-    g.beginPath();
-    g.moveTo(0, 8); g.lineTo(8, 0);
-    g.moveTo(-2, 2); g.lineTo(2, -2);
-    g.moveTo(6, 10); g.lineTo(10, 6);
-    g.stroke();
-    return ctx.getContext('2d').createPattern(c, 'repeat');
-  }
-
-  const hatch = makeHatchPattern(isDark ? '#3b4252' : '#d1d5db');
-
-  // Encontrar índice del máximo (SALIENTES) para destacar
-  const outs = data.mensajes_out;
-  let maxIdx = 0, maxVal = -1;
-  outs.forEach((v, i) => { if (v > maxVal) { maxVal = v; maxIdx = i; } });
-
-  // Colorear la barra destacada con naranja sólido
-  const outColors = outs.map((_, i) => i === maxIdx ? '#f97316' : (isDark ? '#4b5563' : '#e5e7eb'));
-
-  new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: data.labels,
-      datasets: [
-        {
-          label: 'Entrantes',
-          data: data.mensajes_in,
-          backgroundColor: hatch,
-          borderColor: isDark ? '#3b4252' : '#d1d5db',
-          borderWidth: 0,
-          borderRadius: 4,
-          barPercentage: 0.7,
-          categoryPercentage: 0.6,
-        },
-        {
-          label: 'Salientes',
-          data: outs,
-          backgroundColor: outColors,
-          borderRadius: 4,
-          barPercentage: 0.7,
-          categoryPercentage: 0.6,
-        },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: isDark ? '#161b22' : '#1a1d29',
-          titleColor: '#fff', bodyColor: '#fff',
-          borderColor: isDark ? '#2a3140' : '#1a1d29',
-          borderWidth: 0, padding: 10, cornerRadius: 8,
-          displayColors: true,
-        },
-      },
-      scales: {
-        x: { grid: { display: false, drawBorder: false },
-             ticks: { color: txtColor, font: { size: 11 } } },
-        y: { grid: { color: gridCol, drawBorder: false },
-             ticks: { color: txtColor, font: { size: 11 },
-                      callback: v => v >= 1000 ? (v/1000)+'k' : v },
-             beginAtZero: true },
-      },
-    },
-  });
-})();
-</script>
+  {% if checks %}
+  <div class="components-row">
+    {% for c in checks %}
+    <div class="component-pill">
+      <span class="status-dot {{ c.status }}"></span>
+      <span class="nm">{{ c.nombre }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
 
 {% endblock %}
