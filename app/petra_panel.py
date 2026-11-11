@@ -3815,6 +3815,56 @@ def visitante_inmueble_toggle_inmobiliaria(iid):
                             cid=cid_conj, token=token, flash="inmob_toggled"))
 
 
+@petra_panel_bp.get("/v2/demanda")
+def panel_v2_demanda():
+    """v2: Demanda — interesados que llegaron vía QR y pidieron contacto."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    conj_filtro = (request.args.get("conjunto") or "").strip()
+    estado_filtro = (request.args.get("estado") or "").strip()
+    where = []
+    params = []
+    if conj_filtro.isdigit():
+        where.append("i.conjunto_id = %s")
+        params.append(int(conj_filtro))
+    if estado_filtro in ("enviado", "respondido", "cerrado"):
+        where.append("i.estado = %s")
+        params.append(estado_filtro)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    with _db._conexion_directa(timeout=10) as conn:
+        rows = _rows(conn,
+            "SELECT i.id, i.creado_en, i.interesado_telefono, "
+            "       i.interesado_nombre, i.interesado_username, "
+            "       i.conjunto_id, cv.codigo AS conjunto_codigo, "
+            "       cv.nombre AS conjunto_nombre, i.inmueble_ids, "
+            "       i.estado, i.actualizado_en, "
+            "       (SELECT array_agg(iv.nro ORDER BY iv.nro) "
+            "          FROM inmuebles_visitante iv "
+            "         WHERE iv.id = ANY(i.inmueble_ids)) AS inmueble_nros "
+            "  FROM petra_interesados_qr i "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = i.conjunto_id "
+            + where_sql +
+            " ORDER BY i.creado_en DESC LIMIT 500",
+            tuple(params))
+        conjuntos = _rows(conn,
+            "SELECT id, codigo, nombre FROM conjuntos_visitante "
+            " WHERE id IN (SELECT DISTINCT conjunto_id FROM petra_interesados_qr "
+            "              WHERE conjunto_id IS NOT NULL) "
+            " ORDER BY codigo")
+    # Contadores por estado
+    n_total = len(rows)
+    n_enviado = sum(1 for r in rows if r.get("estado") == "enviado")
+    n_respondido = sum(1 for r in rows if r.get("estado") == "respondido")
+    n_cerrado = sum(1 for r in rows if r.get("estado") == "cerrado")
+    return render_template(
+        "petra_panel_v2_demanda.html",
+        interesados=rows, conjuntos=conjuntos, token=token,
+        conj_filtro=conj_filtro, estado_filtro=estado_filtro,
+        n_total=n_total, n_enviado=n_enviado,
+        n_respondido=n_respondido, n_cerrado=n_cerrado,
+    )
+
+
 @petra_panel_bp.get("/visitante/interesados")
 def visitante_interesados_vista():
     """Dashboard de interesados que llegaron vía el QR, usaron el Flow
