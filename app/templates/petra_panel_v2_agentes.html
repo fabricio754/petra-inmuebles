@@ -1,0 +1,221 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'agentes' %}
+{% block title %}Agentes · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px 20px;
+    cursor: pointer; transition: all 150ms ease;
+    display: flex; flex-direction: column;
+  }
+  .stat:hover { border-color: var(--accent); }
+  .stat .lab {
+    font-size: 12.5px; color: var(--text-sub); font-weight: 500;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .stat .ic {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--bg); display: inline-flex;
+    align-items: center; justify-content: center; font-size: 13px;
+  }
+  .stat .val { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .filter-bar {
+    padding: 16px 22px; border-bottom: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  }
+  .filter-bar input[type="search"], .filter-bar select {
+    padding: 7px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px;
+    background: var(--panel); color: var(--text);
+    font-family: inherit;
+  }
+  .filter-bar input[type="search"] { min-width: 220px; }
+  .count-badge {
+    margin-left: auto; font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+  .btn {
+    padding: 7px 12px; border: 1px solid var(--border);
+    background: var(--panel); border-radius: 8px;
+    font-size: 12.5px; cursor: pointer; font-family: inherit;
+    color: var(--text);
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* Chips de estados (kanban-like) */
+  .chips {
+    padding: 14px 22px 4px; display: flex; flex-wrap: wrap; gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--bg); color: var(--text-sub);
+    font-size: 12px; font-weight: 500;
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .chip:hover { color: var(--text); }
+  .chip.on { background: #d9f99d; color: #1a2e05; border-color: #d9f99d; font-weight: 600; }
+  :root[data-theme="dark"] .chip.on { background: #365314; color: #d9f99d; border-color: #365314; }
+  .chip .n {
+    background: var(--panel); padding: 1px 7px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+  }
+  .chip.on .n { background: rgba(0,0,0,.1); }
+
+  .table-x { width: 100%; border-collapse: collapse; }
+  .table-x th {
+    text-align: left; font-size: 11px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  }
+  .table-x td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  .table-x tr:last-child td { border-bottom: none; }
+  .tel-col { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 12.5px; }
+
+  .state-pill {
+    display: inline-flex; padding: 3px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+    background: #efeaff; color: #6a4ae8;
+  }
+  .state-pill.activa      { background: #dcfce7; color: #166534; }
+  .state-pill.pausada     { background: #fee2e2; color: #991b1b; }
+  .state-pill.certificado { background: #fef3c7; color: #92400e; }
+  :root[data-theme="dark"] .state-pill          { background: #241f3d; color: #a78bfa; }
+  :root[data-theme="dark"] .state-pill.activa   { background: #052e1a; color: #4ade80; }
+  :root[data-theme="dark"] .state-pill.pausada  { background: #3f0a0a; color: #fca5a5; }
+  :root[data-theme="dark"] .state-pill.certificado { background: #2d2410; color: #fbbf24; }
+
+  .num-chip {
+    background: var(--bg); padding: 2px 9px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+  }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Agentes</h1>
+    <div class="sub">Agentes Petra en capacitación y en operación</div>
+  </div>
+</div>
+
+<div class="stats-row">
+  <a class="stat" href="?token={{ token }}">
+    <div class="lab"><span>Total</span><span class="ic">💜</span></div>
+    <div class="val">{{ n_total }}</div>
+  </a>
+  <div class="stat">
+    <div class="lab"><span>Inscripción</span><span class="ic">📝</span></div>
+    <div class="val">{{ n_insc }}</div>
+  </div>
+  <div class="stat">
+    <div class="lab"><span>Capacitación</span><span class="ic">🎓</span></div>
+    <div class="val">{{ n_cap }}</div>
+  </div>
+  <div class="stat">
+    <div class="lab"><span>Activas / Certificadas</span><span class="ic">✅</span></div>
+    <div class="val">{{ n_activas }}</div>
+  </div>
+</div>
+
+<div class="main-card">
+  <div class="filter-bar">
+    <form method="get" action="" style="display:inline-flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="estado" value="{{ estado }}">
+      <input type="search" name="q" value="{{ q }}" placeholder="Buscar por nombre o teléfono…">
+      <button type="submit" class="btn primary">Buscar</button>
+      {% if estado or q %}
+      <a class="btn" href="?token={{ token }}">Limpiar</a>
+      {% endif %}
+    </form>
+    <span class="count-badge">{{ agentes|length }} resultados</span>
+  </div>
+
+  <div class="chips">
+    <a class="chip {% if not estado %}on{% endif %}" href="?token={{ token }}&q={{ q }}">
+      Todos <span class="n">{{ n_total }}</span>
+    </a>
+    {% for r in resumen %}
+    <a class="chip {% if estado == r.estado %}on{% endif %}" href="?token={{ token }}&q={{ q }}&estado={{ r.estado }}">
+      {{ r.label }} <span class="n">{{ r.count }}</span>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if agentes %}
+  <table class="table-x">
+    <thead>
+      <tr>
+        <th>Agente</th>
+        <th>Teléfono</th>
+        <th>Ciudad</th>
+        <th>Estado</th>
+        <th>Edificios / Inmuebles</th>
+        <th>Último IN</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in agentes %}
+      <tr>
+        <td>
+          <div style="font-weight:600">{{ a.nombre or a.username or '—' }}</div>
+          {% if a.origen %}<div style="font-size:11px;color:var(--muted)">origen: {{ a.origen }}</div>{% endif %}
+        </td>
+        <td class="tel-col">
+          <a href="/panel/petra/agente/{{ a.contacto_id }}?token={{ token }}"
+             style="color:var(--accent)">{{ a.telefono }}</a>
+        </td>
+        <td style="color:var(--text-sub)">{{ a.ciudad or '—' }}</td>
+        <td>
+          {% set est = a.estado_agente or '—' %}
+          <span class="state-pill {{ est }}">{{ labels.get(est, est) }}</span>
+          {% if a.bot_pausado == 'true' %}
+            <span class="state-pill pausada" style="margin-left:4px">⏸ bot</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="num-chip">🏢 {{ a.n_edificios }}</span>
+          <span class="num-chip">🏠 {{ a.n_inmuebles }}</span>
+        </td>
+        <td style="color:var(--text-sub);font-size:12px">
+          {% if a.ultimo_in %}{{ a.ultimo_in.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}
+        </td>
+        <td>
+          <a class="btn" href="/panel/petra/agente/{{ a.contacto_id }}?token={{ token }}">Ficha →</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:30px;margin-bottom:8px">💜</div>
+    <div>Sin agentes con esos filtros.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
