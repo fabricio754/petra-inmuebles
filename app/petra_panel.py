@@ -3041,8 +3041,9 @@ def _fmt_precio_cop(valor):
 
 @petra_panel_bp.get("/v2")
 def panel_v2_home():
-    """Dashboard v2 — Fase 2 polish: stat cards con delta, chart real,
-    distribución de agentes."""
+    """Dashboard unificado v2 — KPIs agrupados en 6 secciones:
+    Agentes / Oferta / Demanda / Bot / Marketing / Salud del sistema.
+    Reusa _metricas_piloto() + _run_checks() + chart 14d mensajes."""
     _check_token()
     token = (request.args.get("token") or "").strip()
 
@@ -3223,6 +3224,43 @@ def panel_v2_home():
         import logging as _lg
         _lg.getLogger(__name__).exception("[panel_v2] stats query fallo (no crítico)")
 
+    # ---- KPIs por sección (reusa _metricas_piloto + growth numbers) ----
+    kpis = {}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            kpis = _metricas_piloto(conn)
+            # Growth / marketing extras
+            def _one(sql, params=()):
+                try:
+                    r = conn.execute(sql, params).fetchone()
+                    return (r[0] if r else 0) or 0
+                except Exception:
+                    return 0
+            kpis["agentes_nuevas_7d"] = _one(
+                "SELECT COUNT(*) FROM petra_contacto_roles "
+                "WHERE rol='agente_petra' AND created_at > NOW() - INTERVAL '7 days'")
+            kpis["usuarios_nuevos_7d"] = _one(
+                "SELECT COUNT(*) FROM petra_contactos "
+                "WHERE created_at > NOW() - INTERVAL '7 days'")
+            kpis["qr_scans_7d"] = _one(
+                "SELECT COUNT(DISTINCT pc.id) FROM petra_contactos pc "
+                "WHERE pc.meta->>'visitante_conjunto_id' IS NOT NULL "
+                "  AND pc.created_at > NOW() - INTERVAL '7 days'")
+            kpis["solicitudes_7d"] = _one(
+                "SELECT COUNT(*) FROM visitante_contactos "
+                "WHERE created_at > NOW() - INTERVAL '7 days'")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] kpis fallo")
+
+    # ---- Salud componentes (resumen) ----
+    try:
+        checks = _run_checks()
+        salud_estado, salud_mensaje = _global_status(checks)
+    except Exception:
+        checks = []
+        salud_estado, salud_mensaje = "warn", "No se pudo verificar"
+
     import json as _json
     total_14d = sum(chart["mensajes_in"]) + sum(chart["mensajes_out"])
     _salud = locals().get("salud") or {"pct": None, "p95": None, "total": 0}
@@ -3230,6 +3268,7 @@ def panel_v2_home():
     _topi = locals().get("top_inmuebles") or []
     return render_template("petra_panel_v2_home.html",
                            token=token, stats=stats,
+                           kpis=kpis,
                            chart_json=_json.dumps(chart),
                            distribucion=distribucion,
                            actividad=actividad,
@@ -3238,7 +3277,18 @@ def panel_v2_home():
                            p95=_salud["p95"],
                            total_eventos=_salud["total"],
                            conjuntos_pct=_cpct,
-                           top_inmuebles=_topi)
+                           top_inmuebles=_topi,
+                           checks=checks,
+                           salud_estado=salud_estado,
+                           salud_mensaje=salud_mensaje)
+
+
+# /v2/metricas ahora redirige al dashboard unificado (ya no es página aparte)
+@petra_panel_bp.get("/v2/metricas-legacy")
+def panel_v2_metricas_legacy():
+    """Legacy: queda solo por si algún link viejo apunta aquí."""
+    return redirect(url_for("petra_panel.panel_v2_home",
+                            token=request.args.get("token", "")))
 
 
 @petra_panel_bp.get("/v2/inmuebles")
@@ -4436,18 +4486,9 @@ def panel_v2_contenidos():
 
 @petra_panel_bp.get("/v2/metricas")
 def panel_v2_metricas():
-    """v2: Métricas completas del piloto (reusa _metricas_piloto)."""
-    _check_token()
-    token = (request.args.get("token") or "").strip()
-    try:
-        with _db._conexion_directa(timeout=12) as conn:
-            kpis = _metricas_piloto(conn)
-    except Exception as e:
-        kpis = {"_error": str(e)}
-    return render_template(
-        "petra_panel_v2_metricas.html",
-        kpis=kpis, token=token,
-    )
+    """Alias: /v2 ya unifica Dashboard + Métricas."""
+    return redirect(url_for("petra_panel.panel_v2_home",
+                            token=request.args.get("token", "")))
 
 
 @petra_panel_bp.get("/v2/salud")
