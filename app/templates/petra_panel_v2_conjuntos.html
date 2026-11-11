@@ -1,0 +1,179 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'conjuntos' %}
+{% block title %}Conjuntos · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  details { margin-bottom: 20px; }
+  details > summary {
+    list-style: none; cursor: pointer; padding: 10px 0;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 15px; font-weight: 600; color: var(--accent);
+  }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before { content: "▸"; transition: transform 150ms; }
+  details[open] > summary::before { transform: rotate(90deg); }
+
+  .embudo-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 14px; margin-top: 14px;
+  }
+  .embudo-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px;
+  }
+  .embudo-card h4 { margin: 0 0 12px; font-size: 13.5px; font-weight: 600; }
+  .embudo-card h4 .cnt { color: var(--text-sub); font-weight: 400; font-size: 12px; }
+  .step { margin-bottom: 8px; }
+  .step .top { display: flex; justify-content: space-between; margin-bottom: 3px;
+               font-size: 12px; color: var(--text); }
+  .step .top .n { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text); }
+  .bar { height: 7px; background: var(--bg); border-radius: 999px; overflow: hidden; }
+  .bar .fill { height: 100%; background: #3b82f6; border-radius: 999px; }
+  .embudo-card .link {
+    margin-top: 10px; font-size: 12px; color: var(--accent);
+    display: inline-block;
+  }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .card-head {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count-badge {
+    font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .table-x { width: 100%; border-collapse: collapse; }
+  .table-x th {
+    text-align: left; font-size: 11px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  }
+  .table-x td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  .table-x tr:last-child td { border-bottom: none; }
+
+  .code-col {
+    font-family: ui-monospace, Menlo, monospace; font-weight: 700;
+    font-size: 12.5px;
+  }
+  .tag {
+    display: inline-flex; padding: 2px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; margin-right: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tag.arr { background: #dbeafe; color: #1d4ed8; }
+  .tag.ven { background: #fef3c7; color: #92400e; }
+  :root[data-theme="dark"] .tag.arr { background: #0a1f3d; color: #60a5fa; }
+  :root[data-theme="dark"] .tag.ven { background: #2d2410; color: #fbbf24; }
+
+  .row-actions { display: flex; gap: 6px; }
+  .btn-row {
+    padding: 5px 11px; border: 1px solid var(--border);
+    background: var(--panel); border-radius: 6px;
+    font-size: 11.5px; cursor: pointer; font-family: inherit;
+    color: var(--text); text-decoration: none; display: inline-block;
+  }
+  .btn-row:hover { border-color: var(--accent); }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Conjuntos</h1>
+    <div class="sub">Edificios registrados en el flujo visitante QR</div>
+  </div>
+  <div style="font-size:12px;color:var(--text-sub)">
+    <strong style="color:var(--text);font-size:14px">{{ conjuntos|length }}</strong> total ·
+    <strong style="color:var(--text);font-size:14px">{{ activos|length }}</strong> con inmuebles
+  </div>
+</div>
+
+{% if activos %}
+<details open>
+  <summary>📊 Embudo por conjunto ({{ activos|length }} activos)</summary>
+  <div class="embudo-grid">
+    {% for c in activos %}
+    {% set total = c.act %}
+    <div class="embudo-card">
+      <h4>{{ c.nombre }} <span class="cnt">· {{ total }} inmueble(s)</span></h4>
+      {% for lbl, n in [('Confirmados', c.n_conf), ('Bienvenida', c.n_bv),
+                        ('Ofrecer Petra', c.n_op), ('Crédito', c.n_cr),
+                        ('Mandato', c.n_mn)] %}
+      {% set pct = (n * 100 / total)|int if total else 0 %}
+      <div class="step">
+        <div class="top"><span>{{ lbl }}</span><span class="n">{{ n }}</span></div>
+        <div class="bar"><div class="fill" style="width:{{ pct }}%"></div></div>
+      </div>
+      {% endfor %}
+      <a class="link" href="/panel/petra/visitante/conjuntos/{{ c.id }}/inmuebles?token={{ token }}">
+        👉 Ver inmuebles
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+<div class="main-card">
+  <div class="card-head">
+    <h3>Conjuntos registrados</h3>
+    <span class="count-badge">{{ conjuntos|length }} total</span>
+  </div>
+
+  {% if conjuntos %}
+  <table class="table-x">
+    <thead>
+      <tr>
+        <th>Código</th>
+        <th>Nombre</th>
+        <th>Ciudad</th>
+        <th>Inmuebles activos</th>
+        <th>Creado</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in conjuntos %}
+      <tr>
+        <td class="code-col">{{ c.codigo }}</td>
+        <td style="font-weight:500">{{ c.nombre }}</td>
+        <td style="color:var(--text-sub)">{{ c.ciudad or '—' }}</td>
+        <td>
+          <span class="tag arr">Arr {{ c.arr_activos }}</span>
+          <span class="tag ven">Ven {{ c.ven_activos }}</span>
+        </td>
+        <td style="color:var(--text-sub);font-size:12px">
+          {% if c.creado_en %}{{ c.creado_en.strftime('%Y-%m-%d') }}{% else %}—{% endif %}
+        </td>
+        <td>
+          <div class="row-actions">
+            <a class="btn-row" href="/panel/petra/visitante/conjuntos/{{ c.id }}/inmuebles?token={{ token }}">Ver inmuebles</a>
+            <a class="btn-row" href="/panel/petra/visitante/conjuntos/{{ c.id }}/qr?token={{ token }}">QR</a>
+            <a class="btn-row" href="/panel/petra/visitante?token={{ token }}#editar-{{ c.id }}">Editar</a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:30px;margin-bottom:8px">🏢</div>
+    <div>Aún no hay conjuntos registrados.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
