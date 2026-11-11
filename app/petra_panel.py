@@ -5500,14 +5500,18 @@ def _texto_confirmar_datos(inm):
 
 
 def _texto_bienvenida(inm):
-    """Mensaje ② — Fabricio dando bienvenida + video (lo adjunta a mano)."""
+    """Mensaje ② — Fabricio dando bienvenida + video (lo adjunta a mano).
+
+    El video se adjunta ARRIBA del texto en WhatsApp, por eso usamos
+    👆 (mano hacia arriba) al final.
+    """
     conjunto = inm.get("conjunto_nombre") or "tu conjunto"
     return (
         f"Hola 👋\n"
         f"Soy Fabricio de *Petra*.\n\n"
         f"Te escribo para contarte que {conjunto} acaba de activar Petra "
         f"para ayudar a los propietarios a vender o arrendar más rápido 🏠\n\n"
-        f"Mirá este video de 1 min y enterate cómo funciona 👇"
+        f"Mirá este video de 1 min y enterate cómo funciona 👆"
     )
 
 
