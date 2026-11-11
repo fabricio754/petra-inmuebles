@@ -4461,6 +4461,78 @@ def panel_v2_agente_ficha(cid):
     return render_template("petra_panel_v2_agente.html", **ctx)
 
 
+@petra_panel_bp.get("/v2/usuario/<tel>")
+def panel_v2_usuario(tel):
+    """v2: Perfil de un usuario del flujo visitante (por teléfono).
+
+    Si el usuario es agente_petra, redirige a /v2/agente/<cid>. Si no,
+    muestra un mini-perfil: datos, inmuebles publicados, solicitudes
+    que hizo, interesados_qr, mensajes recientes.
+    """
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    tel = (tel or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        # 1) ¿Es agente Petra? → redirect a /v2/agente/<cid>
+        row = conn.execute(
+            "SELECT c.id FROM petra_contactos c "
+            "JOIN petra_contacto_roles r ON r.contacto_id = c.id "
+            "WHERE c.telefono = %s AND r.rol = 'agente_petra' LIMIT 1",
+            (tel,)).fetchone()
+        if row:
+            return redirect(url_for("petra_panel.panel_v2_agente_ficha",
+                                    cid=row[0], token=token))
+
+        contacto = _rows(conn,
+            "SELECT id, telefono, nombre, username, email, created_at, "
+            "       updated_at, meta "
+            "  FROM petra_contactos WHERE telefono = %s LIMIT 1", (tel,))
+        contacto = contacto[0] if contacto else None
+
+        inm_pub = _rows(conn,
+            "SELECT i.id, i.nro, i.tipo, i.operacion, i.precio, i.m2, "
+            "       i.activo, i.creado_en, "
+            "       cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre "
+            "  FROM inmuebles_visitante i "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = i.conjunto_id "
+            " WHERE i.propietario_telefono = %s "
+            " ORDER BY i.creado_en DESC LIMIT 100", (tel,))
+        for it in inm_pub:
+            it["precio_fmt"] = _fmt_precio_cop(it.get("precio"))
+
+        pedidos = _rows(conn,
+            "SELECT vc.id, vc.creado_en, vc.inmueble_id, "
+            "       im.nro AS inmueble_nro, im.operacion, im.precio, im.tipo, "
+            "       cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre "
+            "  FROM visitante_contactos vc "
+            "  JOIN inmuebles_visitante im ON im.id = vc.inmueble_id "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = vc.conjunto_id "
+            " WHERE vc.telefono = %s "
+            " ORDER BY vc.creado_en DESC LIMIT 100", (tel,))
+        for p in pedidos:
+            p["precio_fmt"] = _fmt_precio_cop(p.get("precio"))
+
+        interesados_qr = _rows(conn,
+            "SELECT iq.id, iq.creado_en, iq.estado, iq.inmueble_ids, "
+            "       cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre "
+            "  FROM petra_interesados_qr iq "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = iq.conjunto_id "
+            " WHERE iq.interesado_telefono = %s "
+            " ORDER BY iq.creado_en DESC LIMIT 50", (tel,))
+
+        mensajes = _rows(conn,
+            "SELECT direccion, tipo, LEFT(resumen, 180) AS r, fecha "
+            "  FROM mensajes WHERE telefono = %s "
+            " ORDER BY fecha DESC LIMIT 20", (tel,))
+
+    return render_template(
+        "petra_panel_v2_usuario.html",
+        tel=tel, token=token, contacto=contacto,
+        inm_pub=inm_pub, pedidos=pedidos,
+        interesados_qr=interesados_qr, mensajes=mensajes,
+    )
+
+
 @petra_panel_bp.get("/v2/contenidos")
 def panel_v2_contenidos():
     """v2: Contenidos (videos capacitación, bienvenida, etc.)."""

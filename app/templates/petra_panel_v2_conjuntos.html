@@ -117,7 +117,7 @@
         <div class="bar"><div class="fill" style="width:{{ pct }}%"></div></div>
       </div>
       {% endfor %}
-      <a class="link" href="/panel/petra/visitante/conjuntos/{{ c.id }}/inmuebles?token={{ token }}">
+      <a class="link" href="/panel/petra/v2/inmuebles?cid={{ c.id }}&token={{ token }}">
         👉 Ver inmuebles
       </a>
     </div>
@@ -159,9 +159,9 @@
         </td>
         <td>
           <div class="row-actions">
-            <a class="btn-row" href="/panel/petra/visitante/conjuntos/{{ c.id }}/inmuebles?token={{ token }}">Ver inmuebles</a>
-            <a class="btn-row" href="/panel/petra/visitante/conjuntos/{{ c.id }}/qr?token={{ token }}">QR</a>
-            <a class="btn-row" href="/panel/petra/visitante?token={{ token }}#editar-{{ c.id }}">Editar</a>
+            <a class="btn-row" href="/panel/petra/v2/inmuebles?cid={{ c.id }}&token={{ token }}">Ver inmuebles</a>
+            <a class="btn-row" href="/panel/petra/visitante/conjuntos/{{ c.id }}/qr?token={{ token }}" title="QR imprimible (v1)">QR</a>
+            <a class="btn-row" href="/panel/petra/visitante?token={{ token }}#editar-{{ c.id }}" title="Editar conjunto (v1)">Editar</a>
           </div>
         </td>
       </tr>

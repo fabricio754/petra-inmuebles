@@ -1,0 +1,232 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'usuarios' %}
+{% block title %}{{ contacto.nombre if contacto else tel }} · Perfil{% endblock %}
+{% block content %}
+
+<style>
+  .back {
+    color: var(--accent); font-size: 12.5px; text-decoration: none;
+    display: inline-block; margin-bottom: 14px;
+  }
+  .hero {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 22px 26px; margin-bottom: 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 20px;
+  }
+  .hero .ident { display: flex; align-items: center; gap: 16px; }
+  .hero .avatar {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    color: #fff; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700;
+  }
+  .hero h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+  .hero .tel { font-family: ui-monospace, Menlo, monospace; color: var(--text-sub); font-size: 13px; }
+  .wa-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border: 1px solid var(--border);
+    border-radius: 999px; font-size: 12.5px;
+    color: #16a34a; background: var(--panel); text-decoration: none;
+  }
+  .wa-btn:hover { border-color: #16a34a; background: #dcfce7; }
+
+  .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 18px; overflow: hidden;
+  }
+  .card .head {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card .head h3 { margin: 0; font-size: 13.5px; font-weight: 600;
+                   color: var(--text-sub); text-transform: uppercase; letter-spacing: .5px; }
+  .card .head .cnt { font-size: 11.5px; color: var(--muted);
+                     background: var(--bg); padding: 3px 10px; border-radius: 999px; }
+
+  .row {
+    padding: 11px 20px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; display: flex; justify-content: space-between; gap: 12px;
+  }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--text-sub); flex-shrink: 0; }
+  .row .v { font-weight: 500; text-align: right; }
+
+  .list .item {
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+  }
+  .list .item:last-child { border-bottom: none; }
+  .list .item .main { font-weight: 500; }
+  .list .item .meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  .op-pill {
+    display: inline-flex; padding: 1px 8px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 600; margin-left: 6px;
+  }
+  .op-pill.arriendo { background: #dbeafe; color: #1d4ed8; }
+  .op-pill.venta    { background: #fef3c7; color: #92400e; }
+  :root[data-theme="dark"] .op-pill.arriendo { background: #0a1f3d; color: #60a5fa; }
+  :root[data-theme="dark"] .op-pill.venta    { background: #2d2410; color: #fbbf24; }
+
+  .msg {
+    padding: 10px 20px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+  }
+  .msg:last-child { border-bottom: none; }
+  .msg .dir { font-size: 10.5px; font-weight: 700; margin-right: 6px; }
+  .msg .dir.in  { color: #1d4ed8; }
+  .msg .dir.out { color: #16a34a; }
+  .msg .t { color: var(--muted); font-size: 10.5px; }
+
+  .empty {
+    padding: 24px; color: var(--text-sub); font-size: 12.5px; text-align: center;
+  }
+</style>
+
+<a class="back" href="/panel/petra/v2/usuarios?token={{ token }}">← Volver a Usuarios</a>
+
+<div class="hero">
+  <div class="ident">
+    <div class="avatar">{{ ((contacto.nombre if contacto else tel) or '?')[0]|upper }}</div>
+    <div>
+      <h1>{{ contacto.nombre if contacto and contacto.nombre else (contacto.username if contacto else '—') }}</h1>
+      <div class="tel">{{ tel }}</div>
+    </div>
+  </div>
+  <a class="wa-btn" href="https://wa.me/{{ tel }}" target="_blank" rel="noopener">💬 Escribirle</a>
+</div>
+
+<div class="grid">
+  {# ─── Datos ──────────────────────────────── #}
+  <div class="card">
+    <div class="head"><h3>Datos</h3></div>
+    {% if contacto %}
+    <div class="row"><span class="k">Username</span><span class="v">{{ contacto.username or '—' }}</span></div>
+    <div class="row"><span class="k">Email</span><span class="v">{{ contacto.email or '—' }}</span></div>
+    <div class="row"><span class="k">Primera vez</span>
+      <span class="v">{% if contacto.created_at %}{{ contacto.created_at.strftime('%d %b %Y, %H:%M') }}{% else %}—{% endif %}</span>
+    </div>
+    <div class="row"><span class="k">Última actualización</span>
+      <span class="v">{% if contacto.updated_at %}{{ contacto.updated_at.strftime('%d %b %Y, %H:%M') }}{% else %}—{% endif %}</span>
+    </div>
+    {% if contacto.meta and contacto.meta.get('visitante_conjunto_id') %}
+    <div class="row"><span class="k">Conjunto sticky</span>
+      <span class="v">#{{ contacto.meta.get('visitante_conjunto_id') }}</span>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="empty">No encontramos el contacto en la base.</div>
+    {% endif %}
+  </div>
+
+  {# ─── Resumen ───────────────────────────── #}
+  <div class="card">
+    <div class="head"><h3>Resumen</h3></div>
+    <div class="row">
+      <span class="k">📣 Inmuebles publicados</span>
+      <span class="v">{{ inm_pub|length }}</span>
+    </div>
+    <div class="row">
+      <span class="k">📬 Pedidos de contacto</span>
+      <span class="v">{{ pedidos|length }}</span>
+    </div>
+    <div class="row">
+      <span class="k">🙋 Interesados QR (flow)</span>
+      <span class="v">{{ interesados_qr|length }}</span>
+    </div>
+    <div class="row">
+      <span class="k">💬 Últimos mensajes</span>
+      <span class="v">{{ mensajes|length }}</span>
+    </div>
+  </div>
+</div>
+
+{# ─── Inmuebles publicados ───────────────── #}
+{% if inm_pub %}
+<div class="card" style="margin-bottom:16px">
+  <div class="head"><h3>📣 Inmuebles publicados</h3><span class="cnt">{{ inm_pub|length }}</span></div>
+  <div class="list">
+    {% for it in inm_pub %}
+    <div class="item">
+      <div class="main">
+        #{% if it.nro %}{{ it.nro }}{% else %}P{{ '%04d' % it.id }}{% endif %}
+        · {{ (it.tipo or '—')|capitalize }}
+        {% if it.operacion %}<span class="op-pill {{ it.operacion }}">{{ it.operacion }}</span>{% endif %}
+        {% if not it.activo %}<span class="op-pill" style="background:#fee2e2;color:#991b1b">inactivo</span>{% endif %}
+      </div>
+      <div class="meta">
+        {% if it.conjunto_codigo %}{{ it.conjunto_codigo }} · {{ it.conjunto_nombre }} · {% endif %}
+        {{ it.precio_fmt or 'sin precio' }}{% if it.m2 %} · {{ it.m2 }} m²{% endif %}
+        {% if it.creado_en %} · {{ it.creado_en.strftime('%Y-%m-%d') }}{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ─── Pedidos de contacto (visitante_contactos) ─ #}
+{% if pedidos %}
+<div class="card" style="margin-bottom:16px">
+  <div class="head"><h3>📬 Pedidos de contacto</h3><span class="cnt">{{ pedidos|length }}</span></div>
+  <div class="list">
+    {% for p in pedidos %}
+    <div class="item">
+      <div class="main">
+        #{% if p.inmueble_nro %}{{ p.inmueble_nro }}{% else %}P{{ '%04d' % p.inmueble_id }}{% endif %}
+        · {{ (p.tipo or '—')|capitalize }}
+        {% if p.operacion %}<span class="op-pill {{ p.operacion }}">{{ p.operacion }}</span>{% endif %}
+      </div>
+      <div class="meta">
+        {% if p.conjunto_codigo %}{{ p.conjunto_codigo }} · {{ p.conjunto_nombre }} · {% endif %}
+        {{ p.precio_fmt or '—' }}
+        {% if p.creado_en %} · {{ p.creado_en.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ─── Interesados QR ─────────────────────── #}
+{% if interesados_qr %}
+<div class="card" style="margin-bottom:16px">
+  <div class="head"><h3>🙋 Interesados QR (flow multi-select)</h3><span class="cnt">{{ interesados_qr|length }}</span></div>
+  <div class="list">
+    {% for iq in interesados_qr %}
+    <div class="item">
+      <div class="main">
+        {% if iq.conjunto_codigo %}{{ iq.conjunto_codigo }} · {{ iq.conjunto_nombre }}{% endif %}
+        <span class="op-pill" style="background:#efeaff;color:#6a4ae8">{{ iq.estado or 'enviado' }}</span>
+      </div>
+      <div class="meta">
+        {% if iq.inmueble_ids %}{{ iq.inmueble_ids|length }} inmuebles: {{ iq.inmueble_ids[:10] }}{% if iq.inmueble_ids|length > 10 %}…{% endif %}{% endif %}
+        {% if iq.creado_en %} · {{ iq.creado_en.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ─── Mensajes recientes ─────────────────── #}
+{% if mensajes %}
+<div class="card">
+  <div class="head"><h3>💬 Mensajes recientes</h3><span class="cnt">{{ mensajes|length }}</span></div>
+  {% for m in mensajes %}
+  <div class="msg">
+    <span class="dir {{ m.direccion }}">{{ m.direccion|upper }}</span>
+    {{ m.r }}
+    <div class="t">{% if m.fecha %}{{ m.fecha.strftime('%Y-%m-%d %H:%M') }}{% endif %}{% if m.tipo %} · {{ m.tipo }}{% endif %}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}
