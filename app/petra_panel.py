@@ -4320,6 +4320,84 @@ def panel_v2_despliegues():
     )
 
 
+@petra_panel_bp.get("/v2/buscadores")
+def panel_v2_buscadores():
+    """v2: Buscadores — qué inmuebles cliqueó/pidió cada visitante para re-contactarlo.
+
+    Combina:
+      - visitante_contactos (pidió contacto directo desde ficha)
+      - petra_interesados_qr (flow multi-select)
+    Agrupado por teléfono.
+    """
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    conj_f = (request.args.get("conjunto") or "").strip()
+
+    where = []
+    params = []
+    if conj_f.isdigit():
+        where.append("conjunto_id = %s")
+        params.append(int(conj_f))
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    with _db._conexion_directa(timeout=12) as conn:
+        # Combinar: por teléfono, listar inmuebles que tocó
+        sql = """
+          WITH clicks AS (
+            -- Solicitudes individuales (ficha → pedir contacto)
+            SELECT vc.telefono AS tel, vc.contacto_nombre AS nombre,
+                   vc.inmueble_id, vc.conjunto_id, vc.creado_en AS fecha,
+                   'ficha' AS origen
+              FROM visitante_contactos vc
+            UNION ALL
+            -- Flow multi-select: expandir inmueble_ids
+            SELECT iq.interesado_telefono AS tel, iq.interesado_nombre AS nombre,
+                   unnest(iq.inmueble_ids) AS inmueble_id,
+                   iq.conjunto_id, iq.creado_en AS fecha,
+                   'qr_flow' AS origen
+              FROM petra_interesados_qr iq
+             WHERE iq.inmueble_ids IS NOT NULL
+          ),
+          enriquecido AS (
+            SELECT c.tel, c.nombre, c.inmueble_id, c.conjunto_id, c.fecha, c.origen,
+                   iv.nro AS inmueble_nro, iv.tipo, iv.operacion,
+                   iv.precio, iv.m2, iv.activo,
+                   cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre
+              FROM clicks c
+              LEFT JOIN inmuebles_visitante iv ON iv.id = c.inmueble_id
+              LEFT JOIN conjuntos_visitante cv ON cv.id = c.conjunto_id
+          )
+          SELECT tel,
+                 MAX(nombre) AS nombre,
+                 COUNT(*) AS n_clicks,
+                 COUNT(DISTINCT inmueble_id) AS n_inmuebles,
+                 COUNT(DISTINCT conjunto_id) AS n_conjuntos,
+                 MAX(fecha) AS ultimo,
+                 MIN(fecha) AS primero,
+                 array_agg(DISTINCT inmueble_id ORDER BY inmueble_id) AS inmueble_ids,
+                 array_agg(DISTINCT conjunto_codigo) AS conjuntos,
+                 array_agg(DISTINCT operacion) FILTER (WHERE operacion IS NOT NULL) AS operaciones,
+                 array_agg(DISTINCT tipo) FILTER (WHERE tipo IS NOT NULL) AS tipos,
+                 AVG(precio) FILTER (WHERE precio IS NOT NULL) AS precio_avg
+            FROM enriquecido
+        """ + where_sql + """
+           GROUP BY tel
+           ORDER BY MAX(fecha) DESC
+           LIMIT 500
+        """
+        buscadores = _rows(conn, sql, tuple(params))
+        for b in buscadores:
+            b["precio_avg_fmt"] = _fmt_precio_cop(int(b["precio_avg"])) if b.get("precio_avg") else None
+        conjuntos = _rows(conn,
+            "SELECT id, codigo, nombre FROM conjuntos_visitante ORDER BY codigo")
+    return render_template(
+        "petra_panel_v2_buscadores.html",
+        buscadores=buscadores, conjuntos=conjuntos, token=token,
+        conj=conj_f,
+        n_total=len(buscadores),
+    )
+
+
 @petra_panel_bp.get("/v2/agente/<int:cid>")
 def panel_v2_agente_ficha(cid):
     """v2: Ficha de un agente Petra."""

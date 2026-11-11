@@ -1,0 +1,212 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'buscadores' %}
+{% block title %}Buscadores · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .card-head {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 14px; flex-wrap: wrap;
+  }
+  .card-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .card-head select {
+    padding: 7px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px;
+    background: var(--panel); color: var(--text); font-family: inherit;
+  }
+  .count-badge {
+    font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .table-x { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .table-x th {
+    text-align: left; font-size: 10.5px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 12px 14px 8px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .table-x td { padding: 14px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .table-x tr:last-child td { border-bottom: none; }
+
+  .tel-col { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 12.5px; }
+  .dim { color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .chips-cell {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    max-width: 240px;
+  }
+  .inm-chip {
+    background: var(--bg); color: var(--text-sub);
+    padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .conj-chip {
+    background: #efeaff; color: #6a4ae8;
+    padding: 2px 8px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 600;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  :root[data-theme="dark"] .conj-chip { background: #241f3d; color: #a78bfa; }
+
+  .op-tag {
+    display: inline-flex; padding: 1px 7px; border-radius: 999px;
+    font-size: 10px; font-weight: 600; margin-right: 3px;
+  }
+  .op-tag.arriendo { background: #dbeafe; color: #1d4ed8; }
+  .op-tag.venta    { background: #fef3c7; color: #92400e; }
+  :root[data-theme="dark"] .op-tag.arriendo { background: #0a1f3d; color: #60a5fa; }
+  :root[data-theme="dark"] .op-tag.venta    { background: #2d2410; color: #fbbf24; }
+
+  .wa-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 999px; font-size: 11.5px;
+    color: #16a34a; background: var(--panel);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .wa-btn:hover { border-color: #16a34a; background: #dcfce7; }
+  :root[data-theme="dark"] .wa-btn:hover { background: #052e1a; }
+
+  .score {
+    display: inline-flex; align-items: center;
+    background: var(--bg); padding: 3px 10px; border-radius: 999px;
+    font-weight: 700; font-size: 12px; min-width: 32px;
+    justify-content: center;
+  }
+  .score.hot { background: #fee2e2; color: #991b1b; }
+  :root[data-theme="dark"] .score.hot { background: #3f0a0a; color: #fca5a5; }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Buscadores</h1>
+    <div class="sub">Qué inmuebles cliqueó o pidió cada visitante — para re-contactarlos con similares</div>
+  </div>
+  <div style="font-size:12px;color:var(--text-sub)">
+    <strong style="color:var(--text);font-size:14px">{{ n_total }}</strong> buscadores únicos
+  </div>
+</div>
+
+<div class="main-card">
+  <div class="card-head">
+    <h3>Actividad agregada por teléfono</h3>
+    <form method="get" action="" style="display:inline-flex;gap:10px;align-items:center">
+      <input type="hidden" name="token" value="{{ token }}">
+      <label style="font-size:12px;color:var(--text-sub)">Conjunto</label>
+      <select name="conjunto" onchange="this.form.submit()">
+        <option value="">Todos</option>
+        {% for c in conjuntos %}
+        <option value="{{ c.id }}" {% if conj == c.id|string %}selected{% endif %}>
+          {{ c.codigo }} · {{ c.nombre }}
+        </option>
+        {% endfor %}
+      </select>
+    </form>
+    <span class="count-badge">{{ buscadores|length }} resultados</span>
+  </div>
+
+  {% if buscadores %}
+  <div style="overflow-x:auto">
+  <table class="table-x">
+    <thead>
+      <tr>
+        <th>Buscador</th>
+        <th class="num">Clicks</th>
+        <th>Inmuebles vistos</th>
+        <th>Conjuntos</th>
+        <th>Operación · Tipo</th>
+        <th class="num">Precio avg</th>
+        <th>Último</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in buscadores %}
+      <tr>
+        <td>
+          <div class="tel-col">{{ b.tel or '—' }}</div>
+          {% if b.nombre %}
+          <div style="font-size:11.5px;color:var(--text-sub);margin-top:2px">{{ b.nombre }}</div>
+          {% endif %}
+        </td>
+        <td class="num">
+          <span class="score {% if b.n_clicks >= 5 %}hot{% endif %}">{{ b.n_clicks }}</span>
+          <div class="dim" style="font-size:10.5px;margin-top:3px">{{ b.n_inmuebles }} inm.</div>
+        </td>
+        <td>
+          {% if b.inmueble_ids %}
+          <div class="chips-cell">
+            {% for iid in b.inmueble_ids[:8] %}
+            <span class="inm-chip">#{% if iid %}P{{ '%04d' % iid }}{% else %}—{% endif %}</span>
+            {% endfor %}
+            {% if b.inmueble_ids|length > 8 %}
+            <span class="inm-chip">+{{ b.inmueble_ids|length - 8 }}</span>
+            {% endif %}
+          </div>
+          {% else %}<span class="dim">—</span>{% endif %}
+        </td>
+        <td>
+          {% if b.conjuntos %}
+          <div class="chips-cell">
+            {% for cj in b.conjuntos %}
+              {% if cj %}<span class="conj-chip">{{ cj }}</span>{% endif %}
+            {% endfor %}
+          </div>
+          {% else %}<span class="dim">—</span>{% endif %}
+        </td>
+        <td>
+          {% if b.operaciones %}
+            {% for op in b.operaciones %}
+              <span class="op-tag {{ op }}">{{ op }}</span>
+            {% endfor %}
+          {% endif %}
+          {% if b.tipos %}
+          <div style="font-size:11px;color:var(--text-sub);margin-top:3px">
+            {% for t in b.tipos %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %}
+          </div>
+          {% endif %}
+        </td>
+        <td class="num">{{ b.precio_avg_fmt or '—' }}</td>
+        <td class="dim" style="font-size:11px">
+          {% if b.ultimo %}{{ b.ultimo.strftime('%Y-%m-%d') }}{% endif %}
+          {% if b.n_clicks > 1 %}
+          <div style="font-size:10px;margin-top:2px">desde {{ b.primero.strftime('%Y-%m-%d') }}</div>
+          {% endif %}
+        </td>
+        <td>
+          {% if b.tel %}
+          <a class="wa-btn" href="https://wa.me/{{ b.tel }}" target="_blank" rel="noopener">💬 Escribirle</a>
+          <a style="font-size:11px;color:var(--accent);display:block;text-align:center;margin-top:5px"
+             href="/panel/petra/visitante/usuario/{{ b.tel }}?token={{ token }}">Ver perfil →</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:30px;margin-bottom:8px">🔍</div>
+    <div>Sin buscadores con esos filtros.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
