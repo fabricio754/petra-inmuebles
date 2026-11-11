@@ -4316,7 +4316,23 @@ def panel_v2_despliegues():
 
 @petra_panel_bp.get("/v2/salud")
 def panel_v2_salud():
-    """v2: Salud/Observabilidad. Reutiliza _stats_por_etapa() del v1."""
+    """v2: Salud del sistema (checks por componente, tipo githubstatus)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    checks = _run_checks()
+    estado, mensaje = _global_status(checks)
+    from datetime import datetime
+    return render_template(
+        "petra_panel_v2_salud.html",
+        checks=checks, estado=estado, mensaje=mensaje,
+        verificado_en=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        token=token,
+    )
+
+
+@petra_panel_bp.get("/v2/observabilidad")
+def panel_v2_observabilidad():
+    """v2: Observabilidad por etapa (prod vs staging)."""
     _check_token()
     token = (request.args.get("token") or "").strip()
     horas = int(request.args.get("horas") or 24)
@@ -4338,7 +4354,7 @@ def panel_v2_salud():
     err_prod = next((r.get("error_global") for r in prod if "error_global" in r), None)
     err_staging = next((r.get("error_global") for r in staging if "error_global" in r), None)
     return render_template(
-        "petra_panel_v2_salud.html",
+        "petra_panel_v2_observabilidad.html",
         rows=rows, horas=horas, token=token,
         total_prod=sum(r.get("total", 0) for r in prod if "etapa" in r),
         total_staging=sum(r.get("total", 0) for r in staging if "etapa" in r),

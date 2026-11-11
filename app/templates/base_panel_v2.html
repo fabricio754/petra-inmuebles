@@ -173,7 +173,7 @@
        href="/panel/petra/v2/mandatos?token={{ token }}">Mandatos</a>
     <a class="{% if block == 'visitas' %}active{% endif %}"
        href="/panel/petra/v2/visitas?token={{ token }}">Visitas</a>
-    <a class="{% if block == 'salud' %}active{% endif %}"
+    <a class="{% if block == 'salud' or block == 'observabilidad' %}active{% endif %}"
        href="/panel/petra/v2/salud?token={{ token }}">Salud</a>
     <a class="{% if block == 'automatizaciones' %}active{% endif %}"
        href="/panel/petra/v2/automatizaciones?token={{ token }}">Autom.</a>
