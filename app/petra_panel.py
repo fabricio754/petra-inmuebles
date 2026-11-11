@@ -1220,9 +1220,11 @@ def accion_agente_responder(cid):
     _check_token()
     texto = (request.form.get("texto") or "").strip()
     token = request.form.get("token", "")
+    ref = (request.headers.get("Referer") or "")
+    use_v2 = "/v2/agente/" in ref
+    dest = "petra_panel.panel_v2_agente_ficha" if use_v2 else "petra_panel.ficha_agente"
     if not texto:
-        return redirect(url_for("petra_panel.ficha_agente", cid=cid,
-                                token=token, flash="vacio"))
+        return redirect(url_for(dest, cid=cid, token=token, flash="vacio"))
     with _db._conexion_directa(timeout=10) as conn:
         row = conn.execute(
             "SELECT telefono FROM petra_contactos WHERE id = %s", (cid,)
@@ -1233,8 +1235,7 @@ def accion_agente_responder(cid):
     from app import petra_wa
     r = petra_wa.send_text(tel, texto)
     flash = "enviado" if r.get("ok") else f"error:{str(r)[:80]}"
-    return redirect(url_for("petra_panel.ficha_agente", cid=cid,
-                            token=token, flash=flash))
+    return redirect(url_for(dest, cid=cid, token=token, flash=flash))
 
 
 def _set_bot_pausado(cid, pausado):
@@ -3491,10 +3492,17 @@ def visitante_conjunto_editar(cid):
         except Exception:
             pass
     except Exception:
-        return redirect(url_for("petra_panel.visitante_conjuntos",
-                                token=token, flash="error"))
+        return _conjunto_editar_redirect(token, "error")
+    return _conjunto_editar_redirect(token, "editado")
+
+
+def _conjunto_editar_redirect(token, flash):
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/conjuntos" in ref:
+        return redirect(url_for("petra_panel.panel_v2_conjuntos",
+                                token=token, flash=flash))
     return redirect(url_for("petra_panel.visitante_conjuntos",
-                            token=token, flash="editado"))
+                            token=token, flash=flash))
 
 
 @petra_panel_bp.get("/visitante/conjuntos/<int:cid>/qr")
@@ -4273,6 +4281,7 @@ def panel_v2_conjuntos():
     return render_template(
         "petra_panel_v2_conjuntos.html",
         conjuntos=conjuntos, activos=activos, token=token,
+        flash=(request.args.get("flash") or "").strip(),
     )
 
 
@@ -4448,6 +4457,37 @@ def panel_v2_buscadores():
     )
 
 
+@petra_panel_bp.get("/v2/conjunto/<int:cid>/qr")
+def panel_v2_conjunto_qr(cid):
+    """v2: QR imprimible de un conjunto. Lift del v1 con base_panel_v2."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
+            "WHERE id=%s", (cid,),
+        ).fetchone()
+    if not row:
+        abort(404)
+    conjunto = {"id": row[0], "codigo": row[1], "nombre": row[2],
+                "ciudad": row[3] or ""}
+    wa_phone = (os.environ.get("WA_PILOT_PHONE") or "").strip()
+    wa_phone_clean = wa_phone.lstrip("+").replace(" ", "")
+    from urllib.parse import quote as _urlquote
+    texto_prefill = (
+        f"Estoy en el edificio {conjunto['nombre']} en "
+        f"{conjunto['ciudad'] or 'Colombia'}. Cod: {conjunto['codigo']}"
+    )
+    wa_link = (f"https://wa.me/{wa_phone_clean}?text="
+               f"{_urlquote(texto_prefill)}") if wa_phone_clean else ""
+    return render_template(
+        "petra_panel_v2_conjunto_qr.html",
+        conjunto=conjunto, token=token,
+        wa_phone=wa_phone, wa_link=wa_link,
+        texto_prefill=texto_prefill,
+    )
+
+
 @petra_panel_bp.get("/v2/agente/<int:cid>")
 def panel_v2_agente_ficha(cid):
     """v2: Ficha de un agente Petra."""
@@ -4459,6 +4499,78 @@ def panel_v2_agente_ficha(cid):
         abort(404)
     ctx["token"] = token
     return render_template("petra_panel_v2_agente.html", **ctx)
+
+
+@petra_panel_bp.get("/v2/usuario/<tel>")
+def panel_v2_usuario(tel):
+    """v2: Perfil de un usuario del flujo visitante (por teléfono).
+
+    Si el usuario es agente_petra, redirige a /v2/agente/<cid>. Si no,
+    muestra un mini-perfil: datos, inmuebles publicados, solicitudes
+    que hizo, interesados_qr, mensajes recientes.
+    """
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    tel = (tel or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        # 1) ¿Es agente Petra? → redirect a /v2/agente/<cid>
+        row = conn.execute(
+            "SELECT c.id FROM petra_contactos c "
+            "JOIN petra_contacto_roles r ON r.contacto_id = c.id "
+            "WHERE c.telefono = %s AND r.rol = 'agente_petra' LIMIT 1",
+            (tel,)).fetchone()
+        if row:
+            return redirect(url_for("petra_panel.panel_v2_agente_ficha",
+                                    cid=row[0], token=token))
+
+        contacto = _rows(conn,
+            "SELECT id, telefono, nombre, username, email, created_at, "
+            "       updated_at, meta "
+            "  FROM petra_contactos WHERE telefono = %s LIMIT 1", (tel,))
+        contacto = contacto[0] if contacto else None
+
+        inm_pub = _rows(conn,
+            "SELECT i.id, i.nro, i.tipo, i.operacion, i.precio, i.m2, "
+            "       i.activo, i.creado_en, "
+            "       cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre "
+            "  FROM inmuebles_visitante i "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = i.conjunto_id "
+            " WHERE i.propietario_telefono = %s "
+            " ORDER BY i.creado_en DESC LIMIT 100", (tel,))
+        for it in inm_pub:
+            it["precio_fmt"] = _fmt_precio_cop(it.get("precio"))
+
+        pedidos = _rows(conn,
+            "SELECT vc.id, vc.creado_en, vc.inmueble_id, "
+            "       im.nro AS inmueble_nro, im.operacion, im.precio, im.tipo, "
+            "       cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre "
+            "  FROM visitante_contactos vc "
+            "  JOIN inmuebles_visitante im ON im.id = vc.inmueble_id "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = vc.conjunto_id "
+            " WHERE vc.telefono = %s "
+            " ORDER BY vc.creado_en DESC LIMIT 100", (tel,))
+        for p in pedidos:
+            p["precio_fmt"] = _fmt_precio_cop(p.get("precio"))
+
+        interesados_qr = _rows(conn,
+            "SELECT iq.id, iq.creado_en, iq.estado, iq.inmueble_ids, "
+            "       cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre "
+            "  FROM petra_interesados_qr iq "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = iq.conjunto_id "
+            " WHERE iq.interesado_telefono = %s "
+            " ORDER BY iq.creado_en DESC LIMIT 50", (tel,))
+
+        mensajes = _rows(conn,
+            "SELECT direccion, tipo, LEFT(resumen, 180) AS r, fecha "
+            "  FROM mensajes WHERE telefono = %s "
+            " ORDER BY fecha DESC LIMIT 20", (tel,))
+
+    return render_template(
+        "petra_panel_v2_usuario.html",
+        tel=tel, token=token, contacto=contacto,
+        inm_pub=inm_pub, pedidos=pedidos,
+        interesados_qr=interesados_qr, mensajes=mensajes,
+    )
 
 
 @petra_panel_bp.get("/v2/contenidos")
