@@ -1,0 +1,206 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'whitelist' %}
+{% block title %}Whitelist staging · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 20px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .banner {
+    padding: 12px 16px; border-radius: 12px;
+    font-size: 13px; margin-bottom: 16px;
+    border: 1px solid var(--border);
+  }
+  .banner.staging { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+  .banner.ok      { background: #dcfce7; color: #166534; border-color: #86efac; }
+  .banner.err     { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+  :root[data-theme="dark"] .banner.staging { background: #2d2410; color: #fbbf24; border-color: #78350f; }
+  :root[data-theme="dark"] .banner.ok      { background: #052e1a; color: #4ade80; border-color: #065f46; }
+  :root[data-theme="dark"] .banner.err     { background: #3f0a0a; color: #fca5a5; border-color: #991b1b; }
+
+  .grid {
+    display: grid; grid-template-columns: 1fr 2fr; gap: 16px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 20px;
+  }
+  .card h3 { margin: 0 0 14px; font-size: 14px; font-weight: 600; }
+
+  .card label {
+    display: block; font-size: 12px; color: var(--text-sub);
+    margin: 10px 0 5px; font-weight: 500;
+  }
+  .card input {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; background: var(--bg);
+    color: var(--text); font-family: inherit;
+  }
+  .btn {
+    padding: 9px 16px; border-radius: 10px; font-size: 13px;
+    font-weight: 600; cursor: pointer; font-family: inherit;
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
+    width: 100%; margin-top: 14px;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .card-head {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count-badge {
+    font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .table-x { width: 100%; border-collapse: collapse; }
+  .table-x th {
+    text-align: left; font-size: 11px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  }
+  .table-x td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  .table-x tr:last-child td { border-bottom: none; }
+  .tel-col { font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
+
+  .btn-row {
+    padding: 4px 10px; border: 1px solid var(--border);
+    background: var(--panel); border-radius: 6px;
+    font-size: 11.5px; cursor: pointer; font-family: inherit; color: var(--text);
+  }
+  .btn-row.danger:hover { border-color: #dc2626; color: #dc2626; }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+
+  .router-box {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11.5px; color: var(--text-sub);
+    word-break: break-all;
+  }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Whitelist staging</h1>
+    <div class="sub">Teléfonos que el router manda a staging en vez de prod</div>
+  </div>
+</div>
+
+{% if is_staging_panel %}
+<div class="banner staging">
+  🧪 Estás viendo el panel <strong>staging</strong>. La whitelist que guía al router vive en prod — editala desde ahí.
+</div>
+{% endif %}
+
+{% if flash == 'agregado' %}
+<div class="banner ok">✅ Teléfono agregado y cache del router invalidado.</div>
+{% elif flash == 'eliminado' %}
+<div class="banner ok">✅ Teléfono eliminado y cache del router invalidado.</div>
+{% elif flash == 'pin_malo' %}
+<div class="banner err">❌ PIN incorrecto.</div>
+{% elif flash == 'telefono_invalido' %}
+<div class="banner err">❌ Teléfono inválido. Mínimo 10 dígitos.</div>
+{% elif flash == 'error' %}
+<div class="banner err">❌ Error guardando. Revisá logs.</div>
+{% endif %}
+
+<div class="grid">
+  <div class="card">
+    <h3>Agregar teléfono</h3>
+    <form method="post" action="/panel/petra/staging-whitelist/agregar">
+      <input type="hidden" name="token" value="{{ token }}">
+      <label>Teléfono</label>
+      <input type="text" name="telefono" placeholder="573001234567" required>
+      <label>Nota (opcional)</label>
+      <input type="text" name="nota" placeholder="ej: Fabricio, pruebas bot nuevo">
+      <label>PIN</label>
+      <input type="password" name="pin" required inputmode="numeric" autocomplete="off">
+      <button type="submit" class="btn" {% if is_staging_panel %}disabled{% endif %}>
+        {% if is_staging_panel %}Solo editable desde prod{% else %}Agregar{% endif %}
+      </button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>¿Cómo funciona?</h3>
+    <p style="font-size:13px;color:var(--text-sub);margin:0 0 12px">
+      El webhook de WhatsApp (prod) revisa cada mensaje entrante: si el número está en la whitelist,
+      lo reenvía a staging. Si no, lo procesa normalmente en prod.
+    </p>
+    {% if router_url %}
+    <label style="font-size:12px;color:var(--text-sub);margin-bottom:5px;display:block">Router staging apunta a:</label>
+    <div class="router-box">{{ router_url }}</div>
+    {% else %}
+    <div class="banner err" style="margin:0">⚠️ <code>PETRA_STAGING_URL</code> no está configurada.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="main-card">
+  <div class="card-head">
+    <h3>Teléfonos en whitelist</h3>
+    <span class="count-badge">{{ rows|length }}</span>
+  </div>
+  {% if rows %}
+  <table class="table-x">
+    <thead>
+      <tr>
+        <th>Teléfono</th>
+        <th>Nota</th>
+        <th>Agregado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="tel-col">{{ r.telefono }}</td>
+        <td style="color:var(--text-sub)">{{ r.nota or '—' }}</td>
+        <td style="color:var(--text-sub);font-size:12px">
+          {% if r.creado_en %}{{ r.creado_en.strftime('%d %b %Y, %H:%M') }}{% else %}—{% endif %}
+        </td>
+        <td>
+          <form method="post" action="/panel/petra/staging-whitelist/{{ r.telefono }}/eliminar"
+                onsubmit="return confirmarEliminar(this)">
+            <input type="hidden" name="token" value="{{ token }}">
+            <input type="hidden" name="pin" class="pin-del">
+            <button type="submit" class="btn-row danger" {% if is_staging_panel %}disabled{% endif %}>
+              Eliminar
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:30px;margin-bottom:8px">📱</div>
+    <div>La whitelist está vacía. Todo el tráfico va a prod.</div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function confirmarEliminar(form) {
+  var pin = prompt('PIN de Fabricio para eliminar:');
+  if (!pin) return false;
+  form.querySelector('.pin-del').value = pin;
+  return confirm('¿Eliminar este teléfono de la whitelist?');
+}
+</script>
+
+{% endblock %}
