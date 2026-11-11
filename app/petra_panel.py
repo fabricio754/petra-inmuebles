@@ -4034,6 +4034,26 @@ def panel_v2_faq():
     )
 
 
+@petra_panel_bp.get("/v2/despliegues")
+def panel_v2_despliegues():
+    """v2: Despliegues — PR develop→main, ventana, approve+merge con PIN."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    cmp = _gh_compare(base="main", head="develop")
+    spec = (os.environ.get("PETRA_DEPLOY_WINDOW") or _DEPLOY_WINDOW_DEFAULT).strip()
+    inicio, fin = _parse_window(spec)
+    return render_template(
+        "petra_panel_v2_despliegues.html",
+        cmp=cmp, token=token,
+        is_staging=(os.environ.get("MODO_STAGING") or "").strip() == "1",
+        ventana_abierta=_en_ventana_despliegue(),
+        ventana_inicio=inicio,
+        ventana_fin=fin,
+        hora_bogota=_ahora_bogota_hora(),
+        prs_abiertos=_gh_prs_abiertos_a_main(),
+    )
+
+
 @petra_panel_bp.get("/v2/salud")
 def panel_v2_salud():
     """v2: Salud/Observabilidad. Reutiliza _stats_por_etapa() del v1."""
