@@ -52,11 +52,11 @@
     display: flex; align-items: center; gap: 10px;
   }
   .brand .logo-wrap {
-    background: #000; padding: 6px 12px; border-radius: 10px;
+    background: #000; padding: 8px 14px; border-radius: 10px;
     display: inline-flex; align-items: center;
-    height: 36px;
+    height: 40px;
   }
-  .brand svg { display: block; height: 20px; width: auto; }
+  .brand img.logo { display: block; height: 22px; width: auto; }
   .nav-pill {
     margin: 0 auto;
     display: inline-flex; align-items: center; gap: 4px;
@@ -169,22 +169,7 @@
 <header class="topbar">
   <div class="brand">
     <span class="logo-wrap">
-      <!-- Logo PETRA: texto blanco + A estilizada con triángulo verde y banda naranja -->
-      <svg viewBox="0 0 220 44" xmlns="http://www.w3.org/2000/svg" aria-label="Petra">
-        <!-- PETR -->
-        <text x="0" y="36" font-family="Inter, system-ui, sans-serif"
-              font-weight="800" font-size="40" fill="#fff"
-              letter-spacing="-2">PETR</text>
-        <!-- A custom: triángulo verde arriba, banda naranja -->
-        <g transform="translate(160, 0)">
-          <!-- Pata izquierda blanca -->
-          <polygon points="0,42 10,42 30,8 25,2" fill="#fff"/>
-          <!-- Pata derecha: triángulo verde superior -->
-          <polygon points="25,2 30,8 50,42 40,42" fill="#4ad295"/>
-          <!-- Banda naranja (travesaño de la A) -->
-          <rect x="11" y="26" width="30" height="6" fill="#ff6b4a"/>
-        </g>
-      </svg>
+      <img class="logo" src="/static/petra_logo.webp" alt="Petra">
     </span>
   </div>
   {% set g_marketing = ['buscadores'] %}
@@ -308,6 +293,26 @@ try {
   var saved = localStorage.getItem('petra_theme_v2');
   if (saved) document.documentElement.setAttribute('data-theme', saved);
 } catch(e){}
+
+// Nav dropdowns: solo uno abierto a la vez + cierra al clickear fuera
+(function () {
+  var drops = document.querySelectorAll('.nav-pill details.nav-dropdown');
+  drops.forEach(function (d) {
+    d.addEventListener('toggle', function () {
+      if (!d.open) return;
+      drops.forEach(function (o) { if (o !== d) o.open = false; });
+    });
+  });
+  document.addEventListener('click', function (ev) {
+    drops.forEach(function (d) {
+      if (d.open && !d.contains(ev.target)) d.open = false;
+    });
+  });
+  // Esc cierra todos
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') drops.forEach(function (d) { d.open = false; });
+  });
+})();
 </script>
 
 </body>
