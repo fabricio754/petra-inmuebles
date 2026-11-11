@@ -187,53 +187,105 @@
       </svg>
     </span>
   </div>
+  {% set g_marketing = ['buscadores'] %}
+  {% set g_bot = ['contenidos', 'faq', 'automatizaciones', 'whitelist'] %}
+  {% set g_oferta = ['conjuntos', 'catalogo', 'inmuebles', 'oferta', 'embudo', 'mandatos'] %}
+  {% set g_demanda = ['usuarios', 'demanda', 'solicitudes'] %}
+  {% set g_agentes = ['agentes', 'visitas'] %}
+  {% set g_salud = ['salud', 'observabilidad', 'despliegues'] %}
   <nav class="nav-pill">
-    <a class="{% if block == 'dashboard' %}active{% endif %}"
+    <a class="{% if block == 'dashboard' or block == 'metricas' %}active{% endif %}"
        href="/panel/petra/v2?token={{ token }}">Dashboard</a>
-    <a class="{% if block == 'metricas' %}active{% endif %}"
-       href="/panel/petra/v2/metricas?token={{ token }}">Métricas</a>
-    <a class="{% if block == 'contenidos' %}active{% endif %}"
-       href="/panel/petra/v2/contenidos?token={{ token }}">Contenidos</a>
-    <a class="{% if block == 'agentes' %}active{% endif %}"
-       href="/panel/petra/v2/agentes?token={{ token }}">Agentes</a>
-    <a class="{% if block == 'faq' %}active{% endif %}"
-       href="/panel/petra/v2/faq?token={{ token }}">FAQ</a>
-    <a class="{% if block == 'usuarios' %}active{% endif %}"
-       href="/panel/petra/v2/usuarios?token={{ token }}">Usuarios</a>
-    <a class="{% if block == 'demanda' %}active{% endif %}"
-       href="/panel/petra/v2/demanda?token={{ token }}">Demanda</a>
-    <a class="{% if block == 'solicitudes' %}active{% endif %}"
-       href="/panel/petra/v2/solicitudes?token={{ token }}">Solicitudes</a>
-    <a class="{% if block == 'buscadores' %}active{% endif %}"
-       href="/panel/petra/v2/buscadores?token={{ token }}">Buscadores</a>
-    <a class="{% if block == 'oferta' %}active{% endif %}"
-       href="/panel/petra/v2/oferta?token={{ token }}">Oferta</a>
-    <a class="{% if block == 'conjuntos' %}active{% endif %}"
-       href="/panel/petra/v2/conjuntos?token={{ token }}">Conjuntos</a>
-    <a class="{% if block == 'catalogo' %}active{% endif %}"
-       href="/panel/petra/v2/catalogo?token={{ token }}">Catálogo</a>
-    <a class="{% if block == 'inmuebles' %}active{% endif %}"
-       href="/panel/petra/v2/inmuebles?token={{ token }}">Inmuebles</a>
-    <a class="{% if block == 'embudo' %}active{% endif %}"
-       href="/panel/petra/v2/embudo?token={{ token }}">Embudo</a>
-    <a class="{% if block == 'mandatos' %}active{% endif %}"
-       href="/panel/petra/v2/mandatos?token={{ token }}">Mandatos</a>
-    <a class="{% if block == 'visitas' %}active{% endif %}"
-       href="/panel/petra/v2/visitas?token={{ token }}">Visitas</a>
-    {% set admin_blocks = ['salud', 'observabilidad', 'automatizaciones', 'despliegues', 'whitelist'] %}
+
+    {# ── Marketing ─────────────────────────────────── #}
     <details class="nav-dropdown">
-      <summary class="{% if block in admin_blocks %}active{% endif %}">
-        Admin <span class="caret">▾</span>
+      <summary class="{% if block in g_marketing %}active{% endif %}">
+        📣 Marketing <span class="caret">▾</span>
       </summary>
       <div class="dropdown-menu">
-        <a class="{% if block == 'salud' or block == 'observabilidad' %}active{% endif %}"
-           href="/panel/petra/v2/salud?token={{ token }}">🫀 Salud</a>
+        <a class="{% if block == 'buscadores' %}active{% endif %}"
+           href="/panel/petra/v2/buscadores?token={{ token }}">🔍 Buscadores</a>
+      </div>
+    </details>
+
+    {# ── Bot ──────────────────────────────────────── #}
+    <details class="nav-dropdown">
+      <summary class="{% if block in g_bot %}active{% endif %}">
+        💬 Bot <span class="caret">▾</span>
+      </summary>
+      <div class="dropdown-menu">
+        <a class="{% if block == 'contenidos' %}active{% endif %}"
+           href="/panel/petra/v2/contenidos?token={{ token }}">🎬 Contenidos</a>
+        <a class="{% if block == 'faq' %}active{% endif %}"
+           href="/panel/petra/v2/faq?token={{ token }}">❓ FAQ</a>
         <a class="{% if block == 'automatizaciones' %}active{% endif %}"
            href="/panel/petra/v2/automatizaciones?token={{ token }}">⚙️ Automatizaciones</a>
-        <a class="{% if block == 'despliegues' %}active{% endif %}"
-           href="/panel/petra/v2/despliegues?token={{ token }}">🚀 Despliegues</a>
         <a class="{% if block == 'whitelist' %}active{% endif %}"
            href="/panel/petra/v2/whitelist?token={{ token }}">📱 Whitelist</a>
+      </div>
+    </details>
+
+    {# ── Oferta ───────────────────────────────────── #}
+    <details class="nav-dropdown">
+      <summary class="{% if block in g_oferta %}active{% endif %}">
+        🏢 Oferta <span class="caret">▾</span>
+      </summary>
+      <div class="dropdown-menu">
+        <a class="{% if block == 'conjuntos' %}active{% endif %}"
+           href="/panel/petra/v2/conjuntos?token={{ token }}">🏘 Conjuntos</a>
+        <a class="{% if block == 'catalogo' %}active{% endif %}"
+           href="/panel/petra/v2/catalogo?token={{ token }}">📋 Catálogo</a>
+        <a class="{% if block == 'inmuebles' %}active{% endif %}"
+           href="/panel/petra/v2/inmuebles?token={{ token }}">🏠 Inmuebles por conjunto</a>
+        <a class="{% if block == 'oferta' %}active{% endif %}"
+           href="/panel/petra/v2/oferta?token={{ token }}">💼 Propietarios</a>
+        <a class="{% if block == 'embudo' %}active{% endif %}"
+           href="/panel/petra/v2/embudo?token={{ token }}">📊 Embudo</a>
+        <a class="{% if block == 'mandatos' %}active{% endif %}"
+           href="/panel/petra/v2/mandatos?token={{ token }}">🤝 Mandatos</a>
+      </div>
+    </details>
+
+    {# ── Demanda ──────────────────────────────────── #}
+    <details class="nav-dropdown">
+      <summary class="{% if block in g_demanda %}active{% endif %}">
+        👀 Demanda <span class="caret">▾</span>
+      </summary>
+      <div class="dropdown-menu">
+        <a class="{% if block == 'usuarios' %}active{% endif %}"
+           href="/panel/petra/v2/usuarios?token={{ token }}">👥 Usuarios</a>
+        <a class="{% if block == 'demanda' %}active{% endif %}"
+           href="/panel/petra/v2/demanda?token={{ token }}">🙋 Interesados QR</a>
+        <a class="{% if block == 'solicitudes' %}active{% endif %}"
+           href="/panel/petra/v2/solicitudes?token={{ token }}">📬 Solicitudes de contacto</a>
+      </div>
+    </details>
+
+    {# ── Agentes ──────────────────────────────────── #}
+    <details class="nav-dropdown">
+      <summary class="{% if block in g_agentes %}active{% endif %}">
+        💜 Agentes <span class="caret">▾</span>
+      </summary>
+      <div class="dropdown-menu">
+        <a class="{% if block == 'agentes' %}active{% endif %}"
+           href="/panel/petra/v2/agentes?token={{ token }}">💜 Agentes Petra</a>
+        <a class="{% if block == 'visitas' %}active{% endif %}"
+           href="/panel/petra/v2/visitas?token={{ token }}">📅 Visitas</a>
+      </div>
+    </details>
+
+    {# ── Salud del sistema ────────────────────────── #}
+    <details class="nav-dropdown">
+      <summary class="{% if block in g_salud %}active{% endif %}">
+        🫀 Salud <span class="caret">▾</span>
+      </summary>
+      <div class="dropdown-menu">
+        <a class="{% if block == 'salud' %}active{% endif %}"
+           href="/panel/petra/v2/salud?token={{ token }}">🫀 Componentes</a>
+        <a class="{% if block == 'observabilidad' %}active{% endif %}"
+           href="/panel/petra/v2/observabilidad?token={{ token }}">📈 Observabilidad</a>
+        <a class="{% if block == 'despliegues' %}active{% endif %}"
+           href="/panel/petra/v2/despliegues?token={{ token }}">🚀 Despliegues</a>
       </div>
     </details>
   </nav>
