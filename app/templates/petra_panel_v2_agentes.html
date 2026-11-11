@@ -204,7 +204,7 @@
           {% if a.ultimo_in %}{{ a.ultimo_in.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}
         </td>
         <td>
-          <a class="btn" href="/panel/petra/agente/{{ a.contacto_id }}?token={{ token }}">Ficha →</a>
+          <a class="btn" href="/panel/petra/v2/agente/{{ a.contacto_id }}?token={{ token }}">Ficha →</a>
         </td>
       </tr>
       {% endfor %}
