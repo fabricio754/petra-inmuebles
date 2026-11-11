@@ -757,12 +757,11 @@ def contenido_crear():
         url_archivo = _guardar_archivo_media(archivo)
         if url_archivo:
             url = url_archivo
+    token = request.form.get("token", "")
     if tipo not in _TIPOS_CONTENIDO or not titulo:
-        return redirect(url_for("petra_panel.panel_home", tab="contenidos",
-                                token=request.form.get("token", "")))
+        return _contenido_redirect(token)
     if not url and not texto:
-        return redirect(url_for("petra_panel.panel_home", tab="contenidos",
-                                token=request.form.get("token", "")))
+        return _contenido_redirect(token)
     with _db._conexion_directa(timeout=10) as conn:
         conn.execute(
             """INSERT INTO petra_contenidos
@@ -770,29 +769,38 @@ def contenido_crear():
                VALUES (%s,%s,%s,%s,%s,%s,%s)""",
             (tipo, orden, titulo, url, texto, duracion, descripcion),
         )
+    return _contenido_redirect(token, "contenido_creado")
+
+
+def _contenido_redirect(token, flash=""):
+    """Vuelve a /v2/contenidos si venimos de ahí; si no, al v1."""
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/contenidos" in ref:
+        return redirect(url_for("petra_panel.panel_v2_contenidos",
+                                token=token, flash=flash))
     return redirect(url_for("petra_panel.panel_home", tab="contenidos",
-                            token=request.form.get("token", "")))
+                            token=token, flash=flash))
 
 
 @petra_panel_bp.post("/contenido/<int:cid>/toggle")
 def contenido_toggle(cid):
     _check_token()
+    token = request.form.get("token", "")
     with _db._conexion_directa(timeout=10) as conn:
         conn.execute(
             "UPDATE petra_contenidos SET activo = NOT activo, updated_at=NOW() WHERE id=%s",
             (cid,),
         )
-    return redirect(url_for("petra_panel.panel_home", tab="contenidos",
-                            token=request.form.get("token", "")))
+    return _contenido_redirect(token, "contenido_toggled")
 
 
 @petra_panel_bp.post("/contenido/<int:cid>/eliminar")
 def contenido_eliminar(cid):
     _check_token()
+    token = request.form.get("token", "")
     with _db._conexion_directa(timeout=10) as conn:
         conn.execute("DELETE FROM petra_contenidos WHERE id=%s", (cid,))
-    return redirect(url_for("petra_panel.panel_home", tab="contenidos",
-                            token=request.form.get("token", "")))
+    return _contenido_redirect(token, "contenido_eliminado")
 
 
 # =============================================================================
@@ -1376,8 +1384,7 @@ def accion_admin_run_capacitacion():
         flash = "cap_cron_ok"
     except Exception as exc:
         flash = f"error:{str(exc)[:80]}"
-    return redirect(url_for("petra_panel.panel_home", tab="contenidos",
-                            token=token, flash=flash))
+    return _contenido_redirect(token, flash)
 
 
 @petra_panel_bp.post("/admin/revertir_cap_hoy")
@@ -1428,8 +1435,7 @@ def accion_admin_revertir_cap_hoy():
         flash = f"revertidos_{len(revertidos)}"
     except Exception as exc:
         flash = f"error:{str(exc)[:80]}"
-    return redirect(url_for("petra_panel.panel_home", tab="contenidos",
-                            token=token, flash=flash))
+    return _contenido_redirect(token, flash)
 
 
 @petra_panel_bp.post("/agente/<int:cid>/revertir_cap")
@@ -4311,6 +4317,29 @@ def panel_v2_despliegues():
         ventana_fin=fin,
         hora_bogota=_ahora_bogota_hora(),
         prs_abiertos=_gh_prs_abiertos_a_main(),
+    )
+
+
+@petra_panel_bp.get("/v2/contenidos")
+def panel_v2_contenidos():
+    """v2: Contenidos (videos capacitación, bienvenida, etc.)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        contenidos = _rows(conn,
+            "SELECT id, tipo, orden, titulo, url, texto, duracion_seg, "
+            "       descripcion, activo, created_at, updated_at "
+            "  FROM petra_contenidos "
+            " WHERE tipo <> 'faq' "
+            " ORDER BY tipo, orden, created_at DESC")
+    # Agrupar por tipo
+    por_tipo = {}
+    for c in contenidos:
+        por_tipo.setdefault(c["tipo"], []).append(c)
+    return render_template(
+        "petra_panel_v2_contenidos.html",
+        por_tipo=por_tipo, tipos=_TIPOS_CONTENIDO, token=token, flash=flash,
     )
 
 
