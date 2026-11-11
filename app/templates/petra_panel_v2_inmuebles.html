@@ -553,8 +553,7 @@
       </div>
       <div>
         <label>Precio (COP)</label>
-        <input type="text" id="ei-precio-vista" inputmode="numeric" autocomplete="off" placeholder="0">
-        <input type="hidden" name="precio" id="ei-precio">
+        <input type="text" name="precio" id="ei-precio" inputmode="numeric" autocomplete="off" placeholder="0">
       </div>
       <div>
         <label>Tel. propietario</label>
@@ -601,8 +600,7 @@ document.querySelectorAll('.editar-inm-btn').forEach(function (btn) {
     document.getElementById('ei-hab').value = d.hab || '';
     document.getElementById('ei-banos').value = d.banos || '';
     document.getElementById('ei-m2').value = d.m2 || '';
-    document.getElementById('ei-precio').value = d.precio || '';
-    document.getElementById('ei-precio-vista').value = _fmtMiles(d.precio);
+    document.getElementById('ei-precio').value = _fmtMiles(d.precio);
     document.getElementById('ei-tel').value = d.tel || '';
     if (typeof dlg.showModal === 'function') {
       dlg.showModal();
@@ -613,16 +611,29 @@ document.querySelectorAll('.editar-inm-btn').forEach(function (btn) {
   });
 });
 
-// Separador de miles mientras tipea en Precio
+// Precio: formatea miles en vivo. Input de texto plano, mismo nombre
+// que el handler espera; en submit strippeamos puntos para mandar el
+// número plano.
 (function () {
-  var vista = document.getElementById('ei-precio-vista');
-  var hidden = document.getElementById('ei-precio');
-  if (!vista || !hidden) return;
-  vista.addEventListener('input', function () {
-    var crudo = vista.value.replace(/\D/g, '');
-    hidden.value = crudo;
-    vista.value = _fmtMiles(crudo);
+  var inp = document.getElementById('ei-precio');
+  if (!inp) return;
+  inp.addEventListener('input', function (ev) {
+    var crudo = inp.value.replace(/\D/g, '');
+    var formateado = _fmtMiles(crudo);
+    if (inp.value !== formateado) {
+      inp.value = formateado;
+      // posicionar caret al final
+      try { inp.setSelectionRange(formateado.length, formateado.length); }
+      catch(e){}
+    }
   });
+  // Al enviar el form, mandamos sólo dígitos
+  var form = document.getElementById('form-ed-inm');
+  if (form) {
+    form.addEventListener('submit', function () {
+      inp.value = inp.value.replace(/\D/g, '');
+    });
+  }
 })();
 
 // PIN prompt + POST async. Devuelve true para que el <a> abra WhatsApp
