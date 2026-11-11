@@ -1,0 +1,154 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'usuarios' %}
+{% block title %}Usuarios · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px 20px;
+    cursor: pointer; transition: all 150ms ease;
+    display: flex; flex-direction: column;
+  }
+  .stat:hover { border-color: var(--accent); }
+  .stat.on { border-color: var(--accent); background: #f3efff; }
+  :root[data-theme="dark"] .stat.on { background: #241f3d; }
+  .stat .lab {
+    font-size: 12.5px; color: var(--text-sub); font-weight: 500;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .stat .ic {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--bg); display: inline-flex;
+    align-items: center; justify-content: center; font-size: 13px;
+  }
+  .stat .val { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .card-head {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count-badge {
+    font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .table-x { width: 100%; border-collapse: collapse; }
+  .table-x th {
+    text-align: left; font-size: 11px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  }
+  .table-x td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  .table-x tr:last-child td { border-bottom: none; }
+  .tel-col { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 12.5px; }
+
+  .tag {
+    display: inline-flex; padding: 3px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; margin-right: 4px;
+  }
+  .tag.anun   { background: #fef3c7; color: #a16207; }
+  .tag.busc   { background: #dbeafe; color: #1d4ed8; }
+  .tag.agente { background: #efeaff; color: #6a4ae8; }
+  :root[data-theme="dark"] .tag.anun   { background: #2d2410; color: #fbbf24; }
+  :root[data-theme="dark"] .tag.busc   { background: #0a1f3d; color: #60a5fa; }
+  :root[data-theme="dark"] .tag.agente { background: #241f3d; color: #a78bfa; }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Usuarios</h1>
+    <div class="sub">Personas que interactuaron con el bot</div>
+  </div>
+</div>
+
+<div class="stats-row">
+  <a class="stat {% if not filtro %}on{% endif %}" href="?token={{ token }}">
+    <div class="lab"><span>Total</span><span class="ic">👥</span></div>
+    <div class="val">{{ total }}</div>
+  </a>
+  <a class="stat {% if filtro == 'agente' %}on{% endif %}" href="?token={{ token }}&rol=agente">
+    <div class="lab"><span>Agentes</span><span class="ic">💜</span></div>
+    <div class="val">{{ n_agente }}</div>
+  </a>
+  <a class="stat {% if filtro == 'anun' %}on{% endif %}" href="?token={{ token }}&rol=anun">
+    <div class="lab"><span>Anunciantes</span><span class="ic">📣</span></div>
+    <div class="val">{{ n_anun }}</div>
+  </a>
+  <a class="stat {% if filtro == 'busc' %}on{% endif %}" href="?token={{ token }}&rol=busc">
+    <div class="lab"><span>Buscando</span><span class="ic">🙋</span></div>
+    <div class="val">{{ n_busc }}</div>
+  </a>
+</div>
+
+<div class="main-card">
+  <div class="card-head">
+    <h3>
+      {% if filtro == 'agente' %}Agentes Petra
+      {% elif filtro == 'anun' %}Propietarios que publicaron
+      {% elif filtro == 'busc' %}Interesados que pidieron contacto
+      {% else %}Todos los usuarios{% endif %}
+    </h3>
+    <span class="count-badge">{{ usuarios|length }} resultados</span>
+  </div>
+  {% if usuarios %}
+  <table class="table-x">
+    <thead>
+      <tr>
+        <th>Teléfono</th>
+        <th>Nombre</th>
+        <th>Conjunto</th>
+        <th>Tags</th>
+        <th>Actividad</th>
+        <th>Última conexión</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in usuarios %}
+      <tr>
+        <td class="tel-col">
+          <a href="/panel/petra/visitante/usuario/{{ u.telefono }}?token={{ token }}"
+             style="color:var(--accent)">{{ u.telefono }}</a>
+        </td>
+        <td>{{ u.nombre or u.username or '—' }}</td>
+        <td style="color:var(--text-sub)">{{ u.conjunto_nombre or '—' }}</td>
+        <td>
+          {% if u.es_agente %}<span class="tag agente">💜 Agente</span>{% endif %}
+          {% if u.es_anunciante %}<span class="tag anun">📣 Anunciante</span>{% endif %}
+          {% if u.es_buscando %}<span class="tag busc">🙋 Busca</span>{% endif %}
+        </td>
+        <td style="color:var(--text-sub);font-size:12px">
+          {% if u.n_inmuebles_publicados %}{{ u.n_inmuebles_publicados }} publicados{% endif %}
+          {% if u.n_inmuebles_publicados and u.n_contactos_pedidos %} · {% endif %}
+          {% if u.n_contactos_pedidos %}{{ u.n_contactos_pedidos }} contactos{% endif %}
+        </td>
+        <td style="color:var(--text-sub);font-size:12px">
+          {% if u.ultima_conexion %}{{ u.ultima_conexion.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">Sin usuarios con ese filtro.</div>
+  {% endif %}
+</div>
+
+{% endblock %}
