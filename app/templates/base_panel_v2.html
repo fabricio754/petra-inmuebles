@@ -81,6 +81,47 @@
   :root[data-theme="dark"] .nav-pill a.active {
     background: #365314; color: #d9f99d;
   }
+
+  /* ─── Admin dropdown ───────────────────────────────── */
+  .nav-dropdown { position: relative; }
+  .nav-dropdown > summary {
+    list-style: none; cursor: pointer;
+    padding: 8px 18px; border-radius: 999px;
+    font-size: 13.5px; font-weight: 500;
+    color: var(--text-sub);
+    display: inline-flex; align-items: center; gap: 6px;
+    user-select: none;
+  }
+  .nav-dropdown > summary::-webkit-details-marker { display: none; }
+  .nav-dropdown > summary:hover { color: var(--text); }
+  .nav-dropdown > summary.active {
+    background: #d9f99d; color: #1a2e05; font-weight: 600;
+  }
+  :root[data-theme="dark"] .nav-dropdown > summary.active {
+    background: #365314; color: #d9f99d;
+  }
+  .nav-dropdown .caret { font-size: 10px; margin-top: 1px; }
+  .nav-dropdown[open] > summary .caret { transform: rotate(180deg); }
+  .dropdown-menu {
+    position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; min-width: 200px; padding: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.1);
+    z-index: 100;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .dropdown-menu a {
+    padding: 8px 14px; border-radius: 8px;
+    font-size: 13px; color: var(--text); font-weight: 500;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .dropdown-menu a:hover { background: var(--bg); }
+  .dropdown-menu a.active {
+    background: #d9f99d; color: #1a2e05; font-weight: 600;
+  }
+  :root[data-theme="dark"] .dropdown-menu a.active {
+    background: #365314; color: #d9f99d;
+  }
   .topbar-right {
     display: flex; align-items: center; gap: 10px;
   }
@@ -179,14 +220,22 @@
        href="/panel/petra/v2/mandatos?token={{ token }}">Mandatos</a>
     <a class="{% if block == 'visitas' %}active{% endif %}"
        href="/panel/petra/v2/visitas?token={{ token }}">Visitas</a>
-    <a class="{% if block == 'salud' or block == 'observabilidad' %}active{% endif %}"
-       href="/panel/petra/v2/salud?token={{ token }}">Salud</a>
-    <a class="{% if block == 'automatizaciones' %}active{% endif %}"
-       href="/panel/petra/v2/automatizaciones?token={{ token }}">Autom.</a>
-    <a class="{% if block == 'despliegues' %}active{% endif %}"
-       href="/panel/petra/v2/despliegues?token={{ token }}">Despliegues</a>
-    <a class="{% if block == 'whitelist' %}active{% endif %}"
-       href="/panel/petra/v2/whitelist?token={{ token }}">Whitelist</a>
+    {% set admin_blocks = ['salud', 'observabilidad', 'automatizaciones', 'despliegues', 'whitelist'] %}
+    <details class="nav-dropdown">
+      <summary class="{% if block in admin_blocks %}active{% endif %}">
+        Admin <span class="caret">▾</span>
+      </summary>
+      <div class="dropdown-menu">
+        <a class="{% if block == 'salud' or block == 'observabilidad' %}active{% endif %}"
+           href="/panel/petra/v2/salud?token={{ token }}">🫀 Salud</a>
+        <a class="{% if block == 'automatizaciones' %}active{% endif %}"
+           href="/panel/petra/v2/automatizaciones?token={{ token }}">⚙️ Automatizaciones</a>
+        <a class="{% if block == 'despliegues' %}active{% endif %}"
+           href="/panel/petra/v2/despliegues?token={{ token }}">🚀 Despliegues</a>
+        <a class="{% if block == 'whitelist' %}active{% endif %}"
+           href="/panel/petra/v2/whitelist?token={{ token }}">📱 Whitelist</a>
+      </div>
+    </details>
   </nav>
   <div class="topbar-right">
     <button class="icon-btn" onclick="(function(r){var c=r.getAttribute('data-theme'),n=c==='dark'?'light':'dark';r.setAttribute('data-theme',n);try{localStorage.setItem('petra_theme_v2',n)}catch(e){}})(document.documentElement)">🌓</button>
