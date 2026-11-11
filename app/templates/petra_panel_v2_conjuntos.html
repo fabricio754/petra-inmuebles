@@ -160,8 +160,8 @@
         <td>
           <div class="row-actions">
             <a class="btn-row" href="/panel/petra/v2/inmuebles?cid={{ c.id }}&token={{ token }}">Ver inmuebles</a>
-            <a class="btn-row" href="/panel/petra/visitante/conjuntos/{{ c.id }}/qr?token={{ token }}" title="QR imprimible (v1)">QR</a>
-            <a class="btn-row" href="/panel/petra/visitante?token={{ token }}#editar-{{ c.id }}" title="Editar conjunto (v1)">Editar</a>
+            <a class="btn-row" href="/panel/petra/v2/conjunto/{{ c.id }}/qr?token={{ token }}">QR</a>
+            <button type="button" class="btn-row" onclick="editar({{ c.id }}, {{ c.nombre|tojson }}, {{ (c.ciudad or '')|tojson }})">Editar</button>
           </div>
         </td>
       </tr>
@@ -175,5 +175,42 @@
   </div>
   {% endif %}
 </div>
+
+<!-- Modal editar conjunto -->
+<dialog id="dlg-editar" style="border:1px solid var(--border);border-radius:16px;padding:0;background:var(--panel);color:var(--text);max-width:440px;width:94%">
+  <header style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin:0;font-size:15px">Editar conjunto</h3>
+    <button type="button" onclick="document.getElementById('dlg-editar').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:8px;font-family:inherit;cursor:pointer">✕</button>
+  </header>
+  <form id="form-ed" method="post" action="" style="padding:18px 20px">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label style="font-size:12px;color:var(--text-sub);display:block;margin-bottom:5px">Nombre</label>
+    <input type="text" name="nombre" id="ed-nombre" required style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;margin-bottom:12px">
+    <label style="font-size:12px;color:var(--text-sub);display:block;margin-bottom:5px">Ciudad</label>
+    <input type="text" name="ciudad" id="ed-ciudad" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;margin-bottom:14px">
+    <div style="display:flex;justify-content:flex-end;gap:10px">
+      <button type="button" onclick="document.getElementById('dlg-editar').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
+      <button type="submit" style="background:var(--accent);color:#fff;border:none;padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+{% if flash == 'editado' %}
+<div style="position:fixed;bottom:20px;right:20px;background:#dcfce7;color:#166534;padding:10px 16px;border-radius:10px;font-size:13px;z-index:200">✅ Conjunto actualizado.</div>
+{% elif flash == 'falta_campo' %}
+<div style="position:fixed;bottom:20px;right:20px;background:#fee2e2;color:#991b1b;padding:10px 16px;border-radius:10px;font-size:13px;z-index:200">❌ Falta el nombre.</div>
+{% elif flash == 'error' %}
+<div style="position:fixed;bottom:20px;right:20px;background:#fee2e2;color:#991b1b;padding:10px 16px;border-radius:10px;font-size:13px;z-index:200">❌ Error guardando.</div>
+{% endif %}
+
+<script>
+function editar(id, nombre, ciudad) {
+  var f = document.getElementById('form-ed');
+  f.action = '/panel/petra/visitante/conjuntos/' + id + '/editar';
+  document.getElementById('ed-nombre').value = nombre || '';
+  document.getElementById('ed-ciudad').value = ciudad || '';
+  document.getElementById('dlg-editar').showModal();
+}
+</script>
 
 {% endblock %}

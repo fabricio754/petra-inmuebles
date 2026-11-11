@@ -246,10 +246,58 @@
 </div>
 {% endif %}
 
-{# ─── LINK a v1 para chat completo ─────────────────── #}
-<a class="btn" href="/panel/petra/agente/{{ agente.id }}?token={{ token }}">💬 Ver chat completo (v1)</a>
+{# ─── CHAT ─────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:16px">
+  <h3>💬 Chat ({{ mensajes|length }} mensajes)</h3>
+  <div id="chat-box" style="max-height:480px;overflow-y:auto;background:var(--bg);border-radius:12px;padding:12px 14px;border:1px solid var(--border)">
+    {% if mensajes %}
+      {% for m in mensajes %}
+        {% if m.nuevo_dia and m.etiqueta_dia %}
+        <div style="text-align:center;margin:12px 0 8px;font-size:11px;color:var(--muted);font-weight:600">
+          {{ m.etiqueta_dia }}
+        </div>
+        {% endif %}
+        <div style="display:flex;justify-content:{% if m.direccion == 'out' %}flex-end{% else %}flex-start{% endif %};margin-bottom:6px">
+          <div style="max-width:72%;padding:8px 12px;border-radius:12px;font-size:12.5px;line-height:1.4;
+                      background:{% if m.direccion == 'out' %}#d9fdd3{% else %}var(--panel){% endif %};
+                      color:{% if m.direccion == 'out' %}#1a2e05{% else %}var(--text){% endif %};
+                      border:1px solid var(--border);white-space:pre-wrap;word-break:break-word">
+            {{ m.resumen or '—' }}
+            <div style="font-size:10px;color:var(--muted);margin-top:4px;text-align:right">
+              {{ m.hora_hm }}
+              {% if m.direccion == 'out' and m.estado_entrega %}
+                · {{ m.estado_entrega[:3] }}
+              {% endif %}
+              {% if m.tipo and m.tipo not in ('text', '') %}
+                · {{ m.tipo }}
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div style="text-align:center;color:var(--text-sub);padding:30px;font-size:13px">Sin mensajes todavía.</div>
+    {% endif %}
+  </div>
+
+  {% if puede_responder %}
+  <form method="post" action="/panel/petra/agente/{{ agente.id }}/responder" style="margin-top:14px;display:flex;gap:8px">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="text" name="texto" placeholder="Escribí una respuesta…" required
+           style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--text);font-family:inherit;font-size:13px">
+    <button type="submit" class="btn primary" style="padding:9px 16px">📤 Enviar</button>
+  </form>
+  {% else %}
+  <div style="margin-top:12px;padding:10px 14px;background:var(--bg);border-radius:10px;font-size:11.5px;color:var(--text-sub)">
+    ⏰ Fuera de la ventana de 24h de WhatsApp. No se puede responder libre; usar plantilla aprobada.
+  </div>
+  {% endif %}
+</div>
 
 <script>
+// Scroll al final del chat al cargar
+(function(){ var b = document.getElementById('chat-box'); if (b) b.scrollTop = b.scrollHeight; })();
+
 function setGuia() {
   var guia = prompt('Número de guía (ej: 123456789):');
   if (!guia) return;

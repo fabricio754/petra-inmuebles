@@ -1220,9 +1220,11 @@ def accion_agente_responder(cid):
     _check_token()
     texto = (request.form.get("texto") or "").strip()
     token = request.form.get("token", "")
+    ref = (request.headers.get("Referer") or "")
+    use_v2 = "/v2/agente/" in ref
+    dest = "petra_panel.panel_v2_agente_ficha" if use_v2 else "petra_panel.ficha_agente"
     if not texto:
-        return redirect(url_for("petra_panel.ficha_agente", cid=cid,
-                                token=token, flash="vacio"))
+        return redirect(url_for(dest, cid=cid, token=token, flash="vacio"))
     with _db._conexion_directa(timeout=10) as conn:
         row = conn.execute(
             "SELECT telefono FROM petra_contactos WHERE id = %s", (cid,)
@@ -1233,8 +1235,7 @@ def accion_agente_responder(cid):
     from app import petra_wa
     r = petra_wa.send_text(tel, texto)
     flash = "enviado" if r.get("ok") else f"error:{str(r)[:80]}"
-    return redirect(url_for("petra_panel.ficha_agente", cid=cid,
-                            token=token, flash=flash))
+    return redirect(url_for(dest, cid=cid, token=token, flash=flash))
 
 
 def _set_bot_pausado(cid, pausado):
@@ -3491,10 +3492,17 @@ def visitante_conjunto_editar(cid):
         except Exception:
             pass
     except Exception:
-        return redirect(url_for("petra_panel.visitante_conjuntos",
-                                token=token, flash="error"))
+        return _conjunto_editar_redirect(token, "error")
+    return _conjunto_editar_redirect(token, "editado")
+
+
+def _conjunto_editar_redirect(token, flash):
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/conjuntos" in ref:
+        return redirect(url_for("petra_panel.panel_v2_conjuntos",
+                                token=token, flash=flash))
     return redirect(url_for("petra_panel.visitante_conjuntos",
-                            token=token, flash="editado"))
+                            token=token, flash=flash))
 
 
 @petra_panel_bp.get("/visitante/conjuntos/<int:cid>/qr")
@@ -4273,6 +4281,7 @@ def panel_v2_conjuntos():
     return render_template(
         "petra_panel_v2_conjuntos.html",
         conjuntos=conjuntos, activos=activos, token=token,
+        flash=(request.args.get("flash") or "").strip(),
     )
 
 
@@ -4445,6 +4454,37 @@ def panel_v2_buscadores():
         buscadores=buscadores, conjuntos=conjuntos, token=token,
         conj=conj_f,
         n_total=len(buscadores),
+    )
+
+
+@petra_panel_bp.get("/v2/conjunto/<int:cid>/qr")
+def panel_v2_conjunto_qr(cid):
+    """v2: QR imprimible de un conjunto. Lift del v1 con base_panel_v2."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
+            "WHERE id=%s", (cid,),
+        ).fetchone()
+    if not row:
+        abort(404)
+    conjunto = {"id": row[0], "codigo": row[1], "nombre": row[2],
+                "ciudad": row[3] or ""}
+    wa_phone = (os.environ.get("WA_PILOT_PHONE") or "").strip()
+    wa_phone_clean = wa_phone.lstrip("+").replace(" ", "")
+    from urllib.parse import quote as _urlquote
+    texto_prefill = (
+        f"Estoy en el edificio {conjunto['nombre']} en "
+        f"{conjunto['ciudad'] or 'Colombia'}. Cod: {conjunto['codigo']}"
+    )
+    wa_link = (f"https://wa.me/{wa_phone_clean}?text="
+               f"{_urlquote(texto_prefill)}") if wa_phone_clean else ""
+    return render_template(
+        "petra_panel_v2_conjunto_qr.html",
+        conjunto=conjunto, token=token,
+        wa_phone=wa_phone, wa_link=wa_link,
+        texto_prefill=texto_prefill,
     )
 
 
