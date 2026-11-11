@@ -1,0 +1,190 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'observabilidad' %}
+{% block title %}Observabilidad · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+  .hero form { display: inline-flex; gap: 8px; align-items: center; }
+  .hero select {
+    padding: 7px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px;
+    background: var(--panel); color: var(--text); font-family: inherit;
+  }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px 20px;
+    display: flex; flex-direction: column;
+  }
+  .stat .lab {
+    font-size: 12.5px; color: var(--text-sub); font-weight: 500;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .stat .ic { font-size: 14px; }
+  .stat .val { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+  .stat .sub { font-size: 11.5px; color: var(--text-sub); margin-top: 4px; }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .card-head {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count-badge {
+    font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .table-x { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .table-x th {
+    text-align: left; font-size: 10.5px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 12px 14px 8px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .table-x td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .table-x tr:last-child td { border-bottom: none; }
+  .table-x .num { font-variant-numeric: tabular-nums; }
+  .etapa { font-weight: 600; }
+  .dim { color: var(--muted); }
+
+  .dot {
+    display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    vertical-align: middle; margin-right: 6px;
+  }
+  .dot.ok   { background: #16a34a; }
+  .dot.warn { background: #f59e0b; }
+  .dot.down { background: #dc2626; }
+  .dot.none { background: var(--border); }
+
+  .err {
+    font-size: 11px; color: #dc2626; max-width: 240px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .err-banner {
+    background: #fee2e2; color: #991b1b; padding: 12px 16px;
+    border-radius: 10px; font-size: 12.5px; margin-bottom: 14px;
+  }
+  :root[data-theme="dark"] .err-banner { background: #3f0a0a; color: #fca5a5; }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Salud</h1>
+    <div class="sub">Observabilidad por etapa — prod vs staging (últimas {{ horas }}h)</div>
+  </div>
+  <form method="get" action="">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label style="font-size:12px;color:var(--text-sub)">Ventana</label>
+    <select name="horas" onchange="this.form.submit()">
+      <option value="1"   {% if horas == 1 %}selected{% endif %}>1 h</option>
+      <option value="6"   {% if horas == 6 %}selected{% endif %}>6 h</option>
+      <option value="24"  {% if horas == 24 %}selected{% endif %}>24 h</option>
+      <option value="168" {% if horas == 168 %}selected{% endif %}>7 d</option>
+    </select>
+  </form>
+</div>
+
+{% if err_prod %}
+<div class="err-banner">⚠️ Error consultando prod: {{ err_prod }}</div>
+{% endif %}
+{% if err_staging %}
+<div class="err-banner">⚠️ Error consultando staging: {{ err_staging }}</div>
+{% endif %}
+
+<div class="stats-row">
+  <div class="stat">
+    <div class="lab"><span>Eventos en prod</span><span class="ic">🟢</span></div>
+    <div class="val">{{ total_prod }}</div>
+    <div class="sub">últimas {{ horas }}h</div>
+  </div>
+  <div class="stat">
+    <div class="lab"><span>Eventos en staging</span><span class="ic">🟡</span></div>
+    <div class="val">{{ total_staging }}</div>
+    <div class="sub">últimas {{ horas }}h</div>
+  </div>
+  <div class="stat">
+    <div class="lab"><span>Etapas distintas</span><span class="ic">🧩</span></div>
+    <div class="val">{{ rows|length }}</div>
+    <div class="sub">activas en el período</div>
+  </div>
+</div>
+
+<div class="main-card">
+  <div class="card-head">
+    <h3>Comparativa por etapa</h3>
+    <span class="count-badge">prod vs staging</span>
+  </div>
+
+  {% if rows %}
+  <table class="table-x">
+    <thead>
+      <tr>
+        <th rowspan="2">Etapa</th>
+        <th colspan="4" style="border-left:1px solid var(--border);text-align:center">Prod</th>
+        <th colspan="4" style="border-left:1px solid var(--border);text-align:center">Staging</th>
+      </tr>
+      <tr>
+        <th style="border-left:1px solid var(--border)">Estado</th>
+        <th class="num">Total</th>
+        <th class="num">% OK</th>
+        <th class="num">p95</th>
+        <th style="border-left:1px solid var(--border)">Estado</th>
+        <th class="num">Total</th>
+        <th class="num">% OK</th>
+        <th class="num">p95</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="etapa">{{ r.etapa }}</td>
+        {% for amb in [r.prod, r.staging] %}
+          {% if amb %}
+          <td style="border-left:1px solid var(--border)">
+            <span class="dot {{ amb.status }}"></span>
+            {% if amb.ultimo_error %}
+              <span class="err" title="{{ amb.ultimo_error }}">{{ amb.ultimo_error[:50] }}{% if amb.ultimo_error|length > 50 %}…{% endif %}</span>
+            {% endif %}
+          </td>
+          <td class="num">{{ amb.total }}</td>
+          <td class="num">
+            {{ amb.pct_ok }}%
+            {% if amb.fallo %}<span class="dim" style="font-size:10.5px"> · {{ amb.fallo }} fallos</span>{% endif %}
+          </td>
+          <td class="num dim">{{ amb.p95 or 0 }} ms</td>
+          {% else %}
+          <td style="border-left:1px solid var(--border)"><span class="dot none"></span><span class="dim">—</span></td>
+          <td class="num dim">—</td>
+          <td class="num dim">—</td>
+          <td class="num dim">—</td>
+          {% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:30px;margin-bottom:8px">🫀</div>
+    <div>Sin eventos registrados en esta ventana.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
