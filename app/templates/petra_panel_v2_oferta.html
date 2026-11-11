@@ -1,0 +1,179 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'oferta' %}
+{% block title %}Oferta · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px 20px;
+    cursor: pointer; transition: all 150ms ease;
+    display: flex; flex-direction: column;
+  }
+  .stat:hover { border-color: var(--accent); }
+  .stat.on { border-color: var(--accent); background: #f3efff; }
+  :root[data-theme="dark"] .stat.on { background: #241f3d; }
+  .stat .lab {
+    font-size: 12.5px; color: var(--text-sub); font-weight: 500;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .stat .ic {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--bg); display: inline-flex;
+    align-items: center; justify-content: center; font-size: 13px;
+  }
+  .stat .val { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .filter-bar {
+    padding: 16px 22px; border-bottom: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+  }
+  .filter-bar select {
+    padding: 7px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px;
+    background: var(--panel); color: var(--text);
+    font-family: inherit;
+  }
+  .count-badge {
+    margin-left: auto; font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .table-x { width: 100%; border-collapse: collapse; }
+  .table-x th {
+    text-align: left; font-size: 11px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  }
+  .table-x td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  .table-x tr:last-child td { border-bottom: none; }
+  .tel-col { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 12.5px; }
+
+  .mini-bar {
+    display: inline-flex; gap: 4px; align-items: center;
+    font-size: 11.5px;
+  }
+  .num-chip {
+    background: var(--bg); color: var(--text);
+    padding: 3px 9px; border-radius: 999px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .tag {
+    display: inline-flex; padding: 3px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; margin-right: 4px;
+  }
+  .tag.petra { background: #efeaff; color: #6a4ae8; }
+  .tag.inmob { background: #fff8c5; color: #9a6700; }
+  .tag.mnd   { background: #dcfce7; color: #166534; }
+  :root[data-theme="dark"] .tag.petra { background: #241f3d; color: #a78bfa; }
+  :root[data-theme="dark"] .tag.inmob { background: #2d2410; color: #fbbf24; }
+  :root[data-theme="dark"] .tag.mnd   { background: #052e1a; color: #4ade80; }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Oferta</h1>
+    <div class="sub">Propietarios que publicaron inmuebles — agrupados por teléfono</div>
+  </div>
+</div>
+
+<div class="stats-row">
+  <a class="stat {% if not estado_filtro %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj_filtro }}">
+    <div class="lab"><span>Propietarios</span><span class="ic">🏠</span></div>
+    <div class="val">{{ n_total }}</div>
+  </a>
+  <a class="stat {% if estado_filtro == 'petra' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj_filtro }}&estado=petra">
+    <div class="lab"><span>Gestión Petra</span><span class="ic">💜</span></div>
+    <div class="val">{{ n_petra }}</div>
+  </a>
+  <a class="stat {% if estado_filtro == 'inmob' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj_filtro }}&estado=inmob">
+    <div class="lab"><span>De inmobiliaria</span><span class="ic">🏢</span></div>
+    <div class="val">{{ n_inmob }}</div>
+  </a>
+  <a class="stat {% if estado_filtro == 'mandato' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj_filtro }}&estado=mandato">
+    <div class="lab"><span>Con mandato</span><span class="ic">🤝</span></div>
+    <div class="val">{{ n_mandato }}</div>
+  </a>
+</div>
+
+<div class="main-card">
+  <div class="filter-bar">
+    <form method="get" action="" style="display:inline-flex;gap:10px;align-items:center">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="estado" value="{{ estado_filtro }}">
+      <label style="font-size:12px;color:var(--text-sub)">Conjunto</label>
+      <select name="conjunto" onchange="this.form.submit()">
+        <option value="">Todos</option>
+        {% for c in conjuntos %}
+        <option value="{{ c.id }}" {% if conj_filtro == c.id|string %}selected{% endif %}>
+          {{ c.codigo }} · {{ c.nombre }}
+        </option>
+        {% endfor %}
+      </select>
+    </form>
+    <span class="count-badge">{{ propietarios|length }} resultados</span>
+  </div>
+
+  {% if propietarios %}
+  <table class="table-x">
+    <thead>
+      <tr>
+        <th>Teléfono</th>
+        <th>Nombre</th>
+        <th>Conjunto</th>
+        <th>Inmuebles</th>
+        <th>Tags</th>
+        <th>Última publicación</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in propietarios %}
+      <tr>
+        <td class="tel-col">
+          <a href="/panel/petra/visitante/usuario/{{ p.tel }}?token={{ token }}"
+             style="color:var(--accent)">{{ p.tel }}</a>
+        </td>
+        <td>{{ p.nombre or '—' }}</td>
+        <td style="color:var(--text-sub)">
+          {% if p.conjunto_cod %}{{ p.conjunto_cod }} · {{ p.conjunto }}{% else %}—{% endif %}
+        </td>
+        <td>
+          <span class="num-chip">📦 {{ p.n_activos }}/{{ p.n_total }}</span>
+        </td>
+        <td>
+          {% if p.n_petra and p.n_petra > 0 %}<span class="tag petra">💜 {{ p.n_petra }} Petra</span>{% endif %}
+          {% if p.n_inmob and p.n_inmob > 0 %}<span class="tag inmob">🏢 {{ p.n_inmob }} Inmob</span>{% endif %}
+          {% if p.n_mnd and p.n_mnd > 0 %}<span class="tag mnd">🤝 {{ p.n_mnd }} Mandato</span>{% endif %}
+        </td>
+        <td style="color:var(--text-sub);font-size:12px">
+          {% if p.ultima_pub %}{{ p.ultima_pub.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:30px;margin-bottom:8px">🏘️</div>
+    <div>Sin propietarios con esos filtros.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
