@@ -1986,6 +1986,10 @@ def nudges_toggle(clave):
             "UPDATE petra_nudges SET activo = NOT activo, updated_at=NOW() "
             "WHERE clave=%s", (clave,),
         )
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/automatizaciones" in ref:
+        return redirect(url_for("petra_panel.panel_v2_automatizaciones",
+                                token=token, flash="nudge_toggled"))
     return redirect(url_for(
         "petra_panel.panel_home", tab="nudges", token=token,
         flash="nudge_toggled",
@@ -4037,6 +4041,36 @@ def panel_v2_faq():
     )
 
 
+@petra_panel_bp.get("/v2/automatizaciones")
+def panel_v2_automatizaciones():
+    """v2: Disparadores (flags) + Nudges (regla-basadas)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+
+    with _db._conexion_directa(timeout=5) as conn:
+        flags = _rows(conn,
+            "SELECT nombre, activo, categoria, descripcion, updated_at "
+            "  FROM petra_flags "
+            " ORDER BY categoria, nombre")
+    # Agrupar por categoría
+    grupos_flags = {}
+    for f in flags:
+        grupos_flags.setdefault(f["categoria"] or "otros", []).append(f)
+
+    try:
+        from app.petra_agents import nudges as _nudges_mod
+        nudges = _nudges_mod.listar_reglas(solo_activas=False)
+    except Exception:
+        nudges = []
+
+    return render_template(
+        "petra_panel_v2_automatizaciones.html",
+        grupos_flags=grupos_flags, nudges=nudges,
+        token=token, flash=flash,
+    )
+
+
 @petra_panel_bp.get("/v2/solicitudes")
 def panel_v2_solicitudes():
     """v2: Solicitudes de contacto (visitante_contactos)."""
@@ -5917,6 +5951,10 @@ def flags_toggle(nombre):
             "UPDATE petra_flags SET activo=%s, updated_at=NOW() "
             "WHERE nombre=%s", (nuevo, nombre))
     _flags_cache_bust()
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/automatizaciones" in ref:
+        return redirect(url_for("petra_panel.panel_v2_automatizaciones",
+                                token=token, flash="ok"))
     return redirect(url_for("petra_panel.flags_dashboard",
                             token=token, flash="ok"))
 
