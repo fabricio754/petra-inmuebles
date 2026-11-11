@@ -1,0 +1,284 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'despliegues' %}
+{% block title %}Despliegues · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .banner {
+    padding: 14px 18px; border-radius: 14px;
+    font-size: 13px; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--border);
+  }
+  .banner.staging { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+  .banner.ok      { background: #dcfce7; color: #166534; border-color: #86efac; }
+  .banner.off     { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+  :root[data-theme="dark"] .banner.staging { background: #2d2410; color: #fbbf24; border-color: #78350f; }
+  :root[data-theme="dark"] .banner.ok      { background: #052e1a; color: #4ade80; border-color: #065f46; }
+  :root[data-theme="dark"] .banner.off     { background: #3f0a0a; color: #fca5a5; border-color: #991b1b; }
+
+  .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 780px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 18px; padding: 20px;
+  }
+  .card h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+  .big {
+    font-size: 30px; font-weight: 700; letter-spacing: -0.5px; line-height: 1.1;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .big .sub { font-size: 12px; color: var(--text-sub); font-weight: 500; }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .card-head {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count-badge {
+    font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .pr-row {
+    padding: 16px 22px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 14px; align-items: center;
+  }
+  .pr-row:last-child { border-bottom: none; }
+  .pr-row .num {
+    font-family: ui-monospace, Menlo, monospace; font-weight: 700;
+    color: var(--text-sub); font-size: 12.5px; min-width: 50px;
+  }
+  .pr-row .ttl { flex: 1; font-size: 13.5px; font-weight: 500; }
+  .pr-row .ttl .meta { font-size: 11.5px; color: var(--text-sub); font-weight: 400; margin-top: 2px; }
+  .pr-row a { color: var(--accent); }
+
+  .btn {
+    padding: 8px 14px; border-radius: 10px; font-size: 12.5px;
+    cursor: pointer; font-family: inherit; font-weight: 600;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn:hover:not(:disabled) { opacity: 0.9; }
+
+  .commit-list {
+    max-height: 420px; overflow-y: auto;
+    padding: 0 22px 18px;
+  }
+  .commit-item {
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; display: flex; gap: 12px;
+  }
+  .commit-item:last-child { border-bottom: none; }
+  .commit-item .sha {
+    font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+    color: var(--muted); min-width: 60px;
+  }
+  .commit-item .msg { flex: 1; }
+  .commit-item .msg .who {
+    font-size: 11px; color: var(--muted); margin-top: 2px;
+  }
+
+  dialog {
+    border: 1px solid var(--border); border-radius: 18px;
+    padding: 0; background: var(--panel); color: var(--text);
+    max-width: 440px; width: 94%;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog header {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  dialog header h3 { margin: 0; font-size: 15px; }
+  dialog .body { padding: 18px 22px; }
+  dialog label { font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 6px; }
+  dialog input {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 14px; background: var(--bg);
+    color: var(--text); font-family: inherit; margin-bottom: 14px;
+    letter-spacing: .3em; text-align: center;
+  }
+  dialog .status { font-size: 12.5px; margin-top: 8px; min-height: 18px; }
+  dialog .status.err { color: #dc2626; }
+  dialog .status.ok  { color: #16a34a; }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; }
+  dialog button.secondary {
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); padding: 9px 16px; border-radius: 10px;
+    font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Despliegues</h1>
+    <div class="sub">develop → main · ventana {{ ventana_inicio }}–{{ ventana_fin }}h Bogotá</div>
+  </div>
+  <div style="font-size:13px;color:var(--text-sub)">
+    Hora Bogotá: <strong style="color:var(--text)">{{ hora_bogota }}h</strong>
+  </div>
+</div>
+
+{% if is_staging %}
+<div class="banner staging">
+  🧪 Estás en <strong>staging</strong>. Los despliegues se aprueban desde prod.
+</div>
+{% elif ventana_abierta %}
+<div class="banner ok">
+  ✅ Ventana de despliegue <strong>abierta</strong> ({{ ventana_inicio }}–{{ ventana_fin }}h Bogotá).
+</div>
+{% else %}
+<div class="banner off">
+  ⏰ Ventana de despliegue <strong>cerrada</strong>. Abre a las {{ ventana_inicio }}h Bogotá.
+  En emergencia podés forzar con el PIN.
+</div>
+{% endif %}
+
+<div class="grid">
+  <div class="card">
+    <h3>Diff develop vs main</h3>
+    {% if cmp %}
+    <div class="big">
+      {{ cmp.ahead_by or 0 }}
+      <span class="sub">commits adelante</span>
+    </div>
+    <div style="font-size:12px;color:var(--text-sub);margin-top:4px">
+      {{ cmp.behind_by or 0 }} commits atrás · {{ cmp.files_changed or 0 }} archivos cambiados
+    </div>
+    {% else %}
+    <div style="color:var(--muted);font-size:13px">Sin datos de comparación.</div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h3>PRs abiertos a main</h3>
+    <div class="big">{{ prs_abiertos|length }}<span class="sub">PRs</span></div>
+    <div style="font-size:12px;color:var(--text-sub);margin-top:4px">listos para aprobar+mergear</div>
+  </div>
+</div>
+
+<div class="main-card">
+  <div class="card-head">
+    <h3>Pull Requests abiertos (develop → main)</h3>
+    <span class="count-badge">{{ prs_abiertos|length }}</span>
+  </div>
+  {% if prs_abiertos %}
+  {% for p in prs_abiertos %}
+  <div class="pr-row">
+    <div class="num">#{{ p.number }}</div>
+    <div class="ttl">
+      <div>{{ p.title }}</div>
+      <div class="meta">head: {{ p.head }} · <a href="{{ p.url }}" target="_blank">ver en GitHub ↗</a></div>
+    </div>
+    {% if is_staging %}
+      <button class="btn" disabled>Solo prod</button>
+    {% else %}
+      <button class="btn primary" onclick="aprobar({{ p.number }}, {{ p.title|tojson }})">
+        {% if ventana_abierta %}Aprobar + mergear{% else %}Forzar (fuera de ventana){% endif %}
+      </button>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <div style="padding:40px;text-align:center;color:var(--text-sub);font-size:13px">
+    No hay PRs abiertos a main. Crea uno desde `develop` para desplegar.
+  </div>
+  {% endif %}
+</div>
+
+{% if cmp and cmp.commits %}
+<div class="main-card" style="margin-top:18px">
+  <div class="card-head">
+    <h3>Commits en develop sin mergear a main</h3>
+    <span class="count-badge">{{ cmp.commits|length }}</span>
+  </div>
+  <div class="commit-list">
+    {% for c in cmp.commits %}
+    <div class="commit-item">
+      <span class="sha">{{ (c.sha or '')[:7] }}</span>
+      <div class="msg">
+        {{ c.message or '—' }}
+        {% if c.author %}<div class="who">{{ c.author }}{% if c.date %} · {{ c.date }}{% endif %}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- PIN dialog -->
+<dialog id="dlg-pin">
+  <header>
+    <h3>🔐 Aprobar + mergear PR</h3>
+    <button class="secondary" onclick="document.getElementById('dlg-pin').close()">✕</button>
+  </header>
+  <div class="body">
+    <div id="pr-title" style="font-size:12.5px;color:var(--text-sub);margin-bottom:14px"></div>
+    <form id="form-aprobar" onsubmit="return enviarAprobar(event)">
+      <input type="hidden" name="pr" id="pr-num">
+      <input type="hidden" name="fuerza" id="pr-fuerza" value="{% if ventana_abierta %}0{% else %}1{% endif %}">
+      <label>PIN de Fabricio</label>
+      <input type="password" name="pin" id="pin-input" required inputmode="numeric" autocomplete="off">
+      <div id="status" class="status"></div>
+      <div class="actions">
+        <button type="button" class="secondary" onclick="document.getElementById('dlg-pin').close()">Cancelar</button>
+        <button type="submit" class="btn primary">Aprobar + mergear</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<script>
+const TOKEN = {{ token|tojson }};
+
+function aprobar(pr, title) {
+  document.getElementById('pr-num').value = pr;
+  document.getElementById('pr-title').textContent = '#' + pr + ' · ' + title;
+  document.getElementById('pin-input').value = '';
+  document.getElementById('status').textContent = '';
+  document.getElementById('status').className = 'status';
+  document.getElementById('dlg-pin').showModal();
+}
+
+async function enviarAprobar(ev) {
+  ev.preventDefault();
+  const st = document.getElementById('status');
+  st.className = 'status';
+  st.textContent = '⏳ Aprobando + mergeando…';
+  const fd = new FormData(document.getElementById('form-aprobar'));
+  fd.append('token', TOKEN);
+  try {
+    const r = await fetch('/panel/petra/deploys/aprobar?token=' + encodeURIComponent(TOKEN), {
+      method: 'POST', body: fd,
+    });
+    const j = await r.json();
+    if (j.ok) {
+      st.className = 'status ok';
+      st.textContent = '✅ Mergeado. SHA ' + (j.sha || '');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      st.className = 'status err';
+      st.textContent = '❌ ' + (j.error || 'Error desconocido');
+    }
+  } catch (e) {
+    st.className = 'status err';
+    st.textContent = '❌ ' + e.message;
+  }
+  return false;
+}
+</script>
+
+{% endblock %}
