@@ -4037,6 +4037,40 @@ def panel_v2_faq():
     )
 
 
+@petra_panel_bp.get("/v2/conjuntos")
+def panel_v2_conjuntos():
+    """v2: Conjuntos registrados con embudo por conjunto."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        conjuntos = _rows(conn,
+            "SELECT c.id, c.codigo, c.nombre, c.ciudad, c.creado_en, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='arriendo' "
+            "                          THEN 1 ELSE 0 END), 0) AS arr_activos, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='venta' "
+            "                          THEN 1 ELSE 0 END), 0) AS ven_activos, "
+            "       COALESCE(SUM(CASE WHEN i.activo THEN 1 ELSE 0 END), 0) AS act, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.datos_confirmado_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_conf, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.bienvenida_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_bv, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.ofrecer_petra_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_op, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.ofrecer_credito_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_cr, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.mandato_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_mn "
+            "  FROM conjuntos_visitante c "
+            "  LEFT JOIN inmuebles_visitante i ON i.conjunto_id = c.id "
+            " GROUP BY c.id "
+            " ORDER BY c.creado_en DESC")
+    activos = [c for c in conjuntos if (c.get("act") or 0) > 0]
+    return render_template(
+        "petra_panel_v2_conjuntos.html",
+        conjuntos=conjuntos, activos=activos, token=token,
+    )
+
+
 @petra_panel_bp.get("/v2/mandatos")
 def panel_v2_mandatos():
     """v2: Ventas → Mandatos (petra_mandatos)."""
