@@ -1,0 +1,123 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'conjuntos' %}
+{% block title %}QR · {{ conjunto.nombre }}{% endblock %}
+{% block content %}
+
+<style>
+  .back { color: var(--accent); font-size: 12.5px; text-decoration: none;
+          display: inline-block; margin-bottom: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 28px; max-width: 720px; margin: 0 auto;
+  }
+  .card h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
+  .muted { color: var(--text-sub); font-size: 13px; }
+  .link-row {
+    display: flex; gap: 8px; align-items: center;
+    background: var(--bg); border-radius: 10px;
+    padding: 10px 14px; margin: 16px 0; word-break: break-all;
+  }
+  .link-row code {
+    flex: 1; font-size: 12px; color: var(--text);
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .warn {
+    background: #fef3c7; color: #92400e; padding: 10px 14px;
+    border-radius: 10px; font-size: 13px; margin: 14px 0;
+  }
+  :root[data-theme="dark"] .warn { background: #2d2410; color: #fbbf24; }
+  .qr-wrap {
+    display: flex; justify-content: center; padding: 24px;
+    background: #fff; border-radius: 12px; border: 1px solid var(--border);
+    margin: 16px 0;
+  }
+  #qr { width: 320px; height: 320px; }
+  #qr img, #qr canvas, #qr table { margin: 0 auto; display: block; }
+  .brand-footer {
+    text-align: center; margin-top: 12px; color: var(--muted);
+    font-size: 13px;
+  }
+  .actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  .btn {
+    padding: 9px 16px; border-radius: 10px; font-size: 13px;
+    cursor: pointer; font-family: inherit; font-weight: 500;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    text-decoration: none;
+  }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn:hover { border-color: var(--accent); }
+
+  @media print {
+    .topbar, .nav-pill, .topbar-right, .back, .link-row, .actions,
+    .no-print { display: none !important; }
+    main.content { padding: 0; }
+    .card { border: none; box-shadow: none; max-width: 100%; }
+    body { background: #fff; }
+    #qr { width: 480px; height: 480px; }
+  }
+</style>
+
+<a class="back no-print" href="/panel/petra/v2/conjuntos?token={{ token }}">← Volver a Conjuntos</a>
+
+<div class="card">
+  <h1>{{ conjunto.nombre }}</h1>
+  <div class="muted">Código: <strong>{{ conjunto.codigo }}</strong>{% if conjunto.ciudad %} · {{ conjunto.ciudad }}{% endif %}</div>
+
+  {% if not wa_link %}
+  <div class="warn">⚠️ Falta <code>WA_PILOT_PHONE</code> en el env del server. El QR no apuntará a ningún número.</div>
+  {% endif %}
+
+  {% if wa_link %}
+  <div class="link-row no-print">
+    <code id="wa-link">{{ wa_link }}</code>
+    <button type="button" class="btn" onclick="copiarLink()">Copiar</button>
+  </div>
+  <div class="muted no-print" style="font-size:12px">
+    Texto prefill: <em>{{ texto_prefill }}</em>
+  </div>
+  {% endif %}
+
+  <div class="qr-wrap"><div id="qr">Generando…</div></div>
+
+  <div class="brand-footer">
+    <strong>{{ conjunto.nombre }}</strong><br>
+    Escaneá con la cámara para contactarte con Petra Inmuebles
+  </div>
+
+  <div class="actions no-print">
+    <button type="button" class="btn primary" onclick="window.print()">🖨️ Imprimir</button>
+    <a class="btn" href="/panel/petra/v2/conjuntos?token={{ token }}">Volver</a>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+  (function () {
+    var link = {{ wa_link|tojson }};
+    var el = document.getElementById('qr');
+    if (!link) {
+      el.innerHTML = '<div style="color:#991b1b;padding:40px">Sin WA_PILOT_PHONE</div>';
+      return;
+    }
+    try {
+      var qr = qrcode(0, 'M');
+      qr.addData(link);
+      qr.make();
+      el.innerHTML = qr.createImgTag(8, 8);
+      var img = el.querySelector('img');
+      if (img) { img.style.width = '100%'; img.style.height = 'auto'; }
+    } catch (e) {
+      el.innerHTML = '<div style="color:#991b1b;padding:40px">Error: ' + e + '</div>';
+    }
+  })();
+  function copiarLink() {
+    var c = document.getElementById('wa-link');
+    if (!c) return;
+    (navigator.clipboard
+      ? navigator.clipboard.writeText(c.textContent)
+      : Promise.resolve()
+    ).then(function(){ alert('Link copiado.'); });
+  }
+</script>
+
+{% endblock %}

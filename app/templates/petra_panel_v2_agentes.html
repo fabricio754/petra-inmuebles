@@ -185,7 +185,7 @@
           {% if a.origen %}<div style="font-size:11px;color:var(--muted)">origen: {{ a.origen }}</div>{% endif %}
         </td>
         <td class="tel-col">
-          <a href="/panel/petra/agente/{{ a.contacto_id }}?token={{ token }}"
+          <a href="/panel/petra/v2/agente/{{ a.contacto_id }}?token={{ token }}"
              style="color:var(--accent)">{{ a.telefono }}</a>
         </td>
         <td style="color:var(--text-sub)">{{ a.ciudad or '—' }}</td>

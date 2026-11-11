@@ -146,7 +146,7 @@
       {% for p in propietarios %}
       <tr>
         <td class="tel-col">
-          <a href="/panel/petra/visitante/usuario/{{ p.tel }}?token={{ token }}"
+          <a href="/panel/petra/v2/usuario/{{ p.tel }}?token={{ token }}"
              style="color:var(--accent)">{{ p.tel }}</a>
         </td>
         <td>{{ p.nombre or '—' }}</td>

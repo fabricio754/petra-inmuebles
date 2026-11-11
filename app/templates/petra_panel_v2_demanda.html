@@ -143,7 +143,7 @@
       {% for i in interesados %}
       <tr>
         <td class="tel-col">
-          <a href="/panel/petra/visitante/usuario/{{ i.interesado_telefono }}?token={{ token }}"
+          <a href="/panel/petra/v2/usuario/{{ i.interesado_telefono }}?token={{ token }}"
              style="color:var(--accent)">{{ i.interesado_telefono or '—' }}</a>
         </td>
         <td>{{ i.interesado_nombre or i.interesado_username or '—' }}</td>
