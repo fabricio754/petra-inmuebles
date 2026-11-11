@@ -484,35 +484,86 @@
   </div>
 {% endif %}
 
+<style>
+  .dlg-edinm {
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 0; background: var(--panel); color: var(--text);
+    max-width: 520px; width: 94%;
+  }
+  .dlg-edinm::backdrop { background: rgba(0,0,0,.45); }
+  .dlg-edinm header {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .dlg-edinm header h3 { margin: 0; font-size: 15px; font-weight: 700; }
+  .dlg-edinm form { padding: 18px 20px; }
+  .dlg-edinm .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .dlg-edinm label {
+    font-size: 11px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: .4px; font-weight: 700;
+    display: block; margin-bottom: 5px;
+  }
+  .dlg-edinm input, .dlg-edinm select {
+    width: 100%; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel); color: var(--text);
+    font-family: inherit; font-size: 13.5px;
+    box-sizing: border-box;
+  }
+  .dlg-edinm input:focus, .dlg-edinm select:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+  }
+  .dlg-edinm .acts {
+    display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;
+  }
+  .dlg-edinm .btn {
+    padding: 9px 16px; border-radius: 10px; font-size: 13px;
+    cursor: pointer; font-family: inherit;
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  }
+  .dlg-edinm .btn.primary {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    font-weight: 600;
+  }
+</style>
+
 <!-- Modal editar inmueble -->
-<dialog id="dlg-ed-inm" style="border:1px solid var(--border);border-radius:16px;padding:0;background:var(--panel);color:var(--text);max-width:520px;width:94%">
-  <header style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-    <h3 style="margin:0;font-size:15px">Editar inmueble</h3>
-    <button type="button" onclick="document.getElementById('dlg-ed-inm').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:8px;cursor:pointer;font-family:inherit">✕</button>
+<dialog id="dlg-ed-inm" class="dlg-edinm">
+  <header>
+    <h3>Editar inmueble</h3>
+    <button type="button" class="btn" onclick="document.getElementById('dlg-ed-inm').close()">✕</button>
   </header>
-  <form id="form-ed-inm" method="post" action="" style="padding:16px 20px">
+  <form id="form-ed-inm" method="post" action="">
     <input type="hidden" name="token" value="{{ token }}">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Torre/Apto</label>
-        <input type="text" name="nro" id="ei-nro" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
-      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Operación</label>
-        <select name="operacion" id="ei-op" required style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px">
-          <option value="arriendo">Arriendo</option><option value="venta">Venta</option>
-        </select></div>
-      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Habitaciones</label>
-        <input type="number" name="habitaciones" id="ei-hab" min="0" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
-      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Baños</label>
-        <input type="number" name="banos" id="ei-banos" min="0" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
-      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Área (m²)</label>
-        <input type="number" name="m2" id="ei-m2" min="0" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
-      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Precio (COP)</label>
-        <input type="number" name="precio" id="ei-precio" min="0" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
-      <div style="grid-column:1/-1"><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Tel. propietario</label>
-        <input type="text" name="propietario_telefono" id="ei-tel" placeholder="+57..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
+    {# Campos que no edita el humano pero el server los espera: preservamos #}
+    <input type="hidden" name="nro" id="ei-nro">
+    <input type="hidden" name="habitaciones" id="ei-hab">
+    <input type="hidden" name="banos" id="ei-banos">
+    <div class="grid">
+      <div>
+        <label>Operación *</label>
+        <select name="operacion" id="ei-op" required>
+          <option value="arriendo">Arriendo</option>
+          <option value="venta">Venta</option>
+        </select>
+      </div>
+      <div>
+        <label>Área (m²)</label>
+        <input type="number" name="m2" id="ei-m2" min="0" inputmode="numeric">
+      </div>
+      <div>
+        <label>Precio (COP)</label>
+        <input type="text" id="ei-precio-vista" inputmode="numeric" autocomplete="off" placeholder="0">
+        <input type="hidden" name="precio" id="ei-precio">
+      </div>
+      <div>
+        <label>Tel. propietario</label>
+        <input type="text" name="propietario_telefono" id="ei-tel" placeholder="+57...">
+      </div>
     </div>
-    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
-      <button type="button" onclick="document.getElementById('dlg-ed-inm').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
-      <button type="submit" style="background:var(--accent);color:#fff;border:none;padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600">Guardar</button>
+    <div class="acts">
+      <button type="button" class="btn" onclick="document.getElementById('dlg-ed-inm').close()">Cancelar</button>
+      <button type="submit" class="btn primary">Guardar</button>
     </div>
   </form>
 </dialog>
@@ -531,6 +582,13 @@
 {% endif %}
 
 <script>
+function _fmtMiles(n) {
+  if (n === '' || n === null || n === undefined) return '';
+  var s = String(n).replace(/\D/g, '');
+  if (!s) return '';
+  return s.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
 document.querySelectorAll('.editar-inm-btn').forEach(function (btn) {
   btn.addEventListener('click', function () {
     var d = btn.dataset;
@@ -544,14 +602,28 @@ document.querySelectorAll('.editar-inm-btn').forEach(function (btn) {
     document.getElementById('ei-banos').value = d.banos || '';
     document.getElementById('ei-m2').value = d.m2 || '';
     document.getElementById('ei-precio').value = d.precio || '';
+    document.getElementById('ei-precio-vista').value = _fmtMiles(d.precio);
     document.getElementById('ei-tel').value = d.tel || '';
     if (typeof dlg.showModal === 'function') {
       dlg.showModal();
     } else {
       dlg.setAttribute('open', '');
     }
+    setTimeout(function(){ document.getElementById('ei-m2').focus(); }, 50);
   });
 });
+
+// Separador de miles mientras tipea en Precio
+(function () {
+  var vista = document.getElementById('ei-precio-vista');
+  var hidden = document.getElementById('ei-precio');
+  if (!vista || !hidden) return;
+  vista.addEventListener('input', function () {
+    var crudo = vista.value.replace(/\D/g, '');
+    hidden.value = crudo;
+    vista.value = _fmtMiles(crudo);
+  });
+})();
 
 // PIN prompt + POST async. Devuelve true para que el <a> abra WhatsApp
 // después del POST (igual que v1). Devuelve false si cancela.
