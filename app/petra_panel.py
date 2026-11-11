@@ -4034,6 +4034,25 @@ def panel_v2_faq():
     )
 
 
+@petra_panel_bp.get("/v2/whitelist")
+def panel_v2_whitelist():
+    """v2: Staging whitelist — teléfonos que entran al router staging."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    flash = (request.args.get("flash") or "").strip()
+    with _db._conexion_directa(timeout=5) as conn:
+        rows = _rows(conn,
+            "SELECT telefono, nota, creado_en "
+            "FROM petra_staging_whitelist ORDER BY creado_en DESC")
+    router_url = (os.environ.get("PETRA_STAGING_URL") or "").strip()
+    is_staging_panel = (os.environ.get("MODO_STAGING") or "").strip() == "1"
+    return render_template(
+        "petra_panel_v2_whitelist.html",
+        rows=rows, token=token, flash=flash,
+        router_url=router_url, is_staging_panel=is_staging_panel,
+    )
+
+
 @petra_panel_bp.get("/v2/despliegues")
 def panel_v2_despliegues():
     """v2: Despliegues — PR develop→main, ventana, approve+merge con PIN."""
@@ -6170,22 +6189,30 @@ def staging_whitelist_dashboard():
     )
 
 
+def _whitelist_redirect(token, flash):
+    """Vuelve a /v2/whitelist si venimos de ahí; si no, al v1."""
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/whitelist" in ref:
+        return redirect(url_for("petra_panel.panel_v2_whitelist",
+                                token=token, flash=flash))
+    return redirect(url_for("petra_panel.staging_whitelist_dashboard",
+                            token=token, flash=flash))
+
+
 @petra_panel_bp.post("/staging-whitelist/agregar")
 def staging_whitelist_agregar():
     """Agrega un teléfono a la whitelist. Requiere PIN de Fabricio."""
     _check_token()
     token = (request.form.get("token") or "").strip()
     if not _verificar_pin("fabricio"):
-        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
-                                token=token, flash="pin_malo"))
+        return _whitelist_redirect(token, "pin_malo")
     telefono = (request.form.get("telefono") or "").strip()
     nota = (request.form.get("nota") or "").strip() or None
     # Normalizar: solo dígitos, debe empezar con 57 (Colombia)
     import re as _re
     tel_limpio = _re.sub(r"\D", "", telefono)
     if not tel_limpio or len(tel_limpio) < 10:
-        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
-                                token=token, flash="telefono_invalido"))
+        return _whitelist_redirect(token, "telefono_invalido")
     if len(tel_limpio) == 10 and tel_limpio.startswith("3"):
         tel_limpio = "57" + tel_limpio
     try:
@@ -6202,10 +6229,8 @@ def staging_whitelist_agregar():
         except Exception:
             pass
     except Exception:
-        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
-                                token=token, flash="error"))
-    return redirect(url_for("petra_panel.staging_whitelist_dashboard",
-                            token=token, flash="agregado"))
+        return _whitelist_redirect(token, "error")
+    return _whitelist_redirect(token, "agregado")
 
 
 @petra_panel_bp.post("/staging-whitelist/<telefono>/eliminar")
@@ -6214,8 +6239,7 @@ def staging_whitelist_eliminar(telefono):
     _check_token()
     token = (request.form.get("token") or "").strip()
     if not _verificar_pin("fabricio"):
-        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
-                                token=token, flash="pin_malo"))
+        return _whitelist_redirect(token, "pin_malo")
     try:
         with _db._conexion_directa(timeout=5) as conn:
             conn.execute("DELETE FROM petra_staging_whitelist WHERE telefono=%s",
@@ -6226,7 +6250,5 @@ def staging_whitelist_eliminar(telefono):
         except Exception:
             pass
     except Exception:
-        return redirect(url_for("petra_panel.staging_whitelist_dashboard",
-                                token=token, flash="error"))
-    return redirect(url_for("petra_panel.staging_whitelist_dashboard",
-                            token=token, flash="eliminado"))
+        return _whitelist_redirect(token, "error")
+    return _whitelist_redirect(token, "eliminado")
