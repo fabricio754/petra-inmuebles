@@ -3779,8 +3779,7 @@ def visitante_inmueble_editar(iid):
     except Exception:
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
-    return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid, token=token, flash="editado"))
+    return _inmueble_back(cid, token, "editado")
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/eliminar")
@@ -3799,8 +3798,18 @@ def visitante_inmueble_eliminar(iid):
         cid = row[0]
         conn.execute("DELETE FROM inmuebles_visitante WHERE id=%s", (iid,))
         conn.commit()
+    return _inmueble_back(cid, token, "eliminado")
+
+
+def _inmueble_back(cid, token, flash):
+    """Redirect smart por Referer: vuelve a /v2/inmuebles?cid= o al v1."""
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/inmuebles" in ref:
+        base = url_for("petra_panel.panel_v2_inmuebles", token=token)
+        sep = "&" if "?" in base else "?"
+        return redirect(f"{base}{sep}cid={cid}&flash={flash}")
     return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid, token=token, flash="eliminado"))
+                            cid=cid, token=token, flash=flash))
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle")
@@ -3824,8 +3833,7 @@ def visitante_inmueble_toggle(iid):
     except Exception:
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
-    return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid, token=token, flash="toggled"))
+    return _inmueble_back(cid, token, "toggled")
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle-gestion")
@@ -3852,10 +3860,7 @@ def visitante_inmueble_toggle_gestion(iid):
             if not gestionado:
                 # FALSE → TRUE
                 if not operador:
-                    return redirect(url_for(
-                        "petra_panel.visitante_inmuebles",
-                        cid=cid_conj, token=token,
-                        flash="falta_operador_env"))
+                    return _inmueble_back(cid_conj, token, "falta_operador_env")
                 conn.execute(
                     "UPDATE inmuebles_visitante "
                     "   SET gestionado_por_petra = TRUE, "
@@ -3878,8 +3883,7 @@ def visitante_inmueble_toggle_gestion(iid):
     except Exception:
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
-    return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid_conj, token=token, flash="gestion_toggled"))
+    return _inmueble_back(cid_conj, token, "gestion_toggled")
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle-inmobiliaria")
@@ -3907,8 +3911,7 @@ def visitante_inmueble_toggle_inmobiliaria(iid):
     except Exception:
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
-    return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid_conj, token=token, flash="inmob_toggled"))
+    return _inmueble_back(cid_conj, token, "inmob_toggled")
 
 
 @petra_panel_bp.get("/v2/demanda")
