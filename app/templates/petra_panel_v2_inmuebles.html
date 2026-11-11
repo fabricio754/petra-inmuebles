@@ -376,14 +376,19 @@
     <table class="table-x">
       <thead>
         <tr>
-          <th>Código</th><th>Op</th><th>Tipo</th><th>m²</th>
-          <th>Precio</th><th>Teléfono</th><th>Sales</th><th>Datos (Sebas)</th><th>Estado</th><th></th>
+          <th>Código</th><th>Estado</th><th>Op</th><th>Tipo</th><th>m²</th>
+          <th>Precio</th><th>Teléfono</th><th>Sales</th><th>Datos (Sebas)</th><th>Acciones</th>
         </tr>
       </thead>
       <tbody>
         {% for i in inmuebles %}
         <tr class="{% if not i.activo %}inactivo{% endif %}">
           <td class="code-col">{{ i.codigo }}</td>
+          <td>
+            <span class="state-pill {% if i.activo %}activo{% else %}inactivo{% endif %}">
+              {% if i.activo %}activo{% else %}inactivo{% endif %}
+            </span>
+          </td>
           <td><span class="op-pill {{ i.operacion }}">{{ i.operacion }}</span></td>
           <td style="font-size:12.5px">
             {% set _emo = {'apartamento':'🏢','casa':'🏡','parqueadero':'🚗','deposito':'📦','habitacion':'🛏','local':'🏪','oficina':'🏬'} %}
@@ -459,55 +464,18 @@
 
           {# ═══ DATOS TRACK (Sebas) ═══════════════════════════════ #}
           <td class="etapa-cell">
-            <div class="datos-card {{ i.datos_estado }}">
-              <div class="datos-vals">
-                <span class="{% if i.m2 %}ok{% else %}miss{% endif %}">m²: {{ i.m2 if i.m2 else '—' }}</span>
-                <span class="{% if i.precio %}ok{% else %}miss{% endif %}">
-                  precio: {% if i.precio %}{{ i.precio_fmt }}{% else %}—{% endif %}
-                </span>
-              </div>
-              <div class="datos-status">
-                {% if i.datos_estado == 'ok' %}
-                  ✅ Completo
-                {% elif i.datos_estado == 'waiting' %}
-                  ⏳ Pedido hace {{ i.datos_dias_pedido }} día(s)
-                {% elif i.datos_estado == 'stale' %}
-                  ❌ Sin respuesta hace {{ i.datos_dias_pedido }} día(s)
-                {% else %}
-                  📋 Falta info del propietario
-                {% endif %}
-              </div>
-              {% if i.datos_estado != 'ok' %}
-              <div class="datos-actions">
-                {% if i.celular_valido %}
-                <a class="wa-step wa-datos" href="{{ i.wa_pedir_datos }}" target="_blank"
-                   onclick="return petraEjecutar(event, 'sebastian', 'f-pd-{{ i.id }}')">
-                  💬 {% if i.datos_estado == 'stale' %}Re-pedir{% else %}Contactar propietario{% endif %}
-                </a>
-                <form id="f-pd-{{ i.id }}" method="post" style="display:none"
-                      action="/panel/petra/inmueble/{{ i.id }}/etapa/pedir_datos?token={{ token }}">
-                  <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
-                </form>
-                {% endif %}
-                <button type="button" class="btn-yocargo editar-inm-btn"
-                        data-id="{{ i.id }}"
-                        data-nro="{{ i.nro or '' }}"
-                        data-op="{{ i.operacion or 'arriendo' }}"
-                        data-hab="{{ i.habitaciones if i.habitaciones is not none else '' }}"
-                        data-banos="{{ i.banos if i.banos is not none else '' }}"
-                        data-m2="{{ i.m2 if i.m2 is not none else '' }}"
-                        data-precio="{{ i.precio if i.precio is not none else '' }}"
-                        data-tel="{{ i.propietario_telefono or '' }}">
-                  ✎ Yo cargo
-                </button>
-              </div>
-              {% endif %}
-            </div>
-          </td>
-          <td>
-            <span class="state-pill {% if i.activo %}activo{% else %}inactivo{% endif %}">
-              {% if i.activo %}activo{% else %}inactivo{% endif %}
-            </span>
+            {% if i.datos_estado == 'ok' %}
+              <span class="muted">✅ Completado</span>
+            {% elif i.celular_valido %}
+              <a class="wa-step wa-datos" href="{{ i.wa_pedir_datos }}" target="_blank"
+                 onclick="return petraEjecutar(event, 'sebastian', 'f-pd-{{ i.id }}')">
+                💬 {% if i.datos_estado == 'stale' %}Re-pedir ({{ i.datos_dias_pedido }}d){% else %}Contactar propietario{% endif %}
+              </a>
+              <form id="f-pd-{{ i.id }}" method="post" style="display:none"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/pedir_datos?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
+              </form>
+            {% endif %}
           </td>
           <td>
             <div class="row-actions">
