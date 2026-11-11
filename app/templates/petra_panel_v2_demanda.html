@@ -1,0 +1,184 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'demanda' %}
+{% block title %}Demanda · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px 20px;
+    cursor: pointer; transition: all 150ms ease;
+    display: flex; flex-direction: column;
+  }
+  .stat:hover { border-color: var(--accent); }
+  .stat.on { border-color: var(--accent); background: #f3efff; }
+  :root[data-theme="dark"] .stat.on { background: #241f3d; }
+  .stat .lab {
+    font-size: 12.5px; color: var(--text-sub); font-weight: 500;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .stat .ic {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--bg); display: inline-flex;
+    align-items: center; justify-content: center; font-size: 13px;
+  }
+  .stat .val { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .filter-bar {
+    padding: 16px 22px; border-bottom: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+  }
+  .filter-bar select {
+    padding: 7px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px;
+    background: var(--panel); color: var(--text);
+    font-family: inherit;
+  }
+  .count-badge {
+    margin-left: auto; font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .table-x { width: 100%; border-collapse: collapse; }
+  .table-x th {
+    text-align: left; font-size: 11px; font-weight: 500;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  }
+  .table-x td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  .table-x tr:last-child td { border-bottom: none; }
+  .tel-col { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 12.5px; }
+
+  .estado-pill {
+    display: inline-flex; padding: 4px 11px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+  }
+  .estado-pill.enviado    { background: #dbeafe; color: #1d4ed8; }
+  .estado-pill.respondido { background: #dcfce7; color: #166534; }
+  .estado-pill.cerrado    { background: #f3f4f6; color: #4b5563; }
+  :root[data-theme="dark"] .estado-pill.enviado    { background: #0a1f3d; color: #60a5fa; }
+  :root[data-theme="dark"] .estado-pill.respondido { background: #052e1a; color: #4ade80; }
+
+  .inm-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .inm-chip {
+    background: var(--bg); border-radius: 6px;
+    padding: 2px 8px; font-size: 11.5px; color: var(--text-sub);
+    font-family: ui-monospace, Menlo, monospace;
+  }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Demanda</h1>
+    <div class="sub">Interesados que escanearon el QR y pidieron contacto</div>
+  </div>
+</div>
+
+<div class="stats-row">
+  <a class="stat {% if not estado_filtro %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj_filtro }}">
+    <div class="lab"><span>Total</span><span class="ic">🙋</span></div>
+    <div class="val">{{ n_total }}</div>
+  </a>
+  <a class="stat {% if estado_filtro == 'enviado' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj_filtro }}&estado=enviado">
+    <div class="lab"><span>Enviados</span><span class="ic">📤</span></div>
+    <div class="val">{{ n_enviado }}</div>
+  </a>
+  <a class="stat {% if estado_filtro == 'respondido' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj_filtro }}&estado=respondido">
+    <div class="lab"><span>Respondidos</span><span class="ic">✅</span></div>
+    <div class="val">{{ n_respondido }}</div>
+  </a>
+  <a class="stat {% if estado_filtro == 'cerrado' %}on{% endif %}" href="?token={{ token }}&conjunto={{ conj_filtro }}&estado=cerrado">
+    <div class="lab"><span>Cerrados</span><span class="ic">🔒</span></div>
+    <div class="val">{{ n_cerrado }}</div>
+  </a>
+</div>
+
+<div class="main-card">
+  <div class="filter-bar">
+    <form method="get" action="" style="display:inline-flex;gap:10px;align-items:center">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="estado" value="{{ estado_filtro }}">
+      <label style="font-size:12px;color:var(--text-sub)">Conjunto</label>
+      <select name="conjunto" onchange="this.form.submit()">
+        <option value="">Todos</option>
+        {% for c in conjuntos %}
+        <option value="{{ c.id }}" {% if conj_filtro == c.id|string %}selected{% endif %}>
+          {{ c.codigo }} · {{ c.nombre }}
+        </option>
+        {% endfor %}
+      </select>
+    </form>
+    <span class="count-badge">{{ interesados|length }} resultados</span>
+  </div>
+
+  {% if interesados %}
+  <table class="table-x">
+    <thead>
+      <tr>
+        <th>Teléfono</th>
+        <th>Nombre</th>
+        <th>Conjunto</th>
+        <th>Inmuebles pedidos</th>
+        <th>Estado</th>
+        <th>Fecha</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for i in interesados %}
+      <tr>
+        <td class="tel-col">
+          <a href="/panel/petra/visitante/usuario/{{ i.interesado_telefono }}?token={{ token }}"
+             style="color:var(--accent)">{{ i.interesado_telefono or '—' }}</a>
+        </td>
+        <td>{{ i.interesado_nombre or i.interesado_username or '—' }}</td>
+        <td style="color:var(--text-sub)">
+          {% if i.conjunto_codigo %}{{ i.conjunto_codigo }} · {{ i.conjunto_nombre }}{% else %}—{% endif %}
+        </td>
+        <td>
+          {% if i.inmueble_nros %}
+          <div class="inm-chips">
+            {% for nro in i.inmueble_nros %}
+              <span class="inm-chip">{{ nro }}</span>
+            {% endfor %}
+          </div>
+          {% else %}
+          <span style="color:var(--muted)">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="estado-pill {{ i.estado or 'enviado' }}">
+            {{ i.estado or 'enviado' }}
+          </span>
+        </td>
+        <td style="color:var(--text-sub);font-size:12px">
+          {% if i.creado_en %}{{ i.creado_en.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:30px;margin-bottom:8px">📭</div>
+    <div>Aún no hay interesados registrados.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
