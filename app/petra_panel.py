@@ -4034,6 +4034,38 @@ def panel_v2_faq():
     )
 
 
+@petra_panel_bp.get("/v2/salud")
+def panel_v2_salud():
+    """v2: Salud/Observabilidad. Reutiliza _stats_por_etapa() del v1."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    horas = int(request.args.get("horas") or 24)
+    prod = _stats_por_etapa("prod", horas)
+    staging = _stats_por_etapa("staging", horas)
+    etapas = sorted(set(
+        [r["etapa"] for r in prod if "etapa" in r] +
+        [r["etapa"] for r in staging if "etapa" in r]
+    ))
+    prod_by = {r["etapa"]: r for r in prod if "etapa" in r}
+    staging_by = {r["etapa"]: r for r in staging if "etapa" in r}
+    rows = []
+    for e in etapas:
+        rows.append({
+            "etapa": e,
+            "prod": prod_by.get(e),
+            "staging": staging_by.get(e),
+        })
+    err_prod = next((r.get("error_global") for r in prod if "error_global" in r), None)
+    err_staging = next((r.get("error_global") for r in staging if "error_global" in r), None)
+    return render_template(
+        "petra_panel_v2_salud.html",
+        rows=rows, horas=horas, token=token,
+        total_prod=sum(r.get("total", 0) for r in prod if "etapa" in r),
+        total_staging=sum(r.get("total", 0) for r in staging if "etapa" in r),
+        err_prod=err_prod, err_staging=err_staging,
+    )
+
+
 @petra_panel_bp.get("/v2/embudo")
 def panel_v2_embudo():
     """v2: Ventas → Embudo. Reutiliza _run_funnels() del v1."""
