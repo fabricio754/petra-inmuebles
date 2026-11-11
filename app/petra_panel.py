@@ -4034,6 +4034,22 @@ def panel_v2_faq():
     )
 
 
+@petra_panel_bp.get("/v2/embudo")
+def panel_v2_embudo():
+    """v2: Ventas → Embudo. Reutiliza _run_funnels() del v1."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    try:
+        funnels = _run_funnels()
+    except Exception as e:
+        funnels = [{"titulo": "Error", "total": 0, "subtotal_label": "",
+                    "extra": f"{type(e).__name__}: {e}", "pasos": []}]
+    return render_template(
+        "petra_panel_v2_embudo.html",
+        funnels=funnels, token=token,
+    )
+
+
 @petra_panel_bp.get("/v2/visitas")
 def panel_v2_visitas():
     """v2: Operaciones → Visitas (petra_visitas)."""

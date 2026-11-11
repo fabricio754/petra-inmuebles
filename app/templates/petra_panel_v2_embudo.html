@@ -1,0 +1,102 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'embudo' %}
+{% block title %}Embudo · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .funnels-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 18px;
+  }
+
+  .funnel-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 22px; display: flex; flex-direction: column;
+  }
+  .funnel-head { margin-bottom: 18px; }
+  .funnel-head h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  .funnel-head .counts {
+    display: flex; align-items: baseline; gap: 10px; margin-top: 2px;
+  }
+  .funnel-head .total {
+    font-size: 32px; font-weight: 700; letter-spacing: -0.5px; line-height: 1;
+  }
+  .funnel-head .sub {
+    font-size: 12px; color: var(--text-sub);
+  }
+  .funnel-head .extra {
+    font-size: 11.5px; color: var(--muted); margin-top: 6px;
+  }
+
+  .step { margin-bottom: 12px; }
+  .step:last-child { margin-bottom: 0; }
+  .step .top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 5px;
+  }
+  .step .lab { font-size: 12.5px; font-weight: 500; color: var(--text); }
+  .step .num {
+    font-size: 12px; color: var(--text-sub); font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .step .num .n { color: var(--text); font-size: 13px; font-weight: 700; }
+  .bar {
+    height: 10px; background: var(--bg); border-radius: 999px; overflow: hidden;
+  }
+  .bar .fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #a78bfa);
+    border-radius: 999px;
+    transition: width 320ms ease;
+  }
+
+  .empty-funnel {
+    text-align: center; padding: 30px 0; color: var(--text-sub);
+    font-size: 13px;
+  }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Embudo de ventas</h1>
+    <div class="sub">Propietarios, Agentes Petra y Visitantes QR</div>
+  </div>
+</div>
+
+<div class="funnels-grid">
+  {% for f in funnels %}
+  <div class="funnel-card">
+    <div class="funnel-head">
+      <h3>{{ f.titulo }}</h3>
+      <div class="counts">
+        <span class="total">{{ f.total }}</span>
+        <span class="sub">{{ f.subtotal_label or '' }}</span>
+      </div>
+      {% if f.extra %}<div class="extra">{{ f.extra }}</div>{% endif %}
+    </div>
+
+    {% if f.pasos %}
+    <div class="steps">
+      {% for p in f.pasos %}
+      <div class="step">
+        <div class="top">
+          <div class="lab">{{ p.nombre }}</div>
+          <div class="num"><span class="n">{{ p.n }}</span> · {{ p.pct }}%</div>
+        </div>
+        <div class="bar"><div class="fill" style="width: {{ p.pct }}%"></div></div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-funnel">Sin datos</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
