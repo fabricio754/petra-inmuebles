@@ -5,186 +5,139 @@
 
 <style>
   .hero { display: flex; justify-content: space-between; align-items: flex-start;
-          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 20px; }
   .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
   .hero .sub { color: var(--text-sub); font-size: 13.5px; }
-  .hero form { display: inline-flex; gap: 8px; align-items: center; }
-  .hero select {
-    padding: 7px 12px; border: 1px solid var(--border);
-    border-radius: 8px; font-size: 12.5px;
-    background: var(--panel); color: var(--text); font-family: inherit;
-  }
 
-  .stats-row {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 14px; margin-bottom: 20px;
-  }
-  .stat {
+  .status-card {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 16px; padding: 18px 20px;
-    display: flex; flex-direction: column;
-  }
-  .stat .lab {
-    font-size: 12.5px; color: var(--text-sub); font-weight: 500;
+    border-radius: 20px; padding: 24px 28px;
     display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 10px;
+    gap: 16px; margin-bottom: 20px;
+    position: relative; overflow: hidden;
   }
-  .stat .ic { font-size: 14px; }
-  .stat .val { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
-  .stat .sub { font-size: 11.5px; color: var(--text-sub); margin-top: 4px; }
+  .status-card.ok   { border-color: #86efac; background: #f0fdf4; }
+  .status-card.warn { border-color: #fcd34d; background: #fffbeb; }
+  .status-card.down { border-color: #fca5a5; background: #fef2f2; }
+  :root[data-theme="dark"] .status-card.ok   { border-color: #065f46; background: #052e1a; }
+  :root[data-theme="dark"] .status-card.warn { border-color: #78350f; background: #2d2410; }
+  :root[data-theme="dark"] .status-card.down { border-color: #991b1b; background: #3f0a0a; }
 
-  .main-card {
+  .status-card .info { display: flex; align-items: center; gap: 16px; }
+  .status-card .dot {
+    width: 16px; height: 16px; border-radius: 50%;
+  }
+  .status-card.ok   .dot { background: #16a34a; box-shadow: 0 0 0 5px rgba(22,163,74,.2); }
+  .status-card.warn .dot { background: #f59e0b; box-shadow: 0 0 0 5px rgba(245,158,11,.2); }
+  .status-card.down .dot { background: #dc2626; box-shadow: 0 0 0 5px rgba(220,38,38,.2); }
+  .status-card .msg h2 { margin: 0 0 3px; font-size: 18px; font-weight: 700; }
+  .status-card .msg .ts { font-size: 12px; color: var(--text-sub); }
+
+  .btn-refresh {
+    padding: 10px 16px; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 12.5px; cursor: pointer;
+    background: var(--panel); color: var(--text); font-family: inherit;
+    font-weight: 500;
+  }
+  .btn-refresh:hover { border-color: var(--accent); }
+
+  .section-head {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .5px; font-weight: 600;
+    margin: 10px 0 10px;
+  }
+
+  .list {
     background: var(--panel); border: 1px solid var(--border);
     border-radius: 20px; overflow: hidden;
   }
-  .card-head {
-    padding: 18px 22px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between;
+  .item {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 16px; align-items: center;
   }
-  .card-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
-  .count-badge {
-    font-size: 12px; color: var(--text-sub);
-    background: var(--bg); padding: 5px 12px; border-radius: 999px;
-  }
+  .item:last-child { border-bottom: none; }
 
-  .table-x { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  .table-x th {
-    text-align: left; font-size: 10.5px; font-weight: 500;
-    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
-    padding: 12px 14px 8px; border-bottom: 1px solid var(--border);
-    white-space: nowrap;
+  .bars {
+    display: inline-flex; align-items: flex-end;
+    gap: 2px; height: 22px;
   }
-  .table-x td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-  .table-x tr:last-child td { border-bottom: none; }
-  .table-x .num { font-variant-numeric: tabular-nums; }
-  .etapa { font-weight: 600; }
-  .dim { color: var(--muted); }
-
-  .dot {
-    display: inline-block; width: 9px; height: 9px; border-radius: 50%;
-    vertical-align: middle; margin-right: 6px;
+  .bars span {
+    width: 3px; background: var(--border); border-radius: 1px;
   }
-  .dot.ok   { background: #16a34a; }
-  .dot.warn { background: #f59e0b; }
-  .dot.down { background: #dc2626; }
-  .dot.none { background: var(--border); }
+  .bars span.on.ok   { background: #16a34a; }
+  .bars span.on.warn { background: #f59e0b; }
+  .bars span.on.down { background: #dc2626; }
+  .bars span:nth-child(1) { height: 25%; }
+  .bars span:nth-child(2) { height: 50%; }
+  .bars span:nth-child(3) { height: 75%; }
+  .bars span:nth-child(4) { height: 100%; }
 
-  .err {
-    font-size: 11px; color: #dc2626; max-width: 240px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  .item .main { flex: 1; }
+  .item .main .name { font-weight: 600; font-size: 14px; }
+  .item .main .detalle { font-size: 12.5px; color: var(--text-sub); margin-top: 2px; }
+
+  .state-pill {
+    display: inline-flex; padding: 4px 12px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .4px;
   }
+  .state-pill.ok   { background: #dcfce7; color: #166534; }
+  .state-pill.warn { background: #fef3c7; color: #92400e; }
+  .state-pill.down { background: #fee2e2; color: #991b1b; }
+  :root[data-theme="dark"] .state-pill.ok   { background: #052e1a; color: #4ade80; }
+  :root[data-theme="dark"] .state-pill.warn { background: #2d2410; color: #fbbf24; }
+  :root[data-theme="dark"] .state-pill.down { background: #3f0a0a; color: #fca5a5; }
 
-  .err-banner {
-    background: #fee2e2; color: #991b1b; padding: 12px 16px;
-    border-radius: 10px; font-size: 12.5px; margin-bottom: 14px;
+  .link-row {
+    display: inline-block; margin-top: 14px; font-size: 12.5px;
+    color: var(--accent);
   }
-  :root[data-theme="dark"] .err-banner { background: #3f0a0a; color: #fca5a5; }
-
-  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
 </style>
 
 <div class="hero">
   <div>
-    <h1>Salud</h1>
-    <div class="sub">Observabilidad por etapa — prod vs staging (últimas {{ horas }}h)</div>
+    <h1>Petra · Salud del sistema</h1>
+    <div class="sub">Checks por componente (BD, WA, Scheduler, Cola, Disco, Embudo, Deploy)</div>
   </div>
-  <form method="get" action="">
+</div>
+
+<div class="status-card {{ estado }}">
+  <div class="info">
+    <div class="dot"></div>
+    <div class="msg">
+      <h2>{{ mensaje }}</h2>
+      <div class="ts">Última verificación: {{ verificado_en }}</div>
+    </div>
+  </div>
+  <form method="get" action="" style="margin:0">
     <input type="hidden" name="token" value="{{ token }}">
-    <label style="font-size:12px;color:var(--text-sub)">Ventana</label>
-    <select name="horas" onchange="this.form.submit()">
-      <option value="1"   {% if horas == 1 %}selected{% endif %}>1 h</option>
-      <option value="6"   {% if horas == 6 %}selected{% endif %}>6 h</option>
-      <option value="24"  {% if horas == 24 %}selected{% endif %}>24 h</option>
-      <option value="168" {% if horas == 168 %}selected{% endif %}>7 d</option>
-    </select>
+    <button type="submit" class="btn-refresh">🔄 Volver a verificar</button>
   </form>
 </div>
 
-{% if err_prod %}
-<div class="err-banner">⚠️ Error consultando prod: {{ err_prod }}</div>
-{% endif %}
-{% if err_staging %}
-<div class="err-banner">⚠️ Error consultando staging: {{ err_staging }}</div>
-{% endif %}
+<div class="section-head">Componentes</div>
 
-<div class="stats-row">
-  <div class="stat">
-    <div class="lab"><span>Eventos en prod</span><span class="ic">🟢</span></div>
-    <div class="val">{{ total_prod }}</div>
-    <div class="sub">últimas {{ horas }}h</div>
-  </div>
-  <div class="stat">
-    <div class="lab"><span>Eventos en staging</span><span class="ic">🟡</span></div>
-    <div class="val">{{ total_staging }}</div>
-    <div class="sub">últimas {{ horas }}h</div>
-  </div>
-  <div class="stat">
-    <div class="lab"><span>Etapas distintas</span><span class="ic">🧩</span></div>
-    <div class="val">{{ rows|length }}</div>
-    <div class="sub">activas en el período</div>
-  </div>
-</div>
-
-<div class="main-card">
-  <div class="card-head">
-    <h3>Comparativa por etapa</h3>
-    <span class="count-badge">prod vs staging</span>
-  </div>
-
-  {% if rows %}
-  <table class="table-x">
-    <thead>
-      <tr>
-        <th rowspan="2">Etapa</th>
-        <th colspan="4" style="border-left:1px solid var(--border);text-align:center">Prod</th>
-        <th colspan="4" style="border-left:1px solid var(--border);text-align:center">Staging</th>
-      </tr>
-      <tr>
-        <th style="border-left:1px solid var(--border)">Estado</th>
-        <th class="num">Total</th>
-        <th class="num">% OK</th>
-        <th class="num">p95</th>
-        <th style="border-left:1px solid var(--border)">Estado</th>
-        <th class="num">Total</th>
-        <th class="num">% OK</th>
-        <th class="num">p95</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-      <tr>
-        <td class="etapa">{{ r.etapa }}</td>
-        {% for amb in [r.prod, r.staging] %}
-          {% if amb %}
-          <td style="border-left:1px solid var(--border)">
-            <span class="dot {{ amb.status }}"></span>
-            {% if amb.ultimo_error %}
-              <span class="err" title="{{ amb.ultimo_error }}">{{ amb.ultimo_error[:50] }}{% if amb.ultimo_error|length > 50 %}…{% endif %}</span>
-            {% endif %}
-          </td>
-          <td class="num">{{ amb.total }}</td>
-          <td class="num">
-            {{ amb.pct_ok }}%
-            {% if amb.fallo %}<span class="dim" style="font-size:10.5px"> · {{ amb.fallo }} fallos</span>{% endif %}
-          </td>
-          <td class="num dim">{{ amb.p95 or 0 }} ms</td>
-          {% else %}
-          <td style="border-left:1px solid var(--border)"><span class="dot none"></span><span class="dim">—</span></td>
-          <td class="num dim">—</td>
-          <td class="num dim">—</td>
-          <td class="num dim">—</td>
-          {% endif %}
-        {% endfor %}
-      </tr>
+<div class="list">
+  {% for c in checks %}
+  <div class="item">
+    <div class="bars">
+      {% for i in range(1, 5) %}
+        <span class="{% if i <= c.bars %}on {{ c.status }}{% endif %}"></span>
       {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty">
-    <div style="font-size:30px;margin-bottom:8px">🫀</div>
-    <div>Sin eventos registrados en esta ventana.</div>
+    </div>
+    <div class="main">
+      <div class="name">{{ c.nombre }}</div>
+      <div class="detalle">{{ c.detalle }}</div>
+    </div>
+    <span class="state-pill {{ c.status }}">
+      {% if c.status == 'ok' %}Operativo{% elif c.status == 'warn' %}Alerta{% else %}Caído{% endif %}
+    </span>
   </div>
-  {% endif %}
+  {% endfor %}
 </div>
+
+<a class="link-row" href="/panel/petra/v2/observabilidad?token={{ token }}">
+  📊 Ver observabilidad por etapa (prod vs staging) →
+</a>
 
 {% endblock %}
