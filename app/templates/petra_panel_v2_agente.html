@@ -1,0 +1,264 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'agentes' %}
+{% block title %}{{ agente.nombre or agente.telefono }} · Agente{% endblock %}
+{% block content %}
+
+<style>
+  .back {
+    color: var(--accent); font-size: 12.5px; text-decoration: none;
+    display: inline-block; margin-bottom: 14px;
+  }
+
+  .hero {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; padding: 22px 26px; margin-bottom: 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 20px;
+  }
+  .hero .ident { display: flex; align-items: center; gap: 16px; }
+  .hero .avatar {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    color: #fff; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700;
+  }
+  .hero h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+  .hero .tel { font-family: ui-monospace, Menlo, monospace; color: var(--text-sub); font-size: 13px; }
+  .state-pill {
+    display: inline-flex; padding: 4px 12px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 700;
+    background: #efeaff; color: #6a4ae8;
+  }
+  :root[data-theme="dark"] .state-pill { background: #241f3d; color: #a78bfa; }
+
+  .grid {
+    display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 18px; padding: 20px;
+  }
+  .card h3 { margin: 0 0 14px; font-size: 13.5px; font-weight: 600;
+             text-transform: uppercase; letter-spacing: .5px; color: var(--text-sub); }
+
+  .next-card {
+    background: #fff8c5; border: 1px solid #fcd34d;
+  }
+  :root[data-theme="dark"] .next-card { background: #2d2410; border-color: #78350f; }
+  .next-card h3 { color: #92400e; }
+  :root[data-theme="dark"] .next-card h3 { color: #fbbf24; }
+  .next-card .ttl { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+  .next-card .desc { font-size: 13px; color: var(--text-sub); line-height: 1.5; }
+
+  .row { display: flex; justify-content: space-between; padding: 10px 0;
+         border-bottom: 1px solid var(--border); font-size: 13px; }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--text-sub); }
+  .row .v { font-weight: 500; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+
+  .kit-card .status-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .kit-step {
+    background: var(--bg); border-radius: 10px; padding: 12px 14px;
+  }
+  .kit-step .lab { font-size: 10.5px; color: var(--text-sub); text-transform: uppercase;
+                   letter-spacing: .4px; font-weight: 600; }
+  .kit-step .val { font-size: 14px; font-weight: 700; margin-top: 4px; }
+  .kit-step .ts  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .kit-step.ok  .val { color: #16a34a; }
+  .kit-step.pending .val { color: #f59e0b; }
+  .kit-step.todo .val { color: var(--muted); font-weight: 500; }
+
+  .guia-box {
+    margin-top: 14px; padding: 12px 14px;
+    background: var(--bg); border-radius: 10px;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .guia-box .lab { font-size: 10.5px; color: var(--text-sub);
+                   text-transform: uppercase; letter-spacing: .4px; font-weight: 600; margin-bottom: 5px; }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .actions form { margin: 0; }
+  .btn {
+    padding: 8px 14px; border: 1px solid var(--border);
+    background: var(--panel); border-radius: 8px;
+    font-size: 12px; cursor: pointer; font-family: inherit; color: var(--text);
+  }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.danger:hover { border-color: #dc2626; color: #dc2626; }
+
+  .edificio-item {
+    display: flex; justify-content: space-between; padding: 10px 0;
+    border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .edificio-item:last-child { border-bottom: none; }
+  .edificio-item .nm { font-weight: 600; }
+  .edificio-item .cod { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--text-sub); }
+  .edificio-item .nums { color: var(--text-sub); font-size: 12px; }
+</style>
+
+<a class="back" href="/panel/petra/v2/agentes?token={{ token }}">← Volver a Agentes</a>
+
+<div class="hero">
+  <div class="ident">
+    <div class="avatar">{{ (agente.nombre or agente.telefono or '?')[0]|upper }}</div>
+    <div>
+      <h1>{{ agente.nombre or agente.username or '—' }}</h1>
+      <div class="tel">{{ agente.telefono }}</div>
+    </div>
+  </div>
+  <div style="text-align:right">
+    <span class="state-pill">{{ estado_actual or '—' }}</span>
+    <div style="font-size:11px;color:var(--text-sub);margin-top:6px">
+      {% if agente.rol_updated_at %}actualizado {{ agente.rol_updated_at.strftime('%d %b, %H:%M') }}{% endif %}
+    </div>
+  </div>
+</div>
+
+{# ─── ¿Qué sigue? ─────────────────────────────────────────── #}
+<div class="card next-card" style="margin-bottom:16px">
+  <h3>⚡ ¿Qué sigue?</h3>
+  <div class="ttl">{{ siguiente_paso.titulo }}</div>
+  <div class="desc">{{ siguiente_paso.texto }}</div>
+  <div class="actions">
+    {% if siguiente_paso.accion %}
+    <form method="post" action="/panel/petra/agente/{{ agente.id }}/reenviar_ultimo_paso">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn primary">🔁 {{ siguiente_paso.accion }}</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/panel/petra/agente/{{ agente.id }}/avanzar">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn">⏭ Avanzar al siguiente</button>
+    </form>
+    {% if bot_pausado %}
+    <form method="post" action="/panel/petra/agente/{{ agente.id }}/reactivar_bot">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn">▶️ Reactivar bot</button>
+    </form>
+    {% else %}
+    <form method="post" action="/panel/petra/agente/{{ agente.id }}/pausar_bot">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn">⏸ Pausar bot</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid">
+  {# ─── KIT + GUIA ─────────────────────────────────────── #}
+  <div class="card kit-card">
+    <h3>📦 Kit físico + Guía</h3>
+    <div class="status-grid">
+      {% if meta.kit_enviado_at %}
+      <div class="kit-step ok">
+        <div class="lab">Kit despachado</div>
+        <div class="val">✅ Enviado</div>
+        <div class="ts">{{ meta.kit_enviado_at[:16].replace('T', ' ') }}</div>
+      </div>
+      {% elif estado_actual == 'kit_pendiente' %}
+      <div class="kit-step pending">
+        <div class="lab">Kit despachado</div>
+        <div class="val">⏳ Pendiente</div>
+      </div>
+      {% else %}
+      <div class="kit-step todo">
+        <div class="lab">Kit despachado</div>
+        <div class="val">— aún no</div>
+      </div>
+      {% endif %}
+
+      {% if meta.kit_guia %}
+      <div class="kit-step ok">
+        <div class="lab">Guía enviada</div>
+        <div class="val">✅ Enviada</div>
+        <div class="ts">{% if meta.guia_enviada_at %}{{ meta.guia_enviada_at[:16].replace('T', ' ') }}{% endif %}</div>
+      </div>
+      {% elif meta.kit_enviado_at %}
+      <div class="kit-step pending">
+        <div class="lab">Guía enviada</div>
+        <div class="val">⏳ Falta</div>
+      </div>
+      {% else %}
+      <div class="kit-step todo">
+        <div class="lab">Guía enviada</div>
+        <div class="val">— aún no</div>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if meta.kit_guia %}
+    <div class="guia-box">
+      <div class="lab">Número de guía</div>
+      <div>{{ meta.kit_guia }}</div>
+    </div>
+    {% endif %}
+
+    <div class="actions">
+      {% if estado_actual == 'kit_pendiente' %}
+      <form method="post" action="/panel/petra/kit/{{ agente.id }}/marcar_enviado">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button type="submit" class="btn primary">📦 Marcar kit despachado</button>
+      </form>
+      {% endif %}
+      {% if estado_actual in ('kit_pendiente', 'kit_enviado') %}
+      <button class="btn" onclick="setGuia()">📝 Setear guía</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ─── DATOS DE CONTACTO ──────────────────────────────── #}
+  <div class="card">
+    <h3>Datos</h3>
+    <div class="row"><span class="k">Ciudad</span><span class="v">{{ meta.ciudad or '—' }}</span></div>
+    <div class="row"><span class="k">Origen</span><span class="v">{{ meta.origen or '—' }}</span></div>
+    <div class="row"><span class="k">Inscrita desde</span><span class="v">{% if meta.inscrito_at %}{{ meta.inscrito_at[:10] }}{% else %}—{% endif %}</span></div>
+    <div class="row"><span class="k">Videos vistos</span><span class="v">{{ videos_vistos }}/14</span></div>
+    <div class="row"><span class="k">Último IN</span><span class="v">{% if ultimo_in_at %}{{ ultimo_in_at.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}</span></div>
+    <div class="row"><span class="k">Bot</span>
+      <span class="v" style="color: {% if bot_pausado %}#dc2626{% else %}#16a34a{% endif %}">
+        {% if bot_pausado %}⏸ Pausado{% else %}▶️ Activo{% endif %}
+      </span>
+    </div>
+  </div>
+</div>
+
+{# ─── EDIFICIOS ──────────────────────────────────────── #}
+{% if edificios %}
+<div class="card" style="margin-bottom:16px">
+  <h3>🏢 Edificios ({{ edificios|length }})</h3>
+  {% for e in edificios %}
+  <div class="edificio-item">
+    <div>
+      <div class="nm">{{ e.nombre }}</div>
+      <div class="cod">cod {{ e.codigo }} · {{ e.ciudad or '—' }}</div>
+    </div>
+    <div class="nums">
+      Arr {{ e.arr_activos }} · Ven {{ e.ven_activos }}
+      {% if e.petra_gestiona %} · 💜 {{ e.petra_gestiona }}{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ─── LINK a v1 para chat completo ─────────────────── #}
+<a class="btn" href="/panel/petra/agente/{{ agente.id }}?token={{ token }}">💬 Ver chat completo (v1)</a>
+
+<script>
+function setGuia() {
+  var guia = prompt('Número de guía (ej: 123456789):');
+  if (!guia) return;
+  var token = {{ token|tojson }};
+  var tel = {{ agente.telefono|tojson }};
+  location.href = '/panel/petra/_admin/kit-guia?tel=' + encodeURIComponent(tel) +
+                  '&guia=' + encodeURIComponent(guia) +
+                  '&token=' + encodeURIComponent(token);
+}
+</script>
+
+{% endblock %}
