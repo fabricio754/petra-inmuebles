@@ -3917,6 +3917,67 @@ def visitante_interesados_vista():
     )
 
 
+@petra_panel_bp.get("/v2/oferta")
+def panel_v2_oferta():
+    """v2: Oferta — propietarios con inmuebles publicados, agregado por teléfono."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    conj_filtro = (request.args.get("conjunto") or "").strip()
+    estado_filtro = (request.args.get("estado") or "").strip()
+    where = ["i.propietario_telefono IS NOT NULL",
+             "i.propietario_telefono <> ''"]
+    params = []
+    if conj_filtro.isdigit():
+        where.append("i.conjunto_id = %s")
+        params.append(int(conj_filtro))
+    where_sql = " WHERE " + " AND ".join(where)
+
+    with _db._conexion_directa(timeout=12) as conn:
+        rows = _rows(conn,
+            "SELECT i.propietario_telefono AS tel, "
+            "       MAX(pc.nombre) AS nombre, "
+            "       MAX(cv.nombre) AS conjunto, "
+            "       MAX(cv.codigo) AS conjunto_cod, "
+            "       MAX(cv.id) AS conjunto_id, "
+            "       COUNT(*) AS n_total, "
+            "       COUNT(*) FILTER (WHERE i.activo) AS n_activos, "
+            "       COUNT(*) FILTER (WHERE i.gestionado_por_petra) AS n_petra, "
+            "       COUNT(*) FILTER (WHERE i.es_inmobiliaria) AS n_inmob, "
+            "       COUNT(*) FILTER (WHERE i.datos_confirmado_at IS NOT NULL) AS n_conf, "
+            "       COUNT(*) FILTER (WHERE i.bienvenida_at IS NOT NULL) AS n_bv, "
+            "       COUNT(*) FILTER (WHERE i.mandato_at IS NOT NULL) AS n_mnd, "
+            "       MAX(i.creado_en) AS ultima_pub "
+            "  FROM inmuebles_visitante i "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = i.conjunto_id "
+            "  LEFT JOIN petra_contactos pc "
+            "    ON pc.telefono = i.propietario_telefono "
+            + where_sql +
+            " GROUP BY i.propietario_telefono "
+            " ORDER BY MAX(i.creado_en) DESC LIMIT 500",
+            tuple(params))
+        if estado_filtro == "petra":
+            rows = [r for r in rows if r.get("n_petra", 0) > 0]
+        elif estado_filtro == "inmob":
+            rows = [r for r in rows if r.get("n_inmob", 0) > 0]
+        elif estado_filtro == "mandato":
+            rows = [r for r in rows if r.get("n_mnd", 0) > 0]
+        conjuntos = _rows(conn,
+            "SELECT id, codigo, nombre FROM conjuntos_visitante ORDER BY codigo")
+
+    n_total = len(rows)
+    n_petra_p = sum(1 for r in rows if r.get("n_petra", 0) > 0)
+    n_inmob_p = sum(1 for r in rows if r.get("n_inmob", 0) > 0)
+    n_mandato_p = sum(1 for r in rows if r.get("n_mnd", 0) > 0)
+
+    return render_template(
+        "petra_panel_v2_oferta.html",
+        propietarios=rows, conjuntos=conjuntos, token=token,
+        conj_filtro=conj_filtro, estado_filtro=estado_filtro,
+        n_total=n_total, n_petra=n_petra_p,
+        n_inmob=n_inmob_p, n_mandato=n_mandato_p,
+    )
+
+
 @petra_panel_bp.get("/visitante/contactos")
 def visitante_contactos_vista():
     """Solicitudes de contacto generadas desde el flujo visitante."""
