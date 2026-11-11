@@ -857,8 +857,11 @@ def accion_estado_visita(vid):
                 "UPDATE petra_visitas SET estado=%s, updated_at=NOW() WHERE id=%s",
                 (nuevo, vid),
             )
-    return redirect(url_for("petra_panel.panel_home", tab="visitas",
-                            token=request.form.get("token", "")))
+    token = request.form.get("token", "")
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/visitas" in ref:
+        return redirect(url_for("petra_panel.panel_v2_visitas", token=token))
+    return redirect(url_for("petra_panel.panel_home", tab="visitas", token=token))
 
 
 @petra_panel_bp.post("/agente/<int:cid>/avanzar")
@@ -4028,6 +4031,68 @@ def panel_v2_faq():
         n_total=t.get("total", 0),
         n_activos=t.get("activos", 0),
         n_inactivos=t.get("inactivos", 0),
+    )
+
+
+@petra_panel_bp.get("/v2/visitas")
+def panel_v2_visitas():
+    """v2: Operaciones → Visitas (petra_visitas)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    estado = (request.args.get("estado") or "").strip()
+    tipo = (request.args.get("tipo") or "").strip()
+
+    where = []
+    params = []
+    if estado:
+        where.append("v.estado = %s")
+        params.append(estado)
+    if tipo:
+        where.append("v.tipo = %s")
+        params.append(tipo)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    with _db._conexion_directa(timeout=12) as conn:
+        visitas = _rows(conn,
+            "SELECT v.id, v.tipo, v.estado, v.programada_at, "
+            "       v.inmueble_id, v.observaciones, v.created_at, "
+            "       ca.nombre AS agente_nombre, ca.telefono AS agente_tel, "
+            "       ci.nombre AS interesado_nombre, ci.telefono AS interesado_tel, "
+            "       cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre, "
+            "       im.nro AS inmueble_nro "
+            "  FROM petra_visitas v "
+            "  LEFT JOIN petra_contactos ca ON ca.id = v.agente_id "
+            "  LEFT JOIN petra_contactos ci ON ci.id = v.interesado_id "
+            "  LEFT JOIN inmuebles_visitante im ON im.id = v.inmueble_id "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = im.conjunto_id "
+            + where_sql +
+            " ORDER BY v.programada_at DESC NULLS LAST, v.created_at DESC LIMIT 200",
+            tuple(params))
+        totales = _rows(conn,
+            "SELECT "
+            "  COUNT(*) AS total, "
+            "  COUNT(*) FILTER (WHERE estado = 'programada')  AS programadas, "
+            "  COUNT(*) FILTER (WHERE estado = 'confirmada')  AS confirmadas, "
+            "  COUNT(*) FILTER (WHERE estado = 'realizada')   AS realizadas, "
+            "  COUNT(*) FILTER (WHERE estado = 'cancelada')   AS canceladas, "
+            "  COUNT(*) FILTER (WHERE estado = 'no_show')     AS no_show, "
+            "  COUNT(*) FILTER (WHERE programada_at >= NOW() "
+            "                   AND programada_at < NOW() + INTERVAL '7 days' "
+            "                   AND estado IN ('programada','confirmada')) AS proximas_7d "
+            "  FROM petra_visitas")
+    t = totales[0] if totales else {}
+
+    return render_template(
+        "petra_panel_v2_visitas.html",
+        visitas=visitas, token=token,
+        estado=estado, tipo=tipo,
+        n_total=t.get("total", 0),
+        n_programadas=t.get("programadas", 0),
+        n_confirmadas=t.get("confirmadas", 0),
+        n_realizadas=t.get("realizadas", 0),
+        n_canceladas=t.get("canceladas", 0),
+        n_no_show=t.get("no_show", 0),
+        n_proximas=t.get("proximas_7d", 0),
     )
 
 

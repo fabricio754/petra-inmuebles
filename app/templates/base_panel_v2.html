@@ -162,7 +162,8 @@
     <a class="{% if block == 'inmuebles' %}active{% endif %}"
        href="/panel/petra/v2/inmuebles?token={{ token }}">Inmuebles</a>
     <a href="/panel/petra/embudo?token={{ token }}">Ventas</a>
-    <a href="/panel/petra/visitas?token={{ token }}">Operaciones</a>
+    <a class="{% if block == 'visitas' %}active{% endif %}"
+       href="/panel/petra/v2/visitas?token={{ token }}">Visitas</a>
     <a href="/panel/petra/observabilidad?token={{ token }}">Salud</a>
   </nav>
   <div class="topbar-right">
