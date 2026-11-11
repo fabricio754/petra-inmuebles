@@ -4031,6 +4031,37 @@ def panel_v2_faq():
     )
 
 
+@petra_panel_bp.get("/v2/agentes")
+def panel_v2_agentes():
+    """v2: Contenido → Agentes (Petra sellers en capacitación)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    estado = (request.args.get("estado") or "").strip() or None
+    q = (request.args.get("q") or "").strip() or None
+
+    with _db._conexion_directa(timeout=12) as conn:
+        agentes = _cargar_agentes(conn, estado=estado, q=q)
+        resumen = _resumen_estados_agentes(conn)
+
+    # Totales por tramo del flow
+    n_total = sum(x["count"] for x in resumen)
+    n_insc = sum(x["count"] for x in resumen
+                 if x["estado"] in ("recolectando", "inscrito", "bienvenida_enviada"))
+    n_cap = sum(x["count"] for x in resumen
+                if x["estado"] in ("esperando_capacitacion_dia1",
+                                   "en_capacitacion", "capacitacion_completa"))
+    n_activas = sum(x["count"] for x in resumen
+                    if x["estado"] in ("kit_enviado", "activa", "certificado"))
+
+    return render_template(
+        "petra_panel_v2_agentes.html",
+        agentes=agentes, resumen=resumen, token=token,
+        estado=estado or "", q=q or "",
+        labels=_ESTADOS_LABEL,
+        n_total=n_total, n_insc=n_insc, n_cap=n_cap, n_activas=n_activas,
+    )
+
+
 @petra_panel_bp.get("/visitante/contactos")
 def visitante_contactos_vista():
     """Solicitudes de contacto generadas desde el flujo visitante."""
