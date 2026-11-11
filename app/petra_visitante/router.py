@@ -402,9 +402,22 @@ def _listar_inmuebles(conn, conjunto_id, operacion, limite=10, excluir_ids=None)
     if excluir_ids:
         sql += " AND NOT (id = ANY(%s))"
         params.append(excluir_ids)
-    # Orden: menor a mayor por metros, luego por precio.
-    # Inmuebles SIN m² van al final; sin precio mantienen su posición por m².
+    # Orden: habitables (apto/casa/etc) primero, parqueaderos/depósitos
+    # al final; dentro de cada grupo, menor a mayor por metros y precio.
+    # Inmuebles SIN m² van al final del grupo; sin precio mantienen su
+    # posición por m².
     sql += (" ORDER BY"
+            "  CASE LOWER(COALESCE(tipo, ''))"
+            "    WHEN 'apartamento' THEN 1"
+            "    WHEN 'apto'        THEN 1"
+            "    WHEN 'casa'        THEN 2"
+            "    WHEN 'oficina'     THEN 3"
+            "    WHEN 'local'       THEN 4"
+            "    WHEN 'habitacion'  THEN 5"
+            "    WHEN 'parqueadero' THEN 8"
+            "    WHEN 'deposito'    THEN 9"
+            "    ELSE 6"
+            "  END ASC,"
             "  m2 ASC NULLS LAST,"
             "  (precio IS NULL OR precio = 0) ASC,"
             "  precio ASC,"
