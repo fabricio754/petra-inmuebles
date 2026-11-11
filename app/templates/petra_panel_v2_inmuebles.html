@@ -126,7 +126,7 @@
   .etapa-pill.e7 { background: #d1fae5; color: #065f46; }
 
   .row-actions {
-    display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start;
   }
   .row-actions button, .row-actions a.btn-like {
     padding: 6px 12px; border-radius: 8px;
@@ -204,6 +204,11 @@
   .sales-track .sstep.todo { opacity: 0.45; }
   .sales-track .ssep { width: 8px; height: 2px; background: var(--border); border-radius: 2px; }
   .sales-track .ssep.done { background: #86efac; }
+  .sales-last {
+    font-size: 10.5px; color: var(--muted);
+    margin-top: 4px; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
 
   /* DATOS CARD */
   .datos-card {
@@ -409,12 +414,18 @@
             {% set s_inmob = i.ofrecer_petra_at is not none %}
             {% set s_cred  = i.ofrecer_credito_at is not none %}
             <div class="sales-track">
-              <span class="sstep {% if s_bienv %}done{% elif not s_bienv %}now{% endif %}" title="Bienvenida">✉️</span>
+              <span class="sstep {% if s_bienv %}done{% elif not s_bienv %}now{% endif %}"
+                    title="Bienvenida{% if i.bienv_dias is not none %} · hace {{ i.bienv_dias }}d ({{ i.bienvenida_at.strftime('%Y-%m-%d') }}){% endif %}">✉️</span>
               <span class="ssep {% if s_bienv %}done{% endif %}"></span>
-              <span class="sstep {% if s_inmob %}done{% elif s_bienv %}now{% else %}todo{% endif %}" title="Ofrecer Inmob">🏢</span>
+              <span class="sstep {% if s_inmob %}done{% elif s_bienv %}now{% else %}todo{% endif %}"
+                    title="Ofrecer Inmob{% if i.op_dias is not none %} · hace {{ i.op_dias }}d ({{ i.ofrecer_petra_at.strftime('%Y-%m-%d') }}){% endif %}">🏢</span>
               <span class="ssep {% if s_inmob %}done{% endif %}"></span>
-              <span class="sstep {% if s_cred %}done{% elif s_inmob %}now{% else %}todo{% endif %}" title="Ofrecer Crédito">💵</span>
+              <span class="sstep {% if s_cred %}done{% elif s_inmob %}now{% else %}todo{% endif %}"
+                    title="Ofrecer Crédito{% if i.cr_dias is not none %} · hace {{ i.cr_dias }}d ({{ i.ofrecer_credito_at.strftime('%Y-%m-%d') }}){% endif %}">💵</span>
             </div>
+            {% if i.ult_sales_lbl %}
+            <div class="sales-last">⏱ Última: {{ i.ult_sales_lbl }}</div>
+            {% endif %}
             {% if not s_bienv %}
               {% if i.celular_valido %}
               <a class="wa-step" href="{{ i.wa_bienvenida }}" target="_blank"
