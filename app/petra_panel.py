@@ -1572,6 +1572,16 @@ def textos_seed():
 # FASE A — FAQ dedicada (knowledge base del LLM)
 # =============================================================================
 
+def _faq_redirect(token, flash):
+    """Vuelve a /v2/faq si venimos de ahí; si no, al home v1 tab=faq."""
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/faq" in ref:
+        return redirect(url_for("petra_panel.panel_v2_faq", token=token))
+    return redirect(url_for(
+        "petra_panel.panel_home", tab="faq", token=token, flash=flash,
+    ))
+
+
 @petra_panel_bp.post("/faq/crear")
 def faq_crear():
     """Crea una nueva entrada FAQ. Internamente es petra_contenidos tipo='faq'."""
@@ -1589,9 +1599,7 @@ def faq_crear():
             "VALUES ('faq', %s, %s, %s, TRUE)",
             (titulo, texto, descripcion),
         )
-    return redirect(url_for(
-        "petra_panel.panel_home", tab="faq", token=token, flash="faq_creada",
-    ))
+    return _faq_redirect(token, "faq_creada")
 
 
 @petra_panel_bp.post("/faq/<int:fid>/editar")
@@ -1611,9 +1619,7 @@ def faq_editar(fid):
             "WHERE id=%s AND tipo IN ('faq','otro')",
             (titulo, texto, descripcion, fid),
         )
-    return redirect(url_for(
-        "petra_panel.panel_home", tab="faq", token=token, flash="faq_actualizada",
-    ))
+    return _faq_redirect(token, "faq_actualizada")
 
 
 @petra_panel_bp.post("/faq/<int:fid>/toggle")
@@ -1626,9 +1632,7 @@ def faq_toggle(fid):
             "UPDATE petra_contenidos SET activo = NOT activo, updated_at=NOW() "
             "WHERE id=%s AND tipo IN ('faq','otro')", (fid,),
         )
-    return redirect(url_for(
-        "petra_panel.panel_home", tab="faq", token=token, flash="faq_toggled",
-    ))
+    return _faq_redirect(token, "faq_toggled")
 
 
 @petra_panel_bp.post("/faq/<int:fid>/eliminar")
@@ -1641,9 +1645,7 @@ def faq_eliminar(fid):
             "DELETE FROM petra_contenidos "
             "WHERE id=%s AND tipo IN ('faq','otro')", (fid,),
         )
-    return redirect(url_for(
-        "petra_panel.panel_home", tab="faq", token=token, flash="faq_eliminada",
-    ))
+    return _faq_redirect(token, "faq_eliminada")
 
 
 # =============================================================================
@@ -3975,6 +3977,57 @@ def panel_v2_oferta():
         conj_filtro=conj_filtro, estado_filtro=estado_filtro,
         n_total=n_total, n_petra=n_petra_p,
         n_inmob=n_inmob_p, n_mandato=n_mandato_p,
+    )
+
+
+@petra_panel_bp.get("/v2/faq")
+def panel_v2_faq():
+    """v2: FAQ — base de conocimiento del LLM (petra_contenidos tipo='faq')."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    estado = (request.args.get("estado") or "").strip()
+    q = (request.args.get("q") or "").strip()
+
+    where = ["tipo IN ('faq','otro')",
+             "texto IS NOT NULL",
+             "LENGTH(TRIM(texto)) > 0"]
+    params = []
+    if estado == "activo":
+        where.append("activo = TRUE")
+    elif estado == "inactivo":
+        where.append("activo = FALSE")
+    if q:
+        where.append("(titulo ILIKE %s OR texto ILIKE %s OR COALESCE(descripcion,'') ILIKE %s)")
+        like = f"%{q}%"
+        params.extend([like, like, like])
+
+    where_sql = " WHERE " + " AND ".join(where)
+
+    with _db._conexion_directa(timeout=10) as conn:
+        faqs = _rows(conn,
+            "SELECT id, tipo, titulo, texto, descripcion, activo, "
+            "       created_at, updated_at "
+            "  FROM petra_contenidos"
+            + where_sql +
+            " ORDER BY activo DESC, updated_at DESC NULLS LAST, created_at DESC",
+            tuple(params))
+        totales = _rows(conn,
+            "SELECT "
+            "  COUNT(*)                            AS total, "
+            "  COUNT(*) FILTER (WHERE activo)      AS activos, "
+            "  COUNT(*) FILTER (WHERE NOT activo)  AS inactivos "
+            "FROM petra_contenidos "
+            "WHERE tipo IN ('faq','otro') "
+            "  AND texto IS NOT NULL "
+            "  AND LENGTH(TRIM(texto)) > 0")
+    t = totales[0] if totales else {"total": 0, "activos": 0, "inactivos": 0}
+
+    return render_template(
+        "petra_panel_v2_faq.html",
+        faqs=faqs, token=token, estado=estado, q=q,
+        n_total=t.get("total", 0),
+        n_activos=t.get("activos", 0),
+        n_inactivos=t.get("inactivos", 0),
     )
 
 

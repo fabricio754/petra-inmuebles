@@ -1,0 +1,262 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'faq' %}
+{% block title %}FAQ · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; }
+
+  .btn-primary {
+    background: var(--accent); color: #fff; border: none;
+    padding: 9px 18px; border-radius: 10px; font-size: 13px;
+    font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .btn-primary:hover { opacity: .9; }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px 20px;
+    cursor: pointer; transition: all 150ms ease;
+    display: flex; flex-direction: column;
+  }
+  .stat:hover { border-color: var(--accent); }
+  .stat.on { border-color: var(--accent); background: #f3efff; }
+  :root[data-theme="dark"] .stat.on { background: #241f3d; }
+  .stat .lab {
+    font-size: 12.5px; color: var(--text-sub); font-weight: 500;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .stat .ic {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--bg); display: inline-flex;
+    align-items: center; justify-content: center; font-size: 13px;
+  }
+  .stat .val { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+
+  .main-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .filter-bar {
+    padding: 16px 22px; border-bottom: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+  }
+  .filter-bar input[type="search"] {
+    padding: 7px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px;
+    background: var(--panel); color: var(--text);
+    font-family: inherit; min-width: 260px;
+  }
+  .count-badge {
+    margin-left: auto; font-size: 12px; color: var(--text-sub);
+    background: var(--bg); padding: 5px 12px; border-radius: 999px;
+  }
+
+  .faq-list { padding: 8px 0; }
+  .faq-item {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: 1fr auto; gap: 14px;
+    align-items: start;
+  }
+  .faq-item:last-child { border-bottom: none; }
+  .faq-item h4 {
+    margin: 0 0 6px; font-size: 14px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .faq-item .desc {
+    font-size: 12.5px; color: var(--text-sub); margin-bottom: 8px;
+  }
+  .faq-item .body {
+    font-size: 13px; color: var(--text); line-height: 1.55;
+    white-space: pre-wrap;
+    background: var(--bg); padding: 10px 14px; border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .faq-item .meta {
+    font-size: 11px; color: var(--muted); margin-top: 6px;
+  }
+  .tag {
+    display: inline-flex; padding: 2px 8px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 600;
+  }
+  .tag.on   { background: #dcfce7; color: #166534; }
+  .tag.off  { background: #fee2e2; color: #991b1b; }
+  :root[data-theme="dark"] .tag.on  { background: #052e1a; color: #4ade80; }
+  :root[data-theme="dark"] .tag.off { background: #3f0a0a; color: #fca5a5; }
+
+  .row-actions { display: flex; flex-direction: column; gap: 6px; min-width: 110px; }
+  .row-actions form { margin: 0; }
+  .row-actions button {
+    width: 100%; padding: 6px 10px;
+    border: 1px solid var(--border); background: var(--panel);
+    border-radius: 8px; font-size: 11.5px; cursor: pointer;
+    font-family: inherit; color: var(--text);
+  }
+  .row-actions button:hover { border-color: var(--accent); }
+  .row-actions button.danger:hover { border-color: #dc2626; color: #dc2626; }
+
+  .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+
+  /* Modal */
+  dialog {
+    border: 1px solid var(--border); border-radius: 18px;
+    padding: 0; background: var(--panel); color: var(--text);
+    max-width: 580px; width: 94%;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog header {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  dialog header h3 { margin: 0; font-size: 15px; }
+  dialog form { padding: 18px 22px; }
+  dialog label { display: block; font-size: 12px; color: var(--text-sub); margin-bottom: 6px; font-weight: 500; }
+  dialog input, dialog textarea {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; background: var(--bg);
+    color: var(--text); font-family: inherit; margin-bottom: 14px;
+  }
+  dialog textarea { min-height: 110px; resize: vertical; }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; }
+  dialog button.secondary {
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); padding: 9px 16px; border-radius: 10px; font-size: 13px;
+    cursor: pointer; font-family: inherit;
+  }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>FAQ</h1>
+    <div class="sub">Base de conocimiento del LLM — respuestas que puede usar el bot</div>
+  </div>
+  <button class="btn-primary" onclick="document.getElementById('dlg-nueva').showModal()">+ Nueva FAQ</button>
+</div>
+
+<div class="stats-row">
+  <a class="stat {% if not estado %}on{% endif %}" href="?token={{ token }}&q={{ q }}">
+    <div class="lab"><span>Total</span><span class="ic">📚</span></div>
+    <div class="val">{{ n_total }}</div>
+  </a>
+  <a class="stat {% if estado == 'activo' %}on{% endif %}" href="?token={{ token }}&q={{ q }}&estado=activo">
+    <div class="lab"><span>Activas</span><span class="ic">✅</span></div>
+    <div class="val">{{ n_activos }}</div>
+  </a>
+  <a class="stat {% if estado == 'inactivo' %}on{% endif %}" href="?token={{ token }}&q={{ q }}&estado=inactivo">
+    <div class="lab"><span>Inactivas</span><span class="ic">⏸️</span></div>
+    <div class="val">{{ n_inactivos }}</div>
+  </a>
+</div>
+
+<div class="main-card">
+  <div class="filter-bar">
+    <form method="get" action="" style="display:inline-flex;gap:10px;align-items:center">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="estado" value="{{ estado }}">
+      <input type="search" name="q" value="{{ q }}" placeholder="Buscar en título, texto o descripción…">
+      <button type="submit" class="btn-primary" style="padding:7px 14px">Buscar</button>
+    </form>
+    <span class="count-badge">{{ faqs|length }} resultados</span>
+  </div>
+
+  {% if faqs %}
+  <div class="faq-list">
+    {% for f in faqs %}
+    <div class="faq-item">
+      <div>
+        <h4>
+          {{ f.titulo }}
+          {% if f.activo %}<span class="tag on">activa</span>{% else %}<span class="tag off">inactiva</span>{% endif %}
+        </h4>
+        {% if f.descripcion %}<div class="desc">{{ f.descripcion }}</div>{% endif %}
+        <div class="body">{{ f.texto }}</div>
+        <div class="meta">
+          #{{ f.id }} · tipo {{ f.tipo }}
+          {% if f.updated_at %} · actualizada {{ f.updated_at.strftime('%d %b %Y, %H:%M') }}{% endif %}
+        </div>
+      </div>
+      <div class="row-actions">
+        <button onclick="editar({{ f.id }}, {{ f.titulo|tojson }}, {{ f.texto|tojson }}, {{ (f.descripcion or '')|tojson }})">Editar</button>
+        <form method="post" action="/panel/petra/faq/{{ f.id }}/toggle">
+          <input type="hidden" name="token" value="{{ token }}">
+          <button type="submit">{% if f.activo %}Desactivar{% else %}Activar{% endif %}</button>
+        </form>
+        <form method="post" action="/panel/petra/faq/{{ f.id }}/eliminar" onsubmit="return confirm('¿Eliminar esta FAQ definitivamente?')">
+          <input type="hidden" name="token" value="{{ token }}">
+          <button type="submit" class="danger">Eliminar</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <div style="font-size:30px;margin-bottom:8px">📭</div>
+    <div>Sin FAQs con esos filtros.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Modal nueva -->
+<dialog id="dlg-nueva">
+  <header>
+    <h3>Nueva FAQ</h3>
+    <button class="secondary" onclick="document.getElementById('dlg-nueva').close()">✕</button>
+  </header>
+  <form method="post" action="/panel/petra/faq/crear">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label>Título</label>
+    <input type="text" name="titulo" required>
+    <label>Descripción (opcional)</label>
+    <input type="text" name="descripcion">
+    <label>Texto</label>
+    <textarea name="texto" required></textarea>
+    <div class="actions">
+      <button type="button" class="secondary" onclick="document.getElementById('dlg-nueva').close()">Cancelar</button>
+      <button type="submit" class="btn-primary">Crear</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal editar -->
+<dialog id="dlg-editar">
+  <header>
+    <h3>Editar FAQ</h3>
+    <button class="secondary" onclick="document.getElementById('dlg-editar').close()">✕</button>
+  </header>
+  <form id="form-editar" method="post" action="">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label>Título</label>
+    <input type="text" name="titulo" id="ed-titulo" required>
+    <label>Descripción (opcional)</label>
+    <input type="text" name="descripcion" id="ed-descripcion">
+    <label>Texto</label>
+    <textarea name="texto" id="ed-texto" required></textarea>
+    <div class="actions">
+      <button type="button" class="secondary" onclick="document.getElementById('dlg-editar').close()">Cancelar</button>
+      <button type="submit" class="btn-primary">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+function editar(id, titulo, texto, descripcion) {
+  var f = document.getElementById('form-editar');
+  f.action = '/panel/petra/faq/' + id + '/editar';
+  document.getElementById('ed-titulo').value = titulo || '';
+  document.getElementById('ed-texto').value = texto || '';
+  document.getElementById('ed-descripcion').value = descripcion || '';
+  document.getElementById('dlg-editar').showModal();
+}
+</script>
+
+{% endblock %}
