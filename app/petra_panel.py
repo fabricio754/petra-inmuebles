@@ -4320,6 +4320,19 @@ def panel_v2_despliegues():
     )
 
 
+@petra_panel_bp.get("/v2/agente/<int:cid>")
+def panel_v2_agente_ficha(cid):
+    """v2: Ficha de un agente Petra."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        ctx = _cargar_ficha_agente(conn, cid)
+    if not ctx:
+        abort(404)
+    ctx["token"] = token
+    return render_template("petra_panel_v2_agente.html", **ctx)
+
+
 @petra_panel_bp.get("/v2/contenidos")
 def panel_v2_contenidos():
     """v2: Contenidos (videos capacitación, bienvenida, etc.)."""
