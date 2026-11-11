@@ -4314,6 +4314,22 @@ def panel_v2_despliegues():
     )
 
 
+@petra_panel_bp.get("/v2/metricas")
+def panel_v2_metricas():
+    """v2: Métricas completas del piloto (reusa _metricas_piloto)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    try:
+        with _db._conexion_directa(timeout=12) as conn:
+            kpis = _metricas_piloto(conn)
+    except Exception as e:
+        kpis = {"_error": str(e)}
+    return render_template(
+        "petra_panel_v2_metricas.html",
+        kpis=kpis, token=token,
+    )
+
+
 @petra_panel_bp.get("/v2/salud")
 def panel_v2_salud():
     """v2: Salud del sistema (checks por componente, tipo githubstatus)."""
