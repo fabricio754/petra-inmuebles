@@ -977,8 +977,11 @@ def accion_mandato_firmado(mid):
     from app import petra_core
     with _db._conexion_directa(timeout=10) as conn:
         petra_core.firmar_mandato(conn, mid, auco_doc_id=request.form.get("auco_doc_id"))
-    return redirect(url_for("petra_panel.panel_home", tab="mandatos",
-                            token=request.form.get("token", "")))
+    token = request.form.get("token", "")
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/mandatos" in ref:
+        return redirect(url_for("petra_panel.panel_v2_mandatos", token=token))
+    return redirect(url_for("petra_panel.panel_home", tab="mandatos", token=token))
 
 
 @petra_panel_bp.post("/oferta/<int:oid>/responder")
@@ -4031,6 +4034,95 @@ def panel_v2_faq():
         n_total=t.get("total", 0),
         n_activos=t.get("activos", 0),
         n_inactivos=t.get("inactivos", 0),
+    )
+
+
+@petra_panel_bp.get("/v2/conjuntos")
+def panel_v2_conjuntos():
+    """v2: Conjuntos registrados con embudo por conjunto."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    with _db._conexion_directa(timeout=10) as conn:
+        conjuntos = _rows(conn,
+            "SELECT c.id, c.codigo, c.nombre, c.ciudad, c.creado_en, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='arriendo' "
+            "                          THEN 1 ELSE 0 END), 0) AS arr_activos, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='venta' "
+            "                          THEN 1 ELSE 0 END), 0) AS ven_activos, "
+            "       COALESCE(SUM(CASE WHEN i.activo THEN 1 ELSE 0 END), 0) AS act, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.datos_confirmado_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_conf, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.bienvenida_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_bv, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.ofrecer_petra_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_op, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.ofrecer_credito_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_cr, "
+            "       COALESCE(SUM(CASE WHEN i.activo AND i.mandato_at IS NOT NULL "
+            "                          THEN 1 ELSE 0 END), 0) AS n_mn "
+            "  FROM conjuntos_visitante c "
+            "  LEFT JOIN inmuebles_visitante i ON i.conjunto_id = c.id "
+            " GROUP BY c.id "
+            " ORDER BY c.creado_en DESC")
+    activos = [c for c in conjuntos if (c.get("act") or 0) > 0]
+    return render_template(
+        "petra_panel_v2_conjuntos.html",
+        conjuntos=conjuntos, activos=activos, token=token,
+    )
+
+
+@petra_panel_bp.get("/v2/mandatos")
+def panel_v2_mandatos():
+    """v2: Ventas → Mandatos (petra_mandatos)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    estado_f = (request.args.get("estado") or "").strip()
+    tipo_f = (request.args.get("tipo") or "").strip()
+
+    where = []
+    params = []
+    if estado_f:
+        where.append("m.estado = %s")
+        params.append(estado_f)
+    if tipo_f:
+        where.append("m.tipo = %s")
+        params.append(tipo_f)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    with _db._conexion_directa(timeout=12) as conn:
+        mandatos = _rows(conn,
+            "SELECT m.id, m.tipo, m.estado, m.comision_pct, "
+            "       m.canon_acordado, m.exclusivo, m.plazo_meses, "
+            "       m.firmado_at, m.updated_at, m.created_at, "
+            "       m.inmueble_id, m.auco_doc_id, "
+            "       c.telefono, c.nombre, "
+            "       iv.nro AS inmueble_nro, "
+            "       cv.codigo AS conjunto_codigo, cv.nombre AS conjunto_nombre "
+            "  FROM petra_mandatos m "
+            "  JOIN petra_contactos c ON c.id = m.contacto_id "
+            "  LEFT JOIN inmuebles_visitante iv ON iv.id = m.inmueble_id "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id "
+            + where_sql +
+            " ORDER BY m.updated_at DESC LIMIT 200",
+            tuple(params))
+        totales = _rows(conn,
+            "SELECT "
+            "  COUNT(*) AS total, "
+            "  COUNT(*) FILTER (WHERE estado = 'pendiente_firma') AS pendientes, "
+            "  COUNT(*) FILTER (WHERE estado = 'firmado')          AS firmados, "
+            "  COUNT(*) FILTER (WHERE estado = 'cancelado')        AS cancelados, "
+            "  COUNT(*) FILTER (WHERE exclusivo)                   AS exclusivos "
+            "FROM petra_mandatos")
+    t = totales[0] if totales else {}
+    return render_template(
+        "petra_panel_v2_mandatos.html",
+        mandatos=mandatos, token=token,
+        estado=estado_f, tipo=tipo_f,
+        n_total=t.get("total", 0),
+        n_pendientes=t.get("pendientes", 0),
+        n_firmados=t.get("firmados", 0),
+        n_cancelados=t.get("cancelados", 0),
+        n_exclusivos=t.get("exclusivos", 0),
     )
 
 
