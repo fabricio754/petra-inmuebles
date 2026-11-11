@@ -3405,6 +3405,27 @@ def panel_v2_inmuebles():
                         # wa_pedir_datos reusa el texto de confirmar datos
                         # (Sebas → propietario pidiendo m² + precio).
                         i["wa_pedir_datos"] = i.get("wa_confirmar", "")
+                        # Días desde cada etapa Sales (para tooltips + label)
+                        def _dias_desde(ts):
+                            if not ts:
+                                return None
+                            try:
+                                return (_dt.datetime.now(tz=ts.tzinfo or _dt.timezone.utc)
+                                        - ts).days
+                            except Exception:
+                                return None
+                        i["bienv_dias"] = _dias_desde(i.get("bienvenida_at"))
+                        i["op_dias"]    = _dias_desde(i.get("ofrecer_petra_at"))
+                        i["cr_dias"]    = _dias_desde(i.get("ofrecer_credito_at"))
+                        # última etapa + hace cuánto (para label visible)
+                        if i.get("cr_dias") is not None:
+                            i["ult_sales_lbl"] = f"Crédito hace {i['cr_dias']}d"
+                        elif i.get("op_dias") is not None:
+                            i["ult_sales_lbl"] = f"Inmob hace {i['op_dias']}d"
+                        elif i.get("bienv_dias") is not None:
+                            i["ult_sales_lbl"] = f"Bienvenida hace {i['bienv_dias']}d"
+                        else:
+                            i["ult_sales_lbl"] = ""
                     if etapa_filtro:
                         inmuebles = [i for i in inmuebles if i["etapa"] == etapa_filtro]
                     # Contadores por etapa (universo del conjunto)
