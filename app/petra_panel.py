@@ -3366,6 +3366,24 @@ def panel_v2_inmuebles():
                         cel = _normalizar_celular_co(i.get("propietario_telefono"))
                         i["celular_e164"] = cel
                         i["celular_valido"] = bool(cel)
+                        # Pre-computar wa.me URLs + imágenes para los botones
+                        # del embudo (lift del v1).
+                        try:
+                            i["wa_confirmar"] = _wa_url(cel, _texto_confirmar_datos(i))
+                            i["wa_bienvenida"] = _wa_url(cel, _texto_bienvenida(i))
+                            i["wa_ofrecer_petra"] = _wa_url(cel, _texto_ofrecer_petra(i))
+                            i["wa_ofrecer_credito"] = _wa_url(cel, _texto_ofrecer_credito(i))
+                        except Exception:
+                            i["wa_confirmar"] = i["wa_bienvenida"] = ""
+                            i["wa_ofrecer_petra"] = i["wa_ofrecer_credito"] = ""
+                        op = (i.get("operacion") or "").lower()
+                        if op == "venta":
+                            i["img_ofrecer"] = _IMG_ETAPA.get('ofrecer_petra_venta', '')
+                            i["img_ofrecer_nombre"] = "venta.webp"
+                        else:
+                            i["img_ofrecer"] = _IMG_ETAPA.get('ofrecer_petra_arriendo', '')
+                            i["img_ofrecer_nombre"] = "arriendo.webp"
+                        i["img_credito"] = _IMG_ETAPA.get('ofrecer_credito', '')
                     if etapa_filtro:
                         inmuebles = [i for i in inmuebles if i["etapa"] == etapa_filtro]
                     # Contadores por etapa (universo del conjunto)
@@ -3692,18 +3710,22 @@ def visitante_inmueble_nuevo(cid):
     if tipo not in tipos_validos:
         tipo = "apartamento"
 
-    if operacion not in ("arriendo", "venta"):
+    def _back(flash):
+        ref = (request.headers.get("Referer") or "")
+        if "/v2/inmuebles" in ref:
+            return redirect(url_for("petra_panel.panel_v2_inmuebles",
+                                    cid=cid, token=token) + "&flash=" + flash)
         return redirect(url_for("petra_panel.visitante_inmuebles",
-                                cid=cid, token=token, flash="falta_campo"))
+                                cid=cid, token=token, flash=flash))
+    if operacion not in ("arriendo", "venta"):
+        return _back("falta_campo")
     if precio is None or precio < 0:
         precio = 0
     if not nro:
         nro = "(sin especificar)"
     for v in (hab, banos, m2):
         if v is not None and v < 0:
-            return redirect(url_for("petra_panel.visitante_inmuebles",
-                                    cid=cid, token=token,
-                                    flash="valores_invalidos"))
+            return _back("valores_invalidos")
     try:
         with _db._conexion_directa(timeout=10) as conn:
             conn.execute(
@@ -3715,10 +3737,8 @@ def visitante_inmueble_nuevo(cid):
             )
             conn.commit()
     except Exception:
-        return redirect(url_for("petra_panel.visitante_inmuebles",
-                                cid=cid, token=token, flash="error"))
-    return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid, token=token, flash="creado"))
+        return _back("error")
+    return _back("creado")
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/editar")
@@ -3759,8 +3779,7 @@ def visitante_inmueble_editar(iid):
     except Exception:
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
-    return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid, token=token, flash="editado"))
+    return _inmueble_back(cid, token, "editado")
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/eliminar")
@@ -3779,8 +3798,18 @@ def visitante_inmueble_eliminar(iid):
         cid = row[0]
         conn.execute("DELETE FROM inmuebles_visitante WHERE id=%s", (iid,))
         conn.commit()
+    return _inmueble_back(cid, token, "eliminado")
+
+
+def _inmueble_back(cid, token, flash):
+    """Redirect smart por Referer: vuelve a /v2/inmuebles?cid= o al v1."""
+    ref = (request.headers.get("Referer") or "")
+    if "/v2/inmuebles" in ref:
+        base = url_for("petra_panel.panel_v2_inmuebles", token=token)
+        sep = "&" if "?" in base else "?"
+        return redirect(f"{base}{sep}cid={cid}&flash={flash}")
     return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid, token=token, flash="eliminado"))
+                            cid=cid, token=token, flash=flash))
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle")
@@ -3804,8 +3833,7 @@ def visitante_inmueble_toggle(iid):
     except Exception:
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
-    return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid, token=token, flash="toggled"))
+    return _inmueble_back(cid, token, "toggled")
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle-gestion")
@@ -3832,10 +3860,7 @@ def visitante_inmueble_toggle_gestion(iid):
             if not gestionado:
                 # FALSE → TRUE
                 if not operador:
-                    return redirect(url_for(
-                        "petra_panel.visitante_inmuebles",
-                        cid=cid_conj, token=token,
-                        flash="falta_operador_env"))
+                    return _inmueble_back(cid_conj, token, "falta_operador_env")
                 conn.execute(
                     "UPDATE inmuebles_visitante "
                     "   SET gestionado_por_petra = TRUE, "
@@ -3858,8 +3883,7 @@ def visitante_inmueble_toggle_gestion(iid):
     except Exception:
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
-    return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid_conj, token=token, flash="gestion_toggled"))
+    return _inmueble_back(cid_conj, token, "gestion_toggled")
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle-inmobiliaria")
@@ -3887,8 +3911,7 @@ def visitante_inmueble_toggle_inmobiliaria(iid):
     except Exception:
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
-    return redirect(url_for("petra_panel.visitante_inmuebles",
-                            cid=cid_conj, token=token, flash="inmob_toggled"))
+    return _inmueble_back(cid_conj, token, "inmob_toggled")
 
 
 @petra_panel_bp.get("/v2/demanda")

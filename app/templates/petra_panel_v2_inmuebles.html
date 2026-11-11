@@ -147,6 +147,59 @@
     color: var(--text-sub);
   }
   .pick-prompt .big { font-size: 32px; margin-bottom: 12px; }
+
+  /* Nuevo inmueble form */
+  .add-form {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 0; margin-bottom: 14px;
+  }
+  .add-form summary {
+    list-style: none; cursor: pointer;
+    padding: 14px 18px; display: flex; align-items: center; gap: 8px;
+    font-size: 13.5px; font-weight: 600; color: var(--accent);
+  }
+  .add-form summary::-webkit-details-marker { display: none; }
+  .add-form[open] summary { border-bottom: 1px solid var(--border); }
+  .add-form .grid {
+    padding: 16px 18px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px; align-items: end;
+  }
+  .add-form label {
+    font-size: 11px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: .4px; font-weight: 600;
+    margin-bottom: 4px; display: block;
+  }
+  .add-form input, .add-form select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px; background: var(--bg);
+    color: var(--text); font-family: inherit;
+  }
+  .add-form button.primary {
+    background: var(--accent); color: #fff; border: none;
+    padding: 9px 16px; border-radius: 10px; font-size: 13px;
+    font-weight: 600; cursor: pointer; font-family: inherit; width: 100%;
+  }
+
+  /* Embudo actions */
+  .etapa-cell { max-width: 280px; }
+  .etapa-cell .muted { color: var(--muted); font-size: 11px;
+                       display: block; margin-top: 3px; }
+  .wa-step {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 6px; padding: 6px 11px; border-radius: 8px;
+    background: #16a34a; color: #fff; font-size: 11.5px; font-weight: 600;
+    text-decoration: none; border: none; cursor: pointer; font-family: inherit;
+  }
+  .wa-step:hover { opacity: 0.9; }
+  .wa-step.wa-sec { background: #7c5cff; }
+  .wa-step.wa-mandato { background: #dcfce7; color: #166534; }
+  :root[data-theme="dark"] .wa-step.wa-mandato { background: #052e1a; color: #4ade80; }
+  .attach {
+    font-size: 11px; color: var(--text-sub); margin-top: 5px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .attach a { color: var(--accent); }
 </style>
 
 <div class="hero">
@@ -176,6 +229,43 @@
     </div>
   </div>
 {% else %}
+  <details class="add-form">
+    <summary>➕ Nuevo inmueble</summary>
+    <form method="POST" action="/panel/petra/visitante/conjuntos/{{ cid }}/inmuebles/nuevo">
+      <input type="hidden" name="token" value="{{ token }}">
+      <div class="grid">
+        <div>
+          <label>Código</label>
+          <input type="text" disabled value="P#### (auto)"
+                 style="color:var(--accent);font-weight:600">
+        </div>
+        <div>
+          <label>Operación *</label>
+          <select name="operacion" required>
+            <option value="arriendo">Arriendo</option>
+            <option value="venta">Venta</option>
+          </select>
+        </div>
+        <div>
+          <label>Tipo *</label>
+          <select name="tipo" required>
+            <option value="apartamento">Apartamento</option>
+            <option value="casa">Casa</option>
+            <option value="oficina">Oficina</option>
+            <option value="parqueadero">Parqueadero</option>
+            <option value="deposito">Depósito</option>
+            <option value="habitacion">Habitación</option>
+            <option value="local">Local</option>
+          </select>
+        </div>
+        <div><label>Área (m²)</label><input type="number" name="m2" min="0"></div>
+        <div><label>Precio (COP, incluye admón.)</label><input type="text" inputmode="numeric" name="precio" autocomplete="off"></div>
+        <div><label>Tel. propietario</label><input type="text" name="propietario_telefono" placeholder="+57..."></div>
+        <div><button type="submit" class="primary">Crear</button></div>
+      </div>
+    </form>
+  </details>
+
   <div class="main-card">
     <!-- Filtros -->
     <div class="filter-bar">
@@ -250,22 +340,95 @@
             {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
           </td>
-          <td>
+          <td class="etapa-cell">
             {% set e = i.etapa %}
             {% if e == 'pendiente_confirmar' %}
-              <span class="etapa-pill e1">🌑 Falta Sebas</span>
+              <span class="etapa-pill e1">⚪ Falta confirmar (Sebas)</span>
+              {% if i.celular_valido %}
+              <a class="wa-step" style="background:#0d6b4d" href="{{ i.wa_confirmar }}" target="_blank"
+                 onclick="return petraEjecutar(event, 'sebastian', 'f-cf-{{ i.id }}')">
+                💬 Confirmar datos (Sebas)
+              </a>
+              <form id="f-cf-{{ i.id }}" method="post" style="display:none"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/confirmar_datos?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="pin" value="">
+              </form>
+              {% else %}<span class="muted">Teléfono inválido — editá</span>{% endif %}
             {% elif e == 'confirmado_sin_datos' %}
-              <span class="etapa-pill e2">🌘 Faltan datos</span>
+              <span class="etapa-pill e2">🟡 Contactado · faltan datos</span>
+              <span class="muted">Editá con los datos de Sebas</span>
             {% elif e == 'confirmado_completo' %}
-              <span class="etapa-pill e3">🌕 Listo bienvenida</span>
+              <span class="etapa-pill e3">✉️ Listo para BIENVENIDA</span>
+              {% if i.celular_valido %}
+              <a class="wa-step" href="{{ i.wa_bienvenida }}" target="_blank"
+                 onclick="return petraEjecutar(event, 'fabricio', 'f-bv-{{ i.id }}')">
+                💬 Enviar bienvenida
+              </a>
+              <form id="f-bv-{{ i.id }}" method="post" style="display:none"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/bienvenida?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="pin" value="">
+              </form>
+              <div class="attach">
+                📹 <a href="/static/images/propietarios/bienvenida.mp4" download="bienvenida.mp4">⬇ bienvenida.mp4</a>
+                <span class="muted">(adjuntar en WA)</span>
+              </div>
+              {% else %}<span class="muted">Teléfono inválido</span>{% endif %}
             {% elif e == 'post_bienvenida' %}
-              <span class="etapa-pill e4">🏡 Listo Petra</span>
+              <span class="etapa-pill e4">🏠 Listo OFRECER PETRA</span>
+              {% if i.celular_valido %}
+              <a class="wa-step wa-sec" href="{{ i.wa_ofrecer_petra }}" target="_blank"
+                 onclick="return petraEjecutar(event, 'fabricio', 'f-op-{{ i.id }}')">
+                💬 Ofrecer {{ 'venta' if i.operacion == 'venta' else 'arriendo' }}
+              </a>
+              <form id="f-op-{{ i.id }}" method="post" style="display:none"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_petra?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="pin" value="">
+              </form>
+              {% if i.img_ofrecer %}
+              <div class="attach">
+                🖼 <a href="{{ i.img_ofrecer }}" download="{{ i.img_ofrecer_nombre }}">⬇ {{ i.img_ofrecer_nombre }}</a>
+              </div>
+              {% endif %}
+              {% else %}<span class="muted">Teléfono inválido</span>{% endif %}
             {% elif e == 'post_petra' %}
-              <span class="etapa-pill e5">💳 Listo crédito</span>
+              <span class="etapa-pill e5">💵 Listo CRÉDITO</span>
+              {% if i.celular_valido %}
+              <a class="wa-step wa-sec" href="{{ i.wa_ofrecer_credito }}" target="_blank"
+                 onclick="return petraEjecutar(event, 'fabricio', 'f-cr-{{ i.id }}')">
+                💬 Ofrecer crédito
+              </a>
+              <form id="f-cr-{{ i.id }}" method="post" style="display:none"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_credito?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="pin" value="">
+              </form>
+              <form id="f-mn-{{ i.id }}" method="post" style="display:inline"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/mandato?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="pin" value="">
+                <button type="submit" class="wa-step wa-mandato"
+                        onclick="if(!confirm('¿Marcar MANDATO firmado?'))return false; return petraEjecutar(event, 'fabricio', 'f-mn-{{ i.id }}');">
+                  🤝 Mandato firmado
+                </button>
+              </form>
+              {% endif %}
             {% elif e == 'post_credito' %}
-              <span class="etapa-pill e6">📝 Listo mandato</span>
+              <span class="etapa-pill e6">📝 Crédito ofrecido · listo mandato</span>
+              <form id="f-mn2-{{ i.id }}" method="post" style="display:inline"
+                    action="/panel/petra/inmueble/{{ i.id }}/etapa/mandato?token={{ token }}">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="pin" value="">
+                <button type="submit" class="wa-step wa-mandato"
+                        onclick="if(!confirm('¿Marcar MANDATO firmado?'))return false; return petraEjecutar(event, 'fabricio', 'f-mn2-{{ i.id }}');">
+                  🤝 Marcar mandato
+                </button>
+              </form>
             {% elif e == 'mandato' %}
-              <span class="etapa-pill e7">🤝 Firmado</span>
+              <span class="etapa-pill e7">🤝 Mandato firmado 🎉</span>
+              {% if i.mandato_at %}<span class="muted">Firmado {{ i.mandato_at.strftime('%Y-%m-%d') }}</span>{% endif %}
             {% elif e == 'desactivado' %}
               <span class="etapa-pill">⛔ Desactivado</span>
             {% endif %}
@@ -277,7 +440,8 @@
           </td>
           <td>
             <div class="row-actions">
-              <a class="btn-like" href="/panel/petra/visitante/conjuntos/{{ cid }}/inmuebles#edit-{{ i.id }}" title="Editar en v1">✎ Editar</a>
+              <button type="button" class="btn-like"
+                      onclick="editarInm({{ i.id }}, {{ (i.nro or '')|tojson }}, {{ i.operacion|tojson }}, {{ i.habitaciones|tojson if i.habitaciones is not none else '""'|safe }}, {{ i.banos|tojson if i.banos is not none else '""'|safe }}, {{ i.m2|tojson if i.m2 is not none else '""'|safe }}, {{ i.precio|tojson if i.precio is not none else '""'|safe }}, {{ (i.propietario_telefono or '')|tojson }})">✎ Editar</button>
               <form class="inline-form" method="POST"
                     action="{{ url_for('petra_panel.visitante_inmueble_toggle', iid=i.id) }}">
                 <input type="hidden" name="token" value="{{ token }}">
@@ -312,5 +476,86 @@
     {% endif %}
   </div>
 {% endif %}
+
+<!-- Modal editar inmueble -->
+<dialog id="dlg-ed-inm" style="border:1px solid var(--border);border-radius:16px;padding:0;background:var(--panel);color:var(--text);max-width:520px;width:94%">
+  <header style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin:0;font-size:15px">Editar inmueble</h3>
+    <button type="button" onclick="document.getElementById('dlg-ed-inm').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:8px;cursor:pointer;font-family:inherit">✕</button>
+  </header>
+  <form id="form-ed-inm" method="post" action="" style="padding:16px 20px">
+    <input type="hidden" name="token" value="{{ token }}">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Torre/Apto</label>
+        <input type="text" name="nro" id="ei-nro" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
+      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Operación</label>
+        <select name="operacion" id="ei-op" required style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px">
+          <option value="arriendo">Arriendo</option><option value="venta">Venta</option>
+        </select></div>
+      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Habitaciones</label>
+        <input type="number" name="habitaciones" id="ei-hab" min="0" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
+      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Baños</label>
+        <input type="number" name="banos" id="ei-banos" min="0" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
+      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Área (m²)</label>
+        <input type="number" name="m2" id="ei-m2" min="0" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
+      <div><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Precio (COP)</label>
+        <input type="number" name="precio" id="ei-precio" min="0" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
+      <div style="grid-column:1/-1"><label style="font-size:11px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px">Tel. propietario</label>
+        <input type="text" name="propietario_telefono" id="ei-tel" placeholder="+57..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
+      <button type="button" onclick="document.getElementById('dlg-ed-inm').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
+      <button type="submit" style="background:var(--accent);color:#fff;border:none;padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+{% set flash = request.args.get('flash', '') %}
+{% if flash == 'editado' %}
+<div style="position:fixed;bottom:20px;right:20px;background:#dcfce7;color:#166534;padding:10px 16px;border-radius:10px;font-size:13px;z-index:200">✅ Inmueble actualizado.</div>
+{% elif flash == 'toggled' %}
+<div style="position:fixed;bottom:20px;right:20px;background:#dcfce7;color:#166534;padding:10px 16px;border-radius:10px;font-size:13px;z-index:200">✅ Estado actualizado.</div>
+{% elif flash == 'inmob_toggled' %}
+<div style="position:fixed;bottom:20px;right:20px;background:#dcfce7;color:#166534;padding:10px 16px;border-radius:10px;font-size:13px;z-index:200">✅ Flag inmobiliaria actualizado.</div>
+{% elif flash == 'gestion_toggled' %}
+<div style="position:fixed;bottom:20px;right:20px;background:#dcfce7;color:#166534;padding:10px 16px;border-radius:10px;font-size:13px;z-index:200">✅ Gestión Petra actualizada.</div>
+{% elif flash == 'falta_operador_env' %}
+<div style="position:fixed;bottom:20px;right:20px;background:#fee2e2;color:#991b1b;padding:10px 16px;border-radius:10px;font-size:13px;z-index:200">❌ Falta <code>PETRA_OPERADOR_PHONE</code> en env.</div>
+{% endif %}
+
+<script>
+function editarInm(id, nro, op, hab, banos, m2, precio, tel) {
+  var f = document.getElementById('form-ed-inm');
+  f.action = '/panel/petra/visitante/inmuebles/' + id + '/editar';
+  document.getElementById('ei-nro').value = nro || '';
+  document.getElementById('ei-op').value = op || 'arriendo';
+  document.getElementById('ei-hab').value = (hab === null || hab === undefined) ? '' : hab;
+  document.getElementById('ei-banos').value = (banos === null || banos === undefined) ? '' : banos;
+  document.getElementById('ei-m2').value = (m2 === null || m2 === undefined) ? '' : m2;
+  document.getElementById('ei-precio').value = (precio === null || precio === undefined) ? '' : precio;
+  document.getElementById('ei-tel').value = tel || '';
+  document.getElementById('dlg-ed-inm').showModal();
+}
+
+// PIN prompt + POST async. Devuelve true para que el <a> abra WhatsApp
+// después del POST (igual que v1). Devuelve false si cancela.
+function petraEjecutar(ev, quien, formId) {
+  var label = quien === 'sebastian' ? 'Sebas' : 'Fabricio';
+  var pin = prompt('PIN de ' + label + ':');
+  if (!pin) { ev.preventDefault(); return false; }
+  var f = document.getElementById(formId);
+  if (!f) return true;
+  var pinInput = f.querySelector('input[name=pin]');
+  if (pinInput) pinInput.value = pin;
+  var data = new FormData(f);
+  fetch(f.action, { method: 'POST', body: data })
+    .then(function(r){ return r.text().then(function(t){ return {ok: r.ok, t: t}; }); })
+    .then(function(r){
+      if (!r.ok) alert('Error marcando etapa: ' + r.t.slice(0, 200));
+    })
+    .catch(function(e){ alert('Error de red: ' + e); });
+  return true; // deja que el <a href="wa.me/..."> abra WhatsApp
+}
+</script>
 
 {% endblock %}
