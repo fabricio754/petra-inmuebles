@@ -2244,7 +2244,11 @@ ALTER TABLE inmuebles_visitante
   ADD COLUMN IF NOT EXISTS ofrecer_petra_at    TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS ofrecer_credito_at  TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS mandato_at          TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS mandato_nota        TEXT;
+  ADD COLUMN IF NOT EXISTS mandato_nota        TEXT,
+  -- Para columna "Datos" (Sebas): cuándo se le pidió al propietario
+  -- m² y precio. Si NULL → nunca pedido. Si > 7 días sin que lleguen
+  -- los datos → "re-pedir" rojo.
+  ADD COLUMN IF NOT EXISTS datos_pedidos_a_propietario_at TIMESTAMPTZ;
 
 
 -- ============================================================================

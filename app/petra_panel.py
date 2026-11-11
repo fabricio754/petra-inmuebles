@@ -3352,7 +3352,8 @@ def panel_v2_inmuebles():
                         "       propietario_telefono_original, "
                         "       datos_confirmado_at, bienvenida_at, "
                         "       ofrecer_petra_at, ofrecer_credito_at, mandato_at, "
-                        "       es_inmobiliaria "
+                        "       es_inmobiliaria, "
+                        "       datos_pedidos_a_propietario_at "
                         "  FROM inmuebles_visitante "
                         " WHERE " + " AND ".join(where) +
                         " ORDER BY activo DESC, creado_en DESC"
@@ -3384,6 +3385,26 @@ def panel_v2_inmuebles():
                             i["img_ofrecer"] = _IMG_ETAPA.get('ofrecer_petra_arriendo', '')
                             i["img_ofrecer_nombre"] = "arriendo.webp"
                         i["img_credito"] = _IMG_ETAPA.get('ofrecer_credito', '')
+                        # Estado "Datos" (Sebas): ok / miss / stale
+                        tiene_datos = bool(i.get("m2")) and bool(i.get("precio"))
+                        pedido_at = i.get("datos_pedidos_a_propietario_at")
+                        if tiene_datos:
+                            i["datos_estado"] = "ok"
+                            i["datos_dias_pedido"] = None
+                        elif pedido_at:
+                            try:
+                                dias = (_dt.datetime.now(tz=pedido_at.tzinfo or _dt.timezone.utc)
+                                        - pedido_at).days
+                            except Exception:
+                                dias = 0
+                            i["datos_dias_pedido"] = dias
+                            i["datos_estado"] = "stale" if dias >= 7 else "waiting"
+                        else:
+                            i["datos_estado"] = "miss"
+                            i["datos_dias_pedido"] = None
+                        # wa_pedir_datos reusa el texto de confirmar datos
+                        # (Sebas → propietario pidiendo m² + precio).
+                        i["wa_pedir_datos"] = i.get("wa_confirmar", "")
                     if etapa_filtro:
                         inmuebles = [i for i in inmuebles if i["etapa"] == etapa_filtro]
                     # Contadores por etapa (universo del conjunto)
@@ -5584,6 +5605,7 @@ _IMG_ETAPA = {
 _ACCIONES_EMBUDO = {
     # accion         : (rol_requerido, columna_timestamp)
     'confirmar_datos':  ('sebastian', 'datos_confirmado_at'),
+    'pedir_datos':      ('sebastian', 'datos_pedidos_a_propietario_at'),
     'bienvenida':       ('fabricio',  'bienvenida_at'),
     'ofrecer_petra':    ('fabricio',  'ofrecer_petra_at'),
     'ofrecer_credito':  ('fabricio',  'ofrecer_credito_at'),
@@ -5638,11 +5660,13 @@ def inmueble_etapa_avanzar(iid, accion):
             "petra_panel.visitante_conjuntos", token=token)
         sep = "&" if "?" in ref else "?"
         return redirect(f"{ref}{sep}flash=pin_malo")
+    # pedir_datos puede re-pedirse: siempre actualiza el timestamp
+    cond = "" if accion == "pedir_datos" else f"AND {col} IS NULL"
     with _db._conexion_directa(timeout=10) as conn:
         conn.execute(
             f"UPDATE inmuebles_visitante "
             f"   SET {col} = NOW() "
-            f" WHERE id = %s AND {col} IS NULL",
+            f" WHERE id = %s {cond}",
             (iid,))
     ref = request.form.get("volver") or request.referrer
     if ref:
