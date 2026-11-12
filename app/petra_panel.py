@@ -3535,6 +3535,11 @@ PETRA_TEMPLATES = [
         "category": "UTILITY",
         "price_usd": 0.00024,
         "status": "mocked",
+        "header": {
+            "type": "video",
+            "url": "/static/images/propietarios/bienvenida.mp4",
+            "label": "Video bienvenida Petra (1 min)",
+        },
         "body": (
             "Hola 👋\n\n"
             "Te notificamos que la administración de *{{1}}* instaló "
@@ -3558,6 +3563,11 @@ PETRA_TEMPLATES = [
         "category": "MARKETING",
         "price_usd": 0.015,
         "status": "mocked",
+        "header": {
+            "type": "image",
+            "url": "/static/images/propietarios/venta.webp",
+            "label": "Imagen ofrecer venta",
+        },
         "body": (
             "Hola {{1}} 👋\n\n"
             "Vi que querés vender tu {{2}} en *{{3}}*.\n\n"
@@ -3580,6 +3590,11 @@ PETRA_TEMPLATES = [
         "category": "MARKETING",
         "price_usd": 0.015,
         "status": "mocked",
+        "header": {
+            "type": "image",
+            "url": "/static/images/propietarios/credito.webp",
+            "label": "Imagen ofrecer crédito",
+        },
         "body": (
             "Hola {{1}} 👋\n\n"
             "Muchos compradores de inmuebles en *{{2}}* necesitan crédito "
@@ -3595,6 +3610,14 @@ PETRA_TEMPLATES = [
         ],
         "recomendacion": "Tercer paso: solo a propietarios que ya aceptaron el servicio inmobiliario.",
     },
+]
+
+# Autores posibles de una difusión. En el futuro esto puede leerse de la
+# tabla de usuarios del panel; por ahora hardcode de los roles conocidos.
+DIFUSION_AUTORES = [
+    {"id": "fabricio", "label": "Fabricio (admin)"},
+    {"id": "sebastian", "label": "Sebastián"},
+    {"id": "petra",     "label": "Petra (equipo)"},
 ]
 
 
@@ -3618,7 +3641,71 @@ def panel_v2_difusiones():
     return render_template(
         "petra_panel_v2_difusiones.html",
         token=token, conjuntos=conjuntos, templates=PETRA_TEMPLATES,
+        autores=DIFUSION_AUTORES,
     )
+
+
+@petra_panel_bp.get("/v2/difusiones/listado")
+def panel_v2_difusiones_listado():
+    """Lista completa de destinatarios del segmento (paso 3: review).
+
+    Devuelve hasta 500 filas con id, código, etiqueta legible y teléfono
+    enmascarado. Si count > 500 paginamos (cursor por id).
+    """
+    _check_token()
+    from flask import jsonify
+
+    where_sql, params = _difusiones_where(request.args)
+    cursor_raw = (request.args.get("cursor") or "").strip()
+    LIMIT = 100
+
+    extra_cursor = ""
+    cursor_params = []
+    if cursor_raw.isdigit():
+        extra_cursor = " AND i.id < %s"
+        cursor_params = [int(cursor_raw)]
+
+    destinatarios = []
+    next_cursor = None
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            rows = _rows(conn,
+                "SELECT i.id, i.tipo, i.nro, i.operacion, "
+                "       i.propietario_telefono, c.nombre AS conjunto "
+                "  FROM inmuebles_visitante i "
+                "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                " WHERE " + where_sql + extra_cursor +
+                " ORDER BY i.id DESC LIMIT %s",
+                tuple(list(params) + cursor_params + [LIMIT + 1]))
+            if len(rows) > LIMIT:
+                next_cursor = rows[LIMIT - 1]["id"]
+                rows = rows[:LIMIT]
+            for r in rows:
+                conj = r.get("conjunto") or "tu conjunto"
+                nro = (r.get("nro") or "").strip()
+                tipo = (r.get("tipo") or "inmueble").capitalize()
+                ref = tipo + (f" #{nro}" if nro else "")
+                code = f"P{r['id']:04d}"
+                tel = (r.get("propietario_telefono") or "").strip()
+                tel_digits = ''.join(c for c in tel if c.isdigit())
+                tel_masked = ""
+                if tel_digits:
+                    tel_masked = ("·" * max(len(tel_digits) - 4, 0)) + tel_digits[-4:]
+                destinatarios.append({
+                    "id": r["id"],
+                    "codigo": code,
+                    "etiqueta": f"{ref} en {conj}",
+                    "telefono_masked": tel_masked,
+                    "tiene_celular": bool(tel_digits and len(tel_digits) >= 10),
+                })
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones listado fallo")
+
+    return jsonify({
+        "destinatarios": destinatarios,
+        "next_cursor": next_cursor,
+    })
 
 
 def _tmpl_by_name(name):
@@ -3774,6 +3861,17 @@ def panel_v2_difusiones_confirmar():
         return jsonify({"error": "template inválido"}), 400
 
     programar = (request.values.get("programar") or "ahora").strip().lower()
+    autor = (request.values.get("autor") or "fabricio").strip().lower()
+    if autor not in {a["id"] for a in DIFUSION_AUTORES}:
+        autor = "fabricio"
+
+    # IDs de destinatarios que el usuario excluyó manualmente en el paso 3.
+    excluidos_raw = (request.values.get("excluidos") or "").strip()
+    excluidos = set()
+    if excluidos_raw:
+        for p in excluidos_raw.split(","):
+            if p.strip().isdigit():
+                excluidos.add(int(p.strip()))
 
     where_sql, params = _difusiones_where(request.values)
 
@@ -3789,6 +3887,8 @@ def panel_v2_difusiones_confirmar():
                 " ORDER BY i.creado_en DESC",
                 params)
             for r in rows:
+                if r.get("id") in excluidos:
+                    continue
                 conj = r.get("conjunto") or "tu conjunto"
                 mensaje = _render_tmpl_body(
                     tmpl["body"], tmpl["variables"], r, conjunto_nombre=conj)
@@ -3808,8 +3908,9 @@ def panel_v2_difusiones_confirmar():
     # Log de la intención — queda en Render logs para auditoría manual
     # mientras no persistamos en DB.
     _lg.getLogger(__name__).info(
-        "[DIFUSION_DRY_RUN] template=%s programar=%s destinatarios=%d costo_usd=%.2f muestra=%s",
-        tmpl_name, programar, total, costo,
+        "[DIFUSION_DRY_RUN] template=%s autor=%s programar=%s destinatarios=%d "
+        "excluidos=%d costo_usd=%.2f muestra=%s",
+        tmpl_name, autor, programar, total, len(excluidos), costo,
         _json.dumps(destinatarios[:3], ensure_ascii=False) if destinatarios else "[]",
     )
 
@@ -3824,7 +3925,9 @@ def panel_v2_difusiones_confirmar():
             "template_display": tmpl["display"],
             "categoria": tmpl["category"],
             "programar": programar,
+            "autor": autor,
             "destinatarios": total,
+            "excluidos": len(excluidos),
             "costo_total_usd": costo,
         },
     })
