@@ -3917,7 +3917,7 @@ def panel_v2_difusiones_confirmar():
     return jsonify({
         "ok": True,
         "status": "dry_run",
-        "mensaje": ("Difusión registrada en modo dry-run. "
+        "mensaje": ("Campaña registrada en modo dry-run. "
                     "El envío real requiere integración con Meta Cloud API, "
                     "pendiente de la próxima fase."),
         "resumen": {
