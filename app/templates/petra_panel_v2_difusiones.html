@@ -185,6 +185,33 @@
     background: rgba(200, 90, 42, 0.18); padding: 1px 3px; border-radius: 2px;
     font-weight: 500;
   }
+  .wa-header {
+    background: rgba(0,0,0,0.08); border-radius: 5px;
+    margin-bottom: 6px; overflow: hidden;
+    display: grid; place-items: center;
+    aspect-ratio: 16 / 9;
+  }
+  .wa-header.header-video {
+    position: relative; color: rgba(0,0,0,0.6);
+    font-size: 24px; background: #c9d1d9;
+  }
+  .wa-header.header-video::after {
+    content: ""; position: absolute; inset: 0; background: rgba(0,0,0,0.0);
+  }
+  .wa-header img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .wa-header video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    background: #000;
+  }
+  .wa-body { white-space: pre-wrap; }
+  .tmpl-header-info {
+    margin-top: 12px; padding: 8px 10px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-size: 12px; color: var(--text-sub);
+  }
+  .tmpl-header-info strong { color: var(--text); }
 
   .tmpl-vars {
     display: flex; flex-direction: column; gap: 6px;
@@ -271,6 +298,53 @@
   .p3-muestras-empty {
     text-align: center; padding: 30px; color: var(--text-sub); font-size: 13px;
   }
+  .p3-muestras-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .btn-link {
+    background: transparent; border: 0; color: var(--accent);
+    font-size: 12.5px; cursor: pointer; font-weight: 600; padding: 0;
+    text-decoration: underline;
+  }
+  .btn-link:hover { opacity: 0.8; }
+
+  .p3-lista-wrap {
+    margin-top: 16px; border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; background: var(--bg);
+  }
+  .p3-lista-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 10px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px;
+  }
+  .p3-lista-head strong { color: var(--accent); font-size: 15px; }
+  .p3-lista-sub { font-size: 11.5px; color: var(--text-sub); }
+  .p3-lista {
+    max-height: 260px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel);
+  }
+  .p3-lista-row {
+    display: grid; grid-template-columns: 30px 1fr auto auto;
+    gap: 10px; padding: 8px 12px; align-items: center;
+    border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .p3-lista-row:last-child { border-bottom: 0; }
+  .p3-lista-row.excluido { opacity: 0.45; text-decoration: line-through; }
+  .p3-lista-row input[type="checkbox"] { accent-color: var(--accent); }
+  .p3-lista-row .codigo {
+    font-family: ui-monospace, monospace; font-weight: 600; color: var(--text);
+  }
+  .p3-lista-row .etiqueta { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .p3-lista-row .cel {
+    font-size: 11.5px; color: var(--text-sub); font-family: ui-monospace, monospace;
+  }
+  .p3-lista-row .cel.no-cel { color: #a8422d; font-style: italic; }
+  .p3-lista-summary {
+    margin-top: 10px; font-size: 12px; color: var(--text-sub);
+    text-align: right;
+  }
+  .p3-lista-summary strong { color: var(--text); }
 
   /* Step 4: programar */
   .p4-resumen {
@@ -320,6 +394,20 @@
     box-sizing: border-box;
   }
 
+  .p4-autor {
+    margin-bottom: 18px; padding: 14px 16px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .p4-autor-sel {
+    padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-size: 14px; font-family: inherit; margin-top: 4px;
+    min-width: 240px;
+  }
+  .p4-autor-help {
+    font-size: 11.5px; color: var(--text-sub); margin-top: 6px;
+  }
   .p4-dryrun-note {
     background: #fdf2d4; border-left: 3px solid #b8862e;
     border-radius: 0 10px 10px 0; padding: 12px 16px;
@@ -507,12 +595,16 @@
             <div class="tmpl-preview-wrap">
               <div class="tmpl-preview-label">Preview WhatsApp (con datos de ejemplo)</div>
               <div class="wa-bg">
-                <div class="wa-bubble" id="wa-bubble"></div>
+                <div class="wa-bubble" id="wa-bubble">
+                  <div class="wa-header" id="wa-header" hidden></div>
+                  <div class="wa-body" id="wa-body"></div>
+                </div>
               </div>
             </div>
             <div class="tmpl-vars-wrap">
               <div class="tmpl-preview-label">Variables</div>
               <div class="tmpl-vars" id="tmpl-vars"></div>
+              <div class="tmpl-header-info" id="tmpl-header-info" hidden></div>
               <div class="tmpl-costo" id="tmpl-costo"></div>
             </div>
           </div>
@@ -542,8 +634,25 @@
 
         <div class="p3-warnings" id="p3-warnings" hidden></div>
 
-        <div class="p3-muestras-label">3 mensajes de muestra (datos reales)</div>
+        <div class="p3-muestras-head">
+          <div class="p3-muestras-label">3 mensajes de muestra (datos reales)</div>
+          <button type="button" class="btn-link" onclick="toggleListaCompleta()">
+            <span id="btn-lista-label">Ver lista completa</span>
+          </button>
+        </div>
         <div class="p3-muestras" id="p3-muestras"></div>
+
+        <div class="p3-lista-wrap" id="p3-lista-wrap" hidden>
+          <div class="p3-lista-head">
+            <span>Lista completa · <strong id="p3-lista-count">0</strong> destinatarios</span>
+            <span class="p3-lista-sub">Desmarcá para excluir del envío</span>
+          </div>
+          <div class="p3-lista" id="p3-lista"></div>
+          <button type="button" class="btn-link" id="p3-lista-more" onclick="cargarMasLista()" hidden>
+            Cargar más destinatarios
+          </button>
+          <div class="p3-lista-summary" id="p3-lista-summary"></div>
+        </div>
       </div>
 
       {# ─── Paso 4: Programar ─────────────────────────── #}
@@ -556,7 +665,18 @@
           <div class="p4-row"><span class="k">Template</span><span class="v" id="p4-tmpl">—</span></div>
           <div class="p4-row"><span class="k">Categoría</span><span class="v" id="p4-cat">—</span></div>
           <div class="p4-row"><span class="k">Destinatarios</span><span class="v" id="p4-dest">—</span></div>
+          <div class="p4-row"><span class="k">Excluidos manualmente</span><span class="v" id="p4-excl">0</span></div>
           <div class="p4-row"><span class="k">Costo total estimado</span><span class="v" id="p4-cost">—</span></div>
+        </div>
+
+        <div class="p4-autor">
+          <div class="p4-sched-label">Firmar como (autor de la campaña)</div>
+          <select id="p4-autor-sel" class="p4-autor-sel">
+            {% for a in autores %}
+            <option value="{{ a.id }}">{{ a.label }}</option>
+            {% endfor %}
+          </select>
+          <div class="p4-autor-help">Queda registrado en auditoría para saber quién lanzó cada difusión.</div>
         </div>
 
         <div class="p4-sched">
@@ -680,10 +800,14 @@
 
   function poblarResumenPaso4() {
     if (!templateSeleccionado) return;
+    var p4 = document.getElementById('p4-dest');
+    if (!p4) return;  // paso 4 aún no en DOM
     document.getElementById('p4-tmpl').textContent = templateSeleccionado.display;
     document.getElementById('p4-cat').textContent = templateSeleccionado.category;
-    document.getElementById('p4-dest').textContent = ultimoCount || 0;
-    var total = ((ultimoCount || 0) * templateSeleccionado.price_usd).toFixed(2);
+    var destinatarios = contarActivos();
+    p4.textContent = destinatarios;
+    document.getElementById('p4-excl').textContent = excluidos.size;
+    var total = (destinatarios * templateSeleccionado.price_usd).toFixed(2);
     document.getElementById('p4-cost').textContent = '$' + total + ' USD';
     // Set min del datetime-local a ahora.
     var dt = document.getElementById('p4-datetime');
@@ -705,18 +829,23 @@
   }
 
   function confirmarDryRun() {
-    if (!templateSeleccionado || !ultimoCount) return;
+    if (!templateSeleccionado || !contarActivos()) return;
     var programar = document.querySelector('input[name="programar"]:checked').value;
     if (programar === 'custom') {
       var dt = document.getElementById('p4-datetime').value;
       if (!dt) { alert('Elegí una fecha y hora'); return; }
       programar = dt;
     }
+    var autor = document.getElementById('p4-autor-sel').value;
 
     var fd = new FormData();
     fd.append('token', TOKEN);
     fd.append('template', templateSeleccionado.name);
     fd.append('programar', programar);
+    fd.append('autor', autor);
+    if (excluidos.size) {
+      fd.append('excluidos', Array.from(excluidos).join(','));
+    }
     fd.append('conjunto', document.getElementById('f_conjunto').value);
     fd.append('operacion', document.getElementById('f_operacion').value);
     fd.append('estado', document.getElementById('f_estado').value);
@@ -734,13 +863,16 @@
         var box = document.getElementById('p4-result');
         box.hidden = false;
         if (d.ok) {
+          var r = d.resumen;
           box.innerHTML =
             '<strong>✓ Difusión registrada (dry-run)</strong>' +
             escapeHtml(d.mensaje) +
             '<div style="margin-top:8px;font-size:12px;opacity:0.85">' +
-            'Template: <strong>' + escapeHtml(d.resumen.template_display) + '</strong> · ' +
-            'Destinatarios: <strong>' + d.resumen.destinatarios + '</strong> · ' +
-            'Costo estimado: <strong>$' + d.resumen.costo_total_usd.toFixed(2) + '</strong></div>';
+            'Template: <strong>' + escapeHtml(r.template_display) + '</strong> · ' +
+            'Autor: <strong>' + escapeHtml(r.autor) + '</strong> · ' +
+            'Destinatarios: <strong>' + r.destinatarios + '</strong>' +
+            (r.excluidos ? ' (excluidos ' + r.excluidos + ')' : '') + ' · ' +
+            'Costo estimado: <strong>$' + r.costo_total_usd.toFixed(2) + '</strong></div>';
           btn.textContent = 'Listo ✓';
           btn.disabled = true;
         } else {
@@ -834,6 +966,27 @@
     if (!t) { document.getElementById('tmpl-detail').hidden = true; return; }
     document.getElementById('tmpl-detail').hidden = false;
 
+    // Header (video o imagen) si el template lo lleva
+    var hdr = document.getElementById('wa-header');
+    var hdrInfo = document.getElementById('tmpl-header-info');
+    if (t.header && t.header.type) {
+      hdr.hidden = false;
+      hdr.className = 'wa-header header-' + t.header.type;
+      if (t.header.type === 'image') {
+        hdr.innerHTML = '<img src="' + escapeHtml(t.header.url) + '" alt="header">';
+      } else if (t.header.type === 'video') {
+        hdr.innerHTML = '<video src="' + escapeHtml(t.header.url) + '" muted controls preload="metadata"></video>';
+      } else {
+        hdr.innerHTML = '';
+      }
+      hdrInfo.hidden = false;
+      hdrInfo.innerHTML = 'Header del template: <strong>' + escapeHtml(t.header.type) + '</strong> · ' +
+                         escapeHtml(t.header.label || '');
+    } else {
+      hdr.hidden = true;
+      hdrInfo.hidden = true;
+    }
+
     // Preview con valores de ejemplo
     var body = t.body;
     t.variables.forEach(function(v) {
@@ -845,7 +998,7 @@
     body = body
       .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
       .replace(/_([^_\n]+)_/g, '<em>$1</em>');
-    document.getElementById('wa-bubble').innerHTML = body +
+    document.getElementById('wa-body').innerHTML = body +
       '<div style="font-size:10px;color:#667781;text-align:right;margin-top:4px">ahora ✓✓</div>';
 
     // Lista de variables
@@ -858,12 +1011,96 @@
     document.getElementById('tmpl-vars').innerHTML = varsHtml;
 
     // Costo estimado con el conteo actual del paso 1
-    var destinatarios = ultimoCount || 0;
+    var destinatarios = contarActivos();
     var total = (destinatarios * t.price_usd).toFixed(2);
     document.getElementById('tmpl-costo').innerHTML =
       'Con <strong>' + destinatarios + '</strong> destinatarios: ' +
       '<strong>$' + total + ' USD</strong> ' +
       '(categoría ' + t.category + ')';
+  }
+
+  // ----- Lista completa de destinatarios + exclusión manual --------------
+  var listaCompleta = [];      // todos los destinatarios cargados
+  var excluidos = new Set();   // ids excluidos
+  var listaCursor = null;
+  var listaOpen = false;
+
+  function toggleListaCompleta() {
+    listaOpen = !listaOpen;
+    document.getElementById('p3-lista-wrap').hidden = !listaOpen;
+    document.getElementById('btn-lista-label').textContent =
+      listaOpen ? 'Ocultar lista' : 'Ver lista completa';
+    if (listaOpen && listaCompleta.length === 0) {
+      cargarListaInicial();
+    }
+  }
+
+  function cargarListaInicial() {
+    listaCompleta = [];
+    excluidos = new Set();
+    listaCursor = null;
+    renderLista();
+    cargarMasLista();
+  }
+
+  function cargarMasLista() {
+    var params = new URLSearchParams({
+      token: TOKEN,
+      conjunto: document.getElementById('f_conjunto').value,
+      operacion: document.getElementById('f_operacion').value,
+      estado: document.getElementById('f_estado').value,
+      etapa: document.getElementById('f_etapa').value,
+      dias: document.getElementById('f_dias').value,
+      celular: document.getElementById('f_celular').value,
+    });
+    if (listaCursor) { params.set('cursor', listaCursor); }
+    fetch('/panel/petra/v2/difusiones/listado?' + params.toString())
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        (d.destinatarios || []).forEach(function(x) { listaCompleta.push(x); });
+        listaCursor = d.next_cursor;
+        document.getElementById('p3-lista-more').hidden = !listaCursor;
+        renderLista();
+      });
+  }
+
+  function renderLista() {
+    var cont = document.getElementById('p3-lista');
+    document.getElementById('p3-lista-count').textContent = listaCompleta.length;
+    if (!listaCompleta.length) {
+      cont.innerHTML = '<div class="p3-muestras-empty">Sin destinatarios en este segmento.</div>';
+      document.getElementById('p3-lista-summary').innerHTML = '';
+      return;
+    }
+    cont.innerHTML = listaCompleta.map(function(x) {
+      var excluido = excluidos.has(x.id);
+      var checked = excluido ? '' : 'checked';
+      var noCelCls = x.tiene_celular ? '' : 'no-cel';
+      var celTxt = x.telefono_masked || '(sin celular)';
+      return '<div class="p3-lista-row ' + (excluido ? 'excluido' : '') + '" data-id="' + x.id + '">' +
+             '<input type="checkbox" ' + checked + ' onchange="toggleExcluir(' + x.id + ', this.checked)">' +
+             '<span class="etiqueta"><span class="codigo">' + escapeHtml(x.codigo) + '</span> · ' +
+               escapeHtml(x.etiqueta) + '</span>' +
+             '<span class="cel ' + noCelCls + '">' + escapeHtml(celTxt) + '</span>' +
+             '</div>';
+    }).join('');
+    var activos = contarActivos();
+    document.getElementById('p3-lista-summary').innerHTML =
+      '<strong>' + activos + '</strong> incluidos · ' +
+      '<strong>' + excluidos.size + '</strong> excluidos';
+    if (templateSeleccionado) { renderTemplateDetail(); }
+    poblarResumenPaso4();
+  }
+
+  function toggleExcluir(id, incluido) {
+    if (incluido) { excluidos.delete(id); }
+    else { excluidos.add(id); }
+    renderLista();
+  }
+
+  function contarActivos() {
+    if (listaCompleta.length === 0) return ultimoCount || 0;
+    return listaCompleta.length - excluidos.size;
   }
 
   function escapeHtml(s) {
