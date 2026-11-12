@@ -1,0 +1,398 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'difusiones' %}
+{% block title %}Difusiones · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; max-width: 65ch; }
+  .hero .cta {
+    background: var(--accent); color: white; border: 0; padding: 10px 18px;
+    border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  .hero .cta:hover { opacity: 0.92; }
+
+  .list-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; overflow: hidden;
+  }
+  .list-head {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    font-weight: 600; font-size: 13px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .empty-state {
+    padding: 56px 20px; text-align: center; color: var(--text-sub);
+  }
+  .empty-state .icon { font-size: 44px; margin-bottom: 10px; opacity: 0.6; }
+  .empty-state h3 { margin: 0 0 6px; color: var(--text); font-size: 16px; font-weight: 600; }
+  .empty-state p { margin: 0 0 14px; font-size: 13px; }
+
+  /* Modal flujo 4 pasos */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: flex-start; justify-content: center;
+    z-index: 1000; padding: 40px 16px; overflow-y: auto;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--panel); border-radius: 18px; width: 100%;
+    max-width: 920px; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+  }
+  .modal-head {
+    padding: 18px 24px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modal-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .modal-close {
+    background: transparent; border: 0; font-size: 22px;
+    cursor: pointer; color: var(--text-sub); line-height: 1;
+    width: 32px; height: 32px; border-radius: 50%;
+  }
+  .modal-close:hover { background: var(--bg); color: var(--text); }
+
+  .steps-nav {
+    display: flex; gap: 0; padding: 14px 24px 0;
+    border-bottom: 1px solid var(--border); background: var(--bg);
+  }
+  .step-tab {
+    padding: 12px 16px; display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text-sub);
+    border-bottom: 2px solid transparent; cursor: default;
+    font-weight: 500;
+  }
+  .step-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .step-tab .num {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--border); color: var(--text-sub);
+    display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  }
+  .step-tab.active .num { background: var(--accent); color: white; }
+  .step-tab.done .num { background: #4b7a3a; color: white; }
+  .step-tab.done { color: var(--text); }
+
+  .modal-body { padding: 24px; }
+  .step-pane { display: none; }
+  .step-pane.active { display: block; }
+
+  /* Step 1: filtros */
+  .filters-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .filter-group label {
+    display: block; font-size: 11.5px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+    margin-bottom: 5px;
+  }
+  .filter-group select, .filter-group input {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-size: 14px; font-family: inherit;
+    box-sizing: border-box;
+  }
+  .filter-group select:focus, .filter-group input:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+    border-color: var(--accent);
+  }
+
+  .preview-count {
+    background: var(--bg); border: 1px dashed var(--border);
+    border-radius: 12px; padding: 20px; margin-top: 14px;
+    text-align: center;
+  }
+  .preview-count .big {
+    font-size: 36px; font-weight: 700; letter-spacing: -0.5px;
+    color: var(--accent); display: block; line-height: 1;
+  }
+  .preview-count .label {
+    font-size: 13px; color: var(--text-sub); margin-top: 6px;
+  }
+  .preview-count .samples {
+    margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border);
+    font-size: 12.5px; color: var(--text-sub); text-align: left;
+  }
+  .preview-count .samples strong { color: var(--text); }
+  .preview-count.loading .big { color: var(--text-sub); opacity: 0.5; }
+
+  /* Step 2-4: placeholders */
+  .placeholder {
+    padding: 50px 20px; text-align: center; color: var(--text-sub);
+    background: var(--bg); border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+  .placeholder .icon { font-size: 38px; margin-bottom: 10px; opacity: 0.5; }
+  .placeholder h4 { margin: 0 0 6px; font-size: 15px; color: var(--text); }
+  .placeholder p { margin: 0; font-size: 13px; max-width: 48ch; margin: 0 auto; }
+
+  /* Footer modal */
+  .modal-foot {
+    padding: 14px 24px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg);
+  }
+  .btn-secondary {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); padding: 9px 16px; border-radius: 8px;
+    font-size: 14px; cursor: pointer; font-weight: 500;
+  }
+  .btn-secondary:hover { background: var(--panel); }
+  .btn-primary {
+    background: var(--accent); color: white; border: 0;
+    padding: 9px 20px; border-radius: 8px; font-size: 14px;
+    cursor: pointer; font-weight: 600;
+  }
+  .btn-primary:hover { opacity: 0.92; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Difusiones</h1>
+    <div class="sub">
+      Envío masivo de templates aprobados por Meta a propietarios segmentados.
+      Respeta rate limits de warm-up y opt-outs.
+    </div>
+  </div>
+  <button class="cta" onclick="abrirNuevaDifusion()">+ Nueva difusión</button>
+</div>
+
+<div class="list-card">
+  <div class="list-head">Difusiones recientes</div>
+  <div class="empty-state">
+    <div class="icon">📣</div>
+    <h3>No hay difusiones todavía</h3>
+    <p>Creá tu primera difusión para notificar a un grupo de propietarios.</p>
+  </div>
+</div>
+
+{# ─── Modal: Nueva difusión ──────────────────────────────── #}
+<div class="modal-backdrop" id="modal-difusion" onclick="if(event.target===this)cerrarModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Nueva difusión</h2>
+      <button class="modal-close" onclick="cerrarModal()">×</button>
+    </div>
+
+    <div class="steps-nav">
+      <div class="step-tab active" data-step="1"><span class="num">1</span> Destinatarios</div>
+      <div class="step-tab" data-step="2"><span class="num">2</span> Template</div>
+      <div class="step-tab" data-step="3"><span class="num">3</span> Preview</div>
+      <div class="step-tab" data-step="4"><span class="num">4</span> Programar</div>
+    </div>
+
+    <div class="modal-body">
+
+      {# ─── Paso 1: Destinatarios ──────────────────────── #}
+      <div class="step-pane active" data-step="1">
+        <p style="margin: 0 0 16px; color: var(--text-sub); font-size: 13.5px;">
+          Elegí qué propietarios reciben la difusión. El conteo se actualiza en vivo.
+        </p>
+
+        <div class="filters-grid">
+          <div class="filter-group">
+            <label>Conjunto</label>
+            <select id="f_conjunto" onchange="refrescarPreview()">
+              <option value="">Todos los conjuntos</option>
+              {% for c in conjuntos %}
+              <option value="{{ c.id }}">{{ c.nombre }}{% if c.ciudad %} · {{ c.ciudad }}{% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Operación</label>
+            <select id="f_operacion" onchange="refrescarPreview()">
+              <option value="">Venta y arriendo</option>
+              <option value="venta">Solo venta</option>
+              <option value="arriendo">Solo arriendo</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Estado</label>
+            <select id="f_estado" onchange="refrescarPreview()">
+              <option value="activo">Activos</option>
+              <option value="todos">Activos + inactivos</option>
+              <option value="inactivo">Solo inactivos</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Etapa del embudo</label>
+            <select id="f_etapa" onchange="refrescarPreview()">
+              <option value="">Todas las etapas</option>
+              <option value="sin_bienvenida">Sin notificar publicación</option>
+              <option value="con_bienvenida">Notificados sin ofrecer inmob</option>
+              <option value="con_inmob">Ofrecimos inmob sin crédito</option>
+              <option value="con_credito">Ofrecimos crédito</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Días desde última etapa</label>
+            <select id="f_dias" onchange="refrescarPreview()">
+              <option value="">Cualquier tiempo</option>
+              <option value="3">Hace 3+ días</option>
+              <option value="7">Hace 7+ días</option>
+              <option value="14">Hace 14+ días</option>
+              <option value="30">Hace 30+ días</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Tiene celular válido</label>
+            <select id="f_celular" onchange="refrescarPreview()">
+              <option value="si">Sí (contactables)</option>
+              <option value="todos">Todos</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="preview-count loading" id="preview-count">
+          <span class="big" id="pc-num">—</span>
+          <div class="label" id="pc-label">Calculando destinatarios…</div>
+          <div class="samples" id="pc-samples" hidden>
+            <strong>Ejemplos:</strong>
+            <div id="pc-samples-list"></div>
+          </div>
+        </div>
+      </div>
+
+      {# ─── Paso 2: Template ───────────────────────────── #}
+      <div class="step-pane" data-step="2">
+        <div class="placeholder">
+          <div class="icon">📝</div>
+          <h4>Selector de template</h4>
+          <p>Próximamente. Dropdown con los templates aprobados por Meta
+             (notificacion_publicacion, ofrecer_inmob, ofrecer_credito)
+             + preview del cuerpo con variables autopopuladas.</p>
+        </div>
+      </div>
+
+      {# ─── Paso 3: Preview ────────────────────────────── #}
+      <div class="step-pane" data-step="3">
+        <div class="placeholder">
+          <div class="icon">👁</div>
+          <h4>Preview de envío</h4>
+          <p>Próximamente. Mensaje renderizado con datos reales de 3 destinatarios
+             de muestra, costo estimado del envío y advertencias de rate limit.</p>
+        </div>
+      </div>
+
+      {# ─── Paso 4: Programar ─────────────────────────── #}
+      <div class="step-pane" data-step="4">
+        <div class="placeholder">
+          <div class="icon">⏰</div>
+          <h4>Programación</h4>
+          <p>Próximamente. Enviar ahora / en 1 hora / fecha específica
+             + dry run para validar antes del envío real.</p>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn-secondary" id="btn-anterior" onclick="pasoAnterior()" disabled>← Anterior</button>
+      <button class="btn-primary" id="btn-siguiente" onclick="pasoSiguiente()">Siguiente →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  var TOKEN = {{ token|tojson }};
+  var pasoActual = 1;
+  var previewTimer = null;
+
+  function abrirNuevaDifusion() {
+    document.getElementById('modal-difusion').classList.add('open');
+    pasoActual = 1;
+    actualizarStepsUI();
+    refrescarPreview();
+  }
+
+  function cerrarModal() {
+    document.getElementById('modal-difusion').classList.remove('open');
+  }
+
+  function irAPaso(n) {
+    pasoActual = n;
+    actualizarStepsUI();
+  }
+
+  function pasoSiguiente() {
+    if (pasoActual < 4) { pasoActual++; actualizarStepsUI(); }
+  }
+
+  function pasoAnterior() {
+    if (pasoActual > 1) { pasoActual--; actualizarStepsUI(); }
+  }
+
+  function actualizarStepsUI() {
+    document.querySelectorAll('.step-tab').forEach(function(t) {
+      var n = parseInt(t.dataset.step, 10);
+      t.classList.toggle('active', n === pasoActual);
+      t.classList.toggle('done', n < pasoActual);
+    });
+    document.querySelectorAll('.step-pane').forEach(function(p) {
+      p.classList.toggle('active', parseInt(p.dataset.step, 10) === pasoActual);
+    });
+    document.getElementById('btn-anterior').disabled = (pasoActual === 1);
+    var bs = document.getElementById('btn-siguiente');
+    if (pasoActual === 4) {
+      bs.textContent = 'Programar envío';
+      bs.disabled = true;  // disabled hasta que el paso real exista
+    } else {
+      bs.textContent = 'Siguiente →';
+      bs.disabled = false;
+    }
+  }
+
+  function refrescarPreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(function() {
+      var params = new URLSearchParams({
+        token: TOKEN,
+        conjunto: document.getElementById('f_conjunto').value,
+        operacion: document.getElementById('f_operacion').value,
+        estado: document.getElementById('f_estado').value,
+        etapa: document.getElementById('f_etapa').value,
+        dias: document.getElementById('f_dias').value,
+        celular: document.getElementById('f_celular').value,
+      });
+      var card = document.getElementById('preview-count');
+      card.classList.add('loading');
+      document.getElementById('pc-label').textContent = 'Calculando…';
+      fetch('/panel/petra/v2/difusiones/preview?' + params.toString())
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          document.getElementById('pc-num').textContent = d.count;
+          document.getElementById('pc-label').textContent =
+            d.count === 1 ? 'propietario cumple los criterios'
+                          : 'propietarios cumplen los criterios';
+          card.classList.remove('loading');
+          var samples = document.getElementById('pc-samples');
+          var list = document.getElementById('pc-samples-list');
+          if (d.muestra && d.muestra.length) {
+            list.innerHTML = d.muestra.map(function(s) {
+              return '<div style="margin-top:4px">• ' + s + '</div>';
+            }).join('');
+            samples.hidden = false;
+          } else {
+            samples.hidden = true;
+          }
+        })
+        .catch(function() {
+          document.getElementById('pc-num').textContent = '!';
+          document.getElementById('pc-label').textContent = 'Error al calcular';
+          card.classList.remove('loading');
+        });
+    }, 250);
+  }
+</script>
+
+{% endblock %}
