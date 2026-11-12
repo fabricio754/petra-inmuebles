@@ -185,6 +185,28 @@ def privacidad():
     )
 
 
+@app.get("/petra/privacidad")
+def petra_privacidad():
+    """Política de tratamiento de datos de Petra Inmobiliaria.
+
+    Enlazada desde el footer de los templates WhatsApp enviados a propietarios
+    cuyos inmuebles fueron publicados por acuerdo con la administración del conjunto.
+    """
+    return render_template(
+        "petra_privacidad.html",
+        responsable=os.environ.get(
+            "PETRA_POLITICA_RESPONSABLE",
+            "Petra Inmobiliaria, marca operada por ALMOND CORP S.A.S., "
+            "NIT 901.931.289-4, domicilio principal en Bogotá D.C.",
+        ),
+        contacto=os.environ.get(
+            "PETRA_POLITICA_CONTACTO",
+            "fabricio@petrasecondaries.com o WhatsApp +57 300 121 5868",
+        ),
+        fecha="12 de noviembre de 2026",
+    )
+
+
 @app.get("/webhook")
 def verify_webhook():
     """Meta llama esto una sola vez, al configurar la URL del webhook."""

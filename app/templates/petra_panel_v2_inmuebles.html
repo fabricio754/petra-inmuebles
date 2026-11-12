@@ -429,7 +429,7 @@
             {% if not s_bienv %}
               {% if i.celular_valido %}
               <a class="wa-step" href="{{ i.wa_bienvenida }}" target="_blank"
-                 onclick="return petraEjecutar(event, 'fabricio', 'f-bv-{{ i.id }}')">💬 Enviar bienvenida</a>
+                 onclick="return petraEjecutar(event, 'fabricio', 'f-bv-{{ i.id }}')">💬 Notificar publicación</a>
               <form id="f-bv-{{ i.id }}" method="post" style="display:none"
                     action="/panel/petra/inmueble/{{ i.id }}/etapa/bienvenida?token={{ token }}">
                 <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
