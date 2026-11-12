@@ -1,6 +1,6 @@
 {% extends "base_panel_v2.html" %}
 {% set block = 'difusiones' %}
-{% block title %}Difusiones · Petra{% endblock %}
+{% block title %}Campañas · Petra{% endblock %}
 {% block content %}
 
 <style>
@@ -452,21 +452,21 @@
 
 <div class="hero">
   <div>
-    <h1>Difusiones</h1>
+    <h1>Campañas</h1>
     <div class="sub">
-      Envío masivo de templates aprobados por Meta a propietarios segmentados.
+      Envíos de templates aprobados por Meta a grupos de propietarios segmentados.
       Respeta rate limits de warm-up y opt-outs.
     </div>
   </div>
-  <button class="cta" onclick="abrirNuevaDifusion()">+ Nueva difusión</button>
+  <button class="cta" onclick="abrirNuevaDifusion()">+ Nueva campaña</button>
 </div>
 
 <div class="list-card">
-  <div class="list-head">Difusiones recientes</div>
+  <div class="list-head">Campañas recientes</div>
   <div class="empty-state">
     <div class="icon">📣</div>
-    <h3>No hay difusiones todavía</h3>
-    <p>Creá tu primera difusión para notificar a un grupo de propietarios.</p>
+    <h3>No hay campañas todavía</h3>
+    <p>Creá tu primera campaña para notificar a un grupo de propietarios.</p>
   </div>
 </div>
 
@@ -474,7 +474,7 @@
 <div class="modal-backdrop" id="modal-difusion" onclick="if(event.target===this)cerrarModal()">
   <div class="modal">
     <div class="modal-head">
-      <h2>Nueva difusión</h2>
+      <h2>Nueva campaña</h2>
       <button class="modal-close" onclick="cerrarModal()">×</button>
     </div>
 
@@ -490,7 +490,7 @@
       {# ─── Paso 1: Destinatarios ──────────────────────── #}
       <div class="step-pane active" data-step="1">
         <p style="margin: 0 0 16px; color: var(--text-sub); font-size: 13.5px;">
-          Elegí qué propietarios reciben la difusión. El conteo se actualiza en vivo.
+          Elegí qué propietarios reciben la campaña. El conteo se actualiza en vivo.
         </p>
 
         <div class="filters-grid">
@@ -676,7 +676,7 @@
             <option value="{{ a.id }}">{{ a.label }}</option>
             {% endfor %}
           </select>
-          <div class="p4-autor-help">Queda registrado en auditoría para saber quién lanzó cada difusión.</div>
+          <div class="p4-autor-help">Queda registrado en auditoría para saber quién lanzó cada campaña.</div>
         </div>
 
         <div class="p4-sched">
@@ -865,7 +865,7 @@
         if (d.ok) {
           var r = d.resumen;
           box.innerHTML =
-            '<strong>✓ Difusión registrada (dry-run)</strong>' +
+            '<strong>✓ Campaña registrada (dry-run)</strong>' +
             escapeHtml(d.mensaje) +
             '<div style="margin-top:8px;font-size:12px;opacity:0.85">' +
             'Template: <strong>' + escapeHtml(r.template_display) + '</strong> · ' +
