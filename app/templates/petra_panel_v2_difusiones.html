@@ -272,6 +272,75 @@
     text-align: center; padding: 30px; color: var(--text-sub); font-size: 13px;
   }
 
+  /* Step 4: programar */
+  .p4-resumen {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 18px; margin-bottom: 18px;
+  }
+  .p4-row {
+    display: flex; justify-content: space-between; padding: 7px 0;
+    border-bottom: 1px dashed var(--border); font-size: 13px;
+  }
+  .p4-row:last-child { border-bottom: 0; }
+  .p4-row .k { color: var(--text-sub); }
+  .p4-row .v { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .p4-sched { margin-bottom: 18px; }
+  .p4-sched-label {
+    font-size: 11px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;
+  }
+  .p4-sched-opts {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+  }
+  .p4-opt {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 12px 14px; background: var(--panel);
+    border: 1.5px solid var(--border); border-radius: 10px;
+    cursor: pointer; transition: border-color 100ms;
+  }
+  .p4-opt:hover { border-color: var(--accent); }
+  .p4-opt input[type="radio"] { margin-top: 3px; accent-color: var(--accent); }
+  .p4-opt:has(input:checked) {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  }
+  .p4-opt-title { font-weight: 600; font-size: 13px; color: var(--text); }
+  .p4-opt-sub { font-size: 11.5px; color: var(--text-sub); margin-top: 2px; }
+
+  .p4-custom {
+    margin-top: 12px;
+  }
+  .p4-custom input[type="datetime-local"] {
+    padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-size: 14px; font-family: inherit;
+    width: 100%; max-width: 280px;
+    box-sizing: border-box;
+  }
+
+  .p4-dryrun-note {
+    background: #fdf2d4; border-left: 3px solid #b8862e;
+    border-radius: 0 10px 10px 0; padding: 12px 16px;
+    color: #6e5218; font-size: 12.5px; line-height: 1.5;
+  }
+  [data-theme="dark"] .p4-dryrun-note {
+    background: #3a2f1a; color: #d4b56e;
+  }
+  .p4-dryrun-note strong { display: block; margin-bottom: 4px; font-size: 13px; }
+  .p4-dryrun-note p { margin: 0; }
+
+  .p4-result {
+    margin-top: 18px; padding: 16px 18px; border-radius: 12px;
+    background: #e3f2d9; border: 1px solid #4b7a3a;
+    color: #2d4a22; font-size: 13.5px; line-height: 1.5;
+  }
+  [data-theme="dark"] .p4-result {
+    background: #1b2817; border-color: #7fae6b; color: #a5ca94;
+  }
+  .p4-result strong { display: block; margin-bottom: 6px; font-size: 14px; }
+
   /* Footer modal */
   .modal-foot {
     padding: 14px 24px; border-top: 1px solid var(--border);
@@ -479,12 +548,63 @@
 
       {# ─── Paso 4: Programar ─────────────────────────── #}
       <div class="step-pane" data-step="4">
-        <div class="placeholder">
-          <div class="icon">⏰</div>
-          <h4>Programación</h4>
-          <p>Próximamente. Enviar ahora / en 1 hora / fecha específica
-             + dry run para validar antes del envío real.</p>
+        <p style="margin: 0 0 16px; color: var(--text-sub); font-size: 13.5px;">
+          Elegí cuándo se envía. Confirmar genera un dry-run (no envía por WhatsApp todavía).
+        </p>
+
+        <div class="p4-resumen" id="p4-resumen">
+          <div class="p4-row"><span class="k">Template</span><span class="v" id="p4-tmpl">—</span></div>
+          <div class="p4-row"><span class="k">Categoría</span><span class="v" id="p4-cat">—</span></div>
+          <div class="p4-row"><span class="k">Destinatarios</span><span class="v" id="p4-dest">—</span></div>
+          <div class="p4-row"><span class="k">Costo total estimado</span><span class="v" id="p4-cost">—</span></div>
         </div>
+
+        <div class="p4-sched">
+          <div class="p4-sched-label">Momento del envío</div>
+          <div class="p4-sched-opts">
+            <label class="p4-opt">
+              <input type="radio" name="programar" value="ahora" checked onchange="togglePersonalizado()">
+              <div>
+                <div class="p4-opt-title">Ahora</div>
+                <div class="p4-opt-sub">Dispara al confirmar</div>
+              </div>
+            </label>
+            <label class="p4-opt">
+              <input type="radio" name="programar" value="1h" onchange="togglePersonalizado()">
+              <div>
+                <div class="p4-opt-title">En 1 hora</div>
+                <div class="p4-opt-sub">Dar tiempo a cancelar</div>
+              </div>
+            </label>
+            <label class="p4-opt">
+              <input type="radio" name="programar" value="manana9" onchange="togglePersonalizado()">
+              <div>
+                <div class="p4-opt-title">Mañana 9am</div>
+                <div class="p4-opt-sub">Ventana óptima</div>
+              </div>
+            </label>
+            <label class="p4-opt">
+              <input type="radio" name="programar" value="custom" onchange="togglePersonalizado()">
+              <div>
+                <div class="p4-opt-title">Fecha específica</div>
+                <div class="p4-opt-sub">Elegí día y hora</div>
+              </div>
+            </label>
+          </div>
+          <div class="p4-custom" id="p4-custom" hidden>
+            <input type="datetime-local" id="p4-datetime" min="">
+          </div>
+        </div>
+
+        <div class="p4-dryrun-note">
+          <strong>⚠ Modo dry-run</strong>
+          <p>Esta primera versión de Difusiones no envía mensajes por WhatsApp.
+             Al confirmar se registra la intención (template + destinatarios + momento)
+             en los logs del servidor para auditoría. El envío real se habilita
+             cuando conectemos Meta Cloud API en la siguiente fase.</p>
+        </div>
+
+        <div class="p4-result" id="p4-result" hidden></div>
       </div>
 
     </div>
@@ -521,7 +641,12 @@
   }
 
   function pasoSiguiente() {
-    if (pasoActual < 4) { pasoActual++; actualizarStepsUI(); }
+    if (pasoActual < 4) {
+      pasoActual++;
+      actualizarStepsUI();
+    } else if (pasoActual === 4) {
+      confirmarDryRun();
+    }
   }
 
   function pasoAnterior() {
@@ -540,16 +665,98 @@
     document.getElementById('btn-anterior').disabled = (pasoActual === 1);
     var bs = document.getElementById('btn-siguiente');
     if (pasoActual === 4) {
-      bs.textContent = 'Programar envío';
-      bs.disabled = true;  // disabled hasta que el backend de envío real exista
+      bs.textContent = 'Confirmar envío (dry-run)';
+      bs.disabled = !templateSeleccionado || !ultimoCount;
     } else if (pasoActual === 2) {
       bs.textContent = 'Siguiente →';
-      bs.disabled = !templateSeleccionado;  // requiere seleccionar template
+      bs.disabled = !templateSeleccionado;
     } else {
       bs.textContent = 'Siguiente →';
       bs.disabled = false;
     }
     if (pasoActual === 3) { cargarMuestraPaso3(); }
+    if (pasoActual === 4) { poblarResumenPaso4(); }
+  }
+
+  function poblarResumenPaso4() {
+    if (!templateSeleccionado) return;
+    document.getElementById('p4-tmpl').textContent = templateSeleccionado.display;
+    document.getElementById('p4-cat').textContent = templateSeleccionado.category;
+    document.getElementById('p4-dest').textContent = ultimoCount || 0;
+    var total = ((ultimoCount || 0) * templateSeleccionado.price_usd).toFixed(2);
+    document.getElementById('p4-cost').textContent = '$' + total + ' USD';
+    // Set min del datetime-local a ahora.
+    var dt = document.getElementById('p4-datetime');
+    var now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    dt.min = now.toISOString().slice(0, 16);
+    if (!dt.value) {
+      var def = new Date();
+      def.setDate(def.getDate() + 1);
+      def.setHours(9, 0, 0, 0);
+      def.setMinutes(def.getMinutes() - def.getTimezoneOffset());
+      dt.value = def.toISOString().slice(0, 16);
+    }
+  }
+
+  function togglePersonalizado() {
+    var checked = document.querySelector('input[name="programar"]:checked').value;
+    document.getElementById('p4-custom').hidden = (checked !== 'custom');
+  }
+
+  function confirmarDryRun() {
+    if (!templateSeleccionado || !ultimoCount) return;
+    var programar = document.querySelector('input[name="programar"]:checked').value;
+    if (programar === 'custom') {
+      var dt = document.getElementById('p4-datetime').value;
+      if (!dt) { alert('Elegí una fecha y hora'); return; }
+      programar = dt;
+    }
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('template', templateSeleccionado.name);
+    fd.append('programar', programar);
+    fd.append('conjunto', document.getElementById('f_conjunto').value);
+    fd.append('operacion', document.getElementById('f_operacion').value);
+    fd.append('estado', document.getElementById('f_estado').value);
+    fd.append('etapa', document.getElementById('f_etapa').value);
+    fd.append('dias', document.getElementById('f_dias').value);
+    fd.append('celular', document.getElementById('f_celular').value);
+
+    var btn = document.getElementById('btn-siguiente');
+    btn.disabled = true;
+    btn.textContent = 'Procesando…';
+
+    fetch('/panel/petra/v2/difusiones/confirmar', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var box = document.getElementById('p4-result');
+        box.hidden = false;
+        if (d.ok) {
+          box.innerHTML =
+            '<strong>✓ Difusión registrada (dry-run)</strong>' +
+            escapeHtml(d.mensaje) +
+            '<div style="margin-top:8px;font-size:12px;opacity:0.85">' +
+            'Template: <strong>' + escapeHtml(d.resumen.template_display) + '</strong> · ' +
+            'Destinatarios: <strong>' + d.resumen.destinatarios + '</strong> · ' +
+            'Costo estimado: <strong>$' + d.resumen.costo_total_usd.toFixed(2) + '</strong></div>';
+          btn.textContent = 'Listo ✓';
+          btn.disabled = true;
+        } else {
+          box.style.background = '#faeae5';
+          box.style.borderColor = '#a8422d';
+          box.style.color = '#6b2718';
+          box.innerHTML = '<strong>Error</strong>' + escapeHtml(d.error || 'desconocido');
+          btn.textContent = 'Reintentar';
+          btn.disabled = false;
+        }
+      })
+      .catch(function() {
+        btn.textContent = 'Reintentar';
+        btn.disabled = false;
+        alert('Error de red');
+      });
   }
 
   function cargarMuestraPaso3() {

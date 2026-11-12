@@ -3754,6 +3754,82 @@ def panel_v2_difusiones_muestra():
     })
 
 
+@petra_panel_bp.post("/v2/difusiones/confirmar")
+def panel_v2_difusiones_confirmar():
+    """Dry-run de la difusión: no envía por WhatsApp, pero devuelve el
+    payload completo que SE enviaría y loguea la intención en el server.
+
+    Una vez que tengamos Meta Cloud API cableada (fase siguiente), este
+    endpoint pasa a encolar los envíos reales. Por ahora responde con
+    status=dry_run para que el panel pueda mostrar confirmación clara.
+    """
+    _check_token()
+    from flask import jsonify
+    import json as _json
+    import logging as _lg
+
+    tmpl_name = (request.values.get("template") or "").strip()
+    tmpl = _tmpl_by_name(tmpl_name)
+    if not tmpl:
+        return jsonify({"error": "template inválido"}), 400
+
+    programar = (request.values.get("programar") or "ahora").strip().lower()
+
+    where_sql, params = _difusiones_where(request.values)
+
+    destinatarios = []
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            rows = _rows(conn,
+                "SELECT i.id, i.tipo, i.nro, i.operacion, "
+                "       i.propietario_telefono, c.nombre AS conjunto "
+                "  FROM inmuebles_visitante i "
+                "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                " WHERE " + where_sql +
+                " ORDER BY i.creado_en DESC",
+                params)
+            for r in rows:
+                conj = r.get("conjunto") or "tu conjunto"
+                mensaje = _render_tmpl_body(
+                    tmpl["body"], tmpl["variables"], r, conjunto_nombre=conj)
+                tel_digits = ''.join(c for c in (r.get("propietario_telefono") or "") if c.isdigit())
+                destinatarios.append({
+                    "inmueble_id": r.get("id"),
+                    "telefono": tel_digits,
+                    "mensaje": mensaje,
+                })
+    except Exception:
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones confirmar fallo")
+        return jsonify({"error": "db error"}), 500
+
+    total = len(destinatarios)
+    costo = round(total * tmpl["price_usd"], 2)
+
+    # Log de la intención — queda en Render logs para auditoría manual
+    # mientras no persistamos en DB.
+    _lg.getLogger(__name__).info(
+        "[DIFUSION_DRY_RUN] template=%s programar=%s destinatarios=%d costo_usd=%.2f muestra=%s",
+        tmpl_name, programar, total, costo,
+        _json.dumps(destinatarios[:3], ensure_ascii=False) if destinatarios else "[]",
+    )
+
+    return jsonify({
+        "ok": True,
+        "status": "dry_run",
+        "mensaje": ("Difusión registrada en modo dry-run. "
+                    "El envío real requiere integración con Meta Cloud API, "
+                    "pendiente de la próxima fase."),
+        "resumen": {
+            "template": tmpl_name,
+            "template_display": tmpl["display"],
+            "categoria": tmpl["category"],
+            "programar": programar,
+            "destinatarios": total,
+            "costo_total_usd": costo,
+        },
+    })
+
+
 @petra_panel_bp.get("/v2/difusiones/preview")
 def panel_v2_difusiones_preview():
     """Preview JSON del segmento: count + muestra de 3 destinatarios."""
