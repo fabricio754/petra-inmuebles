@@ -1075,7 +1075,7 @@ def _mostrar_tarjetas_directas(conn, telefono, conjunto, meta, operacion):
                 _pwa.send_cta_url(
                     to=telefono,
                     body=body,
-                    display_text="Escribir anunciante",
+                    display_text="Enviar WhatsApp",
                     url=url,
                 )
             except Exception:
@@ -1917,7 +1917,7 @@ def _procesar_flow_submit(conn, telefono, meta, flow_response):
                 _pwa.send_cta_url(
                     to=telefono,
                     body=cabecera,
-                    display_text="Escribir anunciante",
+                    display_text="Enviar WhatsApp",
                     url=url,
                 )
             except Exception:
