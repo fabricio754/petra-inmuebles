@@ -3621,14 +3621,56 @@ DIFUSION_AUTORES = [
 ]
 
 
+def _seed_templates_si_vacio():
+    """Inserta los 3 templates hardcoded en DB si la tabla está vacía.
+
+    Idempotente — ejecuta la inserción solo cuando no hay ninguna fila.
+    Se dispara en la primera visita a /v2/templates o /v2/difusiones, para
+    que el usuario vea los 3 defaults como templates reales editables en vez
+    de un listado hardcoded aparte.
+    """
+    import json as _json
+    import logging as _lg
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM campana_templates").fetchone()
+            count = (row[0] if row else 0) or 0
+            if count > 0:
+                return  # ya tiene templates, no hago nada
+            # Insertar los 3 defaults
+            for t in PETRA_TEMPLATES:
+                conn.execute(
+                    "INSERT INTO campana_templates "
+                    "  (name, display, idioma, categoria, tipo, body, variables, "
+                    "   header, botones, catalogo, recomendacion, autor, status) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s) "
+                    "ON CONFLICT (name) DO NOTHING",
+                    (
+                        t["name"], t["display"], "es",
+                        t["category"], "multimedia" if t.get("header") else "texto",
+                        t["body"],
+                        _json.dumps(t.get("variables", [])),
+                        _json.dumps(t.get("header")) if t.get("header") else None,
+                        _json.dumps([]),
+                        None,
+                        t.get("recomendacion"),
+                        "petra",
+                        "draft",  # arrancan en draft; el usuario los somete a Meta cuando quiera
+                    ),
+                )
+            _lg.getLogger(__name__).info("[seed] campana_templates seeded con %d defaults", len(PETRA_TEMPLATES))
+    except Exception:
+        _lg.getLogger(__name__).exception("[seed] campana_templates fallo")
+
+
 def _templates_para_campanas():
     """Devuelve la lista de templates que Campañas puede ofrecer.
 
-    Toma los templates de la tabla campana_templates (editables por el
-    usuario) y les agrega el precio_usd derivado de la categoría. Si la
-    DB está vacía (todavía no hay templates creados), hace fallback a los
-    3 PETRA_TEMPLATES hardcoded para no romper el flujo inicial.
+    Siempre lee de la tabla campana_templates. Al arrancar auto-siembra los
+    3 defaults si está vacía (via _seed_templates_si_vacio). Expone al template
+    el precio_usd derivado de la categoría.
     """
+    _seed_templates_si_vacio()
     try:
         with _db._conexion_directa(timeout=10) as conn:
             rows = _rows(conn,
@@ -3644,10 +3686,6 @@ def _templates_para_campanas():
         import logging as _lg
         _lg.getLogger(__name__).exception("[panel_v2] cargar templates para campañas")
         rows = []
-
-    if not rows:
-        # Fallback: los 3 hardcoded como siempre.
-        return PETRA_TEMPLATES
 
     result = []
     for r in rows:
@@ -3987,6 +4025,9 @@ def panel_v2_templates():
     """Panel v2: página de Templates (editor de plantillas WhatsApp)."""
     _check_token()
     token = (request.args.get("token") or "").strip()
+
+    # Primera visita: sembrar los 3 defaults si la tabla está vacía.
+    _seed_templates_si_vacio()
 
     templates_db = []
     try:
