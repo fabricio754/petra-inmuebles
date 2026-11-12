@@ -1062,24 +1062,20 @@ def _mostrar_tarjetas_directas(conn, telefono, conjunto, meta, operacion):
         prop_tel = (inm.get("propietario_telefono") or "").strip()
         prop_clean = re.sub(r"\D", "", prop_tel)
         if prop_clean:
-            # Saludo con tipo + ubicación + edificio para que el dueño
-            # sepa de qué inmueble le hablan sin tener que preguntar.
-            tipo_saludo = (inm.get("tipo") or "inmueble").capitalize()
-            nro_saludo = str(nro).strip()
-            if nro_saludo and nro_saludo != "(sin especificar)":
-                ref = f"{tipo_saludo} #{nro_saludo}"
-            else:
-                ref = tipo_saludo
+            # Saludo que menciona tipo + conjunto + origen (QR Petra) para
+            # que el anunciante sepa de dónde viene el lead y recuerde
+            # que autorizó la publicación. Reduce fricción de "¿quién eres?".
+            tipo_saludo = (inm.get("tipo") or "inmueble").lower()
             saludo = (
-                f"Hola, me interesa tu {ref} en "
-                f"{conjunto['nombre']}."
+                f"Hola, me interesa tu {tipo_saludo} en "
+                f"{conjunto['nombre']}. Vi tu publicación en el QR de Petra."
             )
             url = f"https://wa.me/{prop_clean}?text={quote(saludo)}"
             try:
                 _pwa.send_cta_url(
                     to=telefono,
                     body=body,
-                    display_text="Hablar al dueño",
+                    display_text="Escribir anunciante",
                     url=url,
                 )
             except Exception:
@@ -1904,28 +1900,24 @@ def _procesar_flow_submit(conn, telefono, meta, flow_response):
         prop_tel = (inm.get("propietario_telefono") or "").strip()
         prop_clean = re.sub(r"\D", "", prop_tel)
         if prop_clean:
-            # Saludo con tipo + ubicación + edificio para que el dueño
-            # sepa de qué inmueble le hablan sin tener que preguntar.
-            tipo_saludo = (inm.get("tipo") or "inmueble").capitalize()
-            nro_saludo = str(nro).strip()
-            if nro_saludo and nro_saludo != "(sin especificar)":
-                ref = f"{tipo_saludo} #{nro_saludo}"
-            else:
-                ref = tipo_saludo
+            # Saludo que menciona tipo + conjunto + origen (QR Petra) para
+            # que el anunciante sepa de dónde viene el lead y recuerde
+            # que autorizó la publicación. Reduce fricción de "¿quién eres?".
+            tipo_saludo = (inm.get("tipo") or "inmueble").lower()
             saludo = (
-                f"Hola, me interesa tu {ref} en "
-                f"{conjunto['nombre']}."
+                f"Hola, me interesa tu {tipo_saludo} en "
+                f"{conjunto['nombre']}. Vi tu publicación en el QR de Petra."
             )
             url = f"https://wa.me/{prop_clean}?text={quote(saludo)}"
             # Mensaje interactivo con un solo botón CTA que abre wa.me del
-            # propietario directo. Mucho más limpio que mandar el URL
-            # pelado en el texto. "Hablar propietario" cabe en 20 chars
+            # anunciante directo. Mucho más limpio que mandar el URL
+            # pelado en el texto. "Escribir al anunciante" cabe en 20 chars
             # (límite Meta para display_text).
             try:
                 _pwa.send_cta_url(
                     to=telefono,
                     body=cabecera,
-                    display_text="Hablar al dueño",
+                    display_text="Escribir anunciante",
                     url=url,
                 )
             except Exception:
