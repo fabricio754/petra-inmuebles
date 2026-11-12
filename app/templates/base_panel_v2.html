@@ -177,6 +177,7 @@
   {% set g_oferta = ['conjuntos', 'catalogo', 'inmuebles', 'oferta', 'embudo', 'mandatos'] %}
   {% set g_demanda = ['usuarios', 'demanda', 'solicitudes'] %}
   {% set g_agentes = ['agentes', 'visitas'] %}
+  {% set g_comm = ['difusiones', 'templates', 'inbox'] %}
   {% set g_salud = ['salud', 'observabilidad', 'despliegues'] %}
   <nav class="nav-pill">
     <a class="{% if block == 'dashboard' or block == 'metricas' %}active{% endif %}"
@@ -256,6 +257,17 @@
            href="/panel/petra/v2/agentes?token={{ token }}">💜 Agentes Petra</a>
         <a class="{% if block == 'visitas' %}active{% endif %}"
            href="/panel/petra/v2/visitas?token={{ token }}">📅 Visitas</a>
+      </div>
+    </details>
+
+    {# ── Comunicación ─────────────────────────────── #}
+    <details class="nav-dropdown">
+      <summary class="{% if block in g_comm %}active{% endif %}">
+        💬 Comunicación <span class="caret">▾</span>
+      </summary>
+      <div class="dropdown-menu">
+        <a class="{% if block == 'difusiones' %}active{% endif %}"
+           href="/panel/petra/v2/difusiones?token={{ token }}">📣 Difusiones</a>
       </div>
     </details>
 

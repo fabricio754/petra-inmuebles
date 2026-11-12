@@ -3455,6 +3455,134 @@ def panel_v2_inmuebles():
     )
 
 
+# =============================================================================
+# Panel v2 · Difusiones (broadcast de templates WhatsApp)
+# =============================================================================
+
+def _difusiones_where(args):
+    """Construye el WHERE + params del filtro de destinatarios para difusiones.
+
+    args es un dict (request.args). Devuelve (sql_where, params_tuple).
+    Centralizado acá para que /v2/difusiones y /v2/difusiones/preview
+    usen la misma lógica.
+    """
+    where = ["1=1"]
+    params = []
+
+    conj = (args.get("conjunto") or "").strip()
+    if conj.isdigit():
+        where.append("i.conjunto_id = %s")
+        params.append(int(conj))
+
+    op = (args.get("operacion") or "").strip().lower()
+    if op in ("venta", "arriendo"):
+        where.append("i.operacion = %s")
+        params.append(op)
+
+    estado = (args.get("estado") or "activo").strip().lower()
+    if estado == "activo":
+        where.append("i.activo = TRUE")
+    elif estado == "inactivo":
+        where.append("i.activo = FALSE")
+    # "todos" → sin filtro
+
+    etapa = (args.get("etapa") or "").strip().lower()
+    if etapa == "sin_bienvenida":
+        where.append("i.bienvenida_at IS NULL")
+    elif etapa == "con_bienvenida":
+        where.append("i.bienvenida_at IS NOT NULL AND i.ofrecer_petra_at IS NULL")
+    elif etapa == "con_inmob":
+        where.append("i.ofrecer_petra_at IS NOT NULL AND i.ofrecer_credito_at IS NULL")
+    elif etapa == "con_credito":
+        where.append("i.ofrecer_credito_at IS NOT NULL")
+
+    dias_raw = (args.get("dias") or "").strip()
+    if dias_raw.isdigit():
+        d = int(dias_raw)
+        # Días desde la etapa más reciente del inmueble (el max de los
+        # timestamps). Si no tiene ninguna etapa, se filtra como "0 días"
+        # (lo cual siempre pasa si el usuario puso un valor > 0).
+        where.append(
+            "COALESCE(GREATEST("
+            "  COALESCE(i.bienvenida_at, 'epoch'::timestamptz),"
+            "  COALESCE(i.ofrecer_petra_at, 'epoch'::timestamptz),"
+            "  COALESCE(i.ofrecer_credito_at, 'epoch'::timestamptz)"
+            "), 'epoch'::timestamptz) < NOW() - make_interval(days => %s)"
+        )
+        params.append(d)
+
+    celular = (args.get("celular") or "si").strip().lower()
+    if celular == "si":
+        where.append("i.propietario_telefono IS NOT NULL "
+                     "AND length(regexp_replace(i.propietario_telefono, '\\D', '', 'g')) >= 10")
+
+    return (" AND ".join(where), tuple(params))
+
+
+@petra_panel_bp.get("/v2/difusiones")
+def panel_v2_difusiones():
+    """Panel v2: página de Difusiones (envíos masivos de templates WhatsApp)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    conjuntos = []
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conjuntos = _rows(conn,
+                "SELECT id, codigo, nombre, ciudad "
+                "  FROM conjuntos_visitante "
+                " ORDER BY nombre")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones query fallo")
+
+    return render_template(
+        "petra_panel_v2_difusiones.html",
+        token=token, conjuntos=conjuntos,
+    )
+
+
+@petra_panel_bp.get("/v2/difusiones/preview")
+def panel_v2_difusiones_preview():
+    """Preview JSON del segmento: count + muestra de 3 destinatarios."""
+    _check_token()
+    from flask import jsonify
+
+    where_sql, params = _difusiones_where(request.args)
+
+    count = 0
+    muestra = []
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante i WHERE " + where_sql,
+                params,
+            ).fetchone()
+            count = (row[0] if row else 0) or 0
+
+            if count:
+                # 3 ejemplos: tipo + conjunto + apto (código P####)
+                rows = _rows(conn,
+                    "SELECT i.id, i.tipo, i.nro, c.nombre AS conjunto "
+                    "  FROM inmuebles_visitante i "
+                    "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                    " WHERE " + where_sql +
+                    " ORDER BY random() LIMIT 3",
+                    params)
+                for r in rows:
+                    tipo = (r.get("tipo") or "inmueble").capitalize()
+                    conj = r.get("conjunto") or "(conjunto s/d)"
+                    nro = (r.get("nro") or "").strip()
+                    ref = f"{tipo}" + (f" #{nro}" if nro else "")
+                    code = f"P{r['id']:04d}"
+                    muestra.append(f"{code} · {ref} en {conj}")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones preview fallo")
+
+    return jsonify({"count": count, "muestra": muestra})
+
+
 @petra_panel_bp.get("/visitante")
 def visitante_conjuntos():
     """Index de conjuntos registrados en el flujo visitante QR.
