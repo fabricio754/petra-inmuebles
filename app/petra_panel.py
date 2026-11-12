@@ -3763,6 +3763,9 @@ def panel_v2_difusiones_muestra():
         return jsonify({"error": "template no encontrado",
                         "count": 0, "muestras": []}), 400
 
+    body_override = (request.args.get("body_override") or "").strip() or None
+    body_para_render = body_override or tmpl["body"]
+
     where_sql, params = _difusiones_where(request.args)
 
     count = 0
@@ -3799,7 +3802,7 @@ def panel_v2_difusiones_muestra():
                 for r in rows:
                     conj = r.get("conjunto") or "tu conjunto"
                     mensaje = _render_tmpl_body(
-                        tmpl["body"], tmpl["variables"], r, conjunto_nombre=conj)
+                        body_para_render, tmpl["variables"], r, conjunto_nombre=conj)
                     nro = (r.get("nro") or "").strip()
                     tipo = (r.get("tipo") or "inmueble").capitalize()
                     ref = tipo + (f" #{nro}" if nro else "")
@@ -3841,6 +3844,40 @@ def panel_v2_difusiones_muestra():
     })
 
 
+@petra_panel_bp.post("/v2/difusiones/upload_header")
+def panel_v2_difusiones_upload_header():
+    """Sube un archivo custom para usar como header de la campaña.
+
+    Reutiliza el helper _guardar_archivo_media (16MB, imágenes y videos).
+    Devuelve URL pública + tipo inferido por extensión.
+    """
+    _check_token()
+    from flask import jsonify
+    import os as _os
+
+    file = request.files.get("archivo")
+    if not file or not file.filename:
+        return jsonify({"error": "sin archivo"}), 400
+
+    url = _guardar_archivo_media(file)
+    if not url:
+        return jsonify({
+            "error": "archivo inválido (máx 16MB, jpg/png/webp/gif o mp4/mov/webm)"
+        }), 400
+
+    ext = _os.path.splitext(file.filename.lower())[1]
+    if ext in (".mp4", ".mov", ".avi", ".webm", ".mkv"):
+        header_type = "video"
+    else:
+        header_type = "image"
+
+    return jsonify({
+        "url": url,
+        "type": header_type,
+        "nombre": file.filename,
+    })
+
+
 @petra_panel_bp.post("/v2/difusiones/confirmar")
 def panel_v2_difusiones_confirmar():
     """Dry-run de la difusión: no envía por WhatsApp, pero devuelve el
@@ -3865,6 +3902,13 @@ def panel_v2_difusiones_confirmar():
     if autor not in {a["id"] for a in DIFUSION_AUTORES}:
         autor = "fabricio"
 
+    # Overrides opcionales (customización del template para esta campaña).
+    # Cuando conectemos Meta Cloud API, un body_override requiere re-aprobar
+    # el template; dejamos la señal registrada para auditoría.
+    body_override = (request.values.get("body_override") or "").strip() or None
+    header_url_override = (request.values.get("header_url_override") or "").strip() or None
+    header_type_override = (request.values.get("header_type_override") or "").strip() or None
+
     # IDs de destinatarios que el usuario excluyó manualmente en el paso 3.
     excluidos_raw = (request.values.get("excluidos") or "").strip()
     excluidos = set()
@@ -3872,6 +3916,8 @@ def panel_v2_difusiones_confirmar():
         for p in excluidos_raw.split(","):
             if p.strip().isdigit():
                 excluidos.add(int(p.strip()))
+
+    body_para_render = body_override or tmpl["body"]
 
     where_sql, params = _difusiones_where(request.values)
 
@@ -3891,7 +3937,7 @@ def panel_v2_difusiones_confirmar():
                     continue
                 conj = r.get("conjunto") or "tu conjunto"
                 mensaje = _render_tmpl_body(
-                    tmpl["body"], tmpl["variables"], r, conjunto_nombre=conj)
+                    body_para_render, tmpl["variables"], r, conjunto_nombre=conj)
                 tel_digits = ''.join(c for c in (r.get("propietario_telefono") or "") if c.isdigit())
                 destinatarios.append({
                     "inmueble_id": r.get("id"),
@@ -3907,10 +3953,12 @@ def panel_v2_difusiones_confirmar():
 
     # Log de la intención — queda en Render logs para auditoría manual
     # mientras no persistamos en DB.
+    overrides_flag = bool(body_override or header_url_override)
     _lg.getLogger(__name__).info(
         "[DIFUSION_DRY_RUN] template=%s autor=%s programar=%s destinatarios=%d "
-        "excluidos=%d costo_usd=%.2f muestra=%s",
+        "excluidos=%d costo_usd=%.2f overrides=%s header_override=%s muestra=%s",
         tmpl_name, autor, programar, total, len(excluidos), costo,
+        overrides_flag, header_url_override or "-",
         _json.dumps(destinatarios[:3], ensure_ascii=False) if destinatarios else "[]",
     )
 
@@ -3929,6 +3977,10 @@ def panel_v2_difusiones_confirmar():
             "destinatarios": total,
             "excluidos": len(excluidos),
             "costo_total_usd": costo,
+            "personalizado": overrides_flag,
+            "header_override_url": header_url_override,
+            "header_override_type": header_type_override,
+            "body_override": bool(body_override),
         },
     })
 

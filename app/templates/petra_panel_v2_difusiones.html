@@ -213,6 +213,102 @@
   }
   .tmpl-header-info strong { color: var(--text); }
 
+  /* Personalizar media / texto */
+  .personaliza {
+    margin-top: 18px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .personaliza-section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  .personaliza-section summary {
+    padding: 12px 16px; cursor: pointer; font-size: 13.5px;
+    display: flex; align-items: center; gap: 10px;
+    list-style: none; user-select: none;
+    color: var(--text); font-weight: 500;
+  }
+  .personaliza-section summary::-webkit-details-marker { display: none; }
+  .personaliza-section summary::after {
+    content: "▾"; margin-left: auto; color: var(--text-sub);
+    transition: transform 160ms;
+  }
+  .personaliza-section[open] summary::after { transform: rotate(180deg); }
+  .personaliza-section[open] summary {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .pz-icon { font-size: 15px; }
+  .pz-title { flex: 1; }
+  .pz-badge {
+    font-size: 10px; padding: 2px 8px; background: var(--accent);
+    color: white; border-radius: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .pz-body { padding: 14px 16px; }
+  .pz-help {
+    margin: 0 0 10px; font-size: 12.5px; color: var(--text-sub);
+    line-height: 1.5;
+  }
+  .pz-help code {
+    background: var(--bg); padding: 1px 5px; border-radius: 3px;
+    font-size: 11.5px; color: var(--accent);
+    font-family: ui-monospace, monospace;
+  }
+  .pz-upload-row {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .pz-upload-row input[type="file"] {
+    font-size: 12.5px; color: var(--text); flex: 1; min-width: 200px;
+  }
+  .pz-upload-row input[type="file"]::file-selector-button {
+    background: var(--accent); color: white; border: 0;
+    padding: 7px 12px; border-radius: 6px; margin-right: 10px;
+    font-weight: 600; cursor: pointer; font-size: 12.5px;
+  }
+  .pz-media-preview {
+    margin-top: 10px; background: #e5ddd5; border-radius: 8px;
+    padding: 10px; display: grid; place-items: center;
+    max-width: 320px; aspect-ratio: 16/9; overflow: hidden;
+  }
+  [data-theme="dark"] .pz-media-preview { background: #0a0f0a; }
+  .pz-media-preview img, .pz-media-preview video {
+    max-width: 100%; max-height: 100%; width: 100%; height: 100%;
+    object-fit: cover; border-radius: 4px;
+  }
+  .pz-media-status {
+    margin-top: 8px; font-size: 12px; color: var(--text-sub);
+  }
+  .pz-media-status.error { color: #a8422d; }
+  .pz-media-status.ok { color: #4b7a3a; }
+
+  #pz-body-text {
+    width: 100%; box-sizing: border-box;
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    font-size: 13.5px; line-height: 1.5; resize: vertical;
+    min-height: 160px;
+  }
+  #pz-body-text:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+    border-color: var(--accent);
+  }
+  .pz-text-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 8px; font-size: 12px; color: var(--text-sub);
+  }
+  .pz-text-chars { font-family: ui-monospace, monospace; font-size: 11.5px; }
+  .pz-text-note {
+    margin-top: 10px; padding: 8px 12px;
+    background: #fdf2d4; border-left: 3px solid #b8862e;
+    border-radius: 0 6px 6px 0; font-size: 11.5px;
+    color: #6e5218; line-height: 1.5;
+  }
+  [data-theme="dark"] .pz-text-note {
+    background: #3a2f1a; color: #d4b56e;
+  }
+
   .tmpl-vars {
     display: flex; flex-direction: column; gap: 6px;
     font-size: 12.5px;
@@ -608,6 +704,50 @@
               <div class="tmpl-costo" id="tmpl-costo"></div>
             </div>
           </div>
+
+          {# ─── Personalizar media y texto ──────────────── #}
+          <div class="personaliza">
+            <details class="personaliza-section">
+              <summary>
+                <span class="pz-icon">🖼️</span>
+                <span class="pz-title">Personalizar media del header</span>
+                <span class="pz-badge" id="pz-media-badge" hidden>Custom</span>
+              </summary>
+              <div class="pz-body">
+                <p class="pz-help">Subí una imagen (jpg/png/webp, máx 16MB) o un
+                   video (mp4/mov/webm, máx 16MB). Reemplaza el header del template
+                   solo para esta campaña.</p>
+                <div class="pz-upload-row">
+                  <input type="file" id="pz-media-file" accept="image/*,video/*" onchange="subirMediaHeader()">
+                  <button type="button" class="btn-link" onclick="limpiarMediaOverride()" id="pz-media-clear" hidden>Volver al default</button>
+                </div>
+                <div class="pz-media-preview" id="pz-media-preview" hidden></div>
+                <div class="pz-media-status" id="pz-media-status"></div>
+              </div>
+            </details>
+
+            <details class="personaliza-section">
+              <summary>
+                <span class="pz-icon">✏️</span>
+                <span class="pz-title">Personalizar el texto</span>
+                <span class="pz-badge" id="pz-body-badge" hidden>Editado</span>
+              </summary>
+              <div class="pz-body">
+                <p class="pz-help">Editá el cuerpo del mensaje para esta campaña.
+                   Las variables <code>{{"{{1}}"}}, {{"{{2}}"}}</code>, etc. se autocompletan
+                   con datos reales de cada destinatario.</p>
+                <textarea id="pz-body-text" rows="8" oninput="onBodyEdit()"></textarea>
+                <div class="pz-text-foot">
+                  <button type="button" class="btn-link" onclick="resetBodyEdit()">Volver al texto original</button>
+                  <span class="pz-text-chars" id="pz-text-chars"></span>
+                </div>
+                <div class="pz-text-note">
+                  Al enviar en real, cambiar el texto requiere someter el template de nuevo
+                  a Meta (1-3 días de aprobación). Por ahora queda registrado en el dry-run.
+                </div>
+              </div>
+            </details>
+          </div>
         </div>
       </div>
 
@@ -744,6 +884,10 @@
   var ultimoCount = 0;
   var templateSeleccionado = null;
 
+  // Overrides de personalización (paso 2).
+  var bodyOverride = null;          // string o null
+  var headerOverride = null;        // {url, type} o null
+
   function abrirNuevaDifusion() {
     document.getElementById('modal-difusion').classList.add('open');
     pasoActual = 1;
@@ -846,6 +990,13 @@
     if (excluidos.size) {
       fd.append('excluidos', Array.from(excluidos).join(','));
     }
+    if (bodyOverride !== null) {
+      fd.append('body_override', bodyOverride);
+    }
+    if (headerOverride) {
+      fd.append('header_url_override', headerOverride.url);
+      fd.append('header_type_override', headerOverride.type);
+    }
     fd.append('conjunto', document.getElementById('f_conjunto').value);
     fd.append('operacion', document.getElementById('f_operacion').value);
     fd.append('estado', document.getElementById('f_estado').value);
@@ -903,6 +1054,9 @@
       dias: document.getElementById('f_dias').value,
       celular: document.getElementById('f_celular').value,
     });
+    if (bodyOverride !== null) {
+      params.set('body_override', bodyOverride);
+    }
     document.getElementById('p3-count').textContent = '…';
     document.getElementById('p3-costo').textContent = '…';
     document.getElementById('p3-categoria').textContent = '…';
@@ -957,8 +1111,115 @@
     document.querySelectorAll('.tmpl-card').forEach(function(c) {
       c.classList.toggle('selected', c.dataset.name === name);
     });
+    // Resetear personalización al cambiar template.
+    bodyOverride = null;
+    headerOverride = null;
+    document.getElementById('pz-media-badge').hidden = true;
+    document.getElementById('pz-body-badge').hidden = true;
+    document.getElementById('pz-media-clear').hidden = true;
+    document.getElementById('pz-media-preview').hidden = true;
+    document.getElementById('pz-media-status').textContent = '';
+    document.getElementById('pz-media-file').value = '';
+    var txta = document.getElementById('pz-body-text');
+    if (txta && templateSeleccionado) {
+      txta.value = templateSeleccionado.body;
+      updateCharCount();
+    }
     renderTemplateDetail();
     actualizarStepsUI();
+  }
+
+  function getBodyActivo() {
+    return bodyOverride !== null
+      ? bodyOverride
+      : (templateSeleccionado ? templateSeleccionado.body : '');
+  }
+
+  function getHeaderActivo() {
+    if (headerOverride) return headerOverride;
+    return templateSeleccionado ? templateSeleccionado.header : null;
+  }
+
+  function subirMediaHeader() {
+    var inp = document.getElementById('pz-media-file');
+    if (!inp.files || !inp.files[0]) return;
+    var file = inp.files[0];
+    var statusEl = document.getElementById('pz-media-status');
+    statusEl.textContent = 'Subiendo…';
+    statusEl.className = 'pz-media-status';
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('archivo', file);
+
+    fetch('/panel/petra/v2/difusiones/upload_header', { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (!ok || !d.url) {
+          statusEl.textContent = d.error || 'Error al subir';
+          statusEl.className = 'pz-media-status error';
+          return;
+        }
+        headerOverride = { url: d.url, type: d.type, label: 'Custom: ' + (d.nombre || '') };
+        statusEl.textContent = 'Subido: ' + d.nombre;
+        statusEl.className = 'pz-media-status ok';
+        document.getElementById('pz-media-badge').hidden = false;
+        document.getElementById('pz-media-clear').hidden = false;
+        var prev = document.getElementById('pz-media-preview');
+        prev.hidden = false;
+        if (d.type === 'video') {
+          prev.innerHTML = '<video src="' + escapeHtml(d.url) + '" muted controls preload="metadata"></video>';
+        } else {
+          prev.innerHTML = '<img src="' + escapeHtml(d.url) + '" alt="preview">';
+        }
+        renderTemplateDetail();
+      })
+      .catch(function() {
+        statusEl.textContent = 'Error de red';
+        statusEl.className = 'pz-media-status error';
+      });
+  }
+
+  function limpiarMediaOverride() {
+    headerOverride = null;
+    document.getElementById('pz-media-file').value = '';
+    document.getElementById('pz-media-badge').hidden = true;
+    document.getElementById('pz-media-clear').hidden = true;
+    document.getElementById('pz-media-preview').hidden = true;
+    document.getElementById('pz-media-status').textContent = '';
+    renderTemplateDetail();
+  }
+
+  function onBodyEdit() {
+    var txta = document.getElementById('pz-body-text');
+    var val = txta.value;
+    if (!templateSeleccionado) return;
+    if (val === templateSeleccionado.body) {
+      bodyOverride = null;
+      document.getElementById('pz-body-badge').hidden = true;
+    } else {
+      bodyOverride = val;
+      document.getElementById('pz-body-badge').hidden = false;
+    }
+    updateCharCount();
+    renderTemplateDetail();
+  }
+
+  function resetBodyEdit() {
+    if (!templateSeleccionado) return;
+    document.getElementById('pz-body-text').value = templateSeleccionado.body;
+    bodyOverride = null;
+    document.getElementById('pz-body-badge').hidden = true;
+    updateCharCount();
+    renderTemplateDetail();
+  }
+
+  function updateCharCount() {
+    var txta = document.getElementById('pz-body-text');
+    var n = txta.value.length;
+    document.getElementById('pz-text-chars').textContent =
+      n + ' caracteres' + (n > 1024 ? ' ⚠ (máx WhatsApp 1024)' : '');
   }
 
   function renderTemplateDetail() {
@@ -966,29 +1227,30 @@
     if (!t) { document.getElementById('tmpl-detail').hidden = true; return; }
     document.getElementById('tmpl-detail').hidden = false;
 
-    // Header (video o imagen) si el template lo lleva
+    // Header (puede ser el del template o el override subido por el usuario)
+    var hdrData = getHeaderActivo();
     var hdr = document.getElementById('wa-header');
     var hdrInfo = document.getElementById('tmpl-header-info');
-    if (t.header && t.header.type) {
+    if (hdrData && hdrData.type) {
       hdr.hidden = false;
-      hdr.className = 'wa-header header-' + t.header.type;
-      if (t.header.type === 'image') {
-        hdr.innerHTML = '<img src="' + escapeHtml(t.header.url) + '" alt="header">';
-      } else if (t.header.type === 'video') {
-        hdr.innerHTML = '<video src="' + escapeHtml(t.header.url) + '" muted controls preload="metadata"></video>';
+      hdr.className = 'wa-header header-' + hdrData.type;
+      if (hdrData.type === 'image') {
+        hdr.innerHTML = '<img src="' + escapeHtml(hdrData.url) + '" alt="header">';
+      } else if (hdrData.type === 'video') {
+        hdr.innerHTML = '<video src="' + escapeHtml(hdrData.url) + '" muted controls preload="metadata"></video>';
       } else {
         hdr.innerHTML = '';
       }
       hdrInfo.hidden = false;
-      hdrInfo.innerHTML = 'Header del template: <strong>' + escapeHtml(t.header.type) + '</strong> · ' +
-                         escapeHtml(t.header.label || '');
+      hdrInfo.innerHTML = 'Header: <strong>' + escapeHtml(hdrData.type) + '</strong> · ' +
+                         escapeHtml(hdrData.label || '');
     } else {
       hdr.hidden = true;
       hdrInfo.hidden = true;
     }
 
-    // Preview con valores de ejemplo
-    var body = t.body;
+    // Preview con valores de ejemplo — usa override si está presente
+    var body = getBodyActivo();
     t.variables.forEach(function(v) {
       var marker = '{{' + v.id + '}}';
       var val = '<span class="wa-var">' + escapeHtml(v.ejemplo) + '</span>';
