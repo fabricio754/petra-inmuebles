@@ -3519,6 +3519,85 @@ def _difusiones_where(args):
     return (" AND ".join(where), tuple(params))
 
 
+# Templates WhatsApp disponibles para difusiones.
+#
+# Mientras no hay integración viva con Meta Cloud API (envío real + fetch de
+# templates aprobados), esta lista hardcodea los 3 templates que vamos a
+# someter a Meta. Status "mocked" = todavía no enviamos a aprobación;
+# cuando aprueben, cambia a "approved" y se puede usar en envíos reales.
+#
+# Cada variable declara su origen (source) que apunta a un campo del dict
+# de inmueble (los que vienen de inmuebles_visitante + enriquecidos).
+PETRA_TEMPLATES = [
+    {
+        "name": "notificacion_publicacion_petra",
+        "display": "Notificación de publicación",
+        "category": "UTILITY",
+        "price_usd": 0.00024,
+        "status": "mocked",
+        "body": (
+            "Hola 👋\n\n"
+            "Te notificamos que la administración de *{{1}}* instaló "
+            "*Petra* para ayudar con la venta y arriendo de inmuebles del conjunto.\n\n"
+            "Tu apto *{{2}}* fue incluido en el catálogo con los datos "
+            "que la administración nos compartió.\n\n"
+            "Podés ver cómo aparece tu publicación acá:\n{{3}}\n\n"
+            "Si NO deseas aparecer en Petra, respondé SALIR y lo removemos de inmediato.\n\n"
+            "— Petra Inmobiliaria"
+        ),
+        "variables": [
+            {"id": "1", "label": "Conjunto", "source": "conjunto_nombre", "ejemplo": "Mitika PH"},
+            {"id": "2", "label": "Código apto", "source": "codigo", "ejemplo": "P0119"},
+            {"id": "3", "label": "URL publicación", "source": "url_publicacion", "ejemplo": "https://petra.co/p/P0119"},
+        ],
+        "recomendacion": "Primer contacto: cuando cargamos el inmueble y el anunciante aún no sabe que está en Petra.",
+    },
+    {
+        "name": "ofrecer_inmobiliaria_petra",
+        "display": "Ofrecer servicio inmobiliario",
+        "category": "MARKETING",
+        "price_usd": 0.015,
+        "status": "mocked",
+        "body": (
+            "Hola {{1}} 👋\n\n"
+            "Vi que querés vender tu {{2}} en *{{3}}*.\n\n"
+            "La mayoría de propietarios tardan meses en el proceso. En *Petra* "
+            "trabajamos con una inmobiliaria aliada con comisión del 1.5% "
+            "(vs 3% del mercado) y publicación en los principales portales.\n\n"
+            "¿Te comparto los detalles?\n\n"
+            "_Responde SALIR si no deseas más mensajes._"
+        ),
+        "variables": [
+            {"id": "1", "label": "Nombre propietario", "source": "propietario_nombre", "ejemplo": "María"},
+            {"id": "2", "label": "Tipo inmueble", "source": "tipo", "ejemplo": "apartamento"},
+            {"id": "3", "label": "Conjunto", "source": "conjunto_nombre", "ejemplo": "Mitika PH"},
+        ],
+        "recomendacion": "Segundo paso: solo a propietarios que ya recibieron la notificación de publicación y respondieron (lead cálido).",
+    },
+    {
+        "name": "ofrecer_credito_petra",
+        "display": "Ofrecer aliado de crédito",
+        "category": "MARKETING",
+        "price_usd": 0.015,
+        "status": "mocked",
+        "body": (
+            "Hola {{1}} 👋\n\n"
+            "Muchos compradores de inmuebles en *{{2}}* necesitan crédito "
+            "hipotecario para cerrar.\n\n"
+            "Trabajamos con un aliado que pre-aprueba crédito en 48h, lo que "
+            "aumenta las probabilidades de que tu apto se venda rápido.\n\n"
+            "¿Querés que te mande info?\n\n"
+            "_Responde SALIR si no deseas más mensajes._"
+        ),
+        "variables": [
+            {"id": "1", "label": "Nombre propietario", "source": "propietario_nombre", "ejemplo": "María"},
+            {"id": "2", "label": "Conjunto", "source": "conjunto_nombre", "ejemplo": "Mitika PH"},
+        ],
+        "recomendacion": "Tercer paso: solo a propietarios que ya aceptaron el servicio inmobiliario.",
+    },
+]
+
+
 @petra_panel_bp.get("/v2/difusiones")
 def panel_v2_difusiones():
     """Panel v2: página de Difusiones (envíos masivos de templates WhatsApp)."""
@@ -3538,7 +3617,7 @@ def panel_v2_difusiones():
 
     return render_template(
         "petra_panel_v2_difusiones.html",
-        token=token, conjuntos=conjuntos,
+        token=token, conjuntos=conjuntos, templates=PETRA_TEMPLATES,
     )
 
 

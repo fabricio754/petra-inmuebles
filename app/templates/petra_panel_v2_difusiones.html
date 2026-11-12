@@ -129,6 +129,80 @@
   .placeholder h4 { margin: 0 0 6px; font-size: 15px; color: var(--text); }
   .placeholder p { margin: 0; font-size: 13px; max-width: 48ch; margin: 0 auto; }
 
+  /* Step 2: template picker */
+  .tmpl-picker { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+  .tmpl-card {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 14px 16px; background: var(--panel);
+    border: 1.5px solid var(--border); border-radius: 12px;
+    cursor: pointer; transition: all 120ms ease;
+  }
+  .tmpl-card:hover { border-color: var(--accent); }
+  .tmpl-card input[type="radio"] { margin-top: 3px; accent-color: var(--accent); }
+  .tmpl-card.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+  .tmpl-card-main { flex: 1; min-width: 0; }
+  .tmpl-card-head {
+    display: flex; justify-content: space-between; gap: 10px;
+    align-items: center; flex-wrap: wrap; margin-bottom: 4px;
+  }
+  .tmpl-card-title { font-weight: 600; font-size: 14.5px; color: var(--text); }
+  .tmpl-card-meta { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;
+  }
+  .chip-utility { background: #e3f2d9; color: #4b7a3a; }
+  .chip-marketing { background: #fde6dd; color: #a8422d; }
+  .chip-price { background: var(--bg); color: var(--text-sub); font-family: ui-monospace, monospace; text-transform: none; letter-spacing: 0; }
+  .chip-warn { background: #fdf2d4; color: #8c6a1c; }
+  .tmpl-card-reco { font-size: 12.5px; color: var(--text-sub); line-height: 1.4; }
+
+  .tmpl-detail {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px; margin-top: 4px;
+  }
+  .tmpl-detail-grid {
+    display: grid; grid-template-columns: 1fr 240px; gap: 18px;
+  }
+  @media (max-width: 720px) { .tmpl-detail-grid { grid-template-columns: 1fr; } }
+  .tmpl-preview-label {
+    font-size: 11px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;
+  }
+  .wa-bg {
+    background: #e5ddd5; padding: 14px; border-radius: 10px;
+    min-height: 140px; display: flex; align-items: flex-end;
+  }
+  [data-theme="dark"] .wa-bg { background: #0a0f0a; }
+  .wa-bubble {
+    background: #d9fdd3; color: #111b21; padding: 8px 11px;
+    border-radius: 8px; border-bottom-right-radius: 1px;
+    font-size: 13px; line-height: 1.4; max-width: 85%;
+    margin-left: auto; white-space: pre-wrap; word-wrap: break-word;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+  }
+  .wa-bubble .wa-var {
+    background: rgba(200, 90, 42, 0.18); padding: 1px 3px; border-radius: 2px;
+    font-weight: 500;
+  }
+
+  .tmpl-vars {
+    display: flex; flex-direction: column; gap: 6px;
+    font-size: 12.5px;
+  }
+  .tmpl-var-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 6px 0; border-bottom: 1px dashed var(--border);
+  }
+  .tmpl-var-row:last-child { border-bottom: 0; }
+  .tmpl-var-label { color: var(--text-sub); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .tmpl-var-source { font-family: ui-monospace, monospace; color: var(--text); font-size: 12px; }
+  .tmpl-costo {
+    margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text-sub);
+  }
+  .tmpl-costo strong { color: var(--text); font-family: ui-monospace, monospace; }
+
   /* Footer modal */
   .modal-foot {
     padding: 14px 24px; border-top: 1px solid var(--border);
@@ -265,12 +339,45 @@
 
       {# ─── Paso 2: Template ───────────────────────────── #}
       <div class="step-pane" data-step="2">
-        <div class="placeholder">
-          <div class="icon">📝</div>
-          <h4>Selector de template</h4>
-          <p>Próximamente. Dropdown con los templates aprobados por Meta
-             (notificacion_publicacion, ofrecer_inmob, ofrecer_credito)
-             + preview del cuerpo con variables autopopuladas.</p>
+        <p style="margin: 0 0 16px; color: var(--text-sub); font-size: 13.5px;">
+          Elegí qué template WhatsApp enviar. Meta cobra distinto según categoría.
+        </p>
+
+        <div class="tmpl-picker">
+          {% for t in templates %}
+          <label class="tmpl-card" data-name="{{ t.name }}">
+            <input type="radio" name="tmpl" value="{{ t.name }}" onchange="seleccionarTemplate('{{ t.name }}')">
+            <div class="tmpl-card-main">
+              <div class="tmpl-card-head">
+                <div class="tmpl-card-title">{{ t.display }}</div>
+                <div class="tmpl-card-meta">
+                  <span class="chip chip-{{ t.category|lower }}">{{ t.category }}</span>
+                  <span class="chip chip-price">${{ "%.5f"|format(t.price_usd) }} / envío</span>
+                  {% if t.status != 'approved' %}
+                  <span class="chip chip-warn">sin aprobar</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="tmpl-card-reco">{{ t.recomendacion }}</div>
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+
+        <div class="tmpl-detail" id="tmpl-detail" hidden>
+          <div class="tmpl-detail-grid">
+            <div class="tmpl-preview-wrap">
+              <div class="tmpl-preview-label">Preview WhatsApp (con datos de ejemplo)</div>
+              <div class="wa-bg">
+                <div class="wa-bubble" id="wa-bubble"></div>
+              </div>
+            </div>
+            <div class="tmpl-vars-wrap">
+              <div class="tmpl-preview-label">Variables</div>
+              <div class="tmpl-vars" id="tmpl-vars"></div>
+              <div class="tmpl-costo" id="tmpl-costo"></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -305,8 +412,11 @@
 
 <script>
   var TOKEN = {{ token|tojson }};
+  var TEMPLATES = {{ templates|tojson }};
   var pasoActual = 1;
   var previewTimer = null;
+  var ultimoCount = 0;
+  var templateSeleccionado = null;
 
   function abrirNuevaDifusion() {
     document.getElementById('modal-difusion').classList.add('open');
@@ -345,11 +455,66 @@
     var bs = document.getElementById('btn-siguiente');
     if (pasoActual === 4) {
       bs.textContent = 'Programar envío';
-      bs.disabled = true;  // disabled hasta que el paso real exista
+      bs.disabled = true;  // disabled hasta que el backend de envío real exista
+    } else if (pasoActual === 2) {
+      bs.textContent = 'Siguiente →';
+      bs.disabled = !templateSeleccionado;  // requiere seleccionar template
     } else {
       bs.textContent = 'Siguiente →';
       bs.disabled = false;
     }
+  }
+
+  function seleccionarTemplate(name) {
+    templateSeleccionado = TEMPLATES.find(function(t) { return t.name === name; });
+    document.querySelectorAll('.tmpl-card').forEach(function(c) {
+      c.classList.toggle('selected', c.dataset.name === name);
+    });
+    renderTemplateDetail();
+    actualizarStepsUI();
+  }
+
+  function renderTemplateDetail() {
+    var t = templateSeleccionado;
+    if (!t) { document.getElementById('tmpl-detail').hidden = true; return; }
+    document.getElementById('tmpl-detail').hidden = false;
+
+    // Preview con valores de ejemplo
+    var body = t.body;
+    t.variables.forEach(function(v) {
+      var marker = '{{' + v.id + '}}';
+      var val = '<span class="wa-var">' + escapeHtml(v.ejemplo) + '</span>';
+      body = body.split(marker).join(val);
+    });
+    // nl2br + conservar markdown básico de WhatsApp (*bold*, _italic_)
+    body = body
+      .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+      .replace(/_([^_\n]+)_/g, '<em>$1</em>');
+    document.getElementById('wa-bubble').innerHTML = body +
+      '<div style="font-size:10px;color:#667781;text-align:right;margin-top:4px">ahora ✓✓</div>';
+
+    // Lista de variables
+    var varsHtml = t.variables.map(function(v) {
+      return '<div class="tmpl-var-row">' +
+             '<span class="tmpl-var-label">{{' + v.id + '}} ' + escapeHtml(v.label) + '</span>' +
+             '<span class="tmpl-var-source">' + escapeHtml(v.source) + '</span>' +
+             '</div>';
+    }).join('');
+    document.getElementById('tmpl-vars').innerHTML = varsHtml;
+
+    // Costo estimado con el conteo actual del paso 1
+    var destinatarios = ultimoCount || 0;
+    var total = (destinatarios * t.price_usd).toFixed(2);
+    document.getElementById('tmpl-costo').innerHTML =
+      'Con <strong>' + destinatarios + '</strong> destinatarios: ' +
+      '<strong>$' + total + ' USD</strong> ' +
+      '(categoría ' + t.category + ')';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
   }
 
   function refrescarPreview() {
@@ -370,11 +535,14 @@
       fetch('/panel/petra/v2/difusiones/preview?' + params.toString())
         .then(function(r) { return r.json(); })
         .then(function(d) {
+          ultimoCount = d.count;
           document.getElementById('pc-num').textContent = d.count;
           document.getElementById('pc-label').textContent =
             d.count === 1 ? 'propietario cumple los criterios'
                           : 'propietarios cumplen los criterios';
           card.classList.remove('loading');
+          // Si ya hay template seleccionado y estamos en paso 2, refrescar costo.
+          if (templateSeleccionado) { renderTemplateDetail(); }
           var samples = document.getElementById('pc-samples');
           var list = document.getElementById('pc-samples-list');
           if (d.muestra && d.muestra.length) {
