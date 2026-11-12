@@ -203,6 +203,75 @@
   }
   .tmpl-costo strong { color: var(--text); font-family: ui-monospace, monospace; }
 
+  /* Step 3: preview final */
+  .p3-summary {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin-bottom: 18px;
+  }
+  @media (max-width: 560px) { .p3-summary { grid-template-columns: 1fr; } }
+  .p3-sum-cell {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px; text-align: center;
+  }
+  .p3-sum-num {
+    font-size: 24px; font-weight: 700; color: var(--accent);
+    font-variant-numeric: tabular-nums; line-height: 1.1;
+    letter-spacing: -0.3px;
+  }
+  .p3-sum-lab {
+    font-size: 11px; color: var(--text-sub); margin-top: 5px;
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+  }
+  .p3-warnings {
+    background: #fdf2d4; border-left: 3px solid #b8862e;
+    border-radius: 0 10px 10px 0; padding: 10px 14px;
+    margin-bottom: 18px; color: #6e5218; font-size: 12.5px;
+    line-height: 1.5;
+  }
+  [data-theme="dark"] .p3-warnings {
+    background: #3a2f1a; color: #d4b56e;
+  }
+  .p3-warnings ul { margin: 0; padding-left: 18px; }
+  .p3-warnings li { margin: 3px 0; }
+
+  .p3-muestras-label {
+    font-size: 11px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px;
+  }
+  .p3-muestras {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .p3-muestra {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px;
+  }
+  .p3-muestra-head {
+    font-size: 11.5px; color: var(--text-sub); margin-bottom: 8px;
+    padding-bottom: 8px; border-bottom: 1px dashed var(--border);
+  }
+  .p3-muestra-head .cel {
+    font-family: ui-monospace, monospace; color: var(--text); font-size: 11px;
+    margin-left: 6px;
+  }
+  .p3-muestra-wa {
+    background: #e5ddd5; padding: 10px; border-radius: 8px;
+  }
+  [data-theme="dark"] .p3-muestra-wa { background: #0a0f0a; }
+  .p3-muestra-bubble {
+    background: #d9fdd3; color: #111b21; padding: 7px 10px;
+    border-radius: 7px; border-bottom-right-radius: 1px;
+    font-size: 12.5px; line-height: 1.42; white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+  }
+  .p3-muestra-bubble .wa-meta {
+    font-size: 10px; color: #667781; text-align: right; margin-top: 4px;
+  }
+  .p3-muestras-empty {
+    text-align: center; padding: 30px; color: var(--text-sub); font-size: 13px;
+  }
+
   /* Footer modal */
   .modal-foot {
     padding: 14px 24px; border-top: 1px solid var(--border);
@@ -383,12 +452,29 @@
 
       {# ─── Paso 3: Preview ────────────────────────────── #}
       <div class="step-pane" data-step="3">
-        <div class="placeholder">
-          <div class="icon">👁</div>
-          <h4>Preview de envío</h4>
-          <p>Próximamente. Mensaje renderizado con datos reales de 3 destinatarios
-             de muestra, costo estimado del envío y advertencias de rate limit.</p>
+        <p style="margin: 0 0 16px; color: var(--text-sub); font-size: 13.5px;">
+          Validá los mensajes antes de enviar. Datos reales de 3 destinatarios al azar.
+        </p>
+
+        <div class="p3-summary" id="p3-summary">
+          <div class="p3-sum-cell">
+            <div class="p3-sum-num" id="p3-count">—</div>
+            <div class="p3-sum-lab">destinatarios</div>
+          </div>
+          <div class="p3-sum-cell">
+            <div class="p3-sum-num" id="p3-categoria">—</div>
+            <div class="p3-sum-lab">categoría Meta</div>
+          </div>
+          <div class="p3-sum-cell">
+            <div class="p3-sum-num" id="p3-costo">—</div>
+            <div class="p3-sum-lab">costo estimado USD</div>
+          </div>
         </div>
+
+        <div class="p3-warnings" id="p3-warnings" hidden></div>
+
+        <div class="p3-muestras-label">3 mensajes de muestra (datos reales)</div>
+        <div class="p3-muestras" id="p3-muestras"></div>
       </div>
 
       {# ─── Paso 4: Programar ─────────────────────────── #}
@@ -463,6 +549,68 @@
       bs.textContent = 'Siguiente →';
       bs.disabled = false;
     }
+    if (pasoActual === 3) { cargarMuestraPaso3(); }
+  }
+
+  function cargarMuestraPaso3() {
+    if (!templateSeleccionado) return;
+    var params = new URLSearchParams({
+      token: TOKEN,
+      template: templateSeleccionado.name,
+      conjunto: document.getElementById('f_conjunto').value,
+      operacion: document.getElementById('f_operacion').value,
+      estado: document.getElementById('f_estado').value,
+      etapa: document.getElementById('f_etapa').value,
+      dias: document.getElementById('f_dias').value,
+      celular: document.getElementById('f_celular').value,
+    });
+    document.getElementById('p3-count').textContent = '…';
+    document.getElementById('p3-costo').textContent = '…';
+    document.getElementById('p3-categoria').textContent = '…';
+    document.getElementById('p3-warnings').hidden = true;
+    document.getElementById('p3-muestras').innerHTML =
+      '<div class="p3-muestras-empty">Cargando muestras…</div>';
+
+    fetch('/panel/petra/v2/difusiones/muestra?' + params.toString())
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        document.getElementById('p3-count').textContent = d.count || 0;
+        document.getElementById('p3-costo').textContent = '$' + (d.costo_total_usd || 0).toFixed(2);
+        document.getElementById('p3-categoria').textContent = d.categoria || '—';
+
+        if (d.warnings && d.warnings.length) {
+          document.getElementById('p3-warnings').innerHTML =
+            '<strong>⚠ Advertencias:</strong><ul>' +
+            d.warnings.map(function(w) { return '<li>' + escapeHtml(w) + '</li>'; }).join('') +
+            '</ul>';
+          document.getElementById('p3-warnings').hidden = false;
+        }
+
+        var cont = document.getElementById('p3-muestras');
+        if (!d.muestras || !d.muestras.length) {
+          cont.innerHTML = '<div class="p3-muestras-empty">No hay destinatarios en este segmento.</div>';
+          return;
+        }
+        cont.innerHTML = d.muestras.map(function(m) {
+          var body = escapeHtml(m.mensaje)
+            .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+            .replace(/_([^_\n]+)_/g, '<em>$1</em>');
+          return '<div class="p3-muestra">' +
+            '<div class="p3-muestra-head">' + escapeHtml(m.etiqueta) +
+            (m.telefono_masked ? '<span class="cel">' + escapeHtml(m.telefono_masked) + '</span>' : '') +
+            '</div>' +
+            '<div class="p3-muestra-wa">' +
+              '<div class="p3-muestra-bubble">' + body +
+                '<div class="wa-meta">ahora ✓✓</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      })
+      .catch(function() {
+        document.getElementById('p3-muestras').innerHTML =
+          '<div class="p3-muestras-empty">Error cargando muestras.</div>';
+      });
   }
 
   function seleccionarTemplate(name) {

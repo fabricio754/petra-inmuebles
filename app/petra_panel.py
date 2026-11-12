@@ -3621,6 +3621,139 @@ def panel_v2_difusiones():
     )
 
 
+def _tmpl_by_name(name):
+    for t in PETRA_TEMPLATES:
+        if t["name"] == name:
+            return t
+    return None
+
+
+def _var_value_for(inmueble, source, conjunto_nombre=""):
+    """Dado un inmueble (fila SQL) y el nombre del source de una variable
+    del template, devuelve el valor concreto.
+
+    Si la fuente no existe en los datos, devuelve un fallback razonable
+    (nunca string vacío — Meta rechaza templates con variables vacías).
+    """
+    if source == "conjunto_nombre":
+        return conjunto_nombre or inmueble.get("conjunto_nombre") or "tu conjunto"
+    if source == "codigo":
+        iid = inmueble.get("id")
+        return f"P{iid:04d}" if isinstance(iid, int) else "P0000"
+    if source == "tipo":
+        return (inmueble.get("tipo") or "inmueble").lower()
+    if source == "propietario_nombre":
+        # No tenemos este campo en inmuebles_visitante. Fallback neutro.
+        return "propietario"
+    if source == "url_publicacion":
+        iid = inmueble.get("id")
+        code = f"P{iid:04d}" if isinstance(iid, int) else "P0000"
+        # Link a Petra Bot para que el anunciante consulte su publicación.
+        return f"https://wa.me/573001278631?text=Quiero%20ver%20mi%20publicacion%20{code}"
+    return ""
+
+
+def _render_tmpl_body(body, variables, inmueble, conjunto_nombre=""):
+    """Reemplaza {{1}}, {{2}}, ... en body con los valores reales del inmueble."""
+    out = body
+    for v in variables:
+        val = _var_value_for(inmueble, v.get("source", ""), conjunto_nombre)
+        out = out.replace("{{" + v["id"] + "}}", str(val))
+    return out
+
+
+@petra_panel_bp.get("/v2/difusiones/muestra")
+def panel_v2_difusiones_muestra():
+    """Devuelve 3 destinatarios de ejemplo con el template renderizado
+    para preview del paso 3 (datos reales, no ejemplos genéricos).
+    """
+    _check_token()
+    from flask import jsonify
+
+    tmpl_name = (request.args.get("template") or "").strip()
+    tmpl = _tmpl_by_name(tmpl_name)
+    if not tmpl:
+        return jsonify({"error": "template no encontrado",
+                        "count": 0, "muestras": []}), 400
+
+    where_sql, params = _difusiones_where(request.args)
+
+    count = 0
+    muestras = []
+    sin_celular = 0
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante i WHERE " + where_sql,
+                params,
+            ).fetchone()
+            count = (row[0] if row else 0) or 0
+
+            # Cuántos del segmento no tienen celular válido (si filtro celular=todos)
+            celular_filter = (request.args.get("celular") or "si").lower()
+            if celular_filter == "todos":
+                row2 = conn.execute(
+                    "SELECT COUNT(*) FROM inmuebles_visitante i WHERE " + where_sql +
+                    " AND (i.propietario_telefono IS NULL OR "
+                    "      length(regexp_replace(i.propietario_telefono, '\\D', '', 'g')) < 10)",
+                    params,
+                ).fetchone()
+                sin_celular = (row2[0] if row2 else 0) or 0
+
+            if count:
+                rows = _rows(conn,
+                    "SELECT i.id, i.tipo, i.nro, i.operacion, "
+                    "       i.propietario_telefono, c.nombre AS conjunto "
+                    "  FROM inmuebles_visitante i "
+                    "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                    " WHERE " + where_sql +
+                    " ORDER BY random() LIMIT 3",
+                    params)
+                for r in rows:
+                    conj = r.get("conjunto") or "tu conjunto"
+                    mensaje = _render_tmpl_body(
+                        tmpl["body"], tmpl["variables"], r, conjunto_nombre=conj)
+                    nro = (r.get("nro") or "").strip()
+                    tipo = (r.get("tipo") or "inmueble").capitalize()
+                    ref = tipo + (f" #{nro}" if nro else "")
+                    code = f"P{r['id']:04d}"
+                    tel = (r.get("propietario_telefono") or "").strip()
+                    tel_masked = ""
+                    if tel:
+                        digits = ''.join(c for c in tel if c.isdigit())
+                        tel_masked = ("·" * max(len(digits) - 4, 0)) + digits[-4:] if digits else ""
+                    muestras.append({
+                        "etiqueta": f"{code} · {ref} en {conj}",
+                        "telefono_masked": tel_masked,
+                        "mensaje": mensaje,
+                    })
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones muestra fallo")
+
+    warnings = []
+    if count >= 100:
+        warnings.append(
+            f"Volumen alto ({count} envíos): si Petra Ventas está en warm-up, "
+            "arrancá con <50/día para no quemar el número.")
+    if sin_celular:
+        warnings.append(
+            f"{sin_celular} del segmento no tiene celular válido y "
+            "no recibirán el mensaje.")
+    if tmpl["category"] == "MARKETING" and count >= 30:
+        warnings.append(
+            "Marketing en volumen alto sube el riesgo de reportes como spam. "
+            "Preferí enviar solo a leads cálidos (que ya respondieron la Utility).")
+
+    return jsonify({
+        "count": count,
+        "costo_total_usd": round(count * tmpl["price_usd"], 2),
+        "categoria": tmpl["category"],
+        "muestras": muestras,
+        "warnings": warnings,
+    })
+
+
 @petra_panel_bp.get("/v2/difusiones/preview")
 def panel_v2_difusiones_preview():
     """Preview JSON del segmento: count + muestra de 3 destinatarios."""
