@@ -5521,18 +5521,23 @@ def _texto_confirmar_datos(inm):
 
 
 def _texto_bienvenida(inm):
-    """Mensaje ② — Fabricio dando bienvenida + video (lo adjunta a mano).
+    """Mensaje ② — Notificación transaccional de publicación del inmueble.
 
-    El video se adjunta ARRIBA del texto en WhatsApp, por eso usamos
-    👆 (mano hacia arriba) al final.
+    Reformulado en modo "Utility": reconocimiento del evento real (la
+    administración instaló Petra y el inmueble del destinatario fue
+    publicado). Evita el framing de marketing cold outreach que dispara
+    bloqueos de Meta. El propietario ve una notificación esperada, no spam.
     """
     conjunto = inm.get("conjunto_nombre") or "tu conjunto"
+    apto = inm.get("codigo") or inm.get("direccion_apto") or "tu inmueble"
     return (
-        f"Hola 👋\n"
-        f"Soy Fabricio de *Petra*.\n\n"
-        f"Te escribo para contarte que {conjunto} acaba de activar Petra "
-        f"para ayudar a los propietarios a vender o arrendar más rápido 🏠\n\n"
-        f"Mirá este video de 1 min y enterate cómo funciona 👆"
+        f"Hola 👋\n\n"
+        f"Te notificamos que la administración de *{conjunto}* instaló "
+        f"*Petra* para ayudar con la venta y arriendo de inmuebles del conjunto.\n\n"
+        f"Tu inmueble *{apto}* fue incluido en el catálogo con los datos "
+        f"que la administración nos compartió.\n\n"
+        f"Si NO deseas aparecer en Petra, respondé SALIR y lo removemos de inmediato.\n\n"
+        f"— Petra Inmobiliaria"
     )
 
 
