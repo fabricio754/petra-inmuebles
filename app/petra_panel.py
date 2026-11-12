@@ -3844,6 +3844,249 @@ def panel_v2_difusiones_muestra():
     })
 
 
+# =============================================================================
+# Panel v2 · Templates (editor de plantillas WhatsApp)
+# =============================================================================
+
+# Los 4 tipos que permitimos crear (match Meta Template categories).
+TEMPLATE_TIPOS = [
+    {
+        "id": "texto",
+        "display": "Texto + variables",
+        "icon": "✉️",
+        "descripcion": "Mensaje de texto simple con variables personalizables "
+                       "por destinatario (nombre, apto, etc.).",
+    },
+    {
+        "id": "multimedia",
+        "display": "Multimedia",
+        "icon": "🎬",
+        "descripcion": "Encabezado visual (imagen, video, documento PDF o "
+                       "ubicación) + cuerpo de texto con variables.",
+    },
+    {
+        "id": "botones",
+        "display": "Interactivo con botones",
+        "icon": "🔘",
+        "descripcion": "Cuerpo + hasta 2 botones de CTA (abrir URL, llamar, "
+                       "copiar código) o respuesta rápida.",
+    },
+    {
+        "id": "catalogo_carrusel",
+        "display": "Catálogo / Carrusel",
+        "icon": "🛒",
+        "descripcion": "Especial Marketing: hasta 10 tarjetas deslizables "
+                       "con productos de tu catálogo Meta Commerce.",
+    },
+]
+
+
+def _row_to_template(row):
+    """Normaliza fila de DB en dict serializable al template Jinja."""
+    return {
+        "id": row.get("id"),
+        "name": row.get("name") or "",
+        "display": row.get("display") or "",
+        "idioma": row.get("idioma") or "es",
+        "categoria": row.get("categoria") or "MARKETING",
+        "tipo": row.get("tipo") or "texto",
+        "status": row.get("status") or "draft",
+        "body": row.get("body") or "",
+        "variables": row.get("variables") or [],
+        "header": row.get("header"),
+        "botones": row.get("botones") or [],
+        "catalogo": row.get("catalogo"),
+        "recomendacion": row.get("recomendacion") or "",
+        "rechazo_motivo": row.get("rechazo_motivo") or "",
+        "autor": row.get("autor") or "",
+        "creado_en": row.get("creado_en"),
+        "actualizado_en": row.get("actualizado_en"),
+    }
+
+
+@petra_panel_bp.get("/v2/templates")
+def panel_v2_templates():
+    """Panel v2: página de Templates (editor de plantillas WhatsApp)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    templates_db = []
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            templates_db = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo, "
+                "       recomendacion, rechazo_motivo, autor, "
+                "       creado_en, actualizado_en "
+                "  FROM campana_templates "
+                " ORDER BY actualizado_en DESC")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates query fallo")
+
+    templates = [_row_to_template(r) for r in templates_db]
+
+    return render_template(
+        "petra_panel_v2_templates.html",
+        token=token,
+        templates=templates,
+        tipos=TEMPLATE_TIPOS,
+        autores=DIFUSION_AUTORES,
+    )
+
+
+@petra_panel_bp.post("/v2/templates/crear")
+def panel_v2_templates_crear():
+    """Crea un nuevo template en estado draft."""
+    _check_token()
+    from flask import jsonify
+    import json as _json
+
+    name = (request.form.get("name") or "").strip().lower().replace(" ", "_")
+    display = (request.form.get("display") or "").strip()
+    idioma = (request.form.get("idioma") or "es").strip()
+    categoria = (request.form.get("categoria") or "MARKETING").strip().upper()
+    tipo = (request.form.get("tipo") or "texto").strip().lower()
+    body = (request.form.get("body") or "").strip()
+    recomendacion = (request.form.get("recomendacion") or "").strip()
+    autor = (request.form.get("autor") or "fabricio").strip().lower()
+
+    if not name or not display or not body:
+        return jsonify({"error": "name, display y body son requeridos"}), 400
+    if categoria not in ("UTILITY", "MARKETING", "AUTHENTICATION"):
+        return jsonify({"error": "categoría inválida"}), 400
+    if tipo not in {t["id"] for t in TEMPLATE_TIPOS}:
+        return jsonify({"error": "tipo inválido"}), 400
+    if autor not in {a["id"] for a in DIFUSION_AUTORES}:
+        autor = "fabricio"
+
+    # Campos JSON opcionales
+    variables_raw = request.form.get("variables") or "[]"
+    try:
+        variables = _json.loads(variables_raw)
+        if not isinstance(variables, list):
+            variables = []
+    except Exception:
+        variables = []
+
+    header_raw = request.form.get("header")
+    header = None
+    if header_raw:
+        try:
+            header = _json.loads(header_raw)
+        except Exception:
+            header = None
+
+    botones_raw = request.form.get("botones") or "[]"
+    try:
+        botones = _json.loads(botones_raw)
+        if not isinstance(botones, list):
+            botones = []
+    except Exception:
+        botones = []
+
+    catalogo_raw = request.form.get("catalogo")
+    catalogo = None
+    if catalogo_raw:
+        try:
+            catalogo = _json.loads(catalogo_raw)
+        except Exception:
+            catalogo = None
+
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "INSERT INTO campana_templates "
+                "  (name, display, idioma, categoria, tipo, body, variables, "
+                "   header, botones, catalogo, recomendacion, autor) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s) "
+                "RETURNING id",
+                (name, display, idioma, categoria, tipo, body,
+                 _json.dumps(variables),
+                 _json.dumps(header) if header else None,
+                 _json.dumps(botones),
+                 _json.dumps(catalogo) if catalogo else None,
+                 recomendacion or None, autor),
+            ).fetchone()
+            return jsonify({"ok": True, "id": row[0]})
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates crear fallo")
+        return jsonify({"error": "db error", "detalle": str(e)}), 500
+
+
+@petra_panel_bp.post("/v2/templates/<int:tid>/actualizar")
+def panel_v2_templates_actualizar(tid):
+    """Actualiza campos editables de un template existente."""
+    _check_token()
+    from flask import jsonify
+    import json as _json
+
+    campos = {}
+    for key in ("display", "idioma", "categoria", "tipo", "body", "recomendacion"):
+        val = request.form.get(key)
+        if val is not None:
+            campos[key] = val.strip()
+
+    for key in ("variables", "header", "botones", "catalogo"):
+        raw = request.form.get(key)
+        if raw is not None:
+            try:
+                campos[key] = _json.loads(raw) if raw else None
+            except Exception:
+                return jsonify({"error": f"{key} inválido"}), 400
+
+    if not campos:
+        return jsonify({"error": "nada para actualizar"}), 400
+
+    set_clauses = []
+    params = []
+    for k, v in campos.items():
+        if k in ("variables", "header", "botones", "catalogo"):
+            set_clauses.append(f"{k} = %s::jsonb")
+            params.append(_json.dumps(v) if v is not None else None)
+        else:
+            set_clauses.append(f"{k} = %s")
+            params.append(v)
+    set_clauses.append("actualizado_en = NOW()")
+    params.append(tid)
+
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                f"UPDATE campana_templates SET {', '.join(set_clauses)} WHERE id = %s",
+                tuple(params),
+            )
+            return jsonify({"ok": True})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates actualizar fallo")
+        return jsonify({"error": "db error"}), 500
+
+
+@petra_panel_bp.post("/v2/templates/<int:tid>/eliminar")
+def panel_v2_templates_eliminar(tid):
+    """Elimina un template (solo si está en draft)."""
+    _check_token()
+    from flask import jsonify
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT status FROM campana_templates WHERE id = %s",
+                (tid,),
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "no encontrado"}), 404
+            if row[0] != "draft":
+                return jsonify({"error": "solo se pueden eliminar drafts"}), 400
+            conn.execute("DELETE FROM campana_templates WHERE id = %s", (tid,))
+            return jsonify({"ok": True})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates eliminar fallo")
+        return jsonify({"error": "db error"}), 500
+
+
 @petra_panel_bp.post("/v2/difusiones/upload_header")
 def panel_v2_difusiones_upload_header():
     """Sube un archivo custom para usar como header de la campaña.

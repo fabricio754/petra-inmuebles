@@ -2325,3 +2325,42 @@ CREATE TABLE IF NOT EXISTS petra_staging_whitelist (
   nota TEXT,
   creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+
+-- ============================================================================
+-- Templates de campañas WhatsApp (editor en /panel/petra/v2/templates).
+--
+-- Los templates viven acá hasta que se someten a Meta Business Manager.
+-- Status:
+--   draft      → en edición, no se puede usar en campañas
+--   pendiente  → sometido a Meta, esperando aprobación
+--   aprobado   → listo para usar en Campañas
+--   rechazado  → Meta lo rechazó (ver rechazo_motivo)
+--
+-- Tipos:
+--   texto              → cuerpo + variables
+--   multimedia         → cuerpo + variables + header (imagen/video/doc/ubic)
+--   botones            → cuerpo + variables + hasta 2 botones
+--   catalogo_carrusel  → especial marketing (Meta Catalog)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS campana_templates (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  display TEXT NOT NULL,
+  idioma TEXT NOT NULL DEFAULT 'es',
+  categoria TEXT NOT NULL CHECK (categoria IN ('UTILITY','MARKETING','AUTHENTICATION')),
+  tipo TEXT NOT NULL CHECK (tipo IN ('texto','multimedia','botones','catalogo_carrusel')),
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','pendiente','aprobado','rechazado')),
+  body TEXT NOT NULL DEFAULT '',
+  variables JSONB NOT NULL DEFAULT '[]'::jsonb,
+  header JSONB,
+  botones JSONB NOT NULL DEFAULT '[]'::jsonb,
+  catalogo JSONB,
+  recomendacion TEXT,
+  rechazo_motivo TEXT,
+  autor TEXT,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS campana_templates_status_idx
+  ON campana_templates(status, actualizado_en DESC);

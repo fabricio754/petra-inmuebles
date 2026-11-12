@@ -172,7 +172,7 @@
       <img class="logo" src="/static/petra_logo.webp" alt="Petra">
     </span>
   </div>
-  {% set g_marketing = ['buscadores', 'difusiones'] %}
+  {% set g_marketing = ['buscadores', 'difusiones', 'templates'] %}
   {% set g_bot = ['contenidos', 'faq', 'automatizaciones', 'whitelist'] %}
   {% set g_oferta = ['conjuntos', 'catalogo', 'inmuebles', 'oferta', 'embudo', 'mandatos'] %}
   {% set g_demanda = ['usuarios', 'demanda', 'solicitudes'] %}
@@ -192,6 +192,8 @@
            href="/panel/petra/v2/buscadores?token={{ token }}">🔍 Buscadores</a>
         <a class="{% if block == 'difusiones' %}active{% endif %}"
            href="/panel/petra/v2/difusiones?token={{ token }}">📣 Campañas</a>
+        <a class="{% if block == 'templates' %}active{% endif %}"
+           href="/panel/petra/v2/templates?token={{ token }}">📝 Templates</a>
       </div>
     </details>
 
