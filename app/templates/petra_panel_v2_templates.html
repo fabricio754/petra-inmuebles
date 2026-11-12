@@ -1,0 +1,660 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'templates' %}
+{% block title %}Templates · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; max-width: 70ch; }
+  .hero .cta {
+    background: var(--accent); color: white; border: 0; padding: 10px 18px;
+    border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  .hero .cta:hover { opacity: 0.92; }
+
+  .tpls-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+  .tpl-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px; display: flex; flex-direction: column;
+    gap: 10px; position: relative;
+  }
+  .tpl-card-head { display: flex; align-items: flex-start; gap: 10px; }
+  .tpl-card-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 15%, var(--panel));
+    display: grid; place-items: center; font-size: 18px; flex-shrink: 0;
+  }
+  .tpl-card-title { font-weight: 600; font-size: 14.5px; margin: 0; line-height: 1.3; }
+  .tpl-card-name {
+    font-family: ui-monospace, monospace; font-size: 11.5px;
+    color: var(--text-sub); margin-top: 2px;
+  }
+  .tpl-card-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .chip-utility { background: #e3f2d9; color: #4b7a3a; }
+  .chip-marketing { background: #fde6dd; color: #a8422d; }
+  .chip-auth { background: #d8e4f3; color: #2a5a7a; }
+  .chip-draft { background: var(--border); color: var(--text-sub); }
+  .chip-pendiente { background: #fdf2d4; color: #8c6a1c; }
+  .chip-aprobado { background: #e3f2d9; color: #4b7a3a; }
+  .chip-rechazado { background: #faeae5; color: #a8422d; }
+  .chip-tipo {
+    background: var(--bg); color: var(--text-sub); text-transform: none;
+    letter-spacing: 0; font-family: ui-monospace, monospace;
+  }
+  .tpl-card-body {
+    font-size: 12.5px; color: var(--text); line-height: 1.5;
+    background: var(--bg); padding: 10px 12px; border-radius: 8px;
+    white-space: pre-wrap; overflow: hidden; display: -webkit-box;
+    -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+    max-height: 90px;
+  }
+  .tpl-card-actions {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-top: 8px; border-top: 1px dashed var(--border);
+    margin-top: auto;
+  }
+  .tpl-card-meta { font-size: 11.5px; color: var(--text-sub); }
+  .tpl-card-btns { display: flex; gap: 6px; }
+  .mini-btn {
+    background: transparent; border: 1px solid var(--border-strong, var(--border));
+    color: var(--text); font-size: 11.5px; padding: 4px 10px;
+    border-radius: 6px; cursor: pointer; font-weight: 500;
+  }
+  .mini-btn:hover { background: var(--bg); }
+  .mini-btn.danger:hover { color: #a8422d; border-color: #a8422d; }
+
+  .empty-state {
+    background: var(--panel); border: 1px dashed var(--border);
+    border-radius: 14px; padding: 56px 20px; text-align: center;
+    color: var(--text-sub);
+  }
+  .empty-state .icon { font-size: 44px; margin-bottom: 10px; opacity: 0.6; }
+  .empty-state h3 { margin: 0 0 6px; color: var(--text); font-size: 16px; font-weight: 600; }
+
+  /* Modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: flex-start; justify-content: center;
+    z-index: 1000; padding: 40px 16px; overflow-y: auto;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--panel); border-radius: 18px; width: 100%;
+    max-width: 860px; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+  }
+  .modal-head {
+    padding: 16px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modal-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .modal-close {
+    background: transparent; border: 0; font-size: 22px;
+    cursor: pointer; color: var(--text-sub); line-height: 1;
+    width: 32px; height: 32px; border-radius: 50%;
+  }
+  .modal-close:hover { background: var(--bg); color: var(--text); }
+  .modal-body { padding: 22px; }
+  .modal-foot {
+    padding: 14px 22px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg); gap: 10px;
+  }
+  .btn-secondary {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); padding: 9px 16px; border-radius: 8px;
+    font-size: 14px; cursor: pointer; font-weight: 500;
+  }
+  .btn-secondary:hover { background: var(--panel); }
+  .btn-primary {
+    background: var(--accent); color: white; border: 0;
+    padding: 9px 20px; border-radius: 8px; font-size: 14px;
+    cursor: pointer; font-weight: 600;
+  }
+  .btn-primary:hover { opacity: 0.92; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Picker de tipo */
+  .tipo-picker {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .tipo-card {
+    background: var(--panel); border: 1.5px solid var(--border);
+    border-radius: 12px; padding: 16px; cursor: pointer;
+    transition: all 120ms;
+  }
+  .tipo-card:hover { border-color: var(--accent); }
+  .tipo-card.selected {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  }
+  .tipo-card-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 15%, var(--panel));
+    display: grid; place-items: center; font-size: 22px;
+    margin-bottom: 10px;
+  }
+  .tipo-card-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .tipo-card-desc { font-size: 12px; color: var(--text-sub); line-height: 1.5; }
+
+  /* Form */
+  .form-grid {
+    display: grid; gap: 14px;
+  }
+  .form-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  @media (max-width: 560px) { .form-row { grid-template-columns: 1fr; } }
+  .form-field label {
+    display: block; font-size: 11px; color: var(--text-sub);
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    margin-bottom: 5px;
+  }
+  .form-field input, .form-field select, .form-field textarea {
+    width: 100%; box-sizing: border-box;
+    padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-family: inherit; font-size: 14px;
+  }
+  .form-field textarea {
+    resize: vertical; min-height: 110px; line-height: 1.5;
+  }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+    border-color: var(--accent);
+  }
+  .form-help {
+    font-size: 11.5px; color: var(--text-sub); margin-top: 4px;
+    line-height: 1.5;
+  }
+  .form-help code {
+    background: var(--bg); padding: 1px 5px; border-radius: 3px;
+    font-family: ui-monospace, monospace; color: var(--accent); font-size: 11.5px;
+  }
+
+  /* Variables editor */
+  .var-list { display: flex; flex-direction: column; gap: 6px; }
+  .var-row {
+    display: grid; grid-template-columns: 50px 1fr 1fr 1fr auto;
+    gap: 8px; align-items: center;
+  }
+  .var-row .num {
+    font-family: ui-monospace, monospace;
+    text-align: center; font-size: 12.5px; color: var(--text-sub);
+    background: var(--bg); padding: 6px 0; border-radius: 6px;
+  }
+  .var-row input {
+    padding: 7px 10px; font-size: 13px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text);
+    box-sizing: border-box; width: 100%;
+    font-family: inherit;
+  }
+  .var-row .del-btn {
+    background: transparent; border: 0; color: var(--text-sub);
+    font-size: 16px; cursor: pointer; padding: 4px 8px;
+  }
+  .var-row .del-btn:hover { color: #a8422d; }
+  .add-var-btn {
+    background: var(--bg); border: 1px dashed var(--border);
+    color: var(--accent); padding: 8px 12px; border-radius: 8px;
+    font-size: 12.5px; cursor: pointer; font-weight: 500;
+    align-self: flex-start;
+  }
+  .add-var-btn:hover { background: var(--panel); }
+
+  /* Botones editor (for 'botones' type) */
+  .btn-list { display: flex; flex-direction: column; gap: 8px; }
+  .btn-row {
+    display: grid; grid-template-columns: 140px 1fr 1fr auto;
+    gap: 8px; padding: 10px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px;
+    align-items: center;
+  }
+  .btn-row input, .btn-row select {
+    padding: 7px 10px; font-size: 13px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text);
+    box-sizing: border-box; width: 100%;
+    font-family: inherit;
+  }
+
+  /* Hidden until type selected */
+  .form-pane { display: none; }
+  .form-pane.active { display: block; }
+
+  .flash-error {
+    background: #faeae5; color: #a8422d;
+    padding: 10px 14px; border-radius: 8px;
+    font-size: 13px; margin-bottom: 14px;
+  }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Templates</h1>
+    <div class="sub">
+      Editor de plantillas WhatsApp. Creá los templates que usarás en Campañas
+      y sometelos a Meta cuando estén listos.
+    </div>
+  </div>
+  <button class="cta" onclick="abrirNuevoTemplate()">+ Nuevo template</button>
+</div>
+
+{% if templates %}
+<div class="tpls-grid">
+  {% for t in templates %}
+  <div class="tpl-card">
+    <div class="tpl-card-head">
+      <div class="tpl-card-icon">
+        {% if t.tipo == 'texto' %}✉️
+        {% elif t.tipo == 'multimedia' %}🎬
+        {% elif t.tipo == 'botones' %}🔘
+        {% elif t.tipo == 'catalogo_carrusel' %}🛒
+        {% else %}📝{% endif %}
+      </div>
+      <div style="flex:1; min-width:0;">
+        <h3 class="tpl-card-title">{{ t.display }}</h3>
+        <div class="tpl-card-name">{{ t.name }} · {{ t.idioma }}</div>
+      </div>
+    </div>
+    <div class="tpl-card-chips">
+      <span class="chip chip-{{ t.categoria|lower }}">{{ t.categoria }}</span>
+      <span class="chip chip-{{ t.status|lower }}">{{ t.status }}</span>
+      <span class="chip chip-tipo">{{ t.tipo }}</span>
+    </div>
+    <div class="tpl-card-body">{{ t.body }}</div>
+    <div class="tpl-card-actions">
+      <div class="tpl-card-meta">
+        {% if t.autor %}por {{ t.autor }}{% endif %}
+      </div>
+      <div class="tpl-card-btns">
+        {% if t.status == 'draft' %}
+        <button class="mini-btn danger"
+                onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="icon">📝</div>
+  <h3>No hay templates todavía</h3>
+  <p>Creá el primero para arrancar.</p>
+</div>
+{% endif %}
+
+
+{# ─── Modal: Nuevo template ──────────────────────────────── #}
+<div class="modal-backdrop" id="modal-nuevo" onclick="if(event.target===this)cerrarModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modal-title">Elegí el tipo de template</h2>
+      <button class="modal-close" onclick="cerrarModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="flash" class="flash-error" hidden></div>
+
+      {# Paso 1: elegir tipo #}
+      <div id="paso-tipo">
+        <div class="tipo-picker">
+          {% for tp in tipos %}
+          <div class="tipo-card" data-tipo="{{ tp.id }}" onclick="elegirTipo('{{ tp.id }}')">
+            <div class="tipo-card-icon">{{ tp.icon }}</div>
+            <div class="tipo-card-title">{{ tp.display }}</div>
+            <div class="tipo-card-desc">{{ tp.descripcion }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# Paso 2: form del tipo #}
+      <div id="paso-form" hidden>
+        <div class="form-grid">
+          <div class="form-row">
+            <div class="form-field">
+              <label>Nombre interno *</label>
+              <input type="text" id="f-name" placeholder="ej. bienvenida_propietario">
+              <div class="form-help">Snake_case, único. Lo verás solo vos, no el destinatario.</div>
+            </div>
+            <div class="form-field">
+              <label>Nombre visible *</label>
+              <input type="text" id="f-display" placeholder="ej. Bienvenida propietario">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-field">
+              <label>Idioma</label>
+              <select id="f-idioma">
+                <option value="es">Español</option>
+                <option value="es_CO">Español Colombia</option>
+                <option value="en">Inglés</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>Categoría Meta *</label>
+              <select id="f-categoria">
+                <option value="UTILITY">Utility (transaccional, $0.00024)</option>
+                <option value="MARKETING" selected>Marketing (promocional, $0.015)</option>
+                <option value="AUTHENTICATION">Authentication (OTPs)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label>Cuerpo del mensaje *</label>
+            <textarea id="f-body" placeholder="Hola {{'{{1}}'}}, ..."></textarea>
+            <div class="form-help">Usá <code>{{'{{1}}'}}, {{'{{2}}'}}</code>, etc. para variables dinámicas.
+              Markdown básico WhatsApp: <code>*negrita*</code>, <code>_cursiva_</code>.</div>
+          </div>
+
+          <div class="form-field">
+            <label>Variables</label>
+            <div class="var-list" id="var-list"></div>
+            <button type="button" class="add-var-btn" onclick="agregarVariable()">+ Agregar variable</button>
+          </div>
+
+          {# Paneles específicos por tipo #}
+          <div class="form-pane" id="pane-multimedia">
+            <div class="form-field">
+              <label>Tipo de header</label>
+              <select id="f-header-type">
+                <option value="image">Imagen</option>
+                <option value="video">Video</option>
+                <option value="document">Documento PDF</option>
+                <option value="location">Ubicación</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>URL del header</label>
+              <input type="text" id="f-header-url"
+                     placeholder="https://... o /static/images/...">
+              <div class="form-help">URL pública que Meta pueda descargar al enviar.</div>
+            </div>
+            <div class="form-field">
+              <label>Label (descripción interna)</label>
+              <input type="text" id="f-header-label" placeholder="ej. Video bienvenida 1 min">
+            </div>
+          </div>
+
+          <div class="form-pane" id="pane-botones">
+            <div class="form-field">
+              <label>Botones (hasta 2)</label>
+              <div class="btn-list" id="btn-list"></div>
+              <button type="button" class="add-var-btn" onclick="agregarBoton()"
+                      style="margin-top:8px">+ Agregar botón</button>
+            </div>
+          </div>
+
+          <div class="form-pane" id="pane-catalogo">
+            <div class="form-field">
+              <label>Catalog ID (Meta Commerce)</label>
+              <input type="text" id="f-catalog-id" placeholder="123456789">
+              <div class="form-help">ID del catálogo configurado en tu Meta Business.</div>
+            </div>
+            <div class="form-field">
+              <label>Tipo</label>
+              <select id="f-catalog-tipo">
+                <option value="single">Catálogo de producto único</option>
+                <option value="carousel">Carrusel (hasta 10 productos)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-field">
+              <label>Autor</label>
+              <select id="f-autor">
+                {% for a in autores %}
+                <option value="{{ a.id }}">{{ a.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label>Recomendación de uso (opcional)</label>
+              <input type="text" id="f-reco"
+                     placeholder="ej. Primer contacto propietarios">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn-secondary" id="btn-volver" onclick="volverAPaso1()" hidden>← Volver</button>
+      <div style="flex:1"></div>
+      <button class="btn-secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn-primary" id="btn-guardar" onclick="guardarTemplate()" hidden>Guardar borrador</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  var TOKEN = {{ token|tojson }};
+  var tipoSeleccionado = null;
+
+  function abrirNuevoTemplate() {
+    document.getElementById('modal-nuevo').classList.add('open');
+    volverAPaso1();
+  }
+
+  function cerrarModal() {
+    document.getElementById('modal-nuevo').classList.remove('open');
+  }
+
+  function volverAPaso1() {
+    tipoSeleccionado = null;
+    document.getElementById('modal-title').textContent = 'Elegí el tipo de template';
+    document.getElementById('paso-tipo').hidden = false;
+    document.getElementById('paso-form').hidden = true;
+    document.getElementById('btn-volver').hidden = true;
+    document.getElementById('btn-guardar').hidden = true;
+    document.getElementById('flash').hidden = true;
+    document.querySelectorAll('.tipo-card').forEach(function(c) {
+      c.classList.remove('selected');
+    });
+    // Limpiar form
+    ['f-name','f-display','f-body','f-header-url','f-header-label','f-catalog-id','f-reco'].forEach(function(id) {
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    document.getElementById('var-list').innerHTML = '';
+    document.getElementById('btn-list').innerHTML = '';
+  }
+
+  function elegirTipo(tipo) {
+    tipoSeleccionado = tipo;
+    document.querySelectorAll('.tipo-card').forEach(function(c) {
+      c.classList.toggle('selected', c.dataset.tipo === tipo);
+    });
+    // Pequeño delay visual
+    setTimeout(function() {
+      var titulos = {
+        texto: 'Nuevo template · Texto + variables',
+        multimedia: 'Nuevo template · Multimedia',
+        botones: 'Nuevo template · Interactivo con botones',
+        catalogo_carrusel: 'Nuevo template · Catálogo / Carrusel',
+      };
+      document.getElementById('modal-title').textContent = titulos[tipo] || 'Nuevo template';
+      document.getElementById('paso-tipo').hidden = true;
+      document.getElementById('paso-form').hidden = false;
+      document.getElementById('btn-volver').hidden = false;
+      document.getElementById('btn-guardar').hidden = false;
+
+      // Mostrar panel específico
+      document.querySelectorAll('.form-pane').forEach(function(p) { p.classList.remove('active'); });
+      if (tipo === 'multimedia') document.getElementById('pane-multimedia').classList.add('active');
+      if (tipo === 'botones') {
+        document.getElementById('pane-botones').classList.add('active');
+      }
+      if (tipo === 'catalogo_carrusel') {
+        document.getElementById('pane-catalogo').classList.add('active');
+        // Catálogo solo acepta MARKETING
+        var cat = document.getElementById('f-categoria');
+        cat.value = 'MARKETING';
+      }
+    }, 150);
+  }
+
+  // ----- Variables editor --------------------------------------------------
+  function agregarVariable() {
+    var list = document.getElementById('var-list');
+    var n = list.children.length + 1;
+    var row = document.createElement('div');
+    row.className = 'var-row';
+    row.innerHTML =
+      '<div class="num">{{"{{"}}' + n + '{{"}}"}}</div>' +
+      '<input type="text" placeholder="Label (ej. Nombre)" data-k="label">' +
+      '<input type="text" placeholder="Source (ej. propietario_nombre)" data-k="source">' +
+      '<input type="text" placeholder="Ejemplo (ej. María)" data-k="ejemplo">' +
+      '<button type="button" class="del-btn" onclick="this.closest(\'.var-row\').remove(); renumerarVars()">×</button>';
+    list.appendChild(row);
+  }
+  function renumerarVars() {
+    document.querySelectorAll('#var-list .var-row .num').forEach(function(el, i) {
+      el.textContent = '{{"{{"}}' + (i + 1) + '{{"}}"}}';
+    });
+  }
+
+  function recolectarVariables() {
+    var vars = [];
+    document.querySelectorAll('#var-list .var-row').forEach(function(row, i) {
+      var v = { id: String(i + 1) };
+      row.querySelectorAll('input').forEach(function(inp) {
+        v[inp.dataset.k] = inp.value.trim();
+      });
+      if (v.label) vars.push(v);
+    });
+    return vars;
+  }
+
+  // ----- Botones editor ----------------------------------------------------
+  function agregarBoton() {
+    var list = document.getElementById('btn-list');
+    if (list.children.length >= 2) {
+      alert('Máximo 2 botones por template.'); return;
+    }
+    var row = document.createElement('div');
+    row.className = 'btn-row';
+    row.innerHTML =
+      '<select data-k="type">' +
+      '<option value="url">Abrir URL</option>' +
+      '<option value="phone_number">Llamar</option>' +
+      '<option value="copy_code">Copiar código</option>' +
+      '<option value="quick_reply">Respuesta rápida</option>' +
+      '</select>' +
+      '<input type="text" placeholder="Texto del botón" data-k="label">' +
+      '<input type="text" placeholder="URL / número / código / payload" data-k="value">' +
+      '<button type="button" class="del-btn" onclick="this.closest(\'.btn-row\').remove()">×</button>';
+    list.appendChild(row);
+  }
+
+  function recolectarBotones() {
+    var btns = [];
+    document.querySelectorAll('#btn-list .btn-row').forEach(function(row) {
+      var b = {};
+      row.querySelectorAll('select, input').forEach(function(el) {
+        b[el.dataset.k] = el.value.trim();
+      });
+      if (b.label) btns.push(b);
+    });
+    return btns;
+  }
+
+  // ----- Guardar -----------------------------------------------------------
+  function guardarTemplate() {
+    var name = document.getElementById('f-name').value.trim().toLowerCase();
+    var display = document.getElementById('f-display').value.trim();
+    var body = document.getElementById('f-body').value.trim();
+    if (!name || !display || !body) {
+      flashError('Completá nombre, nombre visible y cuerpo.');
+      return;
+    }
+    if (!/^[a-z0-9_]+$/.test(name)) {
+      flashError('El nombre interno solo acepta minúsculas, dígitos y guión bajo.');
+      return;
+    }
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('name', name);
+    fd.append('display', display);
+    fd.append('idioma', document.getElementById('f-idioma').value);
+    fd.append('categoria', document.getElementById('f-categoria').value);
+    fd.append('tipo', tipoSeleccionado);
+    fd.append('body', body);
+    fd.append('autor', document.getElementById('f-autor').value);
+    fd.append('recomendacion', document.getElementById('f-reco').value.trim());
+    fd.append('variables', JSON.stringify(recolectarVariables()));
+
+    if (tipoSeleccionado === 'multimedia') {
+      var url = document.getElementById('f-header-url').value.trim();
+      if (url) {
+        fd.append('header', JSON.stringify({
+          type: document.getElementById('f-header-type').value,
+          url: url,
+          label: document.getElementById('f-header-label').value.trim()
+        }));
+      }
+    }
+    if (tipoSeleccionado === 'botones') {
+      fd.append('botones', JSON.stringify(recolectarBotones()));
+    }
+    if (tipoSeleccionado === 'catalogo_carrusel') {
+      fd.append('catalogo', JSON.stringify({
+        catalog_id: document.getElementById('f-catalog-id').value.trim(),
+        tipo: document.getElementById('f-catalog-tipo').value
+      }));
+    }
+
+    var btn = document.getElementById('btn-guardar');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+
+    fetch('/panel/petra/v2/templates/crear', { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (!ok) {
+          flashError(d.error || 'Error al guardar');
+          btn.disabled = false; btn.textContent = 'Guardar borrador';
+          return;
+        }
+        window.location.reload();
+      })
+      .catch(function() {
+        flashError('Error de red');
+        btn.disabled = false; btn.textContent = 'Guardar borrador';
+      });
+  }
+
+  function flashError(msg) {
+    var f = document.getElementById('flash');
+    f.textContent = msg; f.hidden = false;
+    f.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function eliminarTemplate(id, display) {
+    if (!confirm('¿Eliminar template "' + display + '"? Solo drafts se pueden borrar.')) return;
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fetch('/panel/petra/v2/templates/' + id + '/eliminar', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) window.location.reload();
+        else alert(d.error || 'Error al eliminar');
+      });
+  }
+</script>
+
+{% endblock %}
