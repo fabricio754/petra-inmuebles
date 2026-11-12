@@ -404,6 +404,8 @@
         {% if t.autor %}por {{ t.autor }}{% endif %}
       </div>
       <div class="tpl-card-btns">
+        <button class="mini-btn"
+                onclick="editarTemplate({{ t.id }})">Editar</button>
         {% if t.status == 'draft' %}
         <button class="mini-btn danger"
                 onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
@@ -601,6 +603,7 @@
 <script>
   var TOKEN = {{ token|tojson }};
   var tipoSeleccionado = null;
+  var editandoId = null;  // null = creando, number = editando
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
@@ -609,8 +612,77 @@
   }
 
   function abrirNuevoTemplate() {
+    editandoId = null;
     document.getElementById('modal-nuevo').classList.add('open');
     volverAPaso1();
+  }
+
+  function editarTemplate(id) {
+    fetch('/panel/petra/v2/templates/' + id + '/json?token=' + encodeURIComponent(TOKEN))
+      .then(function(r) { return r.json(); })
+      .then(function(t) {
+        if (t.error) { alert(t.error); return; }
+        document.getElementById('modal-nuevo').classList.add('open');
+        volverAPaso1();  // reset base (deja editandoId en null)
+        editandoId = id;  // marcamos edición DESPUÉS del reset
+        // Simular selección de tipo para mostrar el panel adecuado
+        elegirTipo(t.tipo);
+        setTimeout(function() { poblarForm(t); }, 200);
+      });
+  }
+
+  function poblarForm(t) {
+    document.getElementById('modal-title').textContent = 'Editar template · ' + t.display;
+    document.getElementById('f-name').value = t.name || '';
+    document.getElementById('f-name').disabled = true;  // no se cambia name en edit
+    document.getElementById('f-display').value = t.display || '';
+    document.getElementById('f-idioma').value = t.idioma || 'es';
+    document.getElementById('f-categoria').value = t.categoria || 'MARKETING';
+    document.getElementById('f-body').value = t.body || '';
+    document.getElementById('f-autor').value = t.autor || 'fabricio';
+    document.getElementById('f-reco').value = t.recomendacion || '';
+
+    // Variables
+    document.getElementById('var-list').innerHTML = '';
+    (t.variables || []).forEach(function(v) {
+      agregarVariable();
+      var last = document.querySelector('#var-list .var-row:last-child');
+      last.querySelector('[data-k="label"]').value = v.label || '';
+      last.querySelector('[data-k="source"]').value = v.source || '';
+      last.querySelector('[data-k="ejemplo"]').value = v.ejemplo || '';
+    });
+
+    // Según tipo
+    if (t.tipo === 'multimedia' && t.header) {
+      document.getElementById('f-header-type').value = t.header.type || 'image';
+      document.getElementById('f-header-url').value = t.header.url || '';
+      document.getElementById('f-header-label').value = t.header.label || '';
+    }
+    if (t.tipo === 'botones') {
+      document.getElementById('btn-list').innerHTML = '';
+      (t.botones || []).forEach(function(b) {
+        agregarBoton();
+        var last = document.querySelector('#btn-list .btn-row:last-child');
+        last.querySelector('[data-k="type"]').value = b.type || 'url';
+        last.querySelector('[data-k="label"]').value = b.label || '';
+        last.querySelector('[data-k="value"]').value = b.value || '';
+      });
+    }
+    if (t.tipo === 'catalogo_carrusel' && t.catalogo) {
+      document.getElementById('f-catalog-id').value = t.catalogo.catalog_id || '';
+      document.getElementById('f-catalog-parent').value = t.catalogo.body_parent || '';
+      document.getElementById('f-catalog-btn-type').value = t.catalogo.boton_tipo || 'url';
+      carouselState = {
+        cards: t.catalogo.cards || [],
+        parentBody: t.catalogo.body_parent || '',
+        catalogId: t.catalogo.catalog_id || '',
+        botonTipo: t.catalogo.boton_tipo || 'url',
+      };
+      renderCardsEditor();
+    }
+
+    document.getElementById('btn-guardar').textContent =
+      (t.status === 'aprobado') ? 'Guardar (vuelve a draft)' : 'Guardar cambios';
   }
 
   function cerrarModal() {
@@ -619,12 +691,15 @@
 
   function volverAPaso1() {
     tipoSeleccionado = null;
+    editandoId = null;
     document.getElementById('modal-title').textContent = 'Elegí el tipo de template';
     document.getElementById('paso-tipo').hidden = false;
     document.getElementById('paso-form').hidden = true;
     document.getElementById('btn-volver').hidden = true;
     document.getElementById('btn-guardar').hidden = true;
     document.getElementById('flash').hidden = true;
+    document.getElementById('f-name').disabled = false;
+    document.getElementById('btn-guardar').textContent = 'Guardar borrador';
     document.querySelectorAll('.tipo-card').forEach(function(c) {
       c.classList.remove('selected');
     });
@@ -986,22 +1061,27 @@
     }
 
     var btn = document.getElementById('btn-guardar');
+    var textoOriginal = btn.textContent;
     btn.disabled = true; btn.textContent = 'Guardando…';
 
-    fetch('/panel/petra/v2/templates/crear', { method: 'POST', body: fd })
+    var url = editandoId
+      ? '/panel/petra/v2/templates/' + editandoId + '/actualizar'
+      : '/panel/petra/v2/templates/crear';
+
+    fetch(url, { method: 'POST', body: fd })
       .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
       .then(function(pair) {
         var ok = pair[0], d = pair[1];
         if (!ok) {
           flashError(d.error || 'Error al guardar');
-          btn.disabled = false; btn.textContent = 'Guardar borrador';
+          btn.disabled = false; btn.textContent = textoOriginal;
           return;
         }
         window.location.reload();
       })
       .catch(function() {
         flashError('Error de red');
-        btn.disabled = false; btn.textContent = 'Guardar borrador';
+        btn.disabled = false; btn.textContent = textoOriginal;
       });
   }
 

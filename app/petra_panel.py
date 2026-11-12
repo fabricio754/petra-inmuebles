@@ -3621,6 +3621,52 @@ DIFUSION_AUTORES = [
 ]
 
 
+def _templates_para_campanas():
+    """Devuelve la lista de templates que Campañas puede ofrecer.
+
+    Toma los templates de la tabla campana_templates (editables por el
+    usuario) y les agrega el precio_usd derivado de la categoría. Si la
+    DB está vacía (todavía no hay templates creados), hace fallback a los
+    3 PETRA_TEMPLATES hardcoded para no romper el flujo inicial.
+    """
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo, "
+                "       recomendacion, autor "
+                "  FROM campana_templates "
+                " WHERE status IN ('draft','aprobado') "
+                " ORDER BY "
+                "   CASE status WHEN 'aprobado' THEN 0 ELSE 1 END, "
+                "   actualizado_en DESC")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] cargar templates para campañas")
+        rows = []
+
+    if not rows:
+        # Fallback: los 3 hardcoded como siempre.
+        return PETRA_TEMPLATES
+
+    result = []
+    for r in rows:
+        cat = r.get("categoria") or "MARKETING"
+        result.append({
+            "id": r.get("id"),
+            "name": r.get("name") or "",
+            "display": r.get("display") or "",
+            "category": cat,
+            "price_usd": _precio_por_categoria(cat),
+            "status": r.get("status") or "draft",
+            "body": r.get("body") or "",
+            "variables": r.get("variables") or [],
+            "header": r.get("header"),
+            "recomendacion": r.get("recomendacion") or "",
+        })
+    return result
+
+
 @petra_panel_bp.get("/v2/difusiones")
 def panel_v2_difusiones():
     """Panel v2: página de Difusiones (envíos masivos de templates WhatsApp)."""
@@ -3638,9 +3684,11 @@ def panel_v2_difusiones():
         import logging as _lg
         _lg.getLogger(__name__).exception("[panel_v2] difusiones query fallo")
 
+    templates = _templates_para_campanas()
+
     return render_template(
         "petra_panel_v2_difusiones.html",
-        token=token, conjuntos=conjuntos, templates=PETRA_TEMPLATES,
+        token=token, conjuntos=conjuntos, templates=templates,
         autores=DIFUSION_AUTORES,
     )
 
@@ -3709,10 +3757,40 @@ def panel_v2_difusiones_listado():
 
 
 def _tmpl_by_name(name):
+    """Busca un template por name (único). Primero en los hardcoded, después
+    en campana_templates. Normaliza el shape para que coincida con lo que
+    esperan _render_tmpl_body y los endpoints de muestra/confirmar.
+    """
+    name = (name or "").strip()
     for t in PETRA_TEMPLATES:
         if t["name"] == name:
             return t
-    return None
+    # Fallback a DB
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo, "
+                "       recomendacion "
+                "  FROM campana_templates WHERE name = %s LIMIT 1",
+                (name,))
+            if not rows:
+                return None
+            r = rows[0]
+            cat = r.get("categoria") or "MARKETING"
+            return {
+                "name": r.get("name") or "",
+                "display": r.get("display") or "",
+                "category": cat,
+                "price_usd": _precio_por_categoria(cat),
+                "status": r.get("status") or "draft",
+                "body": r.get("body") or "",
+                "variables": r.get("variables") or [],
+                "header": r.get("header"),
+                "recomendacion": r.get("recomendacion") or "",
+            }
+    except Exception:
+        return None
 
 
 def _var_value_for(inmueble, source, conjunto_nombre=""):
@@ -4015,9 +4093,52 @@ def panel_v2_templates_crear():
         return jsonify({"error": "db error", "detalle": str(e)}), 500
 
 
+# Precios Meta Colombia por categoría (USD por conversación 24h).
+# Usados para estimar costo en Campañas. Se mantienen acá hasta que el envío
+# real vía Meta devuelva el costo exacto por mensaje.
+_CATEGORIA_PRECIO_USD = {
+    "UTILITY": 0.00024,
+    "MARKETING": 0.015,
+    "AUTHENTICATION": 0.00924,
+}
+
+
+def _precio_por_categoria(categoria):
+    return _CATEGORIA_PRECIO_USD.get((categoria or "").upper(), 0.015)
+
+
+@petra_panel_bp.get("/v2/templates/<int:tid>/json")
+def panel_v2_templates_json(tid):
+    """Devuelve un template como JSON (para popular el editor en modo edición)."""
+    _check_token()
+    from flask import jsonify
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo, "
+                "       recomendacion, rechazo_motivo, autor, "
+                "       creado_en, actualizado_en "
+                "  FROM campana_templates "
+                " WHERE id = %s",
+                (tid,))
+            if not rows:
+                return jsonify({"error": "no encontrado"}), 404
+            return jsonify(_row_to_template(rows[0]))
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates json fallo")
+        return jsonify({"error": "db error"}), 500
+
+
 @petra_panel_bp.post("/v2/templates/<int:tid>/actualizar")
 def panel_v2_templates_actualizar(tid):
-    """Actualiza campos editables de un template existente."""
+    """Actualiza campos editables de un template existente.
+
+    Si el template estaba 'aprobado' por Meta, cualquier edición lo
+    devuelve a 'draft' porque el contenido ya no coincide con lo que
+    Meta aprobó. El usuario debe re-someter.
+    """
     _check_token()
     from flask import jsonify
     import json as _json
@@ -4039,25 +4160,36 @@ def panel_v2_templates_actualizar(tid):
     if not campos:
         return jsonify({"error": "nada para actualizar"}), 400
 
-    set_clauses = []
-    params = []
-    for k, v in campos.items():
-        if k in ("variables", "header", "botones", "catalogo"):
-            set_clauses.append(f"{k} = %s::jsonb")
-            params.append(_json.dumps(v) if v is not None else None)
-        else:
-            set_clauses.append(f"{k} = %s")
-            params.append(v)
-    set_clauses.append("actualizado_en = NOW()")
-    params.append(tid)
-
     try:
         with _db._conexion_directa(timeout=10) as conn:
+            # Si estaba aprobado, bajarlo a draft (contenido cambió).
+            row = conn.execute(
+                "SELECT status FROM campana_templates WHERE id = %s", (tid,),
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "no encontrado"}), 404
+            reset_status = (row[0] == "aprobado")
+
+            set_clauses = []
+            params = []
+            for k, v in campos.items():
+                if k in ("variables", "header", "botones", "catalogo"):
+                    set_clauses.append(f"{k} = %s::jsonb")
+                    params.append(_json.dumps(v) if v is not None else None)
+                else:
+                    set_clauses.append(f"{k} = %s")
+                    params.append(v)
+            if reset_status:
+                set_clauses.append("status = 'draft'")
+                set_clauses.append("rechazo_motivo = NULL")
+            set_clauses.append("actualizado_en = NOW()")
+            params.append(tid)
+
             conn.execute(
                 f"UPDATE campana_templates SET {', '.join(set_clauses)} WHERE id = %s",
                 tuple(params),
             )
-            return jsonify({"ok": True})
+            return jsonify({"ok": True, "reset_a_draft": reset_status})
     except Exception:
         import logging as _lg
         _lg.getLogger(__name__).exception("[panel_v2] templates actualizar fallo")
