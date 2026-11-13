@@ -548,6 +548,41 @@
   [data-theme="dark"] .live-bubble-btn {
     color: #53bdeb; border-top-color: #ffffff22;
   }
+
+  /* ─── Picker "Cambiar template" (Activados) ───────────── */
+  .picker-row {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; cursor: pointer;
+    transition: border-color 120ms, background 120ms;
+  }
+  .picker-row:hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+  }
+  .picker-row-head {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; margin-bottom: 4px;
+  }
+  .picker-row-title { font-weight: 600; font-size: 14px; }
+  .picker-row-chips { display: flex; gap: 5px; flex-shrink: 0; }
+  .picker-row-name {
+    font-family: ui-monospace, monospace; font-size: 11.5px;
+    color: var(--text-sub); margin-bottom: 6px;
+  }
+  .picker-row-body {
+    font-size: 12.5px; color: var(--text); line-height: 1.5;
+    white-space: pre-wrap; overflow: hidden; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+
+  /* Estética de inputs deshabilitados (modo Ver) */
+  #paso-form input:disabled,
+  #paso-form textarea:disabled,
+  #paso-form select:disabled {
+    opacity: 1; cursor: default;
+    background: var(--bg); color: var(--text);
+    border-color: var(--border); -webkit-text-fill-color: var(--text);
+  }
 </style>
 
 <div class="hero">
@@ -561,10 +596,11 @@
   <button class="cta" onclick="abrirNuevoTemplate()">+ Nuevo template</button>
 </div>
 
-{# Templates "activados": los que la UI de Petra dispara automáticamente. #}
-{% set t_bien = templates | selectattr('name', 'equalto', 'notificacion_publicacion_petra') | first | default(none) %}
-{% set t_serv = templates | selectattr('name', 'equalto', 'ofrecer_inmobiliaria_petra')    | first | default(none) %}
-{% set t_cred = templates | selectattr('name', 'equalto', 'ofrecer_credito_petra')         | first | default(none) %}
+{# Templates "activados": los que Petra dispara automáticamente.
+   Lookup slot → template_name viene de DB (template_slots). #}
+{% set t_bien = templates | selectattr('name', 'equalto', slots.get('bienvenida', '')) | first | default(none) %}
+{% set t_serv = templates | selectattr('name', 'equalto', slots.get('servicio', ''))    | first | default(none) %}
+{% set t_cred = templates | selectattr('name', 'equalto', slots.get('credito', ''))     | first | default(none) %}
 
 <div class="tabs">
   <button class="tab active" data-tab="activados" onclick="cambiarTab('activados')">
@@ -620,8 +656,8 @@
       </div>
       <div class="activ-actions">
         {% if t_bien %}
-        <button class="mini-btn" onclick="editarTemplate({{ t_bien.id }})">
-          Editar template
+        <button class="mini-btn" onclick="verTemplate({{ t_bien.id }})">
+          Ver
         </button>
         {% endif %}
         <button class="mini-btn" onclick="cambiarActivado('bienvenida')">
@@ -658,8 +694,8 @@
       </div>
       <div class="activ-actions">
         {% if t_serv %}
-        <button class="mini-btn" onclick="editarTemplate({{ t_serv.id }})">
-          Editar template
+        <button class="mini-btn" onclick="verTemplate({{ t_serv.id }})">
+          Ver
         </button>
         {% endif %}
         <button class="mini-btn" onclick="cambiarActivado('servicio')">
@@ -696,14 +732,38 @@
       </div>
       <div class="activ-actions">
         {% if t_cred %}
-        <button class="mini-btn" onclick="editarTemplate({{ t_cred.id }})">
-          Editar template
+        <button class="mini-btn" onclick="verTemplate({{ t_cred.id }})">
+          Ver
         </button>
         {% endif %}
         <button class="mini-btn" onclick="cambiarActivado('credito')">
           Cambiar
         </button>
       </div>
+    </div>
+  </div>
+</div>
+
+{# ─── Modal: picker "Cambiar template" (Activados) ─────────── #}
+<div class="modal-backdrop" id="modal-cambiar"
+     onclick="if(event.target===this)cerrarPicker()">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-head">
+      <h2 id="picker-title">Elegí el template</h2>
+      <button class="modal-close" onclick="cerrarPicker()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="picker-flash" class="flash-error" hidden></div>
+      <p style="color:var(--text-sub);font-size:13px;margin:0 0 16px;">
+        Elegí qué template se dispara en este momento automático. Solo listamos
+        los <strong>aprobados por Meta</strong> y los <strong>borradores locales</strong>
+        que coinciden con la misma categoría.
+      </p>
+      <div id="picker-loading" class="empty-state" style="padding:30px 20px;">
+        <div class="icon">⏳</div>
+        <h3 style="margin:8px 0 0;">Cargando templates…</h3>
+      </div>
+      <div id="picker-list" style="display:none;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto;"></div>
     </div>
   </div>
 </div>
@@ -968,6 +1028,21 @@
   var TOKEN = {{ token|tojson }};
   var tipoSeleccionado = null;
   var editandoId = null;  // null = creando, number = editando
+  var modoVer = false;    // true = modal abierto en modo lectura (Activados → Ver)
+
+  // Lista mínima de templates locales para el picker de Activados.
+  var LOCAL_TEMPLATES = [
+    {% for t in templates %}
+    { name: {{ t.name|tojson }},
+      display: {{ t.display|tojson }},
+      tipo: {{ t.tipo|tojson }},
+      categoria: {{ t.categoria|tojson }},
+      status: {{ t.status|tojson }},
+      body: {{ (t.body or '')|tojson }} }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+  // Slot actual que se está cambiando (string: 'bienvenida' | 'servicio' | 'credito').
+  var slotEnEdicion = null;
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
@@ -1097,15 +1172,142 @@
     return mins + ' min';
   }
 
+  // ----- Activados · Ver template (read-only) ------------------------------
+  function verTemplate(id) {
+    modoVer = true;
+    editarTemplate(id);
+    // Después de que poblarForm termine, bloquear inputs.
+    setTimeout(function() {
+      bloquearFormulario();
+      var mt = document.getElementById('modal-title');
+      mt.textContent = mt.textContent.replace(/^Editar/, 'Ver');
+      document.getElementById('btn-guardar').hidden = true;
+    }, 260);
+  }
+
+  function bloquearFormulario() {
+    var pf = document.getElementById('paso-form');
+    pf.querySelectorAll('input, textarea, select').forEach(function(el) {
+      el.disabled = true;
+    });
+    // Ocultar botones de agregar/eliminar
+    pf.querySelectorAll('.add-var-btn, .del-btn, #btn-add-card')
+      .forEach(function(el) { el.style.display = 'none'; });
+  }
+
+  // ----- Activados · Cambiar template (picker) -----------------------------
+  var ACTIV_NOMBRE = {
+    bienvenida: 'Bienvenida',
+    servicio:   'Servicio',
+    credito:    'Crédito'
+  };
+
   function cambiarActivado(slot) {
-    var nombres = {
-      bienvenida: 'Bienvenida',
-      servicio:   'Servicio',
-      credito:    'Crédito'
-    };
-    alert('Cambiar el template de "' + (nombres[slot] || slot) + '" ' +
-          'estará disponible pronto.\n\nPor ahora podés editar el template ' +
-          'actual con el botón de al lado.');
+    slotEnEdicion = slot;
+    document.getElementById('picker-title').textContent =
+      'Elegí el template para ' + (ACTIV_NOMBRE[slot] || slot);
+    document.getElementById('picker-flash').hidden = true;
+    document.getElementById('modal-cambiar').classList.add('open');
+    document.getElementById('picker-loading').hidden = false;
+    var list = document.getElementById('picker-list');
+    list.style.display = 'none';
+    list.innerHTML = '';
+
+    // Fetchear templates aprobados de Meta
+    var url = '/panel/petra/v2/templates/meta?token=' + encodeURIComponent(TOKEN);
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var meta = (d.templates || []).filter(function(t) {
+          return (t.status || '').toLowerCase() === 'approved';
+        });
+        renderPickerList(meta);
+      })
+      .catch(function(_err) {
+        renderPickerList([]);  // seguimos solo con locales
+      });
+  }
+
+  function cerrarPicker() {
+    document.getElementById('modal-cambiar').classList.remove('open');
+    slotEnEdicion = null;
+  }
+
+  function renderPickerList(metaTpls) {
+    document.getElementById('picker-loading').hidden = true;
+    var list = document.getElementById('picker-list');
+    list.style.display = 'flex';
+
+    // Agrupamos: Meta primero (aprobados), luego borradores locales.
+    var items = [];
+    metaTpls.forEach(function(t) { items.push({ _origen: 'meta', data: t }); });
+    LOCAL_TEMPLATES.forEach(function(t) { items.push({ _origen: 'local', data: t }); });
+
+    if (!items.length) {
+      list.innerHTML =
+        '<div class="empty-state" style="padding:30px 20px;">' +
+        '<div class="icon">📭</div>' +
+        '<h3 style="margin:8px 0 0;">No hay templates disponibles</h3>' +
+        '<p>Creá uno en la pestaña Borradores o pedí aprobación a Meta.</p>' +
+        '</div>';
+      return;
+    }
+
+    items.forEach(function(it) {
+      var t = it.data;
+      var row = document.createElement('div');
+      row.className = 'picker-row';
+      row.onclick = function() { asignarTemplate(t.name, it._origen); };
+      var tagHtml = it._origen === 'meta'
+        ? '<span class="chip chip-aprobado">META APPROVED</span>'
+        : '<span class="chip chip-' + (t.status || 'draft').toLowerCase() + '">' +
+          (t.status || 'draft') + '</span>';
+      var catHtml = '<span class="chip chip-' + (t.categoria || '').toLowerCase() + '">' +
+          escapeHtml(t.categoria || '') + '</span>';
+      var bodyPrev = (t.body || '').slice(0, 140);
+      row.innerHTML =
+        '<div class="picker-row-head">' +
+          '<div class="picker-row-title">' + escapeHtml(t.display || t.name) + '</div>' +
+          '<div class="picker-row-chips">' + tagHtml + catHtml + '</div>' +
+        '</div>' +
+        '<div class="picker-row-name">' + escapeHtml(t.name) + '</div>' +
+        '<div class="picker-row-body">' + escapeHtml(bodyPrev) + '</div>';
+      list.appendChild(row);
+    });
+  }
+
+  function asignarTemplate(templateName, origen) {
+    var slot = slotEnEdicion;
+    if (!slot) return;
+    var flash = document.getElementById('picker-flash');
+    flash.hidden = true;
+
+    // Si es Meta pero no existe local, avisamos que primero hay que crearlo acá.
+    var existeLocal = LOCAL_TEMPLATES.some(function(t) { return t.name === templateName; });
+    if (origen === 'meta' && !existeLocal) {
+      flash.textContent = 'Ese template está aprobado en Meta pero no tiene ' +
+        'borrador local. Importalo primero en Borradores y volvé a probar.';
+      flash.hidden = false;
+      return;
+    }
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('template_name', templateName);
+    fetch('/panel/petra/v2/activados/' + encodeURIComponent(slot),
+          { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (ok) { window.location.reload(); }
+        else {
+          flash.textContent = 'Error: ' + (d.error || JSON.stringify(d));
+          flash.hidden = false;
+        }
+      })
+      .catch(function(err) {
+        flash.textContent = 'Error de red: ' + err; flash.hidden = false;
+      });
   }
 
   function editarTemplate(id) {
@@ -1184,6 +1386,7 @@
   function volverAPaso1() {
     tipoSeleccionado = null;
     editandoId = null;
+    modoVer = false;
     document.getElementById('modal-title').textContent = 'Elegí el tipo de template';
     document.getElementById('paso-tipo').hidden = false;
     document.getElementById('paso-form').hidden = true;
@@ -1192,6 +1395,11 @@
     document.getElementById('flash').hidden = true;
     document.getElementById('f-name').disabled = false;
     document.getElementById('btn-guardar').textContent = 'Guardar borrador';
+    // Reactivar inputs (en caso de venir de modo Ver)
+    document.querySelectorAll('#paso-form input, #paso-form textarea, #paso-form select')
+      .forEach(function(el) { if (el.id !== 'f-name') el.disabled = false; });
+    document.querySelectorAll('#paso-form .add-var-btn, #paso-form .del-btn, #btn-add-card')
+      .forEach(function(el) { el.style.display = ''; });
     document.querySelectorAll('.tipo-card').forEach(function(c) {
       c.classList.remove('selected');
     });

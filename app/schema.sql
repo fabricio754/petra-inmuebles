@@ -2389,3 +2389,16 @@ CREATE TABLE IF NOT EXISTS waba_conectadas (
 );
 CREATE INDEX IF NOT EXISTS waba_conectadas_waba_id_idx
   ON waba_conectadas(waba_id);
+
+
+-- ============================================================================
+-- Asignación slot → template para la pestaña "Activados" del panel.
+-- Permite que el usuario cambie, sin tocar código, qué template se dispara
+-- en cada momento automático (bienvenida / servicio / crédito).
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS template_slots (
+  slot            TEXT PRIMARY KEY,
+  template_name   TEXT NOT NULL,
+  actualizado_en  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  actualizado_por TEXT
+);

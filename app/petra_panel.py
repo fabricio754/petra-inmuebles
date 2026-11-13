@@ -4208,6 +4208,49 @@ def panel_v2_numeros_eliminar(nid):
         return jsonify({"error": "db_error"}), 500
 
 
+# Asignación default slot → template_name para la pestaña Activados.
+# Se siembra una sola vez (si la tabla template_slots está vacía) para
+# arrancar con los 3 templates que teníamos hardcoded.
+_SLOTS_DEFAULT = {
+    "bienvenida": "notificacion_publicacion_petra",
+    "servicio":   "ofrecer_inmobiliaria_petra",
+    "credito":    "ofrecer_credito_petra",
+}
+
+
+def _seed_slots_si_vacio():
+    """Inserta la asignación default de slots si template_slots está vacía."""
+    import logging as _lg
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM template_slots").fetchone()
+            if ((row[0] if row else 0) or 0) > 0:
+                return
+            for slot, name in _SLOTS_DEFAULT.items():
+                conn.execute(
+                    "INSERT INTO template_slots (slot, template_name, actualizado_por) "
+                    "VALUES (%s, %s, %s) ON CONFLICT (slot) DO NOTHING",
+                    (slot, name, "petra"),
+                )
+            _lg.getLogger(__name__).info("[seed] template_slots seeded")
+    except Exception:
+        _lg.getLogger(__name__).exception("[seed] template_slots fallo")
+
+
+def _leer_slots():
+    """Devuelve {slot: template_name} para los 3 slots de Activados."""
+    out = dict(_SLOTS_DEFAULT)  # fallback si la DB falla
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            cur = conn.execute("SELECT slot, template_name FROM template_slots")
+            for slot, name in cur.fetchall():
+                out[slot] = name
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[slots] leer fallo")
+    return out
+
+
 @petra_panel_bp.get("/v2/templates")
 def panel_v2_templates():
     """Panel v2: página de Templates (editor de plantillas WhatsApp)."""
@@ -4216,6 +4259,7 @@ def panel_v2_templates():
 
     # Primera visita: sembrar los 3 defaults si la tabla está vacía.
     _seed_templates_si_vacio()
+    _seed_slots_si_vacio()
 
     templates_db = []
     try:
@@ -4232,6 +4276,7 @@ def panel_v2_templates():
         _lg.getLogger(__name__).exception("[panel_v2] templates query fallo")
 
     templates = [_row_to_template(r) for r in templates_db]
+    slots = _leer_slots()
 
     return render_template(
         "petra_panel_v2_templates.html",
@@ -4239,7 +4284,54 @@ def panel_v2_templates():
         templates=templates,
         tipos=TEMPLATE_TIPOS,
         autores=DIFUSION_AUTORES,
+        slots=slots,
     )
+
+
+@petra_panel_bp.post("/v2/activados/<slot>")
+def panel_v2_activados_set(slot):
+    """Cambia qué template está asignado a un slot de Activados.
+
+    Body (form): template_name = nombre interno (unique en campana_templates).
+    Valida que el template exista localmente antes de guardar.
+    """
+    _check_token()
+    from flask import jsonify
+
+    slot = (slot or "").strip().lower()
+    if slot not in _SLOTS_DEFAULT:
+        return jsonify({"error": "slot_invalido",
+                        "permitidos": list(_SLOTS_DEFAULT.keys())}), 400
+
+    tmpl_name = (request.form.get("template_name") or "").strip()
+    if not tmpl_name:
+        return jsonify({"error": "falta template_name"}), 400
+
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            # Solo persistimos nombres de templates que existan en nuestra DB.
+            row = conn.execute(
+                "SELECT 1 FROM campana_templates WHERE name = %s",
+                (tmpl_name,),
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "template_no_encontrado",
+                                "template_name": tmpl_name}), 404
+            conn.execute(
+                "INSERT INTO template_slots (slot, template_name, actualizado_por) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (slot) DO UPDATE SET "
+                "   template_name = EXCLUDED.template_name, "
+                "   actualizado_en = NOW(), "
+                "   actualizado_por = EXCLUDED.actualizado_por",
+                (slot, tmpl_name, "fabricio"),
+            )
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[activados] set fallo")
+        return jsonify({"error": "db_error"}), 500
+
+    return jsonify({"ok": True, "slot": slot, "template_name": tmpl_name})
 
 
 @petra_panel_bp.post("/v2/templates/crear")
