@@ -121,6 +121,75 @@
   .empty-state .icon { font-size: 44px; margin-bottom: 10px; opacity: 0.6; }
   .empty-state h3 { margin: 0 0 6px; color: var(--text); font-size: 16px; font-weight: 600; }
 
+  /* ─── Activados ─────────────────────────────────────── */
+  .activ-intro {
+    color: var(--text-sub); font-size: 13px; line-height: 1.6;
+    margin-bottom: 18px; max-width: 72ch;
+  }
+  .activ-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .activ-card {
+    position: relative; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 20px; display: flex; flex-direction: column; gap: 12px;
+    transition: border-color 150ms, transform 150ms;
+  }
+  .activ-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .activ-card-head {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .activ-icon {
+    width: 48px; height: 48px; border-radius: 14px;
+    display: grid; place-items: center; font-size: 24px; flex-shrink: 0;
+  }
+  .activ-icon.bienvenida { background: #e3f2d9; }
+  .activ-icon.servicio { background: #fde6dd; }
+  .activ-icon.credito { background: #d8e4f3; }
+  [data-theme="dark"] .activ-icon.bienvenida { background: #2a3d1e; }
+  [data-theme="dark"] .activ-icon.servicio { background: #3d2820; }
+  [data-theme="dark"] .activ-icon.credito { background: #1f3147; }
+  .activ-title { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: -0.2px; }
+  .activ-sub {
+    font-size: 11.5px; color: var(--text-sub); margin-top: 2px;
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500;
+  }
+  .activ-trigger {
+    font-size: 12.5px; color: var(--text-sub); line-height: 1.55;
+    padding: 10px 12px; background: var(--bg); border-radius: 8px;
+    border-left: 3px solid var(--border);
+  }
+  .activ-trigger strong { color: var(--text); font-weight: 600; }
+  .activ-link {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; background: var(--bg); border-radius: 8px;
+    gap: 10px; min-height: 42px;
+  }
+  .activ-link-info { min-width: 0; flex: 1; }
+  .activ-link-label { font-size: 10.5px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+    margin-bottom: 2px; }
+  .activ-link-value {
+    font-size: 13px; font-weight: 500; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .activ-link-none { color: var(--text-sub); font-style: italic; }
+  .activ-status {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    background: #e3f2d9; color: #4b7a3a;
+  }
+  .activ-status.pausado { background: var(--border); color: var(--text-sub); }
+  .activ-status .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  }
+  .activ-actions {
+    display: flex; gap: 6px; justify-content: flex-end;
+    margin-top: auto; padding-top: 4px;
+  }
+
   /* Modal */
   .modal-backdrop {
     position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -417,8 +486,16 @@
   <button class="cta" onclick="abrirNuevoTemplate()">+ Nuevo template</button>
 </div>
 
+{# Templates "activados": los que la UI de Petra dispara automáticamente. #}
+{% set t_bien = templates | selectattr('name', 'equalto', 'notificacion_publicacion_petra') | first | default(none) %}
+{% set t_serv = templates | selectattr('name', 'equalto', 'ofrecer_inmobiliaria_petra')    | first | default(none) %}
+{% set t_cred = templates | selectattr('name', 'equalto', 'ofrecer_credito_petra')         | first | default(none) %}
+
 <div class="tabs">
-  <button class="tab active" data-tab="borradores" onclick="cambiarTab('borradores')">
+  <button class="tab active" data-tab="activados" onclick="cambiarTab('activados')">
+    ⚡ Activados <span class="tab-count">(3)</span>
+  </button>
+  <button class="tab" data-tab="borradores" onclick="cambiarTab('borradores')">
     📋 Borradores <span class="tab-count">({{ templates|length }})</span>
   </button>
   <button class="tab" data-tab="meta" onclick="cambiarTab('meta')">
@@ -431,8 +508,133 @@
   </div>
 </div>
 
+{# ─── Tab Activados ────────────────────────────────────────── #}
+<div class="tab-pane active" data-pane="activados">
+  <p class="activ-intro">
+    Cada tarjeta es un momento en el que Petra envía un mensaje automático.
+    El template elegido acá es el que se dispara. Cambialo cuando quieras probar
+    algo nuevo.
+  </p>
+
+  <div class="activ-grid">
+    {# ── 1. Bienvenida ─────────────────────── #}
+    <div class="activ-card">
+      <div class="activ-card-head">
+        <div class="activ-icon bienvenida">👋</div>
+        <div>
+          <h3 class="activ-title">Bienvenida</h3>
+          <div class="activ-sub">Utility · auto</div>
+        </div>
+        <span class="activ-status" style="margin-left:auto;">
+          <span class="dot"></span>Activo
+        </span>
+      </div>
+      <div class="activ-trigger">
+        Se dispara cuando <strong>cargamos un inmueble nuevo</strong> en un
+        conjunto que acaba de instalar el QR. Le avisa al anunciante que su
+        publicación está lista.
+      </div>
+      <div class="activ-link">
+        <div class="activ-link-info">
+          <div class="activ-link-label">Template actual</div>
+          <div class="activ-link-value">
+            {% if t_bien %}{{ t_bien.display }}
+            {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="activ-actions">
+        {% if t_bien %}
+        <button class="mini-btn" onclick="editarTemplate({{ t_bien.id }})">
+          Editar template
+        </button>
+        {% endif %}
+        <button class="mini-btn" onclick="cambiarActivado('bienvenida')">
+          Cambiar
+        </button>
+      </div>
+    </div>
+
+    {# ── 2. Servicio ──────────────────────── #}
+    <div class="activ-card">
+      <div class="activ-card-head">
+        <div class="activ-icon servicio">🏠</div>
+        <div>
+          <h3 class="activ-title">Servicio</h3>
+          <div class="activ-sub">Marketing · auto</div>
+        </div>
+        <span class="activ-status" style="margin-left:auto;">
+          <span class="dot"></span>Activo
+        </span>
+      </div>
+      <div class="activ-trigger">
+        Cuando un anunciante responde la bienvenida, le ofrecemos el
+        <strong>servicio inmobiliario</strong> de Petra para ayudarlo a cerrar
+        la venta o el arriendo.
+      </div>
+      <div class="activ-link">
+        <div class="activ-link-info">
+          <div class="activ-link-label">Template actual</div>
+          <div class="activ-link-value">
+            {% if t_serv %}{{ t_serv.display }}
+            {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="activ-actions">
+        {% if t_serv %}
+        <button class="mini-btn" onclick="editarTemplate({{ t_serv.id }})">
+          Editar template
+        </button>
+        {% endif %}
+        <button class="mini-btn" onclick="cambiarActivado('servicio')">
+          Cambiar
+        </button>
+      </div>
+    </div>
+
+    {# ── 3. Crédito ───────────────────────── #}
+    <div class="activ-card">
+      <div class="activ-card-head">
+        <div class="activ-icon credito">💳</div>
+        <div>
+          <h3 class="activ-title">Crédito</h3>
+          <div class="activ-sub">Marketing · auto</div>
+        </div>
+        <span class="activ-status" style="margin-left:auto;">
+          <span class="dot"></span>Activo
+        </span>
+      </div>
+      <div class="activ-trigger">
+        A los compradores interesados les ofrecemos un
+        <strong>aliado de crédito hipotecario</strong> para ayudarlos a cerrar
+        la compra.
+      </div>
+      <div class="activ-link">
+        <div class="activ-link-info">
+          <div class="activ-link-label">Template actual</div>
+          <div class="activ-link-value">
+            {% if t_cred %}{{ t_cred.display }}
+            {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="activ-actions">
+        {% if t_cred %}
+        <button class="mini-btn" onclick="editarTemplate({{ t_cred.id }})">
+          Editar template
+        </button>
+        {% endif %}
+        <button class="mini-btn" onclick="cambiarActivado('credito')">
+          Cambiar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {# ─── Tab Borradores ───────────────────────────────────────── #}
-<div class="tab-pane active" data-pane="borradores">
+<div class="tab-pane" data-pane="borradores">
   {% if templates %}
   <div class="tpls-grid">
     {% for t in templates %}
@@ -799,6 +1001,17 @@
     if (mins < 1) return 'ahora mismo';
     if (mins === 1) return '1 min';
     return mins + ' min';
+  }
+
+  function cambiarActivado(slot) {
+    var nombres = {
+      bienvenida: 'Bienvenida',
+      servicio:   'Servicio',
+      credito:    'Crédito'
+    };
+    alert('Cambiar el template de "' + (nombres[slot] || slot) + '" ' +
+          'estará disponible pronto.\n\nPor ahora podés editar el template ' +
+          'actual con el botón de al lado.');
   }
 
   function editarTemplate(id) {
