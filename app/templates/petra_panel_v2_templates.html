@@ -14,6 +14,47 @@
   }
   .hero .cta:hover { opacity: 0.92; }
 
+  .tabs {
+    display: flex; align-items: center; gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 18px; position: relative;
+  }
+  .tab {
+    background: transparent; border: 0; padding: 10px 16px;
+    font-size: 13.5px; font-weight: 500; color: var(--text-sub);
+    cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; font-family: inherit;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+  }
+  .tab-count {
+    font-size: 11.5px; color: var(--text-sub); margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tab.active .tab-count { color: var(--accent); }
+  .tabs-right { margin-left: auto; padding-bottom: 6px; }
+  .btn-sync {
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text-sub); font-size: 12px; padding: 6px 12px;
+    border-radius: 6px; cursor: pointer; font-family: inherit;
+  }
+  .btn-sync:hover { color: var(--accent); border-color: var(--accent); }
+  .btn-sync:disabled { opacity: 0.5; cursor: wait; }
+
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  .chip-approved { background: #e3f2d9; color: #4b7a3a; }
+  .chip-pending { background: #fdf2d4; color: #8c6a1c; }
+  .chip-rejected { background: #faeae5; color: #a8422d; }
+  .chip-paused { background: #e8e6df; color: #6b6659; }
+
+  .meta-last-sync {
+    font-size: 11.5px; color: var(--text-sub); margin-bottom: 12px;
+  }
+
   .tpls-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 14px;
@@ -369,59 +410,86 @@
   <div>
     <h1>Templates</h1>
     <div class="sub">
-      Editor de plantillas WhatsApp. Creá los templates que usarás en Campañas
-      y sometelos a Meta cuando estén listos.
+      Editor de plantillas WhatsApp. Trabajá borradores en local y mirá
+      los que ya están aprobados por Meta.
     </div>
   </div>
   <button class="cta" onclick="abrirNuevoTemplate()">+ Nuevo template</button>
 </div>
 
-{% if templates %}
-<div class="tpls-grid">
-  {% for t in templates %}
-  <div class="tpl-card">
-    <div class="tpl-card-head">
-      <div class="tpl-card-icon">
-        {% if t.tipo == 'texto' %}✉️
-        {% elif t.tipo == 'multimedia' %}🎬
-        {% elif t.tipo == 'botones' %}🔘
-        {% elif t.tipo == 'catalogo_carrusel' %}🛒
-        {% else %}📝{% endif %}
-      </div>
-      <div style="flex:1; min-width:0;">
-        <h3 class="tpl-card-title">{{ t.display }}</h3>
-        <div class="tpl-card-name">{{ t.name }} · {{ t.idioma }}</div>
-      </div>
-    </div>
-    <div class="tpl-card-chips">
-      <span class="chip chip-{{ t.categoria|lower }}">{{ t.categoria }}</span>
-      <span class="chip chip-{{ t.status|lower }}">{{ t.status }}</span>
-      <span class="chip chip-tipo">{{ t.tipo }}</span>
-    </div>
-    <div class="tpl-card-body">{{ t.body }}</div>
-    <div class="tpl-card-actions">
-      <div class="tpl-card-meta">
-        {% if t.autor %}por {{ t.autor }}{% endif %}
-      </div>
-      <div class="tpl-card-btns">
-        <button class="mini-btn"
-                onclick="editarTemplate({{ t.id }})">Editar</button>
-        {% if t.status == 'draft' %}
-        <button class="mini-btn danger"
-                onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
-        {% endif %}
-      </div>
-    </div>
+<div class="tabs">
+  <button class="tab active" data-tab="borradores" onclick="cambiarTab('borradores')">
+    📋 Borradores <span class="tab-count">({{ templates|length }})</span>
+  </button>
+  <button class="tab" data-tab="meta" onclick="cambiarTab('meta')">
+    ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
+  </button>
+  <div class="tabs-right">
+    <button class="btn-sync" id="btn-sync" onclick="sincronizarMeta(true)" hidden>
+      🔄 Sincronizar con Meta
+    </button>
   </div>
-  {% endfor %}
 </div>
-{% else %}
-<div class="empty-state">
-  <div class="icon">📝</div>
-  <h3>No hay templates todavía</h3>
-  <p>Creá el primero para arrancar.</p>
+
+{# ─── Tab Borradores ───────────────────────────────────────── #}
+<div class="tab-pane active" data-pane="borradores">
+  {% if templates %}
+  <div class="tpls-grid">
+    {% for t in templates %}
+    <div class="tpl-card">
+      <div class="tpl-card-head">
+        <div class="tpl-card-icon">
+          {% if t.tipo == 'texto' %}✉️
+          {% elif t.tipo == 'multimedia' %}🎬
+          {% elif t.tipo == 'botones' %}🔘
+          {% elif t.tipo == 'catalogo_carrusel' %}🛒
+          {% else %}📝{% endif %}
+        </div>
+        <div style="flex:1; min-width:0;">
+          <h3 class="tpl-card-title">{{ t.display }}</h3>
+          <div class="tpl-card-name">{{ t.name }} · {{ t.idioma }}</div>
+        </div>
+      </div>
+      <div class="tpl-card-chips">
+        <span class="chip chip-{{ t.categoria|lower }}">{{ t.categoria }}</span>
+        <span class="chip chip-{{ t.status|lower }}">{{ t.status }}</span>
+        <span class="chip chip-tipo">{{ t.tipo }}</span>
+      </div>
+      <div class="tpl-card-body">{{ t.body }}</div>
+      <div class="tpl-card-actions">
+        <div class="tpl-card-meta">
+          {% if t.autor %}por {{ t.autor }}{% endif %}
+        </div>
+        <div class="tpl-card-btns">
+          <button class="mini-btn"
+                  onclick="editarTemplate({{ t.id }})">Editar</button>
+          {% if t.status == 'draft' %}
+          <button class="mini-btn danger"
+                  onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="icon">📝</div>
+    <h3>No hay templates todavía</h3>
+    <p>Creá el primero para arrancar.</p>
+  </div>
+  {% endif %}
 </div>
-{% endif %}
+
+{# ─── Tab Aprobados Meta ───────────────────────────────────── #}
+<div class="tab-pane" data-pane="meta">
+  <div id="meta-loading" class="empty-state">
+    <div class="icon">⏳</div>
+    <h3>Cargando templates desde Meta…</h3>
+  </div>
+  <div id="meta-error" class="empty-state" hidden></div>
+  <div id="meta-grid" class="tpls-grid" hidden></div>
+</div>
 
 
 {# ─── Modal: Nuevo template ──────────────────────────────── #}
@@ -615,6 +683,122 @@
     editandoId = null;
     document.getElementById('modal-nuevo').classList.add('open');
     volverAPaso1();
+  }
+
+  // ----- Tabs y Meta ------------------------------------------------------
+  var metaCargado = false;
+  function cambiarTab(tab) {
+    document.querySelectorAll('.tab').forEach(function(t) {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    document.querySelectorAll('.tab-pane').forEach(function(p) {
+      p.classList.toggle('active', p.dataset.pane === tab);
+    });
+    document.getElementById('btn-sync').hidden = (tab !== 'meta');
+    if (tab === 'meta' && !metaCargado) {
+      sincronizarMeta(false);
+    }
+  }
+
+  function sincronizarMeta(force) {
+    var btn = document.getElementById('btn-sync');
+    btn.disabled = true; btn.textContent = '⏳ Sincronizando…';
+    document.getElementById('meta-loading').hidden = false;
+    document.getElementById('meta-error').hidden = true;
+    document.getElementById('meta-grid').hidden = true;
+
+    var url = '/panel/petra/v2/templates/meta?token=' + encodeURIComponent(TOKEN) +
+              (force ? '&force=1' : '');
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        metaCargado = true;
+        document.getElementById('meta-loading').hidden = true;
+        btn.disabled = false; btn.textContent = '🔄 Sincronizar con Meta';
+
+        if (d.error) {
+          renderMetaError(d.error);
+          document.getElementById('tab-meta-count').textContent = '(!)';
+          return;
+        }
+        var lista = d.templates || [];
+        document.getElementById('tab-meta-count').textContent = '(' + lista.length + ')';
+        renderMetaGrid(lista, d.fetched_at);
+      })
+      .catch(function() {
+        document.getElementById('meta-loading').hidden = true;
+        btn.disabled = false; btn.textContent = '🔄 Sincronizar con Meta';
+        renderMetaError('red');
+      });
+  }
+
+  function renderMetaError(code) {
+    var box = document.getElementById('meta-error');
+    box.hidden = false;
+    var titulos = {
+      'falta_env:META_ACCESS_TOKEN': ['🔑', 'Falta el token de Meta',
+        'Pediste traer templates de Meta pero no está configurado META_ACCESS_TOKEN en Render.'],
+      'falta_env:META_WABA_ID': ['🔑', 'Falta el WABA ID',
+        'Agregá la env var META_WABA_ID en Render con el ID de tu WhatsApp Business Account.'],
+      'token_invalido': ['🚫', 'Token inválido',
+        'Meta devolvió 401. Revisá que META_ACCESS_TOKEN esté vigente.'],
+      'sin_permiso_waba': ['🚫', 'Sin permiso sobre la WABA',
+        'Meta devolvió 403. El token no tiene permisos sobre META_WABA_ID.'],
+      'red': ['📡', 'Error de red', 'No se pudo contactar Meta.'],
+    };
+    var t = titulos[code] || ['⚠', 'Error inesperado', 'Código: ' + escapeHtml(code)];
+    box.innerHTML =
+      '<div class="icon">' + t[0] + '</div>' +
+      '<h3>' + escapeHtml(t[1]) + '</h3>' +
+      '<p>' + escapeHtml(t[2]) + '</p>';
+  }
+
+  function renderMetaGrid(lista, fetchedAt) {
+    var grid = document.getElementById('meta-grid');
+    grid.hidden = false;
+    if (!lista.length) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1">' +
+        '<div class="icon">📭</div>' +
+        '<h3>No hay templates en Meta todavía</h3>' +
+        '<p>Someté el primero desde Business Manager o desde acá cuando habilitemos Camino B.</p>' +
+        '</div>';
+      return;
+    }
+    var when = fetchedAt
+      ? '<div class="meta-last-sync">Sincronizado hace ' + minutesAgo(fetchedAt) + ' · cache 5min</div>'
+      : '';
+    grid.innerHTML = when + lista.map(function(t) {
+      var iconByTipo = {
+        texto: '✉️', multimedia: '🎬', botones: '🔘', catalogo_carrusel: '🛒'
+      };
+      var icon = iconByTipo[t.tipo] || '📝';
+      var bodyPrev = (t.body || '').slice(0, 220);
+      return '<div class="tpl-card">' +
+        '<div class="tpl-card-head">' +
+          '<div class="tpl-card-icon">' + icon + '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<h3 class="tpl-card-title">' + escapeHtml(t.display) + '</h3>' +
+            '<div class="tpl-card-name">' + escapeHtml(t.name) + ' · ' + escapeHtml(t.idioma) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tpl-card-chips">' +
+          '<span class="chip chip-' + (t.categoria || '').toLowerCase() + '">' + escapeHtml(t.categoria) + '</span>' +
+          '<span class="chip chip-' + (t.status || '').toLowerCase() + '">' + escapeHtml(t.status) + '</span>' +
+          '<span class="chip chip-tipo">' + escapeHtml(t.tipo) + '</span>' +
+        '</div>' +
+        '<div class="tpl-card-body">' + escapeHtml(bodyPrev) + '</div>' +
+        (t.rejected_reason
+          ? '<div style="font-size:11.5px;color:#a8422d;margin-top:4px">Rechazo: ' + escapeHtml(t.rejected_reason) + '</div>'
+          : '') +
+      '</div>';
+    }).join('');
+  }
+
+  function minutesAgo(ts) {
+    var mins = Math.max(0, Math.floor((Date.now() / 1000 - ts) / 60));
+    if (mins < 1) return 'ahora mismo';
+    if (mins === 1) return '1 min';
+    return mins + ' min';
   }
 
   function editarTemplate(id) {
