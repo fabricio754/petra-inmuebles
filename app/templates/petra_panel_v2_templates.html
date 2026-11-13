@@ -473,6 +473,70 @@
   [data-theme="dark"] .prev-card-btn {
     color: #25d366; border-top-color: #ffffff22;
   }
+
+  /* ─── Preview lateral del editor (texto / multimedia / botones) ── */
+  .form-with-preview {
+    display: grid; grid-template-columns: 1fr 240px; gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .form-with-preview { grid-template-columns: 1fr; }
+  }
+  .form-with-preview > .form-grid { min-width: 0; }
+  .live-preview-wrap {
+    position: sticky; top: 10px;
+  }
+  .live-preview-label {
+    font-size: 11px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;
+  }
+  .live-bubble {
+    background: white; color: #111b21; border-radius: 8px;
+    padding: 0; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    max-width: 100%; margin: 0 4px;
+    display: flex; flex-direction: column;
+  }
+  [data-theme="dark"] .live-bubble { background: #1f2c33; color: #e9edef; }
+  .live-bubble-media {
+    width: 100%; aspect-ratio: 16/10; background: #ccc;
+    display: grid; place-items: center; font-size: 28px; color: #888;
+  }
+  .live-bubble-media img, .live-bubble-media video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .live-bubble-media.doc {
+    aspect-ratio: auto; padding: 10px 12px; background: #f6f6f6;
+    display: flex; gap: 8px; align-items: center; justify-content: flex-start;
+    font-size: 13px; color: #333;
+  }
+  [data-theme="dark"] .live-bubble-media.doc { background: #0b141a; color: #d1d7db; }
+  .live-bubble-body {
+    padding: 8px 10px 6px; font-size: 12.5px; line-height: 1.45;
+    white-space: pre-wrap; word-wrap: break-word;
+  }
+  .live-bubble-body:empty::before {
+    content: "Escribí el cuerpo del mensaje…";
+    color: #999; font-style: italic;
+  }
+  .live-bubble-footer {
+    padding: 2px 10px 6px; font-size: 10.5px; color: #667781;
+    display: flex; justify-content: flex-end; gap: 4px;
+  }
+  .live-bubble-btns {
+    border-top: 1px solid #0001;
+    display: flex; flex-direction: column;
+  }
+  [data-theme="dark"] .live-bubble-btns { border-top-color: #ffffff22; }
+  .live-bubble-btn {
+    padding: 8px 10px; font-size: 12.5px; font-weight: 500;
+    color: #00a884; text-align: center;
+    border-top: 1px solid #0001; cursor: default;
+  }
+  .live-bubble-btn:first-child { border-top: 0; }
+  [data-theme="dark"] .live-bubble-btn {
+    color: #53bdeb; border-top-color: #ffffff22;
+  }
 </style>
 
 <div class="hero">
@@ -719,6 +783,7 @@
 
       {# Paso 2: form del tipo #}
       <div id="paso-form" hidden>
+       <div class="form-with-preview">
         <div class="form-grid">
           <div class="form-row">
             <div class="form-field">
@@ -858,6 +923,24 @@
             </div>
           </div>
         </div>
+
+        {# Preview lateral (oculto para catalogo_carrusel: ese tiene preview propio) #}
+        <div class="live-preview-wrap" id="live-preview-wrap">
+          <div class="live-preview-label">Preview</div>
+          <div class="wa-phone">
+            <div class="wa-phone-body" style="padding:14px 10px;">
+              <div class="live-bubble" id="live-bubble">
+                <div class="live-bubble-media" id="live-media" hidden></div>
+                <div class="live-bubble-body" id="live-body"></div>
+                <div class="live-bubble-footer">
+                  <span id="live-time">10:00</span>
+                </div>
+                <div class="live-bubble-btns" id="live-btns" hidden></div>
+              </div>
+            </div>
+          </div>
+        </div>
+       </div>
       </div>
     </div>
 
@@ -1078,6 +1161,7 @@
       renderCardsEditor();
     }
 
+    renderLivePreview();
     document.getElementById('btn-guardar').textContent =
       (t.status === 'aprobado') ? 'Guardar (vuelve a draft)' : 'Guardar cambios';
   }
@@ -1144,6 +1228,7 @@
         var cat = document.getElementById('f-categoria');
         cat.value = 'MARKETING';
       }
+      renderLivePreview();
     }, 150);
   }
 
@@ -1211,6 +1296,100 @@
     });
     return btns;
   }
+
+  // ----- Live preview (texto / multimedia / botones) ----------------------
+  function renderMarkdownWA(text) {
+    // Escape HTML primero y luego convertir *negrita* y _cursiva_.
+    var html = escapeHtml(text);
+    html = html.replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>');
+    html = html.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+    return html;
+  }
+
+  function sustituirVariables(body) {
+    // Reemplaza {{1}}, {{2}}, … por los ejemplos cargados en el editor de vars.
+    var ejemplos = {};
+    document.querySelectorAll('#var-list .var-row').forEach(function(row, i) {
+      var ej = row.querySelector('input[data-k="ejemplo"]');
+      if (ej && ej.value.trim()) ejemplos[String(i + 1)] = ej.value.trim();
+    });
+    return body.replace(/\{\{(\d+)\}\}/g, function(_, n) {
+      return ejemplos[n] || ('{{' + n + '}}');
+    });
+  }
+
+  function renderLivePreview() {
+    var wrap = document.getElementById('live-preview-wrap');
+    if (!wrap) return;
+    // Oculto en catálogo: ese tipo tiene su propio preview.
+    if (tipoSeleccionado === 'catalogo_carrusel') {
+      wrap.style.display = 'none'; return;
+    }
+    wrap.style.display = '';
+
+    // Body
+    var raw = document.getElementById('f-body').value || '';
+    var body = sustituirVariables(raw);
+    document.getElementById('live-body').innerHTML = renderMarkdownWA(body);
+
+    // Hora
+    var now = new Date();
+    document.getElementById('live-time').textContent =
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0');
+
+    // Header (solo multimedia)
+    var media = document.getElementById('live-media');
+    media.hidden = true; media.className = 'live-bubble-media';
+    media.innerHTML = '';
+    if (tipoSeleccionado === 'multimedia') {
+      var htype = document.getElementById('f-header-type').value;
+      var hurl = (document.getElementById('f-header-url').value || '').trim();
+      media.hidden = false;
+      if (htype === 'image') {
+        media.innerHTML = hurl
+          ? '<img src="' + escapeHtml(hurl) + '" onerror="this.parentNode.innerHTML=\'🖼️\'" alt="">'
+          : '🖼️';
+      } else if (htype === 'video') {
+        media.innerHTML = hurl
+          ? '<video src="' + escapeHtml(hurl) + '" muted></video>'
+          : '🎬';
+      } else if (htype === 'document') {
+        media.className = 'live-bubble-media doc';
+        var label = document.getElementById('f-header-label').value || 'documento.pdf';
+        media.innerHTML = '📄 <span>' + escapeHtml(label) + '</span>';
+      } else if (htype === 'location') {
+        media.innerHTML = '📍';
+      }
+    }
+
+    // Botones (solo tipo botones)
+    var btnsBox = document.getElementById('live-btns');
+    btnsBox.innerHTML = ''; btnsBox.hidden = true;
+    if (tipoSeleccionado === 'botones') {
+      var btns = recolectarBotones();
+      if (btns.length) {
+        btnsBox.hidden = false;
+        var icons = { url: '🔗', phone_number: '📞', copy_code: '📋', quick_reply: '↩️' };
+        btns.forEach(function(b) {
+          var ic = icons[b.type] || '';
+          var row = document.createElement('div');
+          row.className = 'live-bubble-btn';
+          row.textContent = (ic ? ic + '  ' : '') + (b.label || 'botón');
+          btnsBox.appendChild(row);
+        });
+      }
+    }
+  }
+
+  // Engancha una vez: cualquier input/change dentro del paso-form refresca.
+  (function hookLivePreview() {
+    var pf = document.getElementById('paso-form');
+    if (!pf || pf._hooked) return;
+    pf._hooked = true;
+    pf.addEventListener('input', renderLivePreview);
+    pf.addEventListener('change', renderLivePreview);
+  })();
 
   // ----- Carrusel (cards) editor ------------------------------------------
   var carouselState = {
