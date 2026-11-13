@@ -783,9 +783,9 @@
     <div class="modal-body">
       <div id="picker-flash" class="flash-error" hidden></div>
       <p style="color:var(--text-sub);font-size:13px;margin:0 0 16px;">
-        Elegí qué template se dispara en este momento automático. Solo listamos
-        los <strong>aprobados por Meta</strong> y los <strong>borradores locales</strong>
-        que coinciden con la misma categoría.
+        Elegí qué template se dispara en este momento automático.
+        Solo se listan los <strong>aprobados por Meta</strong>, porque
+        WhatsApp solo deja mandar templates aprobados.
       </p>
       <div id="picker-loading" class="empty-state" style="padding:30px 20px;">
         <div class="icon">⏳</div>
@@ -1349,17 +1349,15 @@
     var list = document.getElementById('picker-list');
     list.style.display = 'flex';
 
-    // Agrupamos: Meta primero (aprobados), luego borradores locales.
-    var items = [];
-    metaTpls.forEach(function(t) { items.push({ _origen: 'meta', data: t }); });
-    LOCAL_TEMPLATES.forEach(function(t) { items.push({ _origen: 'local', data: t }); });
+    // Solo templates aprobados por Meta (los borradores no se pueden disparar).
+    var items = metaTpls.map(function(t) { return { _origen: 'meta', data: t }; });
 
     if (!items.length) {
       list.innerHTML =
         '<div class="empty-state" style="padding:30px 20px;">' +
         '<div class="icon">📭</div>' +
-        '<h3 style="margin:8px 0 0;">No hay templates disponibles</h3>' +
-        '<p>Creá uno en la pestaña Borradores o pedí aprobación a Meta.</p>' +
+        '<h3 style="margin:8px 0 0;">No hay templates aprobados en Meta</h3>' +
+        '<p>Someté un template desde la pestaña Borradores y esperá aprobación.</p>' +
         '</div>';
       return;
     }
@@ -1392,15 +1390,6 @@
     if (!slot) return;
     var flash = document.getElementById('picker-flash');
     flash.hidden = true;
-
-    // Si es Meta pero no existe local, avisamos que primero hay que crearlo acá.
-    var existeLocal = LOCAL_TEMPLATES.some(function(t) { return t.name === templateName; });
-    if (origen === 'meta' && !existeLocal) {
-      flash.textContent = 'Ese template está aprobado en Meta pero no tiene ' +
-        'borrador local. Importalo primero en Borradores y volvé a probar.';
-      flash.hidden = false;
-      return;
-    }
 
     var fd = new FormData();
     fd.append('token', TOKEN);
