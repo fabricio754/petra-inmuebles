@@ -809,6 +809,33 @@
   </div>
 </div>
 
+{# ─── Modal: Previa de template aprobado por Meta ──────────── #}
+<div class="modal-backdrop" id="modal-preview"
+     onclick="if(event.target===this)cerrarPreview()">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-head">
+      <h2 id="preview-title">Previa</h2>
+      <button class="modal-close" onclick="cerrarPreview()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="preview-meta" style="color:var(--text-sub);font-size:12px;margin-bottom:12px;"></div>
+      <div class="wa-phone">
+        <div class="wa-phone-body" style="padding:14px 10px;">
+          <div class="live-bubble">
+            <div class="live-bubble-media" id="prev-media" hidden></div>
+            <div class="live-bubble-body" id="prev-body"></div>
+            <div class="live-bubble-footer">
+              <span id="prev-time">10:00</span>
+            </div>
+            <div class="live-bubble-btns" id="prev-btns" hidden></div>
+          </div>
+        </div>
+      </div>
+      <div id="preview-vars-hint" style="font-size:11.5px;color:var(--text-sub);margin-top:10px;" hidden></div>
+    </div>
+  </div>
+</div>
+
 {# ─── Modal: picker "Cambiar template" (Activados) ─────────── #}
 <div class="modal-backdrop" id="modal-cambiar"
      onclick="if(event.target===this)cerrarPicker()">
@@ -1259,21 +1286,26 @@
       '<p>' + escapeHtml(t[2]) + '</p>';
   }
 
+  // Guardamos los templates Meta aprobados para que el picker de "Previa"
+  // los pueda referenciar por índice.
+  var META_APROBADOS = [];
+
   function renderMetaGrid(lista, fetchedAt) {
+    META_APROBADOS = lista;
     var grid = document.getElementById('meta-grid');
     grid.hidden = false;
     if (!lista.length) {
       grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1">' +
         '<div class="icon">📭</div>' +
         '<h3>No hay templates en Meta todavía</h3>' +
-        '<p>Someté el primero desde Business Manager o desde acá cuando habilitemos Camino B.</p>' +
+        '<p>Someté el primero desde Borradores con el botón Aprobar.</p>' +
         '</div>';
       return;
     }
     var when = fetchedAt
       ? '<div class="meta-last-sync">Sincronizado hace ' + minutesAgo(fetchedAt) + ' · cache 5min</div>'
       : '';
-    grid.innerHTML = when + lista.map(function(t) {
+    grid.innerHTML = when + lista.map(function(t, idx) {
       var iconByTipo = {
         texto: '✉️', multimedia: '🎬', botones: '🔘', catalogo_carrusel: '🛒'
       };
@@ -1293,9 +1325,12 @@
           '<span class="chip chip-tipo">' + escapeHtml(t.tipo) + '</span>' +
         '</div>' +
         '<div class="tpl-card-body">' + escapeHtml(bodyPrev) + '</div>' +
-        (t.rejected_reason
-          ? '<div style="font-size:11.5px;color:#a8422d;margin-top:4px">Rechazo: ' + escapeHtml(t.rejected_reason) + '</div>'
-          : '') +
+        '<div class="tpl-card-actions">' +
+          '<div class="tpl-card-meta"></div>' +
+          '<div class="tpl-card-btns">' +
+            '<button class="mini-btn" onclick="previewMetaTemplate(' + idx + ')">👁️ Previa</button>' +
+          '</div>' +
+        '</div>' +
       '</div>';
     }).join('');
   }
@@ -1739,6 +1774,73 @@
   }
 
   // ----- Live preview (texto / multimedia / botones) ----------------------
+  // ----- Previa de template Meta -----------------------------------------
+  function previewMetaTemplate(idx) {
+    var t = META_APROBADOS[idx];
+    if (!t) return;
+    document.getElementById('preview-title').textContent = 'Previa · ' + (t.display || t.name);
+    document.getElementById('preview-meta').innerHTML =
+      '<code style="font-family:ui-monospace,monospace;">' + escapeHtml(t.name) + '</code>' +
+      ' · ' + escapeHtml(t.idioma) + ' · ' + escapeHtml(t.categoria);
+
+    // Body con markdown (los {{1}} se dejan literales como ejemplo).
+    var body = t.body || '';
+    document.getElementById('prev-body').innerHTML = renderMarkdownWA(body);
+
+    // Hora
+    var now = new Date();
+    document.getElementById('prev-time').textContent =
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0');
+
+    // Header
+    var media = document.getElementById('prev-media');
+    media.hidden = true; media.className = 'live-bubble-media';
+    media.innerHTML = '';
+    if (t.header && t.tipo === 'multimedia') {
+      media.hidden = false;
+      var htype = (t.header.type || 'image').toLowerCase();
+      if (htype === 'image') media.innerHTML = '🖼️';
+      else if (htype === 'video') media.innerHTML = '🎬';
+      else if (htype === 'document') {
+        media.className = 'live-bubble-media doc';
+        media.innerHTML = '📄 <span>documento.pdf</span>';
+      } else if (htype === 'location') media.innerHTML = '📍';
+    }
+
+    // Botones
+    var btnsBox = document.getElementById('prev-btns');
+    btnsBox.innerHTML = ''; btnsBox.hidden = true;
+    if (t.botones && t.botones.length) {
+      btnsBox.hidden = false;
+      var icons = { url: '🔗', phone_number: '📞', copy_code: '📋', quick_reply: '↩️' };
+      t.botones.forEach(function(b) {
+        var row = document.createElement('div');
+        row.className = 'live-bubble-btn';
+        var ic = icons[(b.type || '').toLowerCase()] || '';
+        row.textContent = (ic ? ic + '  ' : '') + (b.label || 'botón');
+        btnsBox.appendChild(row);
+      });
+    }
+
+    // Hint sobre variables
+    var m = body.match(/\{\{\d+\}\}/g);
+    var hint = document.getElementById('preview-vars-hint');
+    if (m && m.length) {
+      hint.hidden = false;
+      hint.textContent = 'Este template tiene ' + m.length +
+        ' variable(s). En producción se reemplazan al enviar.';
+    } else {
+      hint.hidden = true;
+    }
+
+    document.getElementById('modal-preview').classList.add('open');
+  }
+
+  function cerrarPreview() {
+    document.getElementById('modal-preview').classList.remove('open');
+  }
+
   function renderMarkdownWA(text) {
     // Escape HTML primero y luego convertir *negrita* y _cursiva_.
     var html = escapeHtml(text);
