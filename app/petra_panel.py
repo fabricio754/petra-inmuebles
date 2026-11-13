@@ -4309,14 +4309,8 @@ def panel_v2_activados_set(slot):
 
     try:
         with _db._conexion_directa(timeout=10) as conn:
-            # Solo persistimos nombres de templates que existan en nuestra DB.
-            row = conn.execute(
-                "SELECT 1 FROM campana_templates WHERE name = %s",
-                (tmpl_name,),
-            ).fetchone()
-            if not row:
-                return jsonify({"error": "template_no_encontrado",
-                                "template_name": tmpl_name}), 404
+            # Aceptamos cualquier nombre: puede ser un template aprobado en Meta
+            # aunque no tenga borrador local. El runner valida al disparar.
             conn.execute(
                 "INSERT INTO template_slots (slot, template_name, actualizado_por) "
                 "VALUES (%s, %s, %s) "
