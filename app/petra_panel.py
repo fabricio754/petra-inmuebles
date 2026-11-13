@@ -4600,6 +4600,262 @@ def panel_v2_templates_json(tid):
         return jsonify({"error": "db error"}), 500
 
 
+def _meta_upload_media_handle(media_url, access_token, app_id):
+    """Sube un archivo a Meta vía Resumable Upload API y devuelve el handle `h`.
+
+    media_url puede ser:
+      - URL absoluta (http/https) → se descarga y se reupload.
+      - Path local empezando con /static/... → se lee del bundle del app.
+
+    Devuelve (handle, error_str_o_None). handle=None si falla.
+    """
+    import requests
+    import os.path as _osp
+
+    # 1) Obtener bytes + content-type
+    try:
+        if media_url.startswith("http://") or media_url.startswith("https://"):
+            resp = requests.get(media_url, timeout=20)
+            if not resp.ok:
+                return None, f"download_{resp.status_code}"
+            content = resp.content
+            ctype = resp.headers.get("Content-Type", "application/octet-stream")
+        else:
+            # Path relativo: resolver contra el folder static de la app.
+            base_dir = _osp.dirname(_osp.abspath(__file__))
+            # media_url típicamente es "/static/images/...". Quitamos el leading /.
+            rel = media_url.lstrip("/")
+            full = _osp.join(base_dir, rel)
+            if not _osp.isfile(full):
+                return None, f"archivo_no_existe:{media_url}"
+            with open(full, "rb") as f:
+                content = f.read()
+            # Inferir content-type por extensión
+            ext = media_url.rsplit(".", 1)[-1].lower()
+            ctype = {
+                "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "png": "image/png", "webp": "image/webp",
+                "mp4": "video/mp4", "mov": "video/quicktime",
+                "pdf": "application/pdf",
+            }.get(ext, "application/octet-stream")
+    except Exception as e:
+        return None, f"download_error:{type(e).__name__}"
+
+    # 2) Iniciar sesión de upload
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/v22.0/{app_id}/uploads",
+            params={
+                "file_length": len(content),
+                "file_type": ctype,
+                "access_token": access_token,
+            },
+            timeout=20,
+        )
+        if not r.ok:
+            return None, f"upload_init_{r.status_code}:{r.text[:200]}"
+        upload_id = r.json().get("id")
+        if not upload_id:
+            return None, "upload_init_sin_id"
+    except Exception as e:
+        return None, f"upload_init_error:{type(e).__name__}"
+
+    # 3) Subir los bytes
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/v22.0/{upload_id}",
+            headers={
+                "Authorization": f"OAuth {access_token}",
+                "file_offset": "0",
+            },
+            data=content,
+            timeout=60,
+        )
+        if not r.ok:
+            return None, f"upload_data_{r.status_code}:{r.text[:200]}"
+        handle = r.json().get("h")
+        if not handle:
+            return None, "upload_data_sin_handle"
+        return handle, None
+    except Exception as e:
+        return None, f"upload_data_error:{type(e).__name__}"
+
+
+def _construir_meta_components(tpl, access_token, app_id):
+    """Construye el array `components` del payload de Meta a partir del template.
+
+    Devuelve (components, error_str_o_None).
+    """
+    components = []
+
+    # ── Header ─────────────────────────────────────────────────────────
+    if tpl.get("tipo") == "multimedia" and tpl.get("header"):
+        header = tpl["header"]
+        htype = (header.get("type") or "image").upper()
+        if htype == "LOCATION":
+            components.append({"type": "HEADER", "format": "LOCATION"})
+        else:
+            hurl = (header.get("url") or "").strip()
+            if not hurl:
+                return None, "header_sin_url"
+            handle, err = _meta_upload_media_handle(hurl, access_token, app_id)
+            if not handle:
+                return None, f"header_upload_fallo:{err}"
+            components.append({
+                "type": "HEADER",
+                "format": htype,  # IMAGE / VIDEO / DOCUMENT
+                "example": {"header_handle": [handle]},
+            })
+
+    # ── Body ───────────────────────────────────────────────────────────
+    body_text = (tpl.get("body") or "").strip()
+    if not body_text:
+        return None, "body_vacio"
+    body_comp = {"type": "BODY", "text": body_text}
+    variables = tpl.get("variables") or []
+    if variables:
+        ejemplos = []
+        for v in variables:
+            ej = (v.get("ejemplo") or v.get("label") or "ejemplo").strip() or "ejemplo"
+            ejemplos.append(ej)
+        body_comp["example"] = {"body_text": [ejemplos]}
+    components.append(body_comp)
+
+    # ── Buttons ────────────────────────────────────────────────────────
+    if tpl.get("tipo") == "botones":
+        botones = tpl.get("botones") or []
+        meta_btns = []
+        for b in botones:
+            btype = (b.get("type") or "url").upper()
+            label = (b.get("label") or "").strip()[:25]  # Meta max 25
+            value = (b.get("value") or "").strip()
+            if btype == "URL":
+                meta_btns.append({"type": "URL", "text": label, "url": value})
+            elif btype == "PHONE_NUMBER":
+                meta_btns.append({"type": "PHONE_NUMBER", "text": label,
+                                  "phone_number": value})
+            elif btype == "QUICK_REPLY":
+                meta_btns.append({"type": "QUICK_REPLY", "text": label})
+            elif btype == "COPY_CODE":
+                meta_btns.append({"type": "COPY_CODE", "example": [value]})
+        if meta_btns:
+            components.append({"type": "BUTTONS", "buttons": meta_btns})
+
+    return components, None
+
+
+@petra_panel_bp.post("/v2/templates/<int:tid>/aprobar")
+def panel_v2_templates_aprobar(tid):
+    """Somete el template a Meta para aprobación.
+
+    Flujo:
+      1. Leer template de DB (status debe ser 'draft').
+      2. Si es multimedia, subir el header file a Meta (resumable upload)
+         para obtener el handle.
+      3. POST al endpoint de message_templates de Meta.
+      4. Si Meta devuelve 200: update local status a 'pending', guardar id de Meta.
+      5. Devolver resultado al frontend.
+    """
+    _check_token()
+    from flask import jsonify
+    import json as _json
+    import requests
+
+    token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    waba_id = (os.environ.get("META_WABA_ID") or "").strip()
+    app_id = (os.environ.get("META_APP_ID") or "").strip()
+
+    if not token:
+        return jsonify({"error": "falta_env:META_ACCESS_TOKEN"}), 500
+    if not waba_id:
+        return jsonify({"error": "falta_env:META_WABA_ID"}), 500
+    if not app_id:
+        return jsonify({"error": "falta_env:META_APP_ID"}), 500
+
+    # Cargar template
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo "
+                "  FROM campana_templates WHERE id = %s",
+                (tid,))
+            if not rows:
+                return jsonify({"error": "no_encontrado"}), 404
+            tpl = _row_to_template(rows[0])
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[aprobar] leer template fallo")
+        return jsonify({"error": "db_error"}), 500
+
+    if tpl.get("tipo") == "catalogo_carrusel":
+        return jsonify({"error": "catalogo_no_soportado",
+                        "detalle": "Los templates de catálogo/carrusel requieren "
+                                   "un flujo distinto todavía no implementado."}), 400
+
+    # Construir components
+    components, err = _construir_meta_components(tpl, token, app_id)
+    if err:
+        return jsonify({"error": "construir_payload_fallo", "detalle": err}), 400
+
+    payload = {
+        "name": tpl["name"],
+        "language": tpl.get("idioma") or "es",
+        "category": (tpl.get("categoria") or "MARKETING").upper(),
+        "components": components,
+    }
+
+    # POST a Meta
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/v22.0/{waba_id}/message_templates",
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json"},
+            data=_json.dumps(payload),
+            timeout=30,
+        )
+    except Exception as e:
+        return jsonify({"error": f"red:{type(e).__name__}"}), 500
+
+    if not r.ok:
+        try:
+            err_body = r.json()
+        except Exception:
+            err_body = {"raw": r.text[:500]}
+        return jsonify({
+            "error": "meta_rechazo",
+            "status_code": r.status_code,
+            "detalle": err_body,
+        }), 400
+
+    meta_resp = r.json() if r.content else {}
+    meta_id = meta_resp.get("id")
+    meta_status = (meta_resp.get("status") or "PENDING").upper()
+
+    # Actualizar status local
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "UPDATE campana_templates "
+                "   SET status = %s, "
+                "       actualizado_en = NOW() "
+                " WHERE id = %s",
+                ("pending" if meta_status == "PENDING" else meta_status.lower(), tid),
+            )
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[aprobar] update status fallo")
+
+    # Invalida cache de Meta para que la pestaña "Esperando aprobación" lo muestre
+    _META_TEMPLATES_CACHE["ts"] = 0
+
+    return jsonify({
+        "ok": True,
+        "meta_id": meta_id,
+        "meta_status": meta_status,
+    })
+
+
 @petra_panel_bp.post("/v2/templates/<int:tid>/actualizar")
 def panel_v2_templates_actualizar(tid):
     """Actualiza campos editables de un template existente.
