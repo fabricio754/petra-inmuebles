@@ -599,6 +599,15 @@
     background: var(--bg); color: var(--text);
     border-color: var(--border); -webkit-text-fill-color: var(--text);
   }
+
+  /* Modo Ver: ocultamos el form por completo y solo dejamos el preview. */
+  #paso-form.view-mode .form-grid { display: none; }
+  #paso-form.view-mode .form-with-preview {
+    grid-template-columns: minmax(0, 320px);
+    justify-content: center;
+  }
+  #paso-form.view-mode .live-preview-wrap { max-width: 320px; width: 100%; }
+  #paso-form.view-mode .live-preview-label { text-align: center; }
 </style>
 
 <div class="hero">
@@ -1283,23 +1292,18 @@
   function verTemplate(id) {
     modoVer = true;
     editarTemplate(id);
-    // Después de que poblarForm termine, bloquear inputs.
+    // Después de que poblarForm termine, activar modo Ver (solo preview).
     setTimeout(function() {
-      bloquearFormulario();
+      var pf = document.getElementById('paso-form');
+      pf.classList.add('view-mode');
       var mt = document.getElementById('modal-title');
       mt.textContent = mt.textContent.replace(/^Editar/, 'Ver');
       document.getElementById('btn-guardar').hidden = true;
+      // Igual deshabilitamos los inputs por si alguien quita la clase CSS.
+      pf.querySelectorAll('input, textarea, select').forEach(function(el) {
+        el.disabled = true;
+      });
     }, 260);
-  }
-
-  function bloquearFormulario() {
-    var pf = document.getElementById('paso-form');
-    pf.querySelectorAll('input, textarea, select').forEach(function(el) {
-      el.disabled = true;
-    });
-    // Ocultar botones de agregar/eliminar
-    pf.querySelectorAll('.add-var-btn, .del-btn, #btn-add-card')
-      .forEach(function(el) { el.style.display = 'none'; });
   }
 
   // ----- Activados · Cambiar template (picker) -----------------------------
@@ -1502,7 +1506,8 @@
     document.getElementById('flash').hidden = true;
     document.getElementById('f-name').disabled = false;
     document.getElementById('btn-guardar').textContent = 'Guardar borrador';
-    // Reactivar inputs (en caso de venir de modo Ver)
+    // Reactivar inputs y quitar modo Ver (en caso de venir de Activados → Ver)
+    document.getElementById('paso-form').classList.remove('view-mode');
     document.querySelectorAll('#paso-form input, #paso-form textarea, #paso-form select')
       .forEach(function(el) { if (el.id !== 'f-name') el.disabled = false; });
     document.querySelectorAll('#paso-form .add-var-btn, #paso-form .del-btn, #btn-add-card')
