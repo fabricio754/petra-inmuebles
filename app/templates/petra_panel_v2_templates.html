@@ -114,6 +114,28 @@
   [data-theme="dark"] .waiting-reason {
     background: #3a1f1a; color: #e8a89a;
   }
+
+  /* Card de template rechazado */
+  .rejected-card { border-color: #e9beb3; }
+  [data-theme="dark"] .rejected-card { border-color: #5e3a30; }
+  .rejected-reason-box {
+    background: #faeae5; border-radius: 10px; padding: 12px 14px;
+    border-left: 3px solid #a8422d;
+  }
+  [data-theme="dark"] .rejected-reason-box {
+    background: #3a1f1a;
+  }
+  .rejected-reason-label {
+    font-size: 10.5px; color: #a8422d; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+  [data-theme="dark"] .rejected-reason-label { color: #e8a89a; }
+  .rejected-reason-text {
+    font-size: 13px; color: #6e2a1a; line-height: 1.55;
+    word-wrap: break-word;
+  }
+  [data-theme="dark"] .rejected-reason-text { color: #f0c8bd; }
   .chip-tipo {
     background: var(--bg); color: var(--text-sub); text-transform: none;
     letter-spacing: 0; font-family: ui-monospace, monospace;
@@ -652,6 +674,9 @@
   <button class="tab" data-tab="waiting" onclick="cambiarTab('waiting')">
     ⏳ Esperando aprobación <span class="tab-count" id="tab-waiting-count">(…)</span>
   </button>
+  <button class="tab" data-tab="rejected" onclick="cambiarTab('rejected')">
+    🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
+  </button>
   <div class="tabs-right">
     <button class="btn-sync" id="btn-sync" onclick="sincronizarMeta(true)" hidden>
       🔄 Sincronizar con Meta
@@ -881,11 +906,24 @@
   </div>
   <div id="waiting-error" class="empty-state" hidden></div>
   <p id="waiting-intro" class="activ-intro" hidden>
-    Templates que enviamos a Meta y todavía están en revisión. Suele tardar
-    entre 1 minuto y 24 horas. Si Meta rechaza alguno, también aparece acá
-    con el motivo.
+    Templates que enviamos a Meta y están en revisión. Suele tardar entre
+    1 minuto y 24 horas en resolverse.
   </p>
   <div id="waiting-grid" class="tpls-grid" hidden></div>
+</div>
+
+{# ─── Tab Rechazados ────────────────────────────────────────── #}
+<div class="tab-pane" data-pane="rejected">
+  <div id="rejected-loading" class="empty-state">
+    <div class="icon">⏳</div>
+    <h3>Cargando templates…</h3>
+  </div>
+  <div id="rejected-error" class="empty-state" hidden></div>
+  <p id="rejected-intro" class="activ-intro" hidden>
+    Templates que Meta rechazó. Cada card trae el motivo exacto que dio
+    Meta — editá el borrador para corregirlo y volvé a mandarlo.
+  </p>
+  <div id="rejected-grid" class="tpls-grid" hidden></div>
 </div>
 
 
@@ -1125,8 +1163,9 @@
     document.querySelectorAll('.tab-pane').forEach(function(p) {
       p.classList.toggle('active', p.dataset.pane === tab);
     });
-    document.getElementById('btn-sync').hidden = (tab !== 'meta' && tab !== 'waiting');
-    if ((tab === 'meta' || tab === 'waiting') && !metaCargado) {
+    var metaTabs = ['meta', 'waiting', 'rejected'];
+    document.getElementById('btn-sync').hidden = metaTabs.indexOf(tab) < 0;
+    if (metaTabs.indexOf(tab) >= 0 && !metaCargado) {
       sincronizarMeta(false);
     }
   }
@@ -1141,6 +1180,10 @@
     document.getElementById('waiting-error').hidden = true;
     document.getElementById('waiting-grid').hidden = true;
     document.getElementById('waiting-intro').hidden = true;
+    document.getElementById('rejected-loading').hidden = false;
+    document.getElementById('rejected-error').hidden = true;
+    document.getElementById('rejected-grid').hidden = true;
+    document.getElementById('rejected-intro').hidden = true;
 
     var url = '/panel/petra/v2/templates/meta?token=' + encodeURIComponent(TOKEN) +
               (force ? '&force=1' : '');
@@ -1150,34 +1193,48 @@
         metaCargado = true;
         document.getElementById('meta-loading').hidden = true;
         document.getElementById('waiting-loading').hidden = true;
+        document.getElementById('rejected-loading').hidden = true;
         btn.disabled = false; btn.textContent = '🔄 Sincronizar con Meta';
 
         if (d.error) {
           renderMetaError(d.error, 'meta-error');
           renderMetaError(d.error, 'waiting-error');
+          renderMetaError(d.error, 'rejected-error');
           document.getElementById('tab-meta-count').textContent = '(!)';
           document.getElementById('tab-waiting-count').textContent = '(!)';
+          document.getElementById('tab-rejected-count').textContent = '(!)';
           return;
         }
         var lista = d.templates || [];
+        var REJECTED = ['rejected'];
         var APPROVED = ['approved'];
         var aprobados = lista.filter(function(t) {
           return APPROVED.indexOf((t.status || '').toLowerCase()) >= 0;
         });
+        var rechazados = lista.filter(function(t) {
+          return REJECTED.indexOf((t.status || '').toLowerCase()) >= 0;
+        });
+        // Todo lo que no es approved ni rejected cae en "esperando"
+        // (pending, paused, in_appeal, pending_deletion, etc.).
         var esperando = lista.filter(function(t) {
-          return APPROVED.indexOf((t.status || '').toLowerCase()) < 0;
+          var s = (t.status || '').toLowerCase();
+          return APPROVED.indexOf(s) < 0 && REJECTED.indexOf(s) < 0;
         });
         document.getElementById('tab-meta-count').textContent = '(' + aprobados.length + ')';
         document.getElementById('tab-waiting-count').textContent = '(' + esperando.length + ')';
+        document.getElementById('tab-rejected-count').textContent = '(' + rechazados.length + ')';
         renderMetaGrid(aprobados, d.fetched_at);
         renderWaitingGrid(esperando, d.fetched_at);
+        renderRejectedGrid(rechazados, d.fetched_at);
       })
       .catch(function() {
         document.getElementById('meta-loading').hidden = true;
         document.getElementById('waiting-loading').hidden = true;
+        document.getElementById('rejected-loading').hidden = true;
         btn.disabled = false; btn.textContent = '🔄 Sincronizar con Meta';
         renderMetaError('red', 'meta-error');
         renderMetaError('red', 'waiting-error');
+        renderMetaError('red', 'rejected-error');
       });
   }
 
@@ -1294,6 +1351,53 @@
         '</div>' +
         '<div class="tpl-card-body">' + escapeHtml(bodyPrev) + '</div>' +
         reasonHtml +
+      '</div>';
+    }).join('');
+  }
+
+  function renderRejectedGrid(lista, fetchedAt) {
+    var grid = document.getElementById('rejected-grid');
+    var intro = document.getElementById('rejected-intro');
+    grid.hidden = false;
+    if (!lista.length) {
+      intro.hidden = true;
+      grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1">' +
+        '<div class="icon">🎉</div>' +
+        '<h3>Ninguno rechazado</h3>' +
+        '<p>Todos los templates que mandaste pasaron el filtro de Meta.</p>' +
+        '</div>';
+      return;
+    }
+    intro.hidden = false;
+
+    var when = fetchedAt
+      ? '<div class="meta-last-sync">Sincronizado hace ' + minutesAgo(fetchedAt) + ' · cache 5min</div>'
+      : '';
+    grid.innerHTML = when + lista.map(function(t) {
+      var iconByTipo = {
+        texto: '✉️', multimedia: '🎬', botones: '🔘', catalogo_carrusel: '🛒'
+      };
+      var icon = iconByTipo[t.tipo] || '📝';
+      var bodyPrev = (t.body || '').slice(0, 200);
+      var motivo = t.rejected_reason || 'Meta no entregó un motivo específico.';
+      return '<div class="tpl-card rejected-card" data-cat="' + (t.categoria || '').toLowerCase() + '">' +
+        '<div class="tpl-card-head">' +
+          '<div class="tpl-card-icon">' + icon + '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<h3 class="tpl-card-title">' + escapeHtml(t.display) + '</h3>' +
+            '<div class="tpl-card-name">' + escapeHtml(t.name) + ' · ' + escapeHtml(t.idioma) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tpl-card-chips">' +
+          '<span class="chip chip-' + (t.categoria || '').toLowerCase() + '">' + escapeHtml(t.categoria) + '</span>' +
+          '<span class="chip chip-rejected">🚫 RECHAZADO</span>' +
+          '<span class="chip chip-tipo">' + escapeHtml(t.tipo) + '</span>' +
+        '</div>' +
+        '<div class="rejected-reason-box">' +
+          '<div class="rejected-reason-label">Por qué lo rechazó Meta</div>' +
+          '<div class="rejected-reason-text">' + escapeHtml(motivo) + '</div>' +
+        '</div>' +
+        '<div class="tpl-card-body">' + escapeHtml(bodyPrev) + '</div>' +
       '</div>';
     }).join('');
   }
