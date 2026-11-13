@@ -139,6 +139,18 @@
   }
   .mini-btn:hover { background: var(--bg); }
   .mini-btn.danger:hover { color: #a8422d; border-color: #a8422d; }
+  .mini-btn.approve {
+    color: #4b7a3a; border-color: #b5d49e; background: #f1f8ea;
+  }
+  .mini-btn.approve:hover {
+    background: #e3f2d9; border-color: #4b7a3a;
+  }
+  [data-theme="dark"] .mini-btn.approve {
+    color: #a8d48d; border-color: #4b7a3a; background: #2a3d1e;
+  }
+  .mini-btn.approve:disabled {
+    opacity: 0.6; cursor: wait;
+  }
 
   .empty-state {
     background: var(--panel); border: 1px dashed var(--border);
@@ -829,6 +841,11 @@
           <button class="mini-btn"
                   onclick="editarTemplate({{ t.id }})">Editar</button>
           {% if t.status == 'draft' %}
+          <button class="mini-btn approve"
+                  id="btn-aprobar-{{ t.id }}"
+                  onclick="aprobarTemplate({{ t.id }}, '{{ t.display|escape }}')">
+            ✅ Aprobar
+          </button>
           <button class="mini-btn danger"
                   onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
           {% endif %}
@@ -1996,6 +2013,46 @@
       .then(function(d) {
         if (d.ok) window.location.reload();
         else alert(d.error || 'Error al eliminar');
+      });
+  }
+
+  function aprobarTemplate(id, display) {
+    if (!confirm('¿Enviar "' + display + '" a Meta para aprobación?\n\n' +
+                 'Meta suele responder entre 1 min y 24 h. Mientras tanto ' +
+                 'aparece en la pestaña "Esperando aprobación".')) return;
+    var btn = document.getElementById('btn-aprobar-' + id);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Enviando a Meta…'; }
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fetch('/panel/petra/v2/templates/' + id + '/aprobar',
+          { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (ok) {
+          alert('✅ Enviado a Meta. Estado: ' + (d.meta_status || 'PENDING') +
+                '.\n\nLo vas a ver en la pestaña "Esperando aprobación".');
+          window.location.reload();
+          return;
+        }
+        var msg = 'Meta rechazó el template.\n\n';
+        if (d.detalle && d.detalle.error) {
+          var e = d.detalle.error;
+          msg += (e.message || '') + '\n';
+          if (e.error_user_msg) msg += '\n' + e.error_user_msg;
+          if (e.error_user_title) msg += '\n(' + e.error_user_title + ')';
+        } else if (typeof d.detalle === 'string') {
+          msg += d.detalle;
+        } else {
+          msg += JSON.stringify(d);
+        }
+        alert(msg);
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Aprobar'; }
+      })
+      .catch(function(err) {
+        alert('Error de red: ' + err);
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Aprobar'; }
       });
   }
 </script>
