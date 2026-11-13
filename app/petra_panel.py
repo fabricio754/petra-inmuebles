@@ -4020,6 +4020,138 @@ def _row_to_template(row):
     }
 
 
+# =============================================================================
+# Panel v2 · Números WhatsApp (Embedded Signup con coexistencia)
+# =============================================================================
+#
+# El número del BOT (META_PHONE_NUMBER_ID) NUNCA aparece en esta pantalla
+# ni se registra en waba_conectadas. Es operativo y se maneja por env vars.
+# Esta tabla lista solo los números que el usuario conectó explícitamente
+# vía Meta Embedded Signup para usarlos en Campañas de outbound.
+
+@petra_panel_bp.get("/v2/numeros")
+def panel_v2_numeros():
+    """Panel v2: página de Números WhatsApp conectados vía coexistencia."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    numeros = []
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            numeros = _rows(conn,
+                "SELECT id, phone_number_id, waba_id, phone_e164, display_name, "
+                "       propietario, activo, es_coexistencia, conectado_en, "
+                "       ultima_verificacion_at, nota "
+                "  FROM waba_conectadas "
+                " ORDER BY conectado_en DESC")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] numeros query fallo")
+
+    meta_app_id = (os.environ.get("META_APP_ID") or "").strip()
+    signup_config_id = (os.environ.get("META_SIGNUP_CONFIG_ID") or "").strip()
+    setup_ok = bool(meta_app_id and signup_config_id)
+
+    return render_template(
+        "petra_panel_v2_numeros.html",
+        token=token,
+        numeros=numeros,
+        meta_app_id=meta_app_id,
+        signup_config_id=signup_config_id,
+        setup_ok=setup_ok,
+    )
+
+
+@petra_panel_bp.post("/v2/numeros/callback")
+def panel_v2_numeros_callback():
+    """Callback del Embedded Signup de Meta.
+
+    Recibe { code, phone_number_id, waba_id } desde el JS SDK después del
+    flow de signup. Intercambia el code por un access token permanente y
+    guarda el número en waba_conectadas.
+    """
+    _check_token()
+    from flask import jsonify
+
+    code = (request.form.get("code") or "").strip()
+    phone_number_id = (request.form.get("phone_number_id") or "").strip()
+    waba_id = (request.form.get("waba_id") or "").strip()
+    phone_e164 = (request.form.get("phone_e164") or "").strip()
+    display_name = (request.form.get("display_name") or "").strip() or "Sin nombre"
+    propietario = (request.form.get("propietario") or "fabricio").strip()
+    es_coexistencia = (request.form.get("es_coexistencia") or "true").strip().lower() == "true"
+
+    if not code or not phone_number_id or not waba_id:
+        return jsonify({"error": "faltan campos: code, phone_number_id, waba_id"}), 400
+
+    app_id = (os.environ.get("META_APP_ID") or "").strip()
+    app_secret = (os.environ.get("META_APP_SECRET") or "").strip()
+    if not app_id or not app_secret:
+        return jsonify({"error": "faltan env vars META_APP_ID o META_APP_SECRET"}), 500
+
+    # Intercambiar code por access token (long-lived)
+    try:
+        import requests
+        exch = requests.get(
+            "https://graph.facebook.com/v22.0/oauth/access_token",
+            params={
+                "client_id": app_id,
+                "client_secret": app_secret,
+                "code": code,
+            },
+            timeout=15,
+        )
+        if not exch.ok:
+            return jsonify({"error": "intercambio_code_fallo",
+                            "detalle": exch.text[:500]}), 400
+        token_data = exch.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            return jsonify({"error": "sin access_token en respuesta"}), 500
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] exchange code fallo")
+        return jsonify({"error": f"exchange_error:{type(e).__name__}"}), 500
+
+    # Guardar en DB
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "INSERT INTO waba_conectadas "
+                "  (phone_number_id, waba_id, phone_e164, display_name, "
+                "   access_token, propietario, es_coexistencia) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (phone_number_id) DO UPDATE SET "
+                "   access_token = EXCLUDED.access_token, "
+                "   display_name = EXCLUDED.display_name, "
+                "   activo = TRUE, "
+                "   ultima_verificacion_at = NOW()",
+                (phone_number_id, waba_id, phone_e164, display_name,
+                 access_token, propietario, es_coexistencia),
+            )
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] guardar en DB fallo")
+        return jsonify({"error": "db_error"}), 500
+
+    return jsonify({"ok": True, "phone_number_id": phone_number_id})
+
+
+@petra_panel_bp.post("/v2/numeros/<int:nid>/eliminar")
+def panel_v2_numeros_eliminar(nid):
+    """Desconecta (elimina de DB) un número. No afecta Meta."""
+    _check_token()
+    from flask import jsonify
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute("DELETE FROM waba_conectadas WHERE id = %s", (nid,))
+            return jsonify({"ok": True})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] eliminar fallo")
+        return jsonify({"error": "db_error"}), 500
+
+
 @petra_panel_bp.get("/v2/templates")
 def panel_v2_templates():
     """Panel v2: página de Templates (editor de plantillas WhatsApp)."""

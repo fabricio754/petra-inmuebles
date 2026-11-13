@@ -1,0 +1,268 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'numeros' %}
+{% block title %}Números WhatsApp · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; max-width: 70ch; }
+  .cta {
+    background: #25D366; color: white; border: 0; padding: 10px 18px;
+    border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 14px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .cta:hover { opacity: 0.92; }
+  .cta:disabled { opacity: 0.4; cursor: not-allowed; }
+  .cta .wa-logo {
+    width: 18px; height: 18px; background: white; border-radius: 50%;
+    display: grid; place-items: center; color: #25D366; font-size: 12px;
+  }
+
+  .nums-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+  .num-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px;
+  }
+  .num-card-head {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+  }
+  .num-icon {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: #25D366; color: white;
+    display: grid; place-items: center; font-size: 20px; flex-shrink: 0;
+  }
+  .num-info h3 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
+  .num-info .cel { font-size: 12.5px; color: var(--text-sub);
+                   font-family: ui-monospace, monospace; }
+  .num-chips { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .chip-coex { background: #e3f2d9; color: #4b7a3a; }
+  .chip-api { background: #d8e4f3; color: #2a5a7a; }
+  .chip-inactivo { background: #faeae5; color: #a8422d; }
+  .num-meta {
+    font-size: 12px; color: var(--text-sub); line-height: 1.6;
+    padding-top: 10px; border-top: 1px dashed var(--border);
+  }
+  .num-actions {
+    display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px;
+  }
+  .mini-btn {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); font-size: 11.5px; padding: 4px 10px;
+    border-radius: 6px; cursor: pointer; font-weight: 500;
+  }
+  .mini-btn.danger:hover { color: #a8422d; border-color: #a8422d; }
+
+  .empty-state {
+    background: var(--panel); border: 1px dashed var(--border);
+    border-radius: 14px; padding: 56px 20px; text-align: center;
+    color: var(--text-sub);
+  }
+  .empty-state .icon { font-size: 44px; margin-bottom: 10px; opacity: 0.6; }
+  .empty-state h3 { margin: 0 0 6px; color: var(--text); font-size: 16px; font-weight: 600; }
+
+  .setup-warn {
+    background: #fdf2d4; border-left: 3px solid #b8862e;
+    padding: 14px 18px; border-radius: 0 10px 10px 0;
+    color: #6e5218; font-size: 13.5px; line-height: 1.6;
+    margin-bottom: 20px;
+  }
+  [data-theme="dark"] .setup-warn { background: #3a2f1a; color: #d4b56e; }
+  .setup-warn strong { display: block; margin-bottom: 4px; }
+  .setup-warn code {
+    background: rgba(0,0,0,0.08); padding: 1px 6px; border-radius: 3px;
+    font-family: ui-monospace, monospace; font-size: 12.5px;
+  }
+
+  .bot-protected {
+    background: var(--bg); border: 1px dashed var(--border);
+    padding: 12px 16px; border-radius: 10px; margin-top: 20px;
+    font-size: 12.5px; color: var(--text-sub); line-height: 1.6;
+  }
+  .bot-protected strong { color: var(--text); }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Números WhatsApp</h1>
+    <div class="sub">
+      Conectá números con coexistencia para usarlos en Campañas.
+      Los números acá no interfieren con el bot — es una separación estricta.
+    </div>
+  </div>
+  {% if setup_ok %}
+  <button class="cta" onclick="conectarWhatsApp()">
+    <span class="wa-logo">✓</span>
+    Conectar número con coexistencia
+  </button>
+  {% else %}
+  <button class="cta" disabled title="Falta configurar Meta en Render">
+    + Conectar número
+  </button>
+  {% endif %}
+</div>
+
+{% if not setup_ok %}
+<div class="setup-warn">
+  <strong>⚠ Falta configuración</strong>
+  Antes de poder conectar números necesitás agregar en Render:
+  {% if not meta_app_id %}<br>• <code>META_APP_ID</code> — ID de la Meta Developer App.{% endif %}
+  {% if not signup_config_id %}<br>• <code>META_SIGNUP_CONFIG_ID</code> — ID de la Signup Configuration (se crea en Meta Business Portfolio → WhatsApp → Signup configurations).{% endif %}
+  <br>• <code>META_APP_SECRET</code> — App Secret (pégalo vos, nunca por chat).
+  <br>Avisame cuando estén y recargás esta página.
+</div>
+{% endif %}
+
+{% if numeros %}
+<div class="nums-grid">
+  {% for n in numeros %}
+  <div class="num-card">
+    <div class="num-card-head">
+      <div class="num-icon">📱</div>
+      <div class="num-info">
+        <h3>{{ n.display_name }}</h3>
+        <div class="cel">{{ n.phone_e164 }}</div>
+      </div>
+    </div>
+    <div class="num-chips">
+      {% if n.es_coexistencia %}
+      <span class="chip chip-coex">COEXISTENCIA</span>
+      {% else %}
+      <span class="chip chip-api">API-ONLY</span>
+      {% endif %}
+      {% if not n.activo %}
+      <span class="chip chip-inactivo">INACTIVO</span>
+      {% endif %}
+    </div>
+    <div class="num-meta">
+      {% if n.propietario %}Conectado por {{ n.propietario }} ·{% endif %}
+      {{ n.conectado_en.strftime('%d %b %Y') if n.conectado_en else '' }}
+    </div>
+    <div class="num-actions">
+      <button class="mini-btn danger"
+              onclick="eliminarNumero({{ n.id }}, '{{ n.display_name|escape }}')">Desconectar</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="icon">📱</div>
+  <h3>No hay números conectados todavía</h3>
+  <p>Conectá el primero usando el botón de arriba.</p>
+</div>
+{% endif %}
+
+<div class="bot-protected">
+  🔒 <strong>Petra Bot ($57 300 1278631) no aparece acá por diseño.</strong>
+  Es un número operativo gestionado por env vars del servidor y nunca puede ser
+  seleccionado como remitente de campañas. Esta pantalla solo lista números
+  conectados explícitamente para outbound.
+</div>
+
+{# ─── Facebook JS SDK (solo si setup_ok) ─────────────────── #}
+{% if setup_ok %}
+<script>
+  var TOKEN = {{ token|tojson }};
+  var META_APP_ID = {{ meta_app_id|tojson }};
+  var CONFIG_ID = {{ signup_config_id|tojson }};
+
+  window.fbAsyncInit = function() {
+    FB.init({
+      appId: META_APP_ID,
+      cookie: true,
+      xfbml: false,
+      version: 'v22.0',
+    });
+  };
+
+  // Load SDK
+  (function(d, s, id) {
+    var js, fjs = d.getElementsByTagName(s)[0];
+    if (d.getElementById(id)) return;
+    js = d.createElement(s); js.id = id;
+    js.src = "https://connect.facebook.net/en_US/sdk.js";
+    fjs.parentNode.insertBefore(js, fjs);
+  }(document, 'script', 'facebook-jssdk'));
+
+  // Capturar evento del signup cuando el popup pasa datos (phone_number_id, waba_id).
+  window.addEventListener('message', function(e) {
+    if (e.origin !== 'https://www.facebook.com' && e.origin !== 'https://web.facebook.com') return;
+    try {
+      var data = JSON.parse(e.data);
+      if (data.type === 'WA_EMBEDDED_SIGNUP' && data.event === 'FINISH') {
+        window._wa_signup_data = data.data || {};
+      }
+    } catch (err) { /* no era JSON del embedded signup */ }
+  });
+
+  function conectarWhatsApp() {
+    if (typeof FB === 'undefined') { alert('Facebook SDK no cargó todavía, esperá 2s y reintentá.'); return; }
+    window._wa_signup_data = null;
+
+    FB.login(function(response) {
+      if (response.authResponse && response.authResponse.code) {
+        var code = response.authResponse.code;
+        var signup = window._wa_signup_data || {};
+        var phone_number_id = signup.phone_number_id || '';
+        var waba_id = signup.waba_id || '';
+        if (!phone_number_id || !waba_id) {
+          alert('No se recibió phone_number_id o waba_id de Meta. Reintentá.');
+          return;
+        }
+        enviarCallback(code, phone_number_id, waba_id);
+      } else {
+        console.log('signup cancelado o falló', response);
+      }
+    }, {
+      config_id: CONFIG_ID,
+      response_type: 'code',
+      override_default_response_type: true,
+      extras: {
+        setup: {},
+        featureType: 'whatsapp_business_app_onboarding',  // coexistencia
+        sessionInfoVersion: '3',
+      },
+    });
+  }
+
+  function enviarCallback(code, phone_number_id, waba_id) {
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('code', code);
+    fd.append('phone_number_id', phone_number_id);
+    fd.append('waba_id', waba_id);
+    fd.append('es_coexistencia', 'true');
+
+    fetch('/panel/petra/v2/numeros/callback', { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (ok) { window.location.reload(); }
+        else { alert('Error: ' + (d.error || JSON.stringify(d))); }
+      });
+  }
+
+  function eliminarNumero(id, display) {
+    if (!confirm('¿Desconectar "' + display + '"? No afecta Meta, solo lo quita de este panel.')) return;
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fetch('/panel/petra/v2/numeros/' + id + '/eliminar', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) window.location.reload();
+        else alert(d.error || 'error');
+      });
+  }
+</script>
+{% endif %}
+
+{% endblock %}

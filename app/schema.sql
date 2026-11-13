@@ -2364,3 +2364,28 @@ CREATE TABLE IF NOT EXISTS campana_templates (
 );
 CREATE INDEX IF NOT EXISTS campana_templates_status_idx
   ON campana_templates(status, actualizado_en DESC);
+
+
+-- ============================================================================
+-- Números WhatsApp conectados vía coexistencia Embedded Signup.
+--
+-- NUNCA incluye el número del bot (ese es operativo y no se toca).
+-- Los números acá son los que el usuario conecta explícitamente vía
+-- /panel/petra/v2/numeros para usarlos en Campañas.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS waba_conectadas (
+  id BIGSERIAL PRIMARY KEY,
+  phone_number_id TEXT NOT NULL UNIQUE,
+  waba_id TEXT NOT NULL,
+  phone_e164 TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  access_token TEXT NOT NULL,
+  propietario TEXT,
+  activo BOOLEAN NOT NULL DEFAULT TRUE,
+  es_coexistencia BOOLEAN NOT NULL DEFAULT FALSE,
+  conectado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ultima_verificacion_at TIMESTAMPTZ,
+  nota TEXT
+);
+CREATE INDEX IF NOT EXISTS waba_conectadas_waba_id_idx
+  ON waba_conectadas(waba_id);
