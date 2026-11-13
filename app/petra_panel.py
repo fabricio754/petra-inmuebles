@@ -4148,6 +4148,160 @@ def _precio_por_categoria(categoria):
     return _CATEGORIA_PRECIO_USD.get((categoria or "").upper(), 0.015)
 
 
+# Cache simple en memoria del fetch a Meta (TTL 5 min) para no quemar rate
+# limit. Estructura: {"ts": float, "payload": dict}
+_META_TEMPLATES_CACHE = {"ts": 0.0, "payload": None, "error": None}
+_META_CACHE_TTL = 300  # 5 minutos
+
+
+def _normalize_meta_template(raw):
+    """Convierte una entrada del endpoint Meta /message_templates al shape
+    que usa nuestro panel (similar al que viene de la tabla local, con la
+    diferencia de que status/category vienen UPPERCASE desde Meta)."""
+    components = raw.get("components") or []
+
+    header = None
+    body = ""
+    buttons = []
+    cards = []
+    tipo = "texto"
+
+    for c in components:
+        ctype = (c.get("type") or "").upper()
+        if ctype == "BODY":
+            body = c.get("text") or ""
+        elif ctype == "HEADER":
+            fmt = (c.get("format") or "TEXT").upper()
+            if fmt == "TEXT":
+                pass  # headers de solo texto no los contamos como multimedia
+            else:
+                header = {
+                    "type": fmt.lower(),  # image / video / document / location
+                    "url": "",  # Meta solo guarda el template, no la URL fija
+                    "label": f"{fmt} (ejemplo en template)",
+                }
+                tipo = "multimedia"
+        elif ctype == "BUTTONS":
+            for b in (c.get("buttons") or []):
+                btype = (b.get("type") or "").upper()
+                buttons.append({
+                    "type": btype.lower(),
+                    "label": b.get("text") or "",
+                    "value": b.get("url") or b.get("phone_number") or b.get("example") or "",
+                })
+            if tipo == "texto":
+                tipo = "botones"
+        elif ctype == "CAROUSEL":
+            for card in (c.get("cards") or []):
+                card_body = ""
+                card_media = None
+                card_btns = []
+                for cc in (card.get("components") or []):
+                    cct = (cc.get("type") or "").upper()
+                    if cct == "BODY":
+                        card_body = cc.get("text") or ""
+                    elif cct == "HEADER":
+                        fmt = (cc.get("format") or "").upper()
+                        if fmt in ("IMAGE", "VIDEO"):
+                            card_media = {"type": fmt.lower(), "url": ""}
+                    elif cct == "BUTTONS":
+                        for b in (cc.get("buttons") or []):
+                            card_btns.append({
+                                "label": b.get("text") or "",
+                                "value": b.get("url") or b.get("phone_number") or "",
+                            })
+                cards.append({
+                    "media": card_media,
+                    "body": card_body,
+                    "botones": card_btns,
+                })
+            tipo = "catalogo_carrusel"
+
+    cat = (raw.get("category") or "MARKETING").upper()
+    return {
+        "meta_id": raw.get("id"),
+        "name": raw.get("name") or "",
+        "display": (raw.get("name") or "").replace("_", " ").title(),
+        "idioma": raw.get("language") or "es",
+        "categoria": cat,
+        "tipo": tipo,
+        "status": (raw.get("status") or "APPROVED").upper(),  # APPROVED/PENDING/REJECTED
+        "body": body,
+        "header": header,
+        "botones": buttons,
+        "catalogo": {"cards": cards} if cards else None,
+        "quality_score": (raw.get("quality_score") or {}).get("score"),
+        "rejected_reason": raw.get("rejected_reason"),
+    }
+
+
+def _meta_fetch_templates(force=False):
+    """Fetch de templates desde Meta Graph API para el WABA configurado.
+
+    Devuelve (lista, error_str_o_None). Cachea 5 min para no hacer fetch en
+    cada page load.
+    """
+    import time as _time
+    now = _time.time()
+    if not force and _META_TEMPLATES_CACHE["payload"] is not None and \
+       (now - _META_TEMPLATES_CACHE["ts"]) < _META_CACHE_TTL:
+        return _META_TEMPLATES_CACHE["payload"], _META_TEMPLATES_CACHE["error"]
+
+    token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    waba_id = (os.environ.get("META_WABA_ID") or "").strip()
+
+    if not token:
+        return [], "falta_env:META_ACCESS_TOKEN"
+    if not waba_id:
+        return [], "falta_env:META_WABA_ID"
+
+    url = f"https://graph.facebook.com/v22.0/{waba_id}/message_templates"
+    try:
+        import requests
+        r = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            params={"limit": 100, "fields":
+                    "id,name,status,category,language,components,quality_score,rejected_reason"},
+            timeout=15,
+        )
+        if r.status_code == 401:
+            _META_TEMPLATES_CACHE.update({"ts": now, "payload": [], "error": "token_invalido"})
+            return [], "token_invalido"
+        if r.status_code == 403:
+            _META_TEMPLATES_CACHE.update({"ts": now, "payload": [], "error": "sin_permiso_waba"})
+            return [], "sin_permiso_waba"
+        if not r.ok:
+            msg = f"http_{r.status_code}"
+            _META_TEMPLATES_CACHE.update({"ts": now, "payload": [], "error": msg})
+            return [], msg
+        data = r.json().get("data") or []
+        normalized = [_normalize_meta_template(t) for t in data]
+        _META_TEMPLATES_CACHE.update({"ts": now, "payload": normalized, "error": None})
+        return normalized, None
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[meta] fetch templates fallo")
+        return [], f"error:{type(e).__name__}"
+
+
+@petra_panel_bp.get("/v2/templates/meta")
+def panel_v2_templates_meta():
+    """Devuelve la lista de templates traídos desde Meta (JSON).
+
+    Query param force=1 ignora cache.
+    """
+    _check_token()
+    from flask import jsonify
+    force = (request.args.get("force") or "").strip() == "1"
+    lista, err = _meta_fetch_templates(force=force)
+    return jsonify({
+        "templates": lista,
+        "error": err,
+        "fetched_at": _META_TEMPLATES_CACHE["ts"],
+    })
+
+
 @petra_panel_bp.get("/v2/templates/<int:tid>/json")
 def panel_v2_templates_json(tid):
     """Devuelve un template como JSON (para popular el editor en modo edición)."""
