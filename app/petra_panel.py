@@ -4081,8 +4081,8 @@ def panel_v2_numeros_callback():
     propietario = (request.form.get("propietario") or "fabricio").strip()
     es_coexistencia = (request.form.get("es_coexistencia") or "true").strip().lower() == "true"
 
-    if not code or not phone_number_id or not waba_id:
-        return jsonify({"error": "faltan campos: code, phone_number_id, waba_id"}), 400
+    if not code:
+        return jsonify({"error": "falta code"}), 400
 
     app_id = (os.environ.get("META_APP_ID") or "").strip()
     app_secret = (os.environ.get("META_APP_SECRET") or "").strip()
@@ -4113,6 +4113,57 @@ def panel_v2_numeros_callback():
         _lg.getLogger(__name__).exception("[numeros] exchange code fallo")
         return jsonify({"error": f"exchange_error:{type(e).__name__}"}), 500
 
+    # Si no vino phone/waba del postMessage, descubrir vía Graph API
+    discovered = None
+    if not phone_number_id or not waba_id:
+        try:
+            import requests
+            # Query the WABAs the user granted access to
+            r = requests.get(
+                "https://graph.facebook.com/v22.0/me",
+                params={
+                    "fields": "businesses{owned_whatsapp_business_accounts{id,name,phone_numbers{id,display_phone_number,verified_name}}}",
+                    "access_token": access_token,
+                },
+                timeout=15,
+            )
+            discovered = r.json()
+            import logging as _lg
+            _lg.getLogger(__name__).info("[numeros] descubrimiento WABAs: %s",
+                                         str(discovered)[:1500])
+            # Si tenemos UNA sola WABA con UN solo número, auto-usar
+            try:
+                biz = (discovered.get("businesses") or {}).get("data") or []
+                for b in biz:
+                    wabas = (b.get("owned_whatsapp_business_accounts") or {}).get("data") or []
+                    for w in wabas:
+                        phones = (w.get("phone_numbers") or {}).get("data") or []
+                        for p in phones:
+                            if not waba_id:
+                                waba_id = w.get("id")
+                            if not phone_number_id:
+                                phone_number_id = p.get("id")
+                                phone_e164 = p.get("display_phone_number") or phone_e164
+                                display_name = p.get("verified_name") or display_name
+                            if waba_id and phone_number_id:
+                                break
+                        if waba_id and phone_number_id:
+                            break
+                    if waba_id and phone_number_id:
+                        break
+            except Exception:
+                pass
+        except Exception:
+            import logging as _lg
+            _lg.getLogger(__name__).exception("[numeros] descubrimiento fallo")
+
+    if not phone_number_id or not waba_id:
+        return jsonify({
+            "error": "no se pudo determinar phone_number_id/waba_id",
+            "code_exchange_ok": True,
+            "discovered": discovered,
+        }), 400
+
     # Guardar en DB
     try:
         with _db._conexion_directa(timeout=10) as conn:
@@ -4134,7 +4185,12 @@ def panel_v2_numeros_callback():
         _lg.getLogger(__name__).exception("[numeros] guardar en DB fallo")
         return jsonify({"error": "db_error"}), 500
 
-    return jsonify({"ok": True, "phone_number_id": phone_number_id})
+    return jsonify({
+        "ok": True,
+        "phone_number_id": phone_number_id,
+        "waba_id": waba_id,
+        "auto_descubierto": bool(discovered),
+    })
 
 
 @petra_panel_bp.post("/v2/numeros/<int:nid>/eliminar")

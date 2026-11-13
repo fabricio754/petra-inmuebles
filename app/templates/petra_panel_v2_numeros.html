@@ -193,42 +193,62 @@
     fjs.parentNode.insertBefore(js, fjs);
   }(document, 'script', 'facebook-jssdk'));
 
-  // Capturar evento del signup cuando el popup pasa datos (phone_number_id, waba_id).
+  // Debug: loguear TODOS los postMessages a consola para diagnóstico.
+  window._wa_all_messages = [];
   window.addEventListener('message', function(e) {
+    var entry = { origin: e.origin, data: e.data, at: new Date().toISOString() };
+    window._wa_all_messages.push(entry);
+    console.log('[WA_DEBUG] postMessage', entry);
     if (e.origin !== 'https://www.facebook.com' && e.origin !== 'https://web.facebook.com') return;
     try {
-      var data = JSON.parse(e.data);
-      if (data.type === 'WA_EMBEDDED_SIGNUP' && data.event === 'FINISH') {
+      var data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+      console.log('[WA_DEBUG] parsed FB data:', data);
+      if (data && data.type === 'WA_EMBEDDED_SIGNUP') {
         window._wa_signup_data = data.data || {};
+        console.log('[WA_DEBUG] WA_EMBEDDED_SIGNUP capturado:', window._wa_signup_data);
       }
-    } catch (err) { /* no era JSON del embedded signup */ }
+    } catch (err) { /* no era JSON */ }
   });
 
   function conectarWhatsApp() {
     if (typeof FB === 'undefined') { alert('Facebook SDK no cargó todavía, esperá 2s y reintentá.'); return; }
     window._wa_signup_data = null;
+    window._wa_all_messages = [];
+    console.log('[WA_DEBUG] Lanzando FB.login con config_id=' + CONFIG_ID);
 
     FB.login(function(response) {
-      if (response.authResponse && response.authResponse.code) {
-        var code = response.authResponse.code;
-        var signup = window._wa_signup_data || {};
-        var phone_number_id = signup.phone_number_id || '';
-        var waba_id = signup.waba_id || '';
-        if (!phone_number_id || !waba_id) {
-          alert('No se recibió phone_number_id o waba_id de Meta. Reintentá.');
-          return;
-        }
-        enviarCallback(code, phone_number_id, waba_id);
-      } else {
-        console.log('signup cancelado o falló', response);
+      console.log('[WA_DEBUG] FB.login callback response:', response);
+      console.log('[WA_DEBUG] window._wa_signup_data:', window._wa_signup_data);
+      console.log('[WA_DEBUG] todos los postMessages capturados:', window._wa_all_messages);
+
+      if (!response.authResponse || !response.authResponse.code) {
+        alert('FB.login no devolvió un code. status=' + response.status +
+              '. Ver consola para detalles.');
+        return;
       }
+      var code = response.authResponse.code;
+      var signup = window._wa_signup_data || {};
+      var phone_number_id = signup.phone_number_id || '';
+      var waba_id = signup.waba_id || '';
+
+      if (!phone_number_id || !waba_id) {
+        // Fallback: mandar el code igual al backend para que descubra WABAs
+        // vía Graph API con el token intercambiado. Permite diagnóstico.
+        if (confirm('Meta no devolvió phone/waba en el postMessage.\n\n' +
+                    '¿Mandar el code al backend igual para descubrir WABAs del usuario?\n\n' +
+                    'Ver consola para ver todos los postMessages recibidos.')) {
+          enviarCallback(code, '', '');
+        }
+        return;
+      }
+      enviarCallback(code, phone_number_id, waba_id);
     }, {
       config_id: CONFIG_ID,
       response_type: 'code',
       override_default_response_type: true,
       extras: {
         setup: {},
-        featureType: 'whatsapp_business_app_onboarding',  // coexistencia
+        featureType: 'whatsapp_business_app_onboarding',
         sessionInfoVersion: '3',
       },
     });
