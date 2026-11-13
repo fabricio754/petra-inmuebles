@@ -94,10 +94,26 @@
   .chip-utility { background: #e3f2d9; color: #4b7a3a; }
   .chip-marketing { background: #fde6dd; color: #a8422d; }
   .chip-auth { background: #d8e4f3; color: #2a5a7a; }
+  .chip-authentication { background: #d8e4f3; color: #2a5a7a; }
   .chip-draft { background: var(--border); color: var(--text-sub); }
   .chip-pendiente { background: #fdf2d4; color: #8c6a1c; }
+  .chip-pending { background: #fdf2d4; color: #8c6a1c; }
+  .chip-paused { background: #e8e6df; color: #6b6659; }
+  .chip-in_appeal { background: #e4dff5; color: #5b4a8f; }
+  .chip-pending_deletion { background: #faeae5; color: #a8422d; }
   .chip-aprobado { background: #e3f2d9; color: #4b7a3a; }
   .chip-rechazado { background: #faeae5; color: #a8422d; }
+  .chip-rejected { background: #faeae5; color: #a8422d; }
+
+  .waiting-reason {
+    font-size: 12px; color: #a8422d; line-height: 1.5;
+    padding: 10px 12px; border-radius: 8px;
+    background: color-mix(in srgb, #faeae5 60%, var(--panel));
+    border-left: 3px solid #a8422d; margin-top: 4px;
+  }
+  [data-theme="dark"] .waiting-reason {
+    background: #3a1f1a; color: #e8a89a;
+  }
   .chip-tipo {
     background: var(--bg); color: var(--text-sub); text-transform: none;
     letter-spacing: 0; font-family: ui-monospace, monospace;
@@ -612,6 +628,9 @@
   <button class="tab" data-tab="meta" onclick="cambiarTab('meta')">
     ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
   </button>
+  <button class="tab" data-tab="waiting" onclick="cambiarTab('waiting')">
+    ⏳ Esperando aprobación <span class="tab-count" id="tab-waiting-count">(…)</span>
+  </button>
   <div class="tabs-right">
     <button class="btn-sync" id="btn-sync" onclick="sincronizarMeta(true)" hidden>
       🔄 Sincronizar con Meta
@@ -826,6 +845,21 @@
   </div>
   <div id="meta-error" class="empty-state" hidden></div>
   <div id="meta-grid" class="tpls-grid" hidden></div>
+</div>
+
+{# ─── Tab Esperando aprobación ─────────────────────────────── #}
+<div class="tab-pane" data-pane="waiting">
+  <div id="waiting-loading" class="empty-state">
+    <div class="icon">⏳</div>
+    <h3>Cargando templates…</h3>
+  </div>
+  <div id="waiting-error" class="empty-state" hidden></div>
+  <p id="waiting-intro" class="activ-intro" hidden>
+    Templates que enviamos a Meta y todavía están en revisión. Suele tardar
+    entre 1 minuto y 24 horas. Si Meta rechaza alguno, también aparece acá
+    con el motivo.
+  </p>
+  <div id="waiting-grid" class="tpls-grid" hidden></div>
 </div>
 
 
@@ -1065,8 +1099,8 @@
     document.querySelectorAll('.tab-pane').forEach(function(p) {
       p.classList.toggle('active', p.dataset.pane === tab);
     });
-    document.getElementById('btn-sync').hidden = (tab !== 'meta');
-    if (tab === 'meta' && !metaCargado) {
+    document.getElementById('btn-sync').hidden = (tab !== 'meta' && tab !== 'waiting');
+    if ((tab === 'meta' || tab === 'waiting') && !metaCargado) {
       sincronizarMeta(false);
     }
   }
@@ -1077,6 +1111,10 @@
     document.getElementById('meta-loading').hidden = false;
     document.getElementById('meta-error').hidden = true;
     document.getElementById('meta-grid').hidden = true;
+    document.getElementById('waiting-loading').hidden = false;
+    document.getElementById('waiting-error').hidden = true;
+    document.getElementById('waiting-grid').hidden = true;
+    document.getElementById('waiting-intro').hidden = true;
 
     var url = '/panel/petra/v2/templates/meta?token=' + encodeURIComponent(TOKEN) +
               (force ? '&force=1' : '');
@@ -1085,26 +1123,40 @@
       .then(function(d) {
         metaCargado = true;
         document.getElementById('meta-loading').hidden = true;
+        document.getElementById('waiting-loading').hidden = true;
         btn.disabled = false; btn.textContent = '🔄 Sincronizar con Meta';
 
         if (d.error) {
-          renderMetaError(d.error);
+          renderMetaError(d.error, 'meta-error');
+          renderMetaError(d.error, 'waiting-error');
           document.getElementById('tab-meta-count').textContent = '(!)';
+          document.getElementById('tab-waiting-count').textContent = '(!)';
           return;
         }
         var lista = d.templates || [];
-        document.getElementById('tab-meta-count').textContent = '(' + lista.length + ')';
-        renderMetaGrid(lista, d.fetched_at);
+        var APPROVED = ['approved'];
+        var aprobados = lista.filter(function(t) {
+          return APPROVED.indexOf((t.status || '').toLowerCase()) >= 0;
+        });
+        var esperando = lista.filter(function(t) {
+          return APPROVED.indexOf((t.status || '').toLowerCase()) < 0;
+        });
+        document.getElementById('tab-meta-count').textContent = '(' + aprobados.length + ')';
+        document.getElementById('tab-waiting-count').textContent = '(' + esperando.length + ')';
+        renderMetaGrid(aprobados, d.fetched_at);
+        renderWaitingGrid(esperando, d.fetched_at);
       })
       .catch(function() {
         document.getElementById('meta-loading').hidden = true;
+        document.getElementById('waiting-loading').hidden = true;
         btn.disabled = false; btn.textContent = '🔄 Sincronizar con Meta';
-        renderMetaError('red');
+        renderMetaError('red', 'meta-error');
+        renderMetaError('red', 'waiting-error');
       });
   }
 
-  function renderMetaError(code) {
-    var box = document.getElementById('meta-error');
+  function renderMetaError(code, boxId) {
+    var box = document.getElementById(boxId || 'meta-error');
     box.hidden = false;
     var titulos = {
       'falta_env:META_ACCESS_TOKEN': ['🔑', 'Falta el token de Meta',
@@ -1161,6 +1213,61 @@
         (t.rejected_reason
           ? '<div style="font-size:11.5px;color:#a8422d;margin-top:4px">Rechazo: ' + escapeHtml(t.rejected_reason) + '</div>'
           : '') +
+      '</div>';
+    }).join('');
+  }
+
+  function renderWaitingGrid(lista, fetchedAt) {
+    var grid = document.getElementById('waiting-grid');
+    var intro = document.getElementById('waiting-intro');
+    grid.hidden = false;
+    if (!lista.length) {
+      intro.hidden = true;
+      grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1">' +
+        '<div class="icon">✨</div>' +
+        '<h3>Nada en revisión</h3>' +
+        '<p>Todos los templates que enviaste a Meta ya tienen veredicto.</p>' +
+        '</div>';
+      return;
+    }
+    intro.hidden = false;
+
+    var when = fetchedAt
+      ? '<div class="meta-last-sync">Sincronizado hace ' + minutesAgo(fetchedAt) + ' · cache 5min</div>'
+      : '';
+    grid.innerHTML = when + lista.map(function(t) {
+      var iconByTipo = {
+        texto: '✉️', multimedia: '🎬', botones: '🔘', catalogo_carrusel: '🛒'
+      };
+      var icon = iconByTipo[t.tipo] || '📝';
+      var bodyPrev = (t.body || '').slice(0, 220);
+      var statusLower = (t.status || '').toLowerCase();
+      var statusEmoji = {
+        pending: '⏳', paused: '⏸️', rejected: '🚫',
+        in_appeal: '⚖️', pending_deletion: '🗑️'
+      };
+      var reasonHtml = t.rejected_reason
+        ? '<div class="waiting-reason">' +
+          '<strong>Motivo del rechazo:</strong><br>' + escapeHtml(t.rejected_reason) +
+          '</div>'
+        : '';
+      return '<div class="tpl-card" data-cat="' + (t.categoria || '').toLowerCase() + '">' +
+        '<div class="tpl-card-head">' +
+          '<div class="tpl-card-icon">' + icon + '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<h3 class="tpl-card-title">' + escapeHtml(t.display) + '</h3>' +
+            '<div class="tpl-card-name">' + escapeHtml(t.name) + ' · ' + escapeHtml(t.idioma) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tpl-card-chips">' +
+          '<span class="chip chip-' + (t.categoria || '').toLowerCase() + '">' + escapeHtml(t.categoria) + '</span>' +
+          '<span class="chip chip-' + statusLower + '">' +
+            (statusEmoji[statusLower] || '') + ' ' + escapeHtml(t.status) +
+          '</span>' +
+          '<span class="chip chip-tipo">' + escapeHtml(t.tipo) + '</span>' +
+        '</div>' +
+        '<div class="tpl-card-body">' + escapeHtml(bodyPrev) + '</div>' +
+        reasonHtml +
       '</div>';
     }).join('');
   }
