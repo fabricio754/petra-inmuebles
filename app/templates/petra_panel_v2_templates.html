@@ -53,24 +53,35 @@
 
   .meta-last-sync {
     font-size: 11.5px; color: var(--text-sub); margin-bottom: 12px;
+    grid-column: 1 / -1;  /* ocupa fila completa dentro del grid */
   }
 
   .tpls-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 14px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
   }
   .tpl-card {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 14px; padding: 16px; display: flex; flex-direction: column;
-    gap: 10px; position: relative;
+    border-radius: 16px; padding: 20px; display: flex; flex-direction: column;
+    gap: 12px; position: relative;
+    transition: border-color 150ms, transform 150ms;
   }
-  .tpl-card-head { display: flex; align-items: flex-start; gap: 10px; }
+  .tpl-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .tpl-card-head { display: flex; align-items: center; gap: 12px; }
   .tpl-card-icon {
-    width: 36px; height: 36px; border-radius: 10px;
+    width: 48px; height: 48px; border-radius: 14px;
     background: color-mix(in srgb, var(--accent) 15%, var(--panel));
-    display: grid; place-items: center; font-size: 18px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 24px; flex-shrink: 0;
   }
-  .tpl-card-title { font-weight: 600; font-size: 14.5px; margin: 0; line-height: 1.3; }
+  /* Icono coloreado por categoría (como en Activados) */
+  .tpl-card[data-cat="utility"] .tpl-card-icon { background: #e3f2d9; }
+  .tpl-card[data-cat="marketing"] .tpl-card-icon { background: #fde6dd; }
+  .tpl-card[data-cat="authentication"] .tpl-card-icon { background: #d8e4f3; }
+  [data-theme="dark"] .tpl-card[data-cat="utility"] .tpl-card-icon { background: #2a3d1e; }
+  [data-theme="dark"] .tpl-card[data-cat="marketing"] .tpl-card-icon { background: #3d2820; }
+  [data-theme="dark"] .tpl-card[data-cat="authentication"] .tpl-card-icon { background: #1f3147; }
+  .tpl-card-title { font-weight: 600; font-size: 16px; margin: 0;
+                     line-height: 1.3; letter-spacing: -0.2px; }
   .tpl-card-name {
     font-family: ui-monospace, monospace; font-size: 11.5px;
     color: var(--text-sub); margin-top: 2px;
@@ -702,7 +713,7 @@
   {% if templates %}
   <div class="tpls-grid">
     {% for t in templates %}
-    <div class="tpl-card">
+    <div class="tpl-card" data-cat="{{ t.categoria|lower }}">
       <div class="tpl-card-head">
         <div class="tpl-card-icon">
           {% if t.tipo == 'texto' %}✉️
@@ -1058,7 +1069,7 @@
       };
       var icon = iconByTipo[t.tipo] || '📝';
       var bodyPrev = (t.body || '').slice(0, 220);
-      return '<div class="tpl-card">' +
+      return '<div class="tpl-card" data-cat="' + (t.categoria || '').toLowerCase() + '">' +
         '<div class="tpl-card-head">' +
           '<div class="tpl-card-icon">' + icon + '</div>' +
           '<div style="flex:1;min-width:0;">' +
