@@ -148,6 +148,15 @@ def iniciar():
     # y el server dejaría de responder health checks → el host lo reinicia
     # y entra en loop. El dispatcher igual re-intenta en cada ronda.
     if _DRAIN_ON_START:
+        # drain_and_process_spool: procesa inline los payloads que
+        # quedaron por un crash entre spool_atomic y spool_delete
+        # (0 pérdidas garantizadas aunque gunicorn se muera mid-handle).
+        # También corremos _drenar_spool_background por los archivos
+        # viejos que escribió la ruta pool_timeout del encolar (si
+        # queda alguno).
+        threading.Thread(target=drain_and_process_spool,
+                         name="webhook-spool-process-start",
+                         daemon=True).start()
         threading.Thread(target=_drenar_spool_background,
                          name="webhook-spool-drain-start",
                          daemon=True).start()
@@ -216,6 +225,94 @@ def _spool_payload(payload, motivo="unknown"):
         log.warning("[WebhookQueue] Payload spooled a %s (motivo=%s).", final, motivo)
     except Exception:
         log.exception("[WebhookQueue] No se pudo spoolear payload. motivo=%s", motivo)
+
+
+def spool_atomic(payload):
+    """Escribe el payload al spool de disco atómicamente y devuelve la ruta.
+
+    Diseñado para el path crítico del HTTP handler (procesamiento inline):
+      1. HTTP handler llama spool_atomic(payload) ANTES de responder 200.
+         El archivo queda en disco con el payload entero.
+      2. HTTP responde 200 a Meta.
+      3. Un thread procesa el mensaje inline.
+      4. Si termina OK → spool_delete(ruta).
+      5. Si el proceso crashea → el archivo queda. Al reiniciar,
+         drain_and_process_spool() lo reprocesa.
+
+    Garantía: cero pérdida de mensajes incluso ante SIGKILL del proceso,
+    porque escribimos a disco ANTES de confirmar a Meta. Usa write-tmp +
+    rename atómico (no deja archivos a medio escribir).
+
+    Devuelve la ruta absoluta del archivo, o None si no se pudo escribir
+    (en cuyo caso el caller debe procesar igual, aceptando el riesgo).
+    """
+    try:
+        d = _spool_dir()
+        if not d:
+            log.error("[WebhookQueue] spool_atomic: sin spool dir — fallback inline sin durabilidad.")
+            return None
+        nombre = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}.json"
+        tmp = os.path.join(d, nombre + ".tmp")
+        final = os.path.join(d, nombre)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(tmp, final)
+        return final
+    except Exception:
+        log.exception("[WebhookQueue] spool_atomic fallo — fallback inline sin durabilidad.")
+        return None
+
+
+def spool_delete(ruta):
+    """Borra un archivo del spool tras procesarlo con éxito. Silencioso."""
+    if not ruta:
+        return
+    try:
+        os.remove(ruta)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        log.exception("[WebhookQueue] spool_delete fallo ruta=%s", ruta)
+
+
+def drain_and_process_spool():
+    """Al arrancar: procesa inline todos los archivos del spool que quedaron
+    de una corrida anterior (el proceso se murió entre spool_atomic y
+    spool_delete). Recupera mensajes que no se alcanzaron a responder.
+
+    Diferente a _drenar_spool(): este NO re-encola a Postgres, procesa
+    directamente con _invocar_logica (que es el mismo path que usan los
+    threads inline del HTTP handler). Idempotencia por dedup del handle.
+    """
+    d = _spool_dir()
+    if not d:
+        return 0
+    archivos = sorted(glob.glob(os.path.join(d, "*.json")))
+    if not archivos:
+        return 0
+    log.info("[WebhookQueue] drain-on-start: recuperando %d mensaje(s) del spool.",
+             len(archivos))
+    ok = 0
+    for ruta in archivos:
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
+            log.exception("[WebhookQueue] Spool corrupto, borrando: %s", ruta)
+            try:
+                os.remove(ruta)
+            except Exception:
+                pass
+            continue
+        try:
+            _invocar_logica(payload)
+            os.remove(ruta)
+            ok += 1
+        except Exception:
+            log.exception("[WebhookQueue] drain-on-start: fallo procesando %s (se deja para reintento)", ruta)
+    if ok:
+        log.info("[WebhookQueue] drain-on-start: %d mensaje(s) recuperados OK.", ok)
+    return ok
 
 
 def _drenar_spool():
