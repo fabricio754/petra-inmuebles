@@ -468,6 +468,10 @@ def _procesar_webhook_petra(payload):
     from app.petra_router import handle_inbound
     from app import petra_wa
 
+    t0 = time.perf_counter()
+    def _ms(mark):
+        return int((time.perf_counter() - mark) * 1000)
+
     try:
         change = payload["entry"][0]["changes"][0]["value"]
     except (KeyError, IndexError, TypeError):
@@ -610,16 +614,29 @@ def _procesar_webhook_petra(payload):
         # porque el estado sticky expiró entre el envío del Flow y el submit).
         if petra_visitante.es_visitante(phone, texto) or flow_response is not None:
             wamid = message.get("id") if isinstance(message, dict) else None
-            if wamid:
+            t_router = time.perf_counter()
+            # typing_indicator ya se disparó en el HTTP handler (server.py)
+            # vía send_typing_indicator_async — lo evitamos acá para no
+            # pagar 500-1000ms extra de round-trip a Meta.
+            if wamid and not petra_wa.typing_already_sent(wamid):
                 try:
                     petra_wa.send_typing_indicator(wamid)
                 except Exception:
                     log.exception("[petra] typing fallo")
+            t_typing = time.perf_counter()
             petra_visitante.handle_message(
                 telefono=phone, texto=texto,
                 button_id=button_id, list_id=list_id,
                 contacto_nombre=nombre, wa_msg_id=wamid,
                 flow_response=flow_response,
+            )
+            log.info(
+                "[timing] tel=%s path=visitante total=%dms "
+                "parse+router=%dms typing=%dms handle=%dms",
+                phone, _ms(t0),
+                int((t_router - t0) * 1000),
+                int((t_typing - t_router) * 1000),
+                int((time.perf_counter() - t_typing) * 1000),
             )
             return
     except Exception as _e_visit:
@@ -636,10 +653,9 @@ def _procesar_webhook_petra(payload):
         from app import petra_agents, petra_wa
         if petra_agents.esta_activo():
             wamid = message.get("id") if isinstance(message, dict) else None
-            # Typing indicator + read receipt: WhatsApp muestra los 3
-            # puntitos de "escribiendo..." mientras procesamos. Fire-and-
-            # forget — si falla, no bloquea la respuesta real.
-            if wamid:
+            # Igual que la rama de visitante: typing ya salió desde el
+            # HTTP handler; si por algún motivo no, lo reintentamos acá.
+            if wamid and not petra_wa.typing_already_sent(wamid):
                 try:
                     petra_wa.send_typing_indicator(wamid)
                 except Exception:
