@@ -273,7 +273,12 @@ def receive_webhook():
         except Exception:
             log.exception("[typing-asap] fallo")
 
-        webhook_worker.encolar(payload)
+        # ENCOLAR en thread: el HTTP handler nunca espera al pool DB.
+        # Si el pool está contendido, el thread cae al spool de disco
+        # (web_worker ya maneja ese caso). Meta recibe 200 en <50ms.
+        import threading as _th
+        _th.Thread(target=webhook_worker.encolar, args=(payload,),
+                   name="encolar-async", daemon=True).start()
 
         if phone is not None:
             log.info("Mensaje entrante de %s: %s", phone, event)
