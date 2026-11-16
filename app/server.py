@@ -36,14 +36,10 @@ from app.petra_router import petra_router_bp
 app.register_blueprint(petra_router_bp)
 from app.petra_match import petra_match_bp
 app.register_blueprint(petra_match_bp)
-from app.petra_llm import petra_llm_bp
-app.register_blueprint(petra_llm_bp)
 from app.petra_core import petra_core_bp
 app.register_blueprint(petra_core_bp)
 from app.petra_panel import petra_panel_bp
 app.register_blueprint(petra_panel_bp)
-from app.petra_el_bridge import petra_el_bp
-app.register_blueprint(petra_el_bp)
 scheduler.iniciar()
 webhook_worker.iniciar()
 

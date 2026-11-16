@@ -483,15 +483,6 @@ def _procesar_webhook_petra(payload):
                 _procesar_status(s)
             except Exception:
                 log.exception("[petra] status procesamiento fallo")
-    # Fan-out de voz: cuando flipamos USE_OWN_ORCHESTRATOR, Meta nos manda las
-    # calls y nosotros se las reenviamos a ElevenLabs para que las conteste.
-    if change.get("calls"):
-        try:
-            from app import petra_el_bridge, petra_orchestrator
-            if petra_orchestrator.esta_activo():
-                petra_el_bridge.forward_call_to_el(payload)
-        except Exception:
-            log.exception("[petra] fan-out voz fallo")
     if not change.get("messages"):
         return
 
@@ -636,11 +627,11 @@ def _procesar_webhook_petra(payload):
         _bot_fallback_y_alertar(phone, texto, "visitante", _e_visit)
         return
 
-    # Feature flag en cascada: multi-agent > orchestrator monolítico > legacy.
-    # - USE_MULTI_AGENT=true → router + sub-agentes especializados
-    # - USE_OWN_ORCHESTRATOR=true → orchestrator monolítico con Claude SDK
-    # - sino → router determinístico legacy
-    # ElevenLabs sólo entra para voz cuando el fan-out está activo.
+    # Post-fase-1 (visitante-only):
+    # - Orchestrator propio eliminado.
+    # - ElevenLabs bridge eliminado.
+    # - USE_MULTI_AGENT=true → multi-agent (en archivado parcial; fase 2 lo mueve).
+    # - Fallback: legacy router (petra_router). Se irá en fase 2.
     try:
         from app import petra_agents, petra_wa
         if petra_agents.esta_activo():
@@ -664,18 +655,10 @@ def _procesar_webhook_petra(payload):
         # No cortamos acá: dejamos que caiga al orquestador legacy. Si ese
         # también falla, el fallback final se dispara abajo.
         _e_agents_capturado = _e_agents  # noqa: F841
-    try:
-        from app import petra_orchestrator
-        if petra_orchestrator.esta_activo():
-            petra_orchestrator.handle_message(
-                telefono=phone, texto=texto,
-                button_id=button_id, list_id=list_id,
-                contacto_nombre=nombre,
-            )
-            return
-    except Exception:
-        log.exception("[petra] orquestador propio fallo — cae a legacy")
-
+    # NOTA (visitante-only, fase 1): el orchestrator propio se eliminó.
+    # Si cae acá significa que el mensaje no es de un visitante QR ni de
+    # multi-agent; usamos el router legacy como safety-net mientras
+    # archivamos multi-agent en fase 2.
     edificio_slug = _extraer_slug_qr(texto)
     try:
         out = handle_inbound(
