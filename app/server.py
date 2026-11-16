@@ -258,6 +258,21 @@ def receive_webhook():
             except Exception:
                 log.exception("[staging-router] fallo — fallback a procesar en prod")
 
+        # TYPING INDICATOR ASAP: antes de encolar en DB disparamos los
+        # 3 puntitos de "escribiendo..." en un thread. Así el usuario los
+        # ve en ~300-500ms en vez de esperar a que el dispatcher lo saque
+        # de la cola (1-1.5s extra). El worker lo salta vía dedup.
+        try:
+            if event is not None:
+                from app import petra_wa
+                wamid = None
+                if messages:
+                    wamid = messages[0].get("id")
+                if wamid:
+                    petra_wa.send_typing_indicator_async(wamid)
+        except Exception:
+            log.exception("[typing-asap] fallo")
+
         webhook_worker.encolar(payload)
 
         if phone is not None:
