@@ -227,6 +227,25 @@ def _spool_payload(payload, motivo="unknown"):
         log.exception("[WebhookQueue] No se pudo spoolear payload. motivo=%s", motivo)
 
 
+def _spool_inline_dir():
+    """Directorio DEDICADO al spool de procesamiento inline.
+
+    AISLADO del _spool_dir() tradicional: el dispatcher viejo
+    (_drenar_spool) lee del directorio raíz y re-encola a Postgres.
+    Si spool_atomic escribiera al mismo lugar, tendríamos doble
+    procesamiento (dispatcher re-encola + thread inline procesa).
+    """
+    base = _spool_dir()
+    if not base:
+        return None
+    d = os.path.join(base, "inline")
+    try:
+        os.makedirs(d, exist_ok=True)
+        return d
+    except Exception:
+        return None
+
+
 def spool_atomic(payload):
     """Escribe el payload al spool de disco atómicamente y devuelve la ruta.
 
@@ -239,6 +258,10 @@ def spool_atomic(payload):
       5. Si el proceso crashea → el archivo queda. Al reiniciar,
          drain_and_process_spool() lo reprocesa.
 
+    Usa un subdirectorio DEDICADO (_spool_inline_dir) para no colisionar
+    con el dispatcher viejo que re-encola a Postgres (causaría doble
+    procesamiento).
+
     Garantía: cero pérdida de mensajes incluso ante SIGKILL del proceso,
     porque escribimos a disco ANTES de confirmar a Meta. Usa write-tmp +
     rename atómico (no deja archivos a medio escribir).
@@ -247,7 +270,7 @@ def spool_atomic(payload):
     (en cuyo caso el caller debe procesar igual, aceptando el riesgo).
     """
     try:
-        d = _spool_dir()
+        d = _spool_inline_dir()
         if not d:
             log.error("[WebhookQueue] spool_atomic: sin spool dir — fallback inline sin durabilidad.")
             return None
@@ -280,11 +303,10 @@ def drain_and_process_spool():
     de una corrida anterior (el proceso se murió entre spool_atomic y
     spool_delete). Recupera mensajes que no se alcanzaron a responder.
 
-    Diferente a _drenar_spool(): este NO re-encola a Postgres, procesa
-    directamente con _invocar_logica (que es el mismo path que usan los
-    threads inline del HTTP handler). Idempotencia por dedup del handle.
+    Lee del subdirectorio DEDICADO (_spool_inline_dir). NO toca los
+    archivos del spool viejo, de los cuales se encarga _drenar_spool().
     """
-    d = _spool_dir()
+    d = _spool_inline_dir()
     if not d:
         return 0
     archivos = sorted(glob.glob(os.path.join(d, "*.json")))
