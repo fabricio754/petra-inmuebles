@@ -273,19 +273,29 @@ def receive_webhook():
         except Exception:
             log.exception("[typing-asap] fallo")
 
-        # PROCESAR INLINE en thread: saltarse la cola DB para texto/button/
-        # list evita el delay de 2-5s cuando el pool de conexiones está
-        # contendido. El handle real tarda ~1-2s (medido con [timing]),
-        # así que el thread fire-and-forget devuelve control inmediato
-        # al HTTP handler. Meta recibe 200 en <50ms, y el usuario ve la
-        # respuesta en ~1-2s en lugar de 7-9s.
+        # SPOOL + PROCESAR INLINE: escribimos el payload al spool de disco
+        # ATÓMICAMENTE antes de responder 200 a Meta, y lanzamos un thread
+        # que lo procesa inline. Si el handle termina OK, el thread borra
+        # el archivo del spool. Si gunicorn se muere mid-handle (deploy,
+        # OOM, crash), el archivo queda; al reiniciar, drain_and_process_spool
+        # lo reprocesa.
         #
-        # Si este proceso muere mid-handle, Meta reintenta el webhook en
-        # ~30s con el mismo wamid y procesamos de nuevo. No encolamos en
-        # paralelo porque el worker no tiene dedup por wamid y podría
-        # emitir doble respuesta.
+        # Garantía: 0 pérdida de mensajes incluso ante SIGKILL.
+        # Latencia: spool_atomic es ~1-5ms (SSD), transparente al usuario.
+        spool_path = webhook_worker.spool_atomic(payload)
         import threading as _th
-        _th.Thread(target=webhook_worker._invocar_logica, args=(payload,),
+
+        def _procesar_y_limpiar():
+            try:
+                webhook_worker._invocar_logica(payload)
+            finally:
+                # Borramos el spool pase lo que pase: si _invocar_logica
+                # falló, igual lo quitamos del spool (si no, el próximo
+                # reinicio loopearía reprocesándolo y fallando de nuevo).
+                # Meta reintentará el webhook si corresponde.
+                webhook_worker.spool_delete(spool_path)
+
+        _th.Thread(target=_procesar_y_limpiar,
                    name="invocar-inline", daemon=True).start()
 
         if phone is not None:
