@@ -36,14 +36,10 @@ from app.petra_router import petra_router_bp
 app.register_blueprint(petra_router_bp)
 from app.petra_match import petra_match_bp
 app.register_blueprint(petra_match_bp)
-from app.petra_llm import petra_llm_bp
-app.register_blueprint(petra_llm_bp)
 from app.petra_core import petra_core_bp
 app.register_blueprint(petra_core_bp)
 from app.petra_panel import petra_panel_bp
 app.register_blueprint(petra_panel_bp)
-from app.petra_el_bridge import petra_el_bp
-app.register_blueprint(petra_el_bp)
 scheduler.iniciar()
 webhook_worker.iniciar()
 
@@ -262,7 +258,35 @@ def receive_webhook():
             except Exception:
                 log.exception("[staging-router] fallo — fallback a procesar en prod")
 
-        webhook_worker.encolar(payload)
+        # TYPING INDICATOR ASAP: antes de encolar en DB disparamos los
+        # 3 puntitos de "escribiendo..." en un thread. Así el usuario los
+        # ve en ~300-500ms en vez de esperar a que el dispatcher lo saque
+        # de la cola (1-1.5s extra). El worker lo salta vía dedup.
+        try:
+            if event is not None:
+                from app import petra_wa
+                wamid = None
+                if messages:
+                    wamid = messages[0].get("id")
+                if wamid:
+                    petra_wa.send_typing_indicator_async(wamid)
+        except Exception:
+            log.exception("[typing-asap] fallo")
+
+        # PROCESAR INLINE en thread: saltarse la cola DB para texto/button/
+        # list evita el delay de 2-5s cuando el pool de conexiones está
+        # contendido. El handle real tarda ~1-2s (medido con [timing]),
+        # así que el thread fire-and-forget devuelve control inmediato
+        # al HTTP handler. Meta recibe 200 en <50ms, y el usuario ve la
+        # respuesta en ~1-2s en lugar de 7-9s.
+        #
+        # Si este proceso muere mid-handle, Meta reintenta el webhook en
+        # ~30s con el mismo wamid y procesamos de nuevo. No encolamos en
+        # paralelo porque el worker no tiene dedup por wamid y podría
+        # emitir doble respuesta.
+        import threading as _th
+        _th.Thread(target=webhook_worker._invocar_logica, args=(payload,),
+                   name="invocar-inline", daemon=True).start()
 
         if phone is not None:
             log.info("Mensaje entrante de %s: %s", phone, event)

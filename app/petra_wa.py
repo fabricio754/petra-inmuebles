@@ -310,12 +310,12 @@ def send_media_o_texto(to, titulo, url):
 
 
 def send_typing_indicator(wa_msg_id):
-    """Marca el mensaje como leído + typing. Sync con timeout TIGHT (2s):
-    si Meta tarda más, abortamos rápido y seguimos. Los chulos azules
-    deben llegar al user ASAP — por eso lo mantenemos en el main thread
-    con timeout bajo en vez de thread async (Python GIL puede demorar
-    thread scheduling en Render 0.5 CPU, lo que hacía que el 'read'
-    llegara a Meta tarde)."""
+    """Marca el mensaje como leído + typing.
+
+    Timeouts TIGHT (0.5s connect + 1s read): si Meta tarda más es un ACK
+    roto y no vale la pena esperar — el usuario ya vio o verá los puntitos
+    igual cuando el ACK llegue (son independientes del flow de respuesta).
+    """
     if not wa_msg_id:
         return {"ok": True, "skip": "sin wa_msg_id"}
     import os as _os
@@ -333,7 +333,7 @@ def send_typing_indicator(wa_msg_id):
                   "status": "read",
                   "message_id": wa_msg_id,
                   "typing_indicator": {"type": "text"}},
-            timeout=(1, 2),  # 1s connect + 2s read — muy ajustado
+            timeout=(0.5, 1.0),
         )
         if r.status_code >= 300:
             log.warning("[petra_wa] typing HTTP %s", r.status_code)
@@ -341,6 +341,32 @@ def send_typing_indicator(wa_msg_id):
     except requests.RequestException:
         log.debug("[petra_wa] typing timeout (no crítico)")
         return {"ok": False, "timeout": True}
+
+
+def send_typing_indicator_async(wa_msg_id):
+    """Fire-and-forget del typing indicator — no bloquea al caller.
+
+    Se usa desde el HTTP handler del webhook para que el usuario vea los
+    3 puntitos de "escribiendo..." lo antes posible (apenas Meta nos
+    entregó el mensaje), sin esperar a que el worker lo saque de la cola.
+    Un dict en RAM evita que el worker lo mande de nuevo (dedup por wamid).
+    """
+    import threading as _th
+    if not wa_msg_id:
+        return
+    # Dedup: marcamos este wamid como "ya enviado" para que el worker lo
+    # salte. TTL implícito: la entrada queda hasta reinicio del proceso.
+    _TYPING_SENT.add(wa_msg_id)
+    _th.Thread(target=send_typing_indicator, args=(wa_msg_id,),
+               name="wa-typing-async", daemon=True).start()
+
+
+_TYPING_SENT = set()
+
+
+def typing_already_sent(wa_msg_id):
+    """True si send_typing_indicator_async ya se disparó para este wamid."""
+    return wa_msg_id in _TYPING_SENT
 
 
 def send_buttons(to, body, buttons):

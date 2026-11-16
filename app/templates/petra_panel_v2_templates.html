@@ -1,0 +1,2266 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'templates' %}
+{% block title %}Templates · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; max-width: 70ch; }
+  .hero .cta {
+    background: var(--accent); color: white; border: 0; padding: 10px 18px;
+    border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  .hero .cta:hover { opacity: 0.92; }
+
+  .tabs {
+    display: flex; align-items: center; gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 18px; position: relative;
+  }
+  .tab {
+    background: transparent; border: 0; padding: 10px 16px;
+    font-size: 13.5px; font-weight: 500; color: var(--text-sub);
+    cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; font-family: inherit;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+  }
+  .tab-count {
+    font-size: 11.5px; color: var(--text-sub); margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tab.active .tab-count { color: var(--accent); }
+  .tabs-right { margin-left: auto; padding-bottom: 6px; }
+  .btn-sync {
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text-sub); font-size: 12px; padding: 6px 12px;
+    border-radius: 6px; cursor: pointer; font-family: inherit;
+  }
+  .btn-sync:hover { color: var(--accent); border-color: var(--accent); }
+  .btn-sync:disabled { opacity: 0.5; cursor: wait; }
+
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  .chip-approved { background: #e3f2d9; color: #4b7a3a; }
+  .chip-pending { background: #fdf2d4; color: #8c6a1c; }
+  .chip-rejected { background: #faeae5; color: #a8422d; }
+  .chip-paused { background: #e8e6df; color: #6b6659; }
+
+  .meta-last-sync {
+    font-size: 11.5px; color: var(--text-sub); margin-bottom: 12px;
+    grid-column: 1 / -1;  /* ocupa fila completa dentro del grid */
+  }
+
+  .tpls-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+  .tpl-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 20px; display: flex; flex-direction: column;
+    gap: 12px; position: relative;
+    transition: border-color 150ms, transform 150ms;
+  }
+  .tpl-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .tpl-card-head { display: flex; align-items: center; gap: 12px; }
+  .tpl-card-icon {
+    width: 48px; height: 48px; border-radius: 14px;
+    background: color-mix(in srgb, var(--accent) 15%, var(--panel));
+    display: grid; place-items: center; font-size: 24px; flex-shrink: 0;
+  }
+  /* Icono coloreado por categoría (como en Activados) */
+  .tpl-card[data-cat="utility"] .tpl-card-icon { background: #e3f2d9; }
+  .tpl-card[data-cat="marketing"] .tpl-card-icon { background: #fde6dd; }
+  .tpl-card[data-cat="authentication"] .tpl-card-icon { background: #d8e4f3; }
+  [data-theme="dark"] .tpl-card[data-cat="utility"] .tpl-card-icon { background: #2a3d1e; }
+  [data-theme="dark"] .tpl-card[data-cat="marketing"] .tpl-card-icon { background: #3d2820; }
+  [data-theme="dark"] .tpl-card[data-cat="authentication"] .tpl-card-icon { background: #1f3147; }
+  .tpl-card-title { font-weight: 600; font-size: 16px; margin: 0;
+                     line-height: 1.3; letter-spacing: -0.2px; }
+  .tpl-card-name {
+    font-family: ui-monospace, monospace; font-size: 11.5px;
+    color: var(--text-sub); margin-top: 2px;
+  }
+  .tpl-card-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .chip-utility { background: #e3f2d9; color: #4b7a3a; }
+  .chip-marketing { background: #fde6dd; color: #a8422d; }
+  .chip-auth { background: #d8e4f3; color: #2a5a7a; }
+  .chip-authentication { background: #d8e4f3; color: #2a5a7a; }
+  .chip-draft { background: var(--border); color: var(--text-sub); }
+  .chip-pendiente { background: #fdf2d4; color: #8c6a1c; }
+  .chip-pending { background: #fdf2d4; color: #8c6a1c; }
+  .chip-paused { background: #e8e6df; color: #6b6659; }
+  .chip-in_appeal { background: #e4dff5; color: #5b4a8f; }
+  .chip-pending_deletion { background: #faeae5; color: #a8422d; }
+  .chip-aprobado { background: #e3f2d9; color: #4b7a3a; }
+  .chip-rechazado { background: #faeae5; color: #a8422d; }
+  .chip-rejected { background: #faeae5; color: #a8422d; }
+
+  .waiting-reason {
+    font-size: 12px; color: #a8422d; line-height: 1.5;
+    padding: 10px 12px; border-radius: 8px;
+    background: color-mix(in srgb, #faeae5 60%, var(--panel));
+    border-left: 3px solid #a8422d; margin-top: 4px;
+  }
+  [data-theme="dark"] .waiting-reason {
+    background: #3a1f1a; color: #e8a89a;
+  }
+
+  /* Card de template rechazado */
+  .rejected-card { border-color: #e9beb3; }
+  [data-theme="dark"] .rejected-card { border-color: #5e3a30; }
+  .rejected-reason-box {
+    background: #faeae5; border-radius: 10px; padding: 12px 14px;
+    border-left: 3px solid #a8422d;
+  }
+  [data-theme="dark"] .rejected-reason-box {
+    background: #3a1f1a;
+  }
+  .rejected-reason-label {
+    font-size: 10.5px; color: #a8422d; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+  [data-theme="dark"] .rejected-reason-label { color: #e8a89a; }
+  .rejected-reason-text {
+    font-size: 13px; color: #6e2a1a; line-height: 1.55;
+    word-wrap: break-word;
+  }
+  [data-theme="dark"] .rejected-reason-text { color: #f0c8bd; }
+  .chip-tipo {
+    background: var(--bg); color: var(--text-sub); text-transform: none;
+    letter-spacing: 0; font-family: ui-monospace, monospace;
+  }
+  .tpl-card-body {
+    font-size: 12.5px; color: var(--text); line-height: 1.5;
+    background: var(--bg); padding: 10px 12px; border-radius: 8px;
+    white-space: pre-wrap; overflow: hidden; display: -webkit-box;
+    -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+    max-height: 90px;
+  }
+  .tpl-card-actions {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-top: 8px; border-top: 1px dashed var(--border);
+    margin-top: auto;
+  }
+  .tpl-card-meta { font-size: 11.5px; color: var(--text-sub); }
+  .tpl-card-btns { display: flex; gap: 6px; }
+  .mini-btn {
+    background: transparent; border: 1px solid var(--border-strong, var(--border));
+    color: var(--text); font-size: 11.5px; padding: 4px 10px;
+    border-radius: 6px; cursor: pointer; font-weight: 500;
+  }
+  .mini-btn:hover { background: var(--bg); }
+  .mini-btn.danger:hover { color: #a8422d; border-color: #a8422d; }
+  .mini-btn.approve {
+    color: #4b7a3a; border-color: #b5d49e; background: #f1f8ea;
+  }
+  .mini-btn.approve:hover {
+    background: #e3f2d9; border-color: #4b7a3a;
+  }
+  [data-theme="dark"] .mini-btn.approve {
+    color: #a8d48d; border-color: #4b7a3a; background: #2a3d1e;
+  }
+  .mini-btn.approve:disabled {
+    opacity: 0.6; cursor: wait;
+  }
+
+  .empty-state {
+    background: var(--panel); border: 1px dashed var(--border);
+    border-radius: 14px; padding: 56px 20px; text-align: center;
+    color: var(--text-sub);
+  }
+  .empty-state .icon { font-size: 44px; margin-bottom: 10px; opacity: 0.6; }
+  .empty-state h3 { margin: 0 0 6px; color: var(--text); font-size: 16px; font-weight: 600; }
+
+  /* ─── Activados ─────────────────────────────────────── */
+  .activ-intro {
+    color: var(--text-sub); font-size: 13px; line-height: 1.6;
+    margin-bottom: 18px; max-width: 72ch;
+  }
+  .activ-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .activ-card {
+    position: relative; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 20px; display: flex; flex-direction: column; gap: 12px;
+    transition: border-color 150ms, transform 150ms;
+  }
+  .activ-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .activ-card-head {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .activ-icon {
+    width: 48px; height: 48px; border-radius: 14px;
+    display: grid; place-items: center; font-size: 24px; flex-shrink: 0;
+  }
+  .activ-icon.bienvenida { background: #e3f2d9; }
+  .activ-icon.servicio { background: #fde6dd; }
+  .activ-icon.credito { background: #d8e4f3; }
+  [data-theme="dark"] .activ-icon.bienvenida { background: #2a3d1e; }
+  [data-theme="dark"] .activ-icon.servicio { background: #3d2820; }
+  [data-theme="dark"] .activ-icon.credito { background: #1f3147; }
+  .activ-title { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: -0.2px; }
+  .activ-sub {
+    font-size: 11.5px; color: var(--text-sub); margin-top: 2px;
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500;
+  }
+  .activ-trigger {
+    font-size: 12.5px; color: var(--text-sub); line-height: 1.55;
+    padding: 10px 12px; background: var(--bg); border-radius: 8px;
+    border-left: 3px solid var(--border);
+  }
+  .activ-trigger strong { color: var(--text); font-weight: 600; }
+  .activ-link {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; background: var(--bg); border-radius: 8px;
+    gap: 10px; min-height: 42px;
+  }
+  .activ-link-info { min-width: 0; flex: 1; }
+  .activ-link-label { font-size: 10.5px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+    margin-bottom: 2px; }
+  .activ-link-value {
+    font-size: 13px; font-weight: 500; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .activ-link-none { color: var(--text-sub); font-style: italic; }
+  .activ-status {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    background: #e3f2d9; color: #4b7a3a;
+  }
+  .activ-status.pausado { background: var(--border); color: var(--text-sub); }
+  .activ-status .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  }
+  .activ-actions {
+    display: flex; gap: 6px; justify-content: flex-end;
+    margin-top: auto; padding-top: 4px;
+  }
+
+  /* Modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: flex-start; justify-content: center;
+    z-index: 1000; padding: 40px 16px; overflow-y: auto;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--panel); border-radius: 18px; width: 100%;
+    max-width: 860px; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+  }
+  .modal-head {
+    padding: 16px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modal-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .modal-close {
+    background: transparent; border: 0; font-size: 22px;
+    cursor: pointer; color: var(--text-sub); line-height: 1;
+    width: 32px; height: 32px; border-radius: 50%;
+  }
+  .modal-close:hover { background: var(--bg); color: var(--text); }
+  .modal-body { padding: 22px; }
+  .modal-foot {
+    padding: 14px 22px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg); gap: 10px;
+  }
+  .btn-secondary {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); padding: 9px 16px; border-radius: 8px;
+    font-size: 14px; cursor: pointer; font-weight: 500;
+  }
+  .btn-secondary:hover { background: var(--panel); }
+  .btn-primary {
+    background: var(--accent); color: white; border: 0;
+    padding: 9px 20px; border-radius: 8px; font-size: 14px;
+    cursor: pointer; font-weight: 600;
+  }
+  .btn-primary:hover { opacity: 0.92; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Picker de tipo */
+  .tipo-picker {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .tipo-card {
+    background: var(--panel); border: 1.5px solid var(--border);
+    border-radius: 12px; padding: 16px; cursor: pointer;
+    transition: all 120ms;
+  }
+  .tipo-card:hover { border-color: var(--accent); }
+  .tipo-card.selected {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  }
+  .tipo-card-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 15%, var(--panel));
+    display: grid; place-items: center; font-size: 22px;
+    margin-bottom: 10px;
+  }
+  .tipo-card-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .tipo-card-desc { font-size: 12px; color: var(--text-sub); line-height: 1.5; }
+
+  /* Form */
+  .form-grid {
+    display: grid; gap: 14px;
+  }
+  .form-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  @media (max-width: 560px) { .form-row { grid-template-columns: 1fr; } }
+  .form-field label {
+    display: block; font-size: 11px; color: var(--text-sub);
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    margin-bottom: 5px;
+  }
+  .form-field input, .form-field select, .form-field textarea {
+    width: 100%; box-sizing: border-box;
+    padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-family: inherit; font-size: 14px;
+  }
+  .form-field textarea {
+    resize: vertical; min-height: 110px; line-height: 1.5;
+  }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+    border-color: var(--accent);
+  }
+  .form-help {
+    font-size: 11.5px; color: var(--text-sub); margin-top: 4px;
+    line-height: 1.5;
+  }
+  .form-help code {
+    background: var(--bg); padding: 1px 5px; border-radius: 3px;
+    font-family: ui-monospace, monospace; color: var(--accent); font-size: 11.5px;
+  }
+
+  /* Variables editor */
+  .var-list { display: flex; flex-direction: column; gap: 6px; }
+  .var-row {
+    display: grid; grid-template-columns: 50px 1fr 1fr 1fr auto;
+    gap: 8px; align-items: center;
+  }
+  .var-row .num {
+    font-family: ui-monospace, monospace;
+    text-align: center; font-size: 12.5px; color: var(--text-sub);
+    background: var(--bg); padding: 6px 0; border-radius: 6px;
+  }
+  .var-row input {
+    padding: 7px 10px; font-size: 13px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text);
+    box-sizing: border-box; width: 100%;
+    font-family: inherit;
+  }
+  .var-row .del-btn {
+    background: transparent; border: 0; color: var(--text-sub);
+    font-size: 16px; cursor: pointer; padding: 4px 8px;
+  }
+  .var-row .del-btn:hover { color: #a8422d; }
+  .add-var-btn {
+    background: var(--bg); border: 1px dashed var(--border);
+    color: var(--accent); padding: 8px 12px; border-radius: 8px;
+    font-size: 12.5px; cursor: pointer; font-weight: 500;
+    align-self: flex-start;
+  }
+  .add-var-btn:hover { background: var(--panel); }
+
+  /* Botones editor (for 'botones' type) */
+  .btn-list { display: flex; flex-direction: column; gap: 8px; }
+  .btn-row {
+    display: grid; grid-template-columns: 140px 1fr 1fr auto;
+    gap: 8px; padding: 10px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px;
+    align-items: center;
+  }
+  .btn-row input, .btn-row select {
+    padding: 7px 10px; font-size: 13px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text);
+    box-sizing: border-box; width: 100%;
+    font-family: inherit;
+  }
+
+  /* Hidden until type selected */
+  .form-pane { display: none; }
+  .form-pane.active { display: block; }
+
+  .flash-error {
+    background: #faeae5; color: #a8422d;
+    padding: 10px 14px; border-radius: 8px;
+    font-size: 13px; margin-bottom: 14px;
+  }
+
+  /* Editor de carrusel */
+  .cards-editor-wrap {
+    display: grid; grid-template-columns: 1fr 260px; gap: 16px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px;
+  }
+  @media (max-width: 760px) { .cards-editor-wrap { grid-template-columns: 1fr; } }
+
+  .cards-editor { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card-row {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .card-row-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12.5px; color: var(--text-sub); font-weight: 600;
+  }
+  .card-row-head .idx {
+    font-family: ui-monospace, monospace;
+    background: var(--bg); padding: 2px 8px; border-radius: 4px;
+  }
+  .card-media-row {
+    display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; align-items: center;
+  }
+  .card-media-prev {
+    width: 90px; aspect-ratio: 16/10; background: #e5ddd5;
+    border-radius: 6px; overflow: hidden;
+    display: grid; place-items: center; font-size: 22px; color: #999;
+  }
+  [data-theme="dark"] .card-media-prev { background: #0a0f0a; }
+  .card-media-prev img, .card-media-prev video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .card-file-input { font-size: 12px; max-width: 100%; }
+  .card-file-input::file-selector-button {
+    background: var(--accent); color: white; border: 0;
+    padding: 5px 10px; border-radius: 5px; margin-right: 6px;
+    font-weight: 600; cursor: pointer; font-size: 11.5px;
+  }
+  .card-body-input {
+    width: 100%; box-sizing: border-box;
+    padding: 7px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text);
+    font-size: 13px; font-family: inherit; resize: vertical; min-height: 60px;
+  }
+  .card-btns-list { display: flex; flex-direction: column; gap: 6px; }
+  .card-btn-row {
+    display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px;
+  }
+  .card-btn-row input {
+    padding: 6px 9px; font-size: 12.5px; border: 1px solid var(--border);
+    border-radius: 5px; background: var(--panel); color: var(--text);
+    font-family: inherit; width: 100%; box-sizing: border-box;
+  }
+  .card-del-btn, .card-btn-del {
+    background: transparent; border: 0; color: var(--text-sub);
+    cursor: pointer; font-size: 14px; padding: 2px 6px;
+  }
+  .card-del-btn:hover, .card-btn-del:hover { color: #a8422d; }
+  .card-add-btn-mini {
+    background: var(--bg); border: 1px dashed var(--border);
+    color: var(--accent); padding: 5px 8px; border-radius: 5px;
+    font-size: 11.5px; cursor: pointer; align-self: flex-start;
+  }
+
+  /* Preview mobile */
+  .carousel-preview-wrap {
+    position: sticky; top: 10px; align-self: flex-start;
+  }
+  .carousel-preview-label {
+    font-size: 11px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;
+  }
+  .wa-phone {
+    background: #1a1a1a; border-radius: 22px; padding: 10px 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  }
+  .wa-phone-body {
+    background: #e5ddd5; border-radius: 14px; padding: 12px 8px;
+    min-height: 200px;
+  }
+  [data-theme="dark"] .wa-phone-body { background: #0a0f0a; }
+  .wa-parent-msg {
+    background: white; color: #111b21; padding: 8px 11px;
+    border-radius: 7px; font-size: 12px; line-height: 1.4;
+    margin: 0 4px 10px; max-width: 90%; display: inline-block;
+    white-space: pre-wrap;
+  }
+  [data-theme="dark"] .wa-parent-msg { background: #1f2c33; color: #e9edef; }
+  .carousel-scroll {
+    display: flex; gap: 8px; overflow-x: auto; padding: 4px 4px 10px;
+    scroll-snap-type: x mandatory; scrollbar-width: thin;
+  }
+  .carousel-empty {
+    padding: 40px 10px; text-align: center; font-size: 12px;
+    color: var(--text-sub); width: 100%;
+  }
+  .prev-card {
+    background: white; border-radius: 10px;
+    min-width: 170px; max-width: 170px; scroll-snap-align: start;
+    overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  }
+  [data-theme="dark"] .prev-card { background: #1f2c33; color: #e9edef; }
+  .prev-card-media {
+    width: 100%; aspect-ratio: 16/10; background: #ccc;
+    display: grid; place-items: center; font-size: 22px; color: #888;
+  }
+  .prev-card-media img, .prev-card-media video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .prev-card-body {
+    padding: 6px 8px; font-size: 11px; line-height: 1.35;
+    color: #111b21; min-height: 30px;
+  }
+  [data-theme="dark"] .prev-card-body { color: #e9edef; }
+  .prev-card-btn {
+    padding: 5px 0; font-size: 11px; font-weight: 600;
+    color: #00a884; text-align: center;
+    border-top: 1px solid #0001; cursor: default;
+  }
+  [data-theme="dark"] .prev-card-btn {
+    color: #25d366; border-top-color: #ffffff22;
+  }
+
+  /* ─── Preview lateral del editor (texto / multimedia / botones) ── */
+  .form-with-preview {
+    display: grid; grid-template-columns: 1fr 240px; gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .form-with-preview { grid-template-columns: 1fr; }
+  }
+  .form-with-preview > .form-grid { min-width: 0; }
+  .live-preview-wrap {
+    position: sticky; top: 10px;
+  }
+  .live-preview-label {
+    font-size: 11px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;
+  }
+  .live-bubble {
+    background: white; color: #111b21; border-radius: 8px;
+    padding: 0; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    max-width: 100%; margin: 0 4px;
+    display: flex; flex-direction: column;
+  }
+  [data-theme="dark"] .live-bubble { background: #1f2c33; color: #e9edef; }
+  .live-bubble-media {
+    width: 100%; aspect-ratio: 16/10; background: #ccc;
+    display: grid; place-items: center; font-size: 28px; color: #888;
+  }
+  .live-bubble-media img, .live-bubble-media video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .live-bubble-media.doc {
+    aspect-ratio: auto; padding: 10px 12px; background: #f6f6f6;
+    display: flex; gap: 8px; align-items: center; justify-content: flex-start;
+    font-size: 13px; color: #333;
+  }
+  [data-theme="dark"] .live-bubble-media.doc { background: #0b141a; color: #d1d7db; }
+  .live-bubble-body {
+    padding: 8px 10px 6px; font-size: 12.5px; line-height: 1.45;
+    white-space: pre-wrap; word-wrap: break-word;
+  }
+  .live-bubble-body:empty::before {
+    content: "Escribí el cuerpo del mensaje…";
+    color: #999; font-style: italic;
+  }
+  .live-bubble-footer {
+    padding: 2px 10px 6px; font-size: 10.5px; color: #667781;
+    display: flex; justify-content: flex-end; gap: 4px;
+  }
+  .live-bubble-btns {
+    border-top: 1px solid #0001;
+    display: flex; flex-direction: column;
+  }
+  [data-theme="dark"] .live-bubble-btns { border-top-color: #ffffff22; }
+  .live-bubble-btn {
+    padding: 8px 10px; font-size: 12.5px; font-weight: 500;
+    color: #00a884; text-align: center;
+    border-top: 1px solid #0001; cursor: default;
+  }
+  .live-bubble-btn:first-child { border-top: 0; }
+  [data-theme="dark"] .live-bubble-btn {
+    color: #53bdeb; border-top-color: #ffffff22;
+  }
+
+  /* ─── Picker "Cambiar template" (Activados) ───────────── */
+  .picker-row {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; cursor: pointer;
+    transition: border-color 120ms, background 120ms;
+  }
+  .picker-row:hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+  }
+  .picker-row-head {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; margin-bottom: 4px;
+  }
+  .picker-row-title { font-weight: 600; font-size: 14px; }
+  .picker-row-chips { display: flex; gap: 5px; flex-shrink: 0; }
+  .picker-row-name {
+    font-family: ui-monospace, monospace; font-size: 11.5px;
+    color: var(--text-sub); margin-bottom: 6px;
+  }
+  .picker-row-body {
+    font-size: 12.5px; color: var(--text); line-height: 1.5;
+    white-space: pre-wrap; overflow: hidden; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+
+  /* Estética de inputs deshabilitados (modo Ver) */
+  #paso-form input:disabled,
+  #paso-form textarea:disabled,
+  #paso-form select:disabled {
+    opacity: 1; cursor: default;
+    background: var(--bg); color: var(--text);
+    border-color: var(--border); -webkit-text-fill-color: var(--text);
+  }
+
+  /* Modo Ver: ocultamos el form por completo y solo dejamos el preview. */
+  #paso-form.view-mode .form-grid { display: none; }
+  #paso-form.view-mode .form-with-preview {
+    grid-template-columns: minmax(0, 320px);
+    justify-content: center;
+  }
+  #paso-form.view-mode .live-preview-wrap { max-width: 320px; width: 100%; }
+  #paso-form.view-mode .live-preview-label { text-align: center; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Templates</h1>
+    <div class="sub">
+      Editor de plantillas WhatsApp. Trabajá borradores en local y mirá
+      los que ya están aprobados por Meta.
+    </div>
+  </div>
+  <button class="cta" onclick="abrirNuevoTemplate()">+ Nuevo template</button>
+</div>
+
+{# Templates "activados": los que Petra dispara automáticamente.
+   Lookup slot → template_name viene de DB (template_slots). #}
+{% set t_bien = templates | selectattr('name', 'equalto', slots.get('bienvenida', '')) | first | default(none) %}
+{% set t_serv = templates | selectattr('name', 'equalto', slots.get('servicio', ''))    | first | default(none) %}
+{% set t_cred = templates | selectattr('name', 'equalto', slots.get('credito', ''))     | first | default(none) %}
+
+<div class="tabs">
+  <button class="tab active" data-tab="activados" onclick="cambiarTab('activados')">
+    ⚡ Activados <span class="tab-count">(3)</span>
+  </button>
+  <button class="tab" data-tab="borradores" onclick="cambiarTab('borradores')">
+    📋 Borradores <span class="tab-count">({{ templates|length }})</span>
+  </button>
+  <button class="tab" data-tab="meta" onclick="cambiarTab('meta')">
+    ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
+  </button>
+  <button class="tab" data-tab="waiting" onclick="cambiarTab('waiting')">
+    ⏳ Esperando aprobación <span class="tab-count" id="tab-waiting-count">(…)</span>
+  </button>
+  <button class="tab" data-tab="rejected" onclick="cambiarTab('rejected')">
+    🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
+  </button>
+  <div class="tabs-right">
+    <button class="btn-sync" id="btn-sync" onclick="sincronizarMeta(true)" hidden>
+      🔄 Sincronizar con Meta
+    </button>
+  </div>
+</div>
+
+{# ─── Tab Activados ────────────────────────────────────────── #}
+<div class="tab-pane active" data-pane="activados">
+  <p class="activ-intro">
+    Cada tarjeta es un momento en el que Petra envía un mensaje automático.
+    El template elegido acá es el que se dispara. Cambialo cuando quieras probar
+    algo nuevo.
+  </p>
+
+  <div class="activ-grid">
+    {# ── 1. Bienvenida ─────────────────────── #}
+    <div class="activ-card">
+      <div class="activ-card-head">
+        <div class="activ-icon bienvenida">👋</div>
+        <div>
+          <h3 class="activ-title">Bienvenida</h3>
+          <div class="activ-sub">Utility · auto</div>
+        </div>
+        <span class="activ-status" style="margin-left:auto;">
+          <span class="dot"></span>Activo
+        </span>
+      </div>
+      <div class="activ-trigger">
+        Se dispara cuando <strong>cargamos un inmueble nuevo</strong> en un
+        conjunto que acaba de instalar el QR. Le avisa al anunciante que su
+        publicación está lista.
+      </div>
+      <div class="activ-link">
+        <div class="activ-link-info">
+          <div class="activ-link-label">Template actual</div>
+          <div class="activ-link-value">
+            {% if t_bien %}{{ t_bien.display }}
+            {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="activ-actions">
+        {% if t_bien %}
+        <button class="mini-btn" onclick="verTemplate({{ t_bien.id }})">
+          Ver
+        </button>
+        {% endif %}
+        <button class="mini-btn" onclick="cambiarActivado('bienvenida')">
+          Cambiar
+        </button>
+      </div>
+    </div>
+
+    {# ── 2. Servicio ──────────────────────── #}
+    <div class="activ-card">
+      <div class="activ-card-head">
+        <div class="activ-icon servicio">🏠</div>
+        <div>
+          <h3 class="activ-title">Servicio</h3>
+          <div class="activ-sub">Marketing · auto</div>
+        </div>
+        <span class="activ-status" style="margin-left:auto;">
+          <span class="dot"></span>Activo
+        </span>
+      </div>
+      <div class="activ-trigger">
+        Cuando un anunciante responde la bienvenida, le ofrecemos el
+        <strong>servicio inmobiliario</strong> de Petra para ayudarlo a cerrar
+        la venta o el arriendo.
+      </div>
+      <div class="activ-link">
+        <div class="activ-link-info">
+          <div class="activ-link-label">Template actual</div>
+          <div class="activ-link-value">
+            {% if t_serv %}{{ t_serv.display }}
+            {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="activ-actions">
+        {% if t_serv %}
+        <button class="mini-btn" onclick="verTemplate({{ t_serv.id }})">
+          Ver
+        </button>
+        {% endif %}
+        <button class="mini-btn" onclick="cambiarActivado('servicio')">
+          Cambiar
+        </button>
+      </div>
+    </div>
+
+    {# ── 3. Crédito ───────────────────────── #}
+    <div class="activ-card">
+      <div class="activ-card-head">
+        <div class="activ-icon credito">💳</div>
+        <div>
+          <h3 class="activ-title">Crédito</h3>
+          <div class="activ-sub">Marketing · auto</div>
+        </div>
+        <span class="activ-status" style="margin-left:auto;">
+          <span class="dot"></span>Activo
+        </span>
+      </div>
+      <div class="activ-trigger">
+        A los compradores interesados les ofrecemos un
+        <strong>aliado de crédito hipotecario</strong> para ayudarlos a cerrar
+        la compra.
+      </div>
+      <div class="activ-link">
+        <div class="activ-link-info">
+          <div class="activ-link-label">Template actual</div>
+          <div class="activ-link-value">
+            {% if t_cred %}{{ t_cred.display }}
+            {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="activ-actions">
+        {% if t_cred %}
+        <button class="mini-btn" onclick="verTemplate({{ t_cred.id }})">
+          Ver
+        </button>
+        {% endif %}
+        <button class="mini-btn" onclick="cambiarActivado('credito')">
+          Cambiar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ─── Modal: Previa de template aprobado por Meta ──────────── #}
+<div class="modal-backdrop" id="modal-preview"
+     onclick="if(event.target===this)cerrarPreview()">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-head">
+      <h2 id="preview-title">Previa</h2>
+      <button class="modal-close" onclick="cerrarPreview()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="preview-meta" style="color:var(--text-sub);font-size:12px;margin-bottom:12px;"></div>
+      <div class="wa-phone">
+        <div class="wa-phone-body" style="padding:14px 10px;">
+          <div class="live-bubble">
+            <div class="live-bubble-media" id="prev-media" hidden></div>
+            <div class="live-bubble-body" id="prev-body"></div>
+            <div class="live-bubble-footer">
+              <span id="prev-time">10:00</span>
+            </div>
+            <div class="live-bubble-btns" id="prev-btns" hidden></div>
+          </div>
+        </div>
+      </div>
+      <div id="preview-vars-hint" style="font-size:11.5px;color:var(--text-sub);margin-top:10px;" hidden></div>
+    </div>
+  </div>
+</div>
+
+{# ─── Modal: picker "Cambiar template" (Activados) ─────────── #}
+<div class="modal-backdrop" id="modal-cambiar"
+     onclick="if(event.target===this)cerrarPicker()">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-head">
+      <h2 id="picker-title">Elegí el template</h2>
+      <button class="modal-close" onclick="cerrarPicker()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="picker-flash" class="flash-error" hidden></div>
+      <p style="color:var(--text-sub);font-size:13px;margin:0 0 16px;">
+        Elegí qué template se dispara en este momento automático.
+        Solo se listan los <strong>aprobados por Meta</strong>, porque
+        WhatsApp solo deja mandar templates aprobados.
+      </p>
+      <div id="picker-loading" class="empty-state" style="padding:30px 20px;">
+        <div class="icon">⏳</div>
+        <h3 style="margin:8px 0 0;">Cargando templates…</h3>
+      </div>
+      <div id="picker-list" style="display:none;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto;"></div>
+    </div>
+  </div>
+</div>
+
+{# ─── Tab Borradores ───────────────────────────────────────── #}
+<div class="tab-pane" data-pane="borradores">
+  {% if templates %}
+  <div class="tpls-grid">
+    {% for t in templates %}
+    <div class="tpl-card" data-cat="{{ t.categoria|lower }}">
+      <div class="tpl-card-head">
+        <div class="tpl-card-icon">
+          {% if t.tipo == 'texto' %}✉️
+          {% elif t.tipo == 'multimedia' %}🎬
+          {% elif t.tipo == 'botones' %}🔘
+          {% elif t.tipo == 'catalogo_carrusel' %}🛒
+          {% else %}📝{% endif %}
+        </div>
+        <div style="flex:1; min-width:0;">
+          <h3 class="tpl-card-title">{{ t.display }}</h3>
+          <div class="tpl-card-name">{{ t.name }} · {{ t.idioma }}</div>
+        </div>
+      </div>
+      <div class="tpl-card-chips">
+        <span class="chip chip-{{ t.categoria|lower }}">{{ t.categoria }}</span>
+        <span class="chip chip-{{ t.status|lower }}">{{ t.status }}</span>
+        <span class="chip chip-tipo">{{ t.tipo }}</span>
+      </div>
+      <div class="tpl-card-body">{{ t.body }}</div>
+      <div class="tpl-card-actions">
+        <div class="tpl-card-meta">
+          {% if t.autor %}por {{ t.autor }}{% endif %}
+        </div>
+        <div class="tpl-card-btns">
+          <button class="mini-btn"
+                  onclick="editarTemplate({{ t.id }})">Editar</button>
+          {% if t.status == 'draft' %}
+          <button class="mini-btn approve"
+                  id="btn-aprobar-{{ t.id }}"
+                  onclick="aprobarTemplate({{ t.id }}, '{{ t.display|escape }}')">
+            ✅ Aprobar
+          </button>
+          <button class="mini-btn danger"
+                  onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="icon">📝</div>
+    <h3>No hay templates todavía</h3>
+    <p>Creá el primero para arrancar.</p>
+  </div>
+  {% endif %}
+</div>
+
+{# ─── Tab Aprobados Meta ───────────────────────────────────── #}
+<div class="tab-pane" data-pane="meta">
+  <div id="meta-loading" class="empty-state">
+    <div class="icon">⏳</div>
+    <h3>Cargando templates desde Meta…</h3>
+  </div>
+  <div id="meta-error" class="empty-state" hidden></div>
+  <div id="meta-grid" class="tpls-grid" hidden></div>
+</div>
+
+{# ─── Tab Esperando aprobación ─────────────────────────────── #}
+<div class="tab-pane" data-pane="waiting">
+  <div id="waiting-loading" class="empty-state">
+    <div class="icon">⏳</div>
+    <h3>Cargando templates…</h3>
+  </div>
+  <div id="waiting-error" class="empty-state" hidden></div>
+  <p id="waiting-intro" class="activ-intro" hidden>
+    Templates que enviamos a Meta y están en revisión. Suele tardar entre
+    1 minuto y 24 horas en resolverse.
+  </p>
+  <div id="waiting-grid" class="tpls-grid" hidden></div>
+</div>
+
+{# ─── Tab Rechazados ────────────────────────────────────────── #}
+<div class="tab-pane" data-pane="rejected">
+  <div id="rejected-loading" class="empty-state">
+    <div class="icon">⏳</div>
+    <h3>Cargando templates…</h3>
+  </div>
+  <div id="rejected-error" class="empty-state" hidden></div>
+  <p id="rejected-intro" class="activ-intro" hidden>
+    Templates que Meta rechazó. Cada card trae el motivo exacto que dio
+    Meta — editá el borrador para corregirlo y volvé a mandarlo.
+  </p>
+  <div id="rejected-grid" class="tpls-grid" hidden></div>
+</div>
+
+
+{# ─── Modal: Nuevo template ──────────────────────────────── #}
+<div class="modal-backdrop" id="modal-nuevo" onclick="if(event.target===this)cerrarModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modal-title">Elegí el tipo de template</h2>
+      <button class="modal-close" onclick="cerrarModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="flash" class="flash-error" hidden></div>
+
+      {# Paso 1: elegir tipo #}
+      <div id="paso-tipo">
+        <div class="tipo-picker">
+          {% for tp in tipos %}
+          <div class="tipo-card" data-tipo="{{ tp.id }}" onclick="elegirTipo('{{ tp.id }}')">
+            <div class="tipo-card-icon">{{ tp.icon }}</div>
+            <div class="tipo-card-title">{{ tp.display }}</div>
+            <div class="tipo-card-desc">{{ tp.descripcion }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# Paso 2: form del tipo #}
+      <div id="paso-form" hidden>
+       <div class="form-with-preview">
+        <div class="form-grid">
+          <div class="form-row">
+            <div class="form-field">
+              <label>Nombre interno *</label>
+              <input type="text" id="f-name" placeholder="ej. bienvenida_propietario">
+              <div class="form-help">Snake_case, único. Lo verás solo vos, no el destinatario.</div>
+            </div>
+            <div class="form-field">
+              <label>Nombre visible *</label>
+              <input type="text" id="f-display" placeholder="ej. Bienvenida propietario">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-field">
+              <label>Idioma</label>
+              <select id="f-idioma">
+                <option value="es">Español</option>
+                <option value="es_CO">Español Colombia</option>
+                <option value="en">Inglés</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>Categoría Meta *</label>
+              <select id="f-categoria">
+                <option value="UTILITY">Utility (transaccional, $0.00024)</option>
+                <option value="MARKETING" selected>Marketing (promocional, $0.015)</option>
+                <option value="AUTHENTICATION">Authentication (OTPs)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label>Cuerpo del mensaje *</label>
+            <textarea id="f-body" placeholder="Hola {{'{{1}}'}}, ..."></textarea>
+            <div class="form-help">Usá <code>{{'{{1}}'}}, {{'{{2}}'}}</code>, etc. para variables dinámicas.
+              Markdown básico WhatsApp: <code>*negrita*</code>, <code>_cursiva_</code>.</div>
+          </div>
+
+          <div class="form-field">
+            <label>Variables</label>
+            <div class="var-list" id="var-list"></div>
+            <button type="button" class="add-var-btn" onclick="agregarVariable()">+ Agregar variable</button>
+          </div>
+
+          {# Paneles específicos por tipo #}
+          <div class="form-pane" id="pane-multimedia">
+            <div class="form-field">
+              <label>Tipo de header</label>
+              <select id="f-header-type">
+                <option value="image">Imagen</option>
+                <option value="video">Video</option>
+                <option value="document">Documento PDF</option>
+                <option value="location">Ubicación</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>URL del header</label>
+              <input type="text" id="f-header-url"
+                     placeholder="https://... o /static/images/...">
+              <div class="form-help">URL pública que Meta pueda descargar al enviar.</div>
+            </div>
+            <div class="form-field">
+              <label>Label (descripción interna)</label>
+              <input type="text" id="f-header-label" placeholder="ej. Video bienvenida 1 min">
+            </div>
+          </div>
+
+          <div class="form-pane" id="pane-botones">
+            <div class="form-field">
+              <label>Botones (hasta 2)</label>
+              <div class="btn-list" id="btn-list"></div>
+              <button type="button" class="add-var-btn" onclick="agregarBoton()"
+                      style="margin-top:8px">+ Agregar botón</button>
+            </div>
+          </div>
+
+          <div class="form-pane" id="pane-catalogo">
+            <div class="form-row">
+              <div class="form-field">
+                <label>Catalog ID (opcional)</label>
+                <input type="text" id="f-catalog-id" placeholder="123456789">
+                <div class="form-help">Si tenés catálogo Meta Commerce configurado, pegá su ID.</div>
+              </div>
+              <div class="form-field">
+                <label>Tipo global de botón</label>
+                <select id="f-catalog-btn-type" onchange="sincronizarBotonesTipo()">
+                  <option value="url">Abrir URL</option>
+                  <option value="phone_number">Llamar</option>
+                  <option value="quick_reply">Respuesta rápida</option>
+                </select>
+                <div class="form-help">Meta requiere que TODAS las cards tengan el mismo tipo.</div>
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label>Mensaje introductorio (opcional)</label>
+              <textarea id="f-catalog-parent" rows="2"
+                        placeholder="Mirá nuestros aptos destacados..."></textarea>
+              <div class="form-help">Aparece arriba del carrusel. Se puede dejar vacío.</div>
+            </div>
+
+            <div class="form-field">
+              <label>Cards del carrusel (<span id="cards-count">0</span> / 10)</label>
+              <div class="cards-editor-wrap">
+                <div class="cards-editor" id="cards-editor"></div>
+                <div class="carousel-preview-wrap">
+                  <div class="carousel-preview-label">Preview</div>
+                  <div class="wa-phone">
+                    <div class="wa-phone-body">
+                      <div class="wa-parent-msg" id="prev-parent" hidden></div>
+                      <div class="carousel-scroll" id="prev-cards">
+                        <div class="carousel-empty">Agregá cards para ver preview</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button type="button" class="add-var-btn" onclick="agregarCard()"
+                      id="btn-add-card" style="margin-top:10px">+ Agregar card</button>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-field">
+              <label>Autor</label>
+              <select id="f-autor">
+                {% for a in autores %}
+                <option value="{{ a.id }}">{{ a.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label>Recomendación de uso (opcional)</label>
+              <input type="text" id="f-reco"
+                     placeholder="ej. Primer contacto propietarios">
+            </div>
+          </div>
+        </div>
+
+        {# Preview lateral (oculto para catalogo_carrusel: ese tiene preview propio) #}
+        <div class="live-preview-wrap" id="live-preview-wrap">
+          <div class="live-preview-label">Preview</div>
+          <div class="wa-phone">
+            <div class="wa-phone-body" style="padding:14px 10px;">
+              <div class="live-bubble" id="live-bubble">
+                <div class="live-bubble-media" id="live-media" hidden></div>
+                <div class="live-bubble-body" id="live-body"></div>
+                <div class="live-bubble-footer">
+                  <span id="live-time">10:00</span>
+                </div>
+                <div class="live-bubble-btns" id="live-btns" hidden></div>
+              </div>
+            </div>
+          </div>
+        </div>
+       </div>
+      </div>
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn-secondary" id="btn-volver" onclick="volverAPaso1()" hidden>← Volver</button>
+      <div style="flex:1"></div>
+      <button class="btn-secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn-primary" id="btn-guardar" onclick="guardarTemplate()" hidden>Guardar borrador</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  var TOKEN = {{ token|tojson }};
+  var tipoSeleccionado = null;
+  var editandoId = null;  // null = creando, number = editando
+  var modoVer = false;    // true = modal abierto en modo lectura (Activados → Ver)
+
+  // Lista mínima de templates locales para el picker de Activados.
+  var LOCAL_TEMPLATES = [
+    {% for t in templates %}
+    { name: {{ t.name|tojson }},
+      display: {{ t.display|tojson }},
+      tipo: {{ t.tipo|tojson }},
+      categoria: {{ t.categoria|tojson }},
+      status: {{ t.status|tojson }},
+      body: {{ (t.body or '')|tojson }} }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+  // Slot actual que se está cambiando (string: 'bienvenida' | 'servicio' | 'credito').
+  var slotEnEdicion = null;
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+
+  function abrirNuevoTemplate() {
+    editandoId = null;
+    document.getElementById('modal-nuevo').classList.add('open');
+    volverAPaso1();
+  }
+
+  // ----- Tabs y Meta ------------------------------------------------------
+  var metaCargado = false;
+  function cambiarTab(tab) {
+    document.querySelectorAll('.tab').forEach(function(t) {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    document.querySelectorAll('.tab-pane').forEach(function(p) {
+      p.classList.toggle('active', p.dataset.pane === tab);
+    });
+    var metaTabs = ['meta', 'waiting', 'rejected'];
+    document.getElementById('btn-sync').hidden = metaTabs.indexOf(tab) < 0;
+    if (metaTabs.indexOf(tab) >= 0 && !metaCargado) {
+      sincronizarMeta(false);
+    }
+  }
+
+  function sincronizarMeta(force) {
+    var btn = document.getElementById('btn-sync');
+    btn.disabled = true; btn.textContent = '⏳ Sincronizando…';
+    document.getElementById('meta-loading').hidden = false;
+    document.getElementById('meta-error').hidden = true;
+    document.getElementById('meta-grid').hidden = true;
+    document.getElementById('waiting-loading').hidden = false;
+    document.getElementById('waiting-error').hidden = true;
+    document.getElementById('waiting-grid').hidden = true;
+    document.getElementById('waiting-intro').hidden = true;
+    document.getElementById('rejected-loading').hidden = false;
+    document.getElementById('rejected-error').hidden = true;
+    document.getElementById('rejected-grid').hidden = true;
+    document.getElementById('rejected-intro').hidden = true;
+
+    var url = '/panel/petra/v2/templates/meta?token=' + encodeURIComponent(TOKEN) +
+              (force ? '&force=1' : '');
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        metaCargado = true;
+        document.getElementById('meta-loading').hidden = true;
+        document.getElementById('waiting-loading').hidden = true;
+        document.getElementById('rejected-loading').hidden = true;
+        btn.disabled = false; btn.textContent = '🔄 Sincronizar con Meta';
+
+        if (d.error) {
+          renderMetaError(d.error, 'meta-error');
+          renderMetaError(d.error, 'waiting-error');
+          renderMetaError(d.error, 'rejected-error');
+          document.getElementById('tab-meta-count').textContent = '(!)';
+          document.getElementById('tab-waiting-count').textContent = '(!)';
+          document.getElementById('tab-rejected-count').textContent = '(!)';
+          return;
+        }
+        var lista = d.templates || [];
+        var REJECTED = ['rejected'];
+        var APPROVED = ['approved'];
+        var aprobados = lista.filter(function(t) {
+          return APPROVED.indexOf((t.status || '').toLowerCase()) >= 0;
+        });
+        var rechazados = lista.filter(function(t) {
+          return REJECTED.indexOf((t.status || '').toLowerCase()) >= 0;
+        });
+        // Todo lo que no es approved ni rejected cae en "esperando"
+        // (pending, paused, in_appeal, pending_deletion, etc.).
+        var esperando = lista.filter(function(t) {
+          var s = (t.status || '').toLowerCase();
+          return APPROVED.indexOf(s) < 0 && REJECTED.indexOf(s) < 0;
+        });
+        document.getElementById('tab-meta-count').textContent = '(' + aprobados.length + ')';
+        document.getElementById('tab-waiting-count').textContent = '(' + esperando.length + ')';
+        document.getElementById('tab-rejected-count').textContent = '(' + rechazados.length + ')';
+        renderMetaGrid(aprobados, d.fetched_at);
+        renderWaitingGrid(esperando, d.fetched_at);
+        renderRejectedGrid(rechazados, d.fetched_at);
+      })
+      .catch(function() {
+        document.getElementById('meta-loading').hidden = true;
+        document.getElementById('waiting-loading').hidden = true;
+        document.getElementById('rejected-loading').hidden = true;
+        btn.disabled = false; btn.textContent = '🔄 Sincronizar con Meta';
+        renderMetaError('red', 'meta-error');
+        renderMetaError('red', 'waiting-error');
+        renderMetaError('red', 'rejected-error');
+      });
+  }
+
+  function renderMetaError(code, boxId) {
+    var box = document.getElementById(boxId || 'meta-error');
+    box.hidden = false;
+    var titulos = {
+      'falta_env:META_ACCESS_TOKEN': ['🔑', 'Falta el token de Meta',
+        'Pediste traer templates de Meta pero no está configurado META_ACCESS_TOKEN en Render.'],
+      'falta_env:META_WABA_ID': ['🔑', 'Falta el WABA ID',
+        'Agregá la env var META_WABA_ID en Render con el ID de tu WhatsApp Business Account.'],
+      'token_invalido': ['🚫', 'Token inválido',
+        'Meta devolvió 401. Revisá que META_ACCESS_TOKEN esté vigente.'],
+      'sin_permiso_waba': ['🚫', 'Sin permiso sobre la WABA',
+        'Meta devolvió 403. El token no tiene permisos sobre META_WABA_ID.'],
+      'red': ['📡', 'Error de red', 'No se pudo contactar Meta.'],
+    };
+    var t = titulos[code] || ['⚠', 'Error inesperado', 'Código: ' + escapeHtml(code)];
+    box.innerHTML =
+      '<div class="icon">' + t[0] + '</div>' +
+      '<h3>' + escapeHtml(t[1]) + '</h3>' +
+      '<p>' + escapeHtml(t[2]) + '</p>';
+  }
+
+  // Guardamos los templates Meta aprobados para que el picker de "Previa"
+  // los pueda referenciar por índice.
+  var META_APROBADOS = [];
+
+  function renderMetaGrid(lista, fetchedAt) {
+    META_APROBADOS = lista;
+    var grid = document.getElementById('meta-grid');
+    grid.hidden = false;
+    if (!lista.length) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1">' +
+        '<div class="icon">📭</div>' +
+        '<h3>No hay templates en Meta todavía</h3>' +
+        '<p>Someté el primero desde Borradores con el botón Aprobar.</p>' +
+        '</div>';
+      return;
+    }
+    var when = fetchedAt
+      ? '<div class="meta-last-sync">Sincronizado hace ' + minutesAgo(fetchedAt) + ' · cache 5min</div>'
+      : '';
+    grid.innerHTML = when + lista.map(function(t, idx) {
+      var iconByTipo = {
+        texto: '✉️', multimedia: '🎬', botones: '🔘', catalogo_carrusel: '🛒'
+      };
+      var icon = iconByTipo[t.tipo] || '📝';
+      var bodyPrev = (t.body || '').slice(0, 220);
+      return '<div class="tpl-card" data-cat="' + (t.categoria || '').toLowerCase() + '">' +
+        '<div class="tpl-card-head">' +
+          '<div class="tpl-card-icon">' + icon + '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<h3 class="tpl-card-title">' + escapeHtml(t.display) + '</h3>' +
+            '<div class="tpl-card-name">' + escapeHtml(t.name) + ' · ' + escapeHtml(t.idioma) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tpl-card-chips">' +
+          '<span class="chip chip-' + (t.categoria || '').toLowerCase() + '">' + escapeHtml(t.categoria) + '</span>' +
+          '<span class="chip chip-' + (t.status || '').toLowerCase() + '">' + escapeHtml(t.status) + '</span>' +
+          '<span class="chip chip-tipo">' + escapeHtml(t.tipo) + '</span>' +
+        '</div>' +
+        '<div class="tpl-card-body">' + escapeHtml(bodyPrev) + '</div>' +
+        '<div class="tpl-card-actions">' +
+          '<div class="tpl-card-meta"></div>' +
+          '<div class="tpl-card-btns">' +
+            '<button class="mini-btn" onclick="previewMetaTemplate(' + idx + ')">👁️ Previa</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function renderWaitingGrid(lista, fetchedAt) {
+    var grid = document.getElementById('waiting-grid');
+    var intro = document.getElementById('waiting-intro');
+    grid.hidden = false;
+    if (!lista.length) {
+      intro.hidden = true;
+      grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1">' +
+        '<div class="icon">✨</div>' +
+        '<h3>Nada en revisión</h3>' +
+        '<p>Todos los templates que enviaste a Meta ya tienen veredicto.</p>' +
+        '</div>';
+      return;
+    }
+    intro.hidden = false;
+
+    var when = fetchedAt
+      ? '<div class="meta-last-sync">Sincronizado hace ' + minutesAgo(fetchedAt) + ' · cache 5min</div>'
+      : '';
+    grid.innerHTML = when + lista.map(function(t) {
+      var iconByTipo = {
+        texto: '✉️', multimedia: '🎬', botones: '🔘', catalogo_carrusel: '🛒'
+      };
+      var icon = iconByTipo[t.tipo] || '📝';
+      var bodyPrev = (t.body || '').slice(0, 220);
+      var statusLower = (t.status || '').toLowerCase();
+      var statusEmoji = {
+        pending: '⏳', paused: '⏸️', rejected: '🚫',
+        in_appeal: '⚖️', pending_deletion: '🗑️'
+      };
+      var reasonHtml = t.rejected_reason
+        ? '<div class="waiting-reason">' +
+          '<strong>Motivo del rechazo:</strong><br>' + escapeHtml(t.rejected_reason) +
+          '</div>'
+        : '';
+      return '<div class="tpl-card" data-cat="' + (t.categoria || '').toLowerCase() + '">' +
+        '<div class="tpl-card-head">' +
+          '<div class="tpl-card-icon">' + icon + '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<h3 class="tpl-card-title">' + escapeHtml(t.display) + '</h3>' +
+            '<div class="tpl-card-name">' + escapeHtml(t.name) + ' · ' + escapeHtml(t.idioma) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tpl-card-chips">' +
+          '<span class="chip chip-' + (t.categoria || '').toLowerCase() + '">' + escapeHtml(t.categoria) + '</span>' +
+          '<span class="chip chip-' + statusLower + '">' +
+            (statusEmoji[statusLower] || '') + ' ' + escapeHtml(t.status) +
+          '</span>' +
+          '<span class="chip chip-tipo">' + escapeHtml(t.tipo) + '</span>' +
+        '</div>' +
+        '<div class="tpl-card-body">' + escapeHtml(bodyPrev) + '</div>' +
+        reasonHtml +
+      '</div>';
+    }).join('');
+  }
+
+  function renderRejectedGrid(lista, fetchedAt) {
+    var grid = document.getElementById('rejected-grid');
+    var intro = document.getElementById('rejected-intro');
+    grid.hidden = false;
+    if (!lista.length) {
+      intro.hidden = true;
+      grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1">' +
+        '<div class="icon">🎉</div>' +
+        '<h3>Ninguno rechazado</h3>' +
+        '<p>Todos los templates que mandaste pasaron el filtro de Meta.</p>' +
+        '</div>';
+      return;
+    }
+    intro.hidden = false;
+
+    var when = fetchedAt
+      ? '<div class="meta-last-sync">Sincronizado hace ' + minutesAgo(fetchedAt) + ' · cache 5min</div>'
+      : '';
+    grid.innerHTML = when + lista.map(function(t) {
+      var iconByTipo = {
+        texto: '✉️', multimedia: '🎬', botones: '🔘', catalogo_carrusel: '🛒'
+      };
+      var icon = iconByTipo[t.tipo] || '📝';
+      var bodyPrev = (t.body || '').slice(0, 200);
+      var motivo = t.rejected_reason || 'Meta no entregó un motivo específico.';
+      return '<div class="tpl-card rejected-card" data-cat="' + (t.categoria || '').toLowerCase() + '">' +
+        '<div class="tpl-card-head">' +
+          '<div class="tpl-card-icon">' + icon + '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<h3 class="tpl-card-title">' + escapeHtml(t.display) + '</h3>' +
+            '<div class="tpl-card-name">' + escapeHtml(t.name) + ' · ' + escapeHtml(t.idioma) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tpl-card-chips">' +
+          '<span class="chip chip-' + (t.categoria || '').toLowerCase() + '">' + escapeHtml(t.categoria) + '</span>' +
+          '<span class="chip chip-rejected">🚫 RECHAZADO</span>' +
+          '<span class="chip chip-tipo">' + escapeHtml(t.tipo) + '</span>' +
+        '</div>' +
+        '<div class="rejected-reason-box">' +
+          '<div class="rejected-reason-label">Por qué lo rechazó Meta</div>' +
+          '<div class="rejected-reason-text">' + escapeHtml(motivo) + '</div>' +
+        '</div>' +
+        '<div class="tpl-card-body">' + escapeHtml(bodyPrev) + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function minutesAgo(ts) {
+    var mins = Math.max(0, Math.floor((Date.now() / 1000 - ts) / 60));
+    if (mins < 1) return 'ahora mismo';
+    if (mins === 1) return '1 min';
+    return mins + ' min';
+  }
+
+  // ----- Activados · Ver template (read-only) ------------------------------
+  function verTemplate(id) {
+    modoVer = true;
+    editarTemplate(id);
+    // Después de que poblarForm termine, activar modo Ver (solo preview).
+    setTimeout(function() {
+      var pf = document.getElementById('paso-form');
+      pf.classList.add('view-mode');
+      var mt = document.getElementById('modal-title');
+      mt.textContent = mt.textContent.replace(/^Editar/, 'Ver');
+      document.getElementById('btn-guardar').hidden = true;
+      // Igual deshabilitamos los inputs por si alguien quita la clase CSS.
+      pf.querySelectorAll('input, textarea, select').forEach(function(el) {
+        el.disabled = true;
+      });
+    }, 260);
+  }
+
+  // ----- Activados · Cambiar template (picker) -----------------------------
+  var ACTIV_NOMBRE = {
+    bienvenida: 'Bienvenida',
+    servicio:   'Servicio',
+    credito:    'Crédito'
+  };
+
+  function cambiarActivado(slot) {
+    slotEnEdicion = slot;
+    document.getElementById('picker-title').textContent =
+      'Elegí el template para ' + (ACTIV_NOMBRE[slot] || slot);
+    document.getElementById('picker-flash').hidden = true;
+    document.getElementById('modal-cambiar').classList.add('open');
+    document.getElementById('picker-loading').hidden = false;
+    var list = document.getElementById('picker-list');
+    list.style.display = 'none';
+    list.innerHTML = '';
+
+    // Fetchear templates aprobados de Meta
+    var url = '/panel/petra/v2/templates/meta?token=' + encodeURIComponent(TOKEN);
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var meta = (d.templates || []).filter(function(t) {
+          return (t.status || '').toLowerCase() === 'approved';
+        });
+        renderPickerList(meta);
+      })
+      .catch(function(_err) {
+        renderPickerList([]);  // seguimos solo con locales
+      });
+  }
+
+  function cerrarPicker() {
+    document.getElementById('modal-cambiar').classList.remove('open');
+    slotEnEdicion = null;
+  }
+
+  function renderPickerList(metaTpls) {
+    document.getElementById('picker-loading').hidden = true;
+    var list = document.getElementById('picker-list');
+    list.style.display = 'flex';
+
+    // Solo templates aprobados por Meta (los borradores no se pueden disparar).
+    var items = metaTpls.map(function(t) { return { _origen: 'meta', data: t }; });
+
+    if (!items.length) {
+      list.innerHTML =
+        '<div class="empty-state" style="padding:30px 20px;">' +
+        '<div class="icon">📭</div>' +
+        '<h3 style="margin:8px 0 0;">No hay templates aprobados en Meta</h3>' +
+        '<p>Someté un template desde la pestaña Borradores y esperá aprobación.</p>' +
+        '</div>';
+      return;
+    }
+
+    items.forEach(function(it) {
+      var t = it.data;
+      var row = document.createElement('div');
+      row.className = 'picker-row';
+      row.onclick = function() { asignarTemplate(t.name, it._origen); };
+      var tagHtml = it._origen === 'meta'
+        ? '<span class="chip chip-aprobado">META APPROVED</span>'
+        : '<span class="chip chip-' + (t.status || 'draft').toLowerCase() + '">' +
+          (t.status || 'draft') + '</span>';
+      var catHtml = '<span class="chip chip-' + (t.categoria || '').toLowerCase() + '">' +
+          escapeHtml(t.categoria || '') + '</span>';
+      var bodyPrev = (t.body || '').slice(0, 140);
+      row.innerHTML =
+        '<div class="picker-row-head">' +
+          '<div class="picker-row-title">' + escapeHtml(t.display || t.name) + '</div>' +
+          '<div class="picker-row-chips">' + tagHtml + catHtml + '</div>' +
+        '</div>' +
+        '<div class="picker-row-name">' + escapeHtml(t.name) + '</div>' +
+        '<div class="picker-row-body">' + escapeHtml(bodyPrev) + '</div>';
+      list.appendChild(row);
+    });
+  }
+
+  function asignarTemplate(templateName, origen) {
+    var slot = slotEnEdicion;
+    if (!slot) return;
+    var flash = document.getElementById('picker-flash');
+    flash.hidden = true;
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('template_name', templateName);
+    fetch('/panel/petra/v2/activados/' + encodeURIComponent(slot),
+          { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (ok) { window.location.reload(); }
+        else {
+          flash.textContent = 'Error: ' + (d.error || JSON.stringify(d));
+          flash.hidden = false;
+        }
+      })
+      .catch(function(err) {
+        flash.textContent = 'Error de red: ' + err; flash.hidden = false;
+      });
+  }
+
+  function editarTemplate(id) {
+    fetch('/panel/petra/v2/templates/' + id + '/json?token=' + encodeURIComponent(TOKEN))
+      .then(function(r) { return r.json(); })
+      .then(function(t) {
+        if (t.error) { alert(t.error); return; }
+        document.getElementById('modal-nuevo').classList.add('open');
+        volverAPaso1();  // reset base (deja editandoId en null)
+        editandoId = id;  // marcamos edición DESPUÉS del reset
+        // Simular selección de tipo para mostrar el panel adecuado
+        elegirTipo(t.tipo);
+        setTimeout(function() { poblarForm(t); }, 200);
+      });
+  }
+
+  function poblarForm(t) {
+    document.getElementById('modal-title').textContent = 'Editar template · ' + t.display;
+    document.getElementById('f-name').value = t.name || '';
+    document.getElementById('f-name').disabled = true;  // no se cambia name en edit
+    document.getElementById('f-display').value = t.display || '';
+    document.getElementById('f-idioma').value = t.idioma || 'es';
+    document.getElementById('f-categoria').value = t.categoria || 'MARKETING';
+    document.getElementById('f-body').value = t.body || '';
+    document.getElementById('f-autor').value = t.autor || 'fabricio';
+    document.getElementById('f-reco').value = t.recomendacion || '';
+
+    // Variables
+    document.getElementById('var-list').innerHTML = '';
+    (t.variables || []).forEach(function(v) {
+      agregarVariable();
+      var last = document.querySelector('#var-list .var-row:last-child');
+      last.querySelector('[data-k="label"]').value = v.label || '';
+      last.querySelector('[data-k="source"]').value = v.source || '';
+      last.querySelector('[data-k="ejemplo"]').value = v.ejemplo || '';
+    });
+
+    // Según tipo
+    if (t.tipo === 'multimedia' && t.header) {
+      document.getElementById('f-header-type').value = t.header.type || 'image';
+      document.getElementById('f-header-url').value = t.header.url || '';
+      document.getElementById('f-header-label').value = t.header.label || '';
+    }
+    if (t.tipo === 'botones') {
+      document.getElementById('btn-list').innerHTML = '';
+      (t.botones || []).forEach(function(b) {
+        agregarBoton();
+        var last = document.querySelector('#btn-list .btn-row:last-child');
+        last.querySelector('[data-k="type"]').value = b.type || 'url';
+        last.querySelector('[data-k="label"]').value = b.label || '';
+        last.querySelector('[data-k="value"]').value = b.value || '';
+      });
+    }
+    if (t.tipo === 'catalogo_carrusel' && t.catalogo) {
+      document.getElementById('f-catalog-id').value = t.catalogo.catalog_id || '';
+      document.getElementById('f-catalog-parent').value = t.catalogo.body_parent || '';
+      document.getElementById('f-catalog-btn-type').value = t.catalogo.boton_tipo || 'url';
+      carouselState = {
+        cards: t.catalogo.cards || [],
+        parentBody: t.catalogo.body_parent || '',
+        catalogId: t.catalogo.catalog_id || '',
+        botonTipo: t.catalogo.boton_tipo || 'url',
+      };
+      renderCardsEditor();
+    }
+
+    renderLivePreview();
+    document.getElementById('btn-guardar').textContent =
+      (t.status === 'aprobado') ? 'Guardar (vuelve a draft)' : 'Guardar cambios';
+  }
+
+  function cerrarModal() {
+    document.getElementById('modal-nuevo').classList.remove('open');
+  }
+
+  function volverAPaso1() {
+    tipoSeleccionado = null;
+    editandoId = null;
+    modoVer = false;
+    document.getElementById('modal-title').textContent = 'Elegí el tipo de template';
+    document.getElementById('paso-tipo').hidden = false;
+    document.getElementById('paso-form').hidden = true;
+    document.getElementById('btn-volver').hidden = true;
+    document.getElementById('btn-guardar').hidden = true;
+    document.getElementById('flash').hidden = true;
+    document.getElementById('f-name').disabled = false;
+    document.getElementById('btn-guardar').textContent = 'Guardar borrador';
+    // Reactivar inputs y quitar modo Ver (en caso de venir de Activados → Ver)
+    document.getElementById('paso-form').classList.remove('view-mode');
+    document.querySelectorAll('#paso-form input, #paso-form textarea, #paso-form select')
+      .forEach(function(el) { if (el.id !== 'f-name') el.disabled = false; });
+    document.querySelectorAll('#paso-form .add-var-btn, #paso-form .del-btn, #btn-add-card')
+      .forEach(function(el) { el.style.display = ''; });
+    document.querySelectorAll('.tipo-card').forEach(function(c) {
+      c.classList.remove('selected');
+    });
+    // Limpiar form
+    ['f-name','f-display','f-body','f-header-url','f-header-label',
+     'f-catalog-id','f-catalog-parent','f-reco'].forEach(function(id) {
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    document.getElementById('var-list').innerHTML = '';
+    document.getElementById('btn-list').innerHTML = '';
+    // Reset carrusel
+    carouselState = { cards: [], parentBody: "", catalogId: "", botonTipo: "url" };
+    var cEd = document.getElementById('cards-editor');
+    if (cEd) renderCardsEditor();
+  }
+
+  function elegirTipo(tipo) {
+    tipoSeleccionado = tipo;
+    document.querySelectorAll('.tipo-card').forEach(function(c) {
+      c.classList.toggle('selected', c.dataset.tipo === tipo);
+    });
+    // Pequeño delay visual
+    setTimeout(function() {
+      var titulos = {
+        texto: 'Nuevo template · Texto + variables',
+        multimedia: 'Nuevo template · Multimedia',
+        botones: 'Nuevo template · Interactivo con botones',
+        catalogo_carrusel: 'Nuevo template · Catálogo / Carrusel',
+      };
+      document.getElementById('modal-title').textContent = titulos[tipo] || 'Nuevo template';
+      document.getElementById('paso-tipo').hidden = true;
+      document.getElementById('paso-form').hidden = false;
+      document.getElementById('btn-volver').hidden = false;
+      document.getElementById('btn-guardar').hidden = false;
+
+      // Mostrar panel específico
+      document.querySelectorAll('.form-pane').forEach(function(p) { p.classList.remove('active'); });
+      if (tipo === 'multimedia') document.getElementById('pane-multimedia').classList.add('active');
+      if (tipo === 'botones') {
+        document.getElementById('pane-botones').classList.add('active');
+      }
+      if (tipo === 'catalogo_carrusel') {
+        document.getElementById('pane-catalogo').classList.add('active');
+        // Catálogo solo acepta MARKETING
+        var cat = document.getElementById('f-categoria');
+        cat.value = 'MARKETING';
+      }
+      renderLivePreview();
+    }, 150);
+  }
+
+  // ----- Variables editor --------------------------------------------------
+  function agregarVariable() {
+    var list = document.getElementById('var-list');
+    var n = list.children.length + 1;
+    var row = document.createElement('div');
+    row.className = 'var-row';
+    row.innerHTML =
+      '<div class="num">{{"{{"}}' + n + '{{"}}"}}</div>' +
+      '<input type="text" placeholder="Label (ej. Nombre)" data-k="label">' +
+      '<input type="text" placeholder="Source (ej. propietario_nombre)" data-k="source">' +
+      '<input type="text" placeholder="Ejemplo (ej. María)" data-k="ejemplo">' +
+      '<button type="button" class="del-btn" onclick="this.closest(\'.var-row\').remove(); renumerarVars()">×</button>';
+    list.appendChild(row);
+  }
+  function renumerarVars() {
+    document.querySelectorAll('#var-list .var-row .num').forEach(function(el, i) {
+      el.textContent = '{{"{{"}}' + (i + 1) + '{{"}}"}}';
+    });
+  }
+
+  function recolectarVariables() {
+    var vars = [];
+    document.querySelectorAll('#var-list .var-row').forEach(function(row, i) {
+      var v = { id: String(i + 1) };
+      row.querySelectorAll('input').forEach(function(inp) {
+        v[inp.dataset.k] = inp.value.trim();
+      });
+      if (v.label) vars.push(v);
+    });
+    return vars;
+  }
+
+  // ----- Botones editor ----------------------------------------------------
+  function agregarBoton() {
+    var list = document.getElementById('btn-list');
+    if (list.children.length >= 2) {
+      alert('Máximo 2 botones por template.'); return;
+    }
+    var row = document.createElement('div');
+    row.className = 'btn-row';
+    row.innerHTML =
+      '<select data-k="type">' +
+      '<option value="url">Abrir URL</option>' +
+      '<option value="phone_number">Llamar</option>' +
+      '<option value="copy_code">Copiar código</option>' +
+      '<option value="quick_reply">Respuesta rápida</option>' +
+      '</select>' +
+      '<input type="text" placeholder="Texto del botón" data-k="label">' +
+      '<input type="text" placeholder="URL / número / código / payload" data-k="value">' +
+      '<button type="button" class="del-btn" onclick="this.closest(\'.btn-row\').remove()">×</button>';
+    list.appendChild(row);
+  }
+
+  function recolectarBotones() {
+    var btns = [];
+    document.querySelectorAll('#btn-list .btn-row').forEach(function(row) {
+      var b = {};
+      row.querySelectorAll('select, input').forEach(function(el) {
+        b[el.dataset.k] = el.value.trim();
+      });
+      if (b.label) btns.push(b);
+    });
+    return btns;
+  }
+
+  // ----- Live preview (texto / multimedia / botones) ----------------------
+  // ----- Previa de template Meta -----------------------------------------
+  function previewMetaTemplate(idx) {
+    var t = META_APROBADOS[idx];
+    if (!t) return;
+    document.getElementById('preview-title').textContent = 'Previa · ' + (t.display || t.name);
+    document.getElementById('preview-meta').innerHTML =
+      '<code style="font-family:ui-monospace,monospace;">' + escapeHtml(t.name) + '</code>' +
+      ' · ' + escapeHtml(t.idioma) + ' · ' + escapeHtml(t.categoria);
+
+    // Body con markdown (los {{1}} se dejan literales como ejemplo).
+    var body = t.body || '';
+    document.getElementById('prev-body').innerHTML = renderMarkdownWA(body);
+
+    // Hora
+    var now = new Date();
+    document.getElementById('prev-time').textContent =
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0');
+
+    // Header
+    var media = document.getElementById('prev-media');
+    media.hidden = true; media.className = 'live-bubble-media';
+    media.innerHTML = '';
+    if (t.header && t.tipo === 'multimedia') {
+      media.hidden = false;
+      var htype = (t.header.type || 'image').toLowerCase();
+      if (htype === 'image') media.innerHTML = '🖼️';
+      else if (htype === 'video') media.innerHTML = '🎬';
+      else if (htype === 'document') {
+        media.className = 'live-bubble-media doc';
+        media.innerHTML = '📄 <span>documento.pdf</span>';
+      } else if (htype === 'location') media.innerHTML = '📍';
+    }
+
+    // Botones
+    var btnsBox = document.getElementById('prev-btns');
+    btnsBox.innerHTML = ''; btnsBox.hidden = true;
+    if (t.botones && t.botones.length) {
+      btnsBox.hidden = false;
+      var icons = { url: '🔗', phone_number: '📞', copy_code: '📋', quick_reply: '↩️' };
+      t.botones.forEach(function(b) {
+        var row = document.createElement('div');
+        row.className = 'live-bubble-btn';
+        var ic = icons[(b.type || '').toLowerCase()] || '';
+        row.textContent = (ic ? ic + '  ' : '') + (b.label || 'botón');
+        btnsBox.appendChild(row);
+      });
+    }
+
+    // Hint sobre variables
+    var m = body.match(/\{\{\d+\}\}/g);
+    var hint = document.getElementById('preview-vars-hint');
+    if (m && m.length) {
+      hint.hidden = false;
+      hint.textContent = 'Este template tiene ' + m.length +
+        ' variable(s). En producción se reemplazan al enviar.';
+    } else {
+      hint.hidden = true;
+    }
+
+    document.getElementById('modal-preview').classList.add('open');
+  }
+
+  function cerrarPreview() {
+    document.getElementById('modal-preview').classList.remove('open');
+  }
+
+  function renderMarkdownWA(text) {
+    // Escape HTML primero y luego convertir *negrita* y _cursiva_.
+    var html = escapeHtml(text);
+    html = html.replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>');
+    html = html.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+    return html;
+  }
+
+  function sustituirVariables(body) {
+    // Reemplaza {{1}}, {{2}}, … por los ejemplos cargados en el editor de vars.
+    var ejemplos = {};
+    document.querySelectorAll('#var-list .var-row').forEach(function(row, i) {
+      var ej = row.querySelector('input[data-k="ejemplo"]');
+      if (ej && ej.value.trim()) ejemplos[String(i + 1)] = ej.value.trim();
+    });
+    return body.replace(/\{\{(\d+)\}\}/g, function(_, n) {
+      return ejemplos[n] || ('{{' + n + '}}');
+    });
+  }
+
+  function renderLivePreview() {
+    var wrap = document.getElementById('live-preview-wrap');
+    if (!wrap) return;
+    // Oculto en catálogo: ese tipo tiene su propio preview.
+    if (tipoSeleccionado === 'catalogo_carrusel') {
+      wrap.style.display = 'none'; return;
+    }
+    wrap.style.display = '';
+
+    // Body
+    var raw = document.getElementById('f-body').value || '';
+    var body = sustituirVariables(raw);
+    document.getElementById('live-body').innerHTML = renderMarkdownWA(body);
+
+    // Hora
+    var now = new Date();
+    document.getElementById('live-time').textContent =
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0');
+
+    // Header (solo multimedia)
+    var media = document.getElementById('live-media');
+    media.hidden = true; media.className = 'live-bubble-media';
+    media.innerHTML = '';
+    if (tipoSeleccionado === 'multimedia') {
+      var htype = document.getElementById('f-header-type').value;
+      var hurl = (document.getElementById('f-header-url').value || '').trim();
+      media.hidden = false;
+      if (htype === 'image') {
+        media.innerHTML = hurl
+          ? '<img src="' + escapeHtml(hurl) + '" onerror="this.parentNode.innerHTML=\'🖼️\'" alt="">'
+          : '🖼️';
+      } else if (htype === 'video') {
+        media.innerHTML = hurl
+          ? '<video src="' + escapeHtml(hurl) + '" muted></video>'
+          : '🎬';
+      } else if (htype === 'document') {
+        media.className = 'live-bubble-media doc';
+        var label = document.getElementById('f-header-label').value || 'documento.pdf';
+        media.innerHTML = '📄 <span>' + escapeHtml(label) + '</span>';
+      } else if (htype === 'location') {
+        media.innerHTML = '📍';
+      }
+    }
+
+    // Botones (solo tipo botones)
+    var btnsBox = document.getElementById('live-btns');
+    btnsBox.innerHTML = ''; btnsBox.hidden = true;
+    if (tipoSeleccionado === 'botones') {
+      var btns = recolectarBotones();
+      if (btns.length) {
+        btnsBox.hidden = false;
+        var icons = { url: '🔗', phone_number: '📞', copy_code: '📋', quick_reply: '↩️' };
+        btns.forEach(function(b) {
+          var ic = icons[b.type] || '';
+          var row = document.createElement('div');
+          row.className = 'live-bubble-btn';
+          row.textContent = (ic ? ic + '  ' : '') + (b.label || 'botón');
+          btnsBox.appendChild(row);
+        });
+      }
+    }
+  }
+
+  // Engancha una vez: cualquier input/change dentro del paso-form refresca.
+  (function hookLivePreview() {
+    var pf = document.getElementById('paso-form');
+    if (!pf || pf._hooked) return;
+    pf._hooked = true;
+    pf.addEventListener('input', renderLivePreview);
+    pf.addEventListener('change', renderLivePreview);
+  })();
+
+  // ----- Carrusel (cards) editor ------------------------------------------
+  var carouselState = {
+    cards: [],  // {media:{type,url}, body, botones:[{label,value}]}
+    parentBody: "",
+    catalogId: "",
+    botonTipo: "url",
+  };
+  var MAX_CARDS = 10;
+  var MAX_BTNS = 2;
+
+  function agregarCard() {
+    if (carouselState.cards.length >= MAX_CARDS) return;
+    carouselState.cards.push({
+      media: null,
+      body: "",
+      botones: [{ label: "", value: "" }],
+    });
+    renderCardsEditor();
+  }
+
+  function eliminarCard(idx) {
+    carouselState.cards.splice(idx, 1);
+    renderCardsEditor();
+  }
+
+  function cardAgregarBoton(idx) {
+    if (carouselState.cards[idx].botones.length >= MAX_BTNS) return;
+    carouselState.cards[idx].botones.push({ label: "", value: "" });
+    renderCardsEditor();
+  }
+
+  function cardEliminarBoton(cardIdx, btnIdx) {
+    carouselState.cards[cardIdx].botones.splice(btnIdx, 1);
+    renderCardsEditor();
+  }
+
+  function onCardBodyChange(idx, val) {
+    carouselState.cards[idx].body = val;
+    renderPreview();
+  }
+
+  function onCardBtnChange(cardIdx, btnIdx, campo, val) {
+    carouselState.cards[cardIdx].botones[btnIdx][campo] = val;
+    renderPreview();
+  }
+
+  function sincronizarBotonesTipo() {
+    var tipo = document.getElementById('f-catalog-btn-type').value;
+    carouselState.botonTipo = tipo;
+    // No cambia botones per card, solo el tipo global.
+    renderPreview();
+  }
+
+  function subirCardMedia(idx, fileInput) {
+    if (!fileInput.files || !fileInput.files[0]) return;
+    var file = fileInput.files[0];
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('archivo', file);
+
+    // Reutilizamos el endpoint de difusiones/upload_header (hace media upload
+    // genérico y devuelve {url, type, nombre}).
+    fetch('/panel/petra/v2/difusiones/upload_header', { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (!ok) { alert(d.error || 'Error subiendo'); return; }
+        // Validar que todas las cards tengan el mismo tipo de media.
+        var otros = carouselState.cards
+          .map(function(c, i) { return i !== idx && c.media ? c.media.type : null; })
+          .filter(Boolean);
+        if (otros.length && otros[0] !== d.type) {
+          alert('Meta requiere que todas las cards tengan el mismo tipo de media ('
+                + otros[0] + '). Subí ' + otros[0] + ' acá también.');
+          return;
+        }
+        carouselState.cards[idx].media = { type: d.type, url: d.url };
+        renderCardsEditor();
+      });
+  }
+
+  function renderCardsEditor() {
+    var cont = document.getElementById('cards-editor');
+    document.getElementById('cards-count').textContent = carouselState.cards.length;
+    document.getElementById('btn-add-card').disabled =
+      carouselState.cards.length >= MAX_CARDS;
+
+    if (!carouselState.cards.length) {
+      cont.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-sub);font-size:12.5px">Todavía no hay cards. Click en "+ Agregar card".</div>';
+      renderPreview();
+      return;
+    }
+
+    cont.innerHTML = carouselState.cards.map(function(c, i) {
+      var mediaPrev = c.media
+        ? (c.media.type === 'video'
+            ? '<video src="' + escapeHtml(c.media.url) + '" muted></video>'
+            : '<img src="' + escapeHtml(c.media.url) + '">')
+        : '🖼';
+
+      var btnsHtml = c.botones.map(function(b, bi) {
+        return '<div class="card-btn-row">' +
+          '<input type="text" placeholder="Texto del botón" value="' + escapeHtml(b.label) + '" ' +
+            'oninput="onCardBtnChange(' + i + ',' + bi + ',\'label\',this.value)">' +
+          '<input type="text" placeholder="URL / número / payload" value="' + escapeHtml(b.value) + '" ' +
+            'oninput="onCardBtnChange(' + i + ',' + bi + ',\'value\',this.value)">' +
+          '<button type="button" class="card-btn-del" onclick="cardEliminarBoton(' + i + ',' + bi + ')">×</button>' +
+          '</div>';
+      }).join('');
+
+      return '<div class="card-row">' +
+        '<div class="card-row-head">' +
+          '<span class="idx">Card ' + (i + 1) + '</span>' +
+          '<button type="button" class="card-del-btn" onclick="eliminarCard(' + i + ')">Eliminar card ×</button>' +
+        '</div>' +
+        '<div class="card-media-row">' +
+          '<div class="card-media-prev">' + mediaPrev + '</div>' +
+          '<input type="file" class="card-file-input" accept="image/*,video/*" ' +
+            'onchange="subirCardMedia(' + i + ', this)">' +
+        '</div>' +
+        '<textarea class="card-body-input" placeholder="Texto de la card..." ' +
+          'oninput="onCardBodyChange(' + i + ', this.value)">' + escapeHtml(c.body) + '</textarea>' +
+        '<div class="card-btns-list">' + btnsHtml + '</div>' +
+        (c.botones.length < MAX_BTNS
+          ? '<button type="button" class="card-add-btn-mini" onclick="cardAgregarBoton(' + i + ')">+ Botón</button>'
+          : '') +
+      '</div>';
+    }).join('');
+
+    renderPreview();
+  }
+
+  function renderPreview() {
+    carouselState.parentBody = document.getElementById('f-catalog-parent').value;
+    var parentEl = document.getElementById('prev-parent');
+    if (carouselState.parentBody.trim()) {
+      parentEl.textContent = carouselState.parentBody;
+      parentEl.hidden = false;
+    } else {
+      parentEl.hidden = true;
+    }
+
+    var scroll = document.getElementById('prev-cards');
+    if (!carouselState.cards.length) {
+      scroll.innerHTML = '<div class="carousel-empty">Agregá cards para ver preview</div>';
+      return;
+    }
+    scroll.innerHTML = carouselState.cards.map(function(c) {
+      var media = c.media
+        ? (c.media.type === 'video'
+            ? '<video src="' + escapeHtml(c.media.url) + '" muted></video>'
+            : '<img src="' + escapeHtml(c.media.url) + '">')
+        : '🖼';
+      var body = c.body.trim() || '<span style="opacity:0.4">Texto de la card…</span>';
+      var btns = c.botones
+        .filter(function(b) { return b.label.trim(); })
+        .map(function(b) {
+          return '<div class="prev-card-btn">' + escapeHtml(b.label) + '</div>';
+        }).join('');
+      return '<div class="prev-card">' +
+        '<div class="prev-card-media">' + media + '</div>' +
+        '<div class="prev-card-body">' + (c.body.trim() ? escapeHtml(c.body) : body) + '</div>' +
+        btns +
+      '</div>';
+    }).join('');
+  }
+
+  // Sincronizar parent body en cada tecla
+  document.addEventListener('input', function(e) {
+    if (e.target && e.target.id === 'f-catalog-parent') {
+      renderPreview();
+    }
+  });
+
+  // ----- Guardar -----------------------------------------------------------
+  function guardarTemplate() {
+    var name = document.getElementById('f-name').value.trim().toLowerCase();
+    var display = document.getElementById('f-display').value.trim();
+    var body = document.getElementById('f-body').value.trim();
+    if (!name || !display || !body) {
+      flashError('Completá nombre, nombre visible y cuerpo.');
+      return;
+    }
+    if (!/^[a-z0-9_]+$/.test(name)) {
+      flashError('El nombre interno solo acepta minúsculas, dígitos y guión bajo.');
+      return;
+    }
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('name', name);
+    fd.append('display', display);
+    fd.append('idioma', document.getElementById('f-idioma').value);
+    fd.append('categoria', document.getElementById('f-categoria').value);
+    fd.append('tipo', tipoSeleccionado);
+    fd.append('body', body);
+    fd.append('autor', document.getElementById('f-autor').value);
+    fd.append('recomendacion', document.getElementById('f-reco').value.trim());
+    fd.append('variables', JSON.stringify(recolectarVariables()));
+
+    if (tipoSeleccionado === 'multimedia') {
+      var url = document.getElementById('f-header-url').value.trim();
+      if (url) {
+        fd.append('header', JSON.stringify({
+          type: document.getElementById('f-header-type').value,
+          url: url,
+          label: document.getElementById('f-header-label').value.trim()
+        }));
+      }
+    }
+    if (tipoSeleccionado === 'botones') {
+      fd.append('botones', JSON.stringify(recolectarBotones()));
+    }
+    if (tipoSeleccionado === 'catalogo_carrusel') {
+      // Validar que tenga al menos 1 card
+      if (!carouselState.cards.length) {
+        flashError('Agregá al menos una card al carrusel.');
+        return;
+      }
+      if (carouselState.cards.length > MAX_CARDS) {
+        flashError('Máximo ' + MAX_CARDS + ' cards por carrusel.');
+        return;
+      }
+      // Validar que todas tengan media del mismo tipo
+      var tipos = carouselState.cards
+        .map(function(c) { return c.media ? c.media.type : null; })
+        .filter(Boolean);
+      if (tipos.length !== carouselState.cards.length) {
+        flashError('Todas las cards necesitan media (imagen o video).');
+        return;
+      }
+      var tipoUnico = new Set(tipos);
+      if (tipoUnico.size > 1) {
+        flashError('Todas las cards deben usar el mismo tipo de media (todas imagen o todas video).');
+        return;
+      }
+
+      fd.append('catalogo', JSON.stringify({
+        catalog_id: document.getElementById('f-catalog-id').value.trim(),
+        body_parent: document.getElementById('f-catalog-parent').value.trim(),
+        boton_tipo: document.getElementById('f-catalog-btn-type').value,
+        cards: carouselState.cards,
+      }));
+    }
+
+    var btn = document.getElementById('btn-guardar');
+    var textoOriginal = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Guardando…';
+
+    var url = editandoId
+      ? '/panel/petra/v2/templates/' + editandoId + '/actualizar'
+      : '/panel/petra/v2/templates/crear';
+
+    fetch(url, { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (!ok) {
+          flashError(d.error || 'Error al guardar');
+          btn.disabled = false; btn.textContent = textoOriginal;
+          return;
+        }
+        window.location.reload();
+      })
+      .catch(function() {
+        flashError('Error de red');
+        btn.disabled = false; btn.textContent = textoOriginal;
+      });
+  }
+
+  function flashError(msg) {
+    var f = document.getElementById('flash');
+    f.textContent = msg; f.hidden = false;
+    f.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function eliminarTemplate(id, display) {
+    if (!confirm('¿Eliminar template "' + display + '"? Solo drafts se pueden borrar.')) return;
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fetch('/panel/petra/v2/templates/' + id + '/eliminar', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) window.location.reload();
+        else alert(d.error || 'Error al eliminar');
+      });
+  }
+
+  function aprobarTemplate(id, display) {
+    if (!confirm('¿Enviar "' + display + '" a Meta para aprobación?\n\n' +
+                 'Meta suele responder entre 1 min y 24 h. Mientras tanto ' +
+                 'aparece en la pestaña "Esperando aprobación".')) return;
+    var btn = document.getElementById('btn-aprobar-' + id);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Enviando a Meta…'; }
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fetch('/panel/petra/v2/templates/' + id + '/aprobar',
+          { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (ok) {
+          alert('✅ Enviado a Meta. Estado: ' + (d.meta_status || 'PENDING') +
+                '.\n\nLo vas a ver en la pestaña "Esperando aprobación".');
+          window.location.reload();
+          return;
+        }
+        var msg = 'Meta rechazó el template.\n\n';
+        if (d.detalle && d.detalle.error) {
+          var e = d.detalle.error;
+          msg += (e.message || '') + '\n';
+          if (e.error_user_msg) msg += '\n' + e.error_user_msg;
+          if (e.error_user_title) msg += '\n(' + e.error_user_title + ')';
+        } else if (typeof d.detalle === 'string') {
+          msg += d.detalle;
+        } else {
+          msg += JSON.stringify(d);
+        }
+        alert(msg);
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Aprobar'; }
+      })
+      .catch(function(err) {
+        alert('Error de red: ' + err);
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Aprobar'; }
+      });
+  }
+</script>
+
+{% endblock %}

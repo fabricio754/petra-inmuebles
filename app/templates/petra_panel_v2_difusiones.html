@@ -1,0 +1,1420 @@
+{% extends "base_panel_v2.html" %}
+{% set block = 'difusiones' %}
+{% block title %}Campañas · Petra{% endblock %}
+{% block content %}
+
+<style>
+  .hero { display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 16px; margin: 10px 0 24px; }
+  .hero h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.4px; }
+  .hero .sub { color: var(--text-sub); font-size: 13.5px; max-width: 65ch; }
+  .hero .cta {
+    background: var(--accent); color: white; border: 0; padding: 10px 18px;
+    border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  .hero .cta:hover { opacity: 0.92; }
+
+  .list-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; overflow: hidden;
+  }
+  .list-head {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    font-weight: 600; font-size: 13px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .empty-state {
+    padding: 56px 20px; text-align: center; color: var(--text-sub);
+  }
+  .empty-state .icon { font-size: 44px; margin-bottom: 10px; opacity: 0.6; }
+  .empty-state h3 { margin: 0 0 6px; color: var(--text); font-size: 16px; font-weight: 600; }
+  .empty-state p { margin: 0 0 14px; font-size: 13px; }
+
+  /* Modal flujo 4 pasos */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: flex-start; justify-content: center;
+    z-index: 1000; padding: 40px 16px; overflow-y: auto;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--panel); border-radius: 18px; width: 100%;
+    max-width: 920px; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+  }
+  .modal-head {
+    padding: 18px 24px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modal-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .modal-close {
+    background: transparent; border: 0; font-size: 22px;
+    cursor: pointer; color: var(--text-sub); line-height: 1;
+    width: 32px; height: 32px; border-radius: 50%;
+  }
+  .modal-close:hover { background: var(--bg); color: var(--text); }
+
+  .steps-nav {
+    display: flex; gap: 0; padding: 14px 24px 0;
+    border-bottom: 1px solid var(--border); background: var(--bg);
+  }
+  .step-tab {
+    padding: 12px 16px; display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text-sub);
+    border-bottom: 2px solid transparent; cursor: default;
+    font-weight: 500;
+  }
+  .step-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .step-tab .num {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--border); color: var(--text-sub);
+    display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  }
+  .step-tab.active .num { background: var(--accent); color: white; }
+  .step-tab.done .num { background: #4b7a3a; color: white; }
+  .step-tab.done { color: var(--text); }
+
+  .modal-body { padding: 24px; }
+  .step-pane { display: none; }
+  .step-pane.active { display: block; }
+
+  /* Step 1: filtros */
+  .filters-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .filter-group label {
+    display: block; font-size: 11.5px; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+    margin-bottom: 5px;
+  }
+  .filter-group select, .filter-group input {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-size: 14px; font-family: inherit;
+    box-sizing: border-box;
+  }
+  .filter-group select:focus, .filter-group input:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+    border-color: var(--accent);
+  }
+
+  .preview-count {
+    background: var(--bg); border: 1px dashed var(--border);
+    border-radius: 12px; padding: 20px; margin-top: 14px;
+    text-align: center;
+  }
+  .preview-count .big {
+    font-size: 36px; font-weight: 700; letter-spacing: -0.5px;
+    color: var(--accent); display: block; line-height: 1;
+  }
+  .preview-count .label {
+    font-size: 13px; color: var(--text-sub); margin-top: 6px;
+  }
+  .preview-count .samples {
+    margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border);
+    font-size: 12.5px; color: var(--text-sub); text-align: left;
+  }
+  .preview-count .samples strong { color: var(--text); }
+  .preview-count.loading .big { color: var(--text-sub); opacity: 0.5; }
+
+  /* Step 2-4: placeholders */
+  .placeholder {
+    padding: 50px 20px; text-align: center; color: var(--text-sub);
+    background: var(--bg); border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+  .placeholder .icon { font-size: 38px; margin-bottom: 10px; opacity: 0.5; }
+  .placeholder h4 { margin: 0 0 6px; font-size: 15px; color: var(--text); }
+  .placeholder p { margin: 0; font-size: 13px; max-width: 48ch; margin: 0 auto; }
+
+  /* Step 2: template picker */
+  .tmpl-picker { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+  .tmpl-card {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 14px 16px; background: var(--panel);
+    border: 1.5px solid var(--border); border-radius: 12px;
+    cursor: pointer; transition: all 120ms ease;
+  }
+  .tmpl-card:hover { border-color: var(--accent); }
+  .tmpl-card input[type="radio"] { margin-top: 3px; accent-color: var(--accent); }
+  .tmpl-card.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+  .tmpl-card-main { flex: 1; min-width: 0; }
+  .tmpl-card-head {
+    display: flex; justify-content: space-between; gap: 10px;
+    align-items: center; flex-wrap: wrap; margin-bottom: 4px;
+  }
+  .tmpl-card-title { font-weight: 600; font-size: 14.5px; color: var(--text); }
+  .tmpl-card-meta { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;
+  }
+  .chip-utility { background: #e3f2d9; color: #4b7a3a; }
+  .chip-marketing { background: #fde6dd; color: #a8422d; }
+  .chip-price { background: var(--bg); color: var(--text-sub); font-family: ui-monospace, monospace; text-transform: none; letter-spacing: 0; }
+  .chip-warn { background: #fdf2d4; color: #8c6a1c; }
+  .tmpl-card-reco { font-size: 12.5px; color: var(--text-sub); line-height: 1.4; }
+
+  .tmpl-detail {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px; margin-top: 4px;
+  }
+  .tmpl-detail-grid {
+    display: grid; grid-template-columns: 1fr 240px; gap: 18px;
+  }
+  @media (max-width: 720px) { .tmpl-detail-grid { grid-template-columns: 1fr; } }
+  .tmpl-preview-label {
+    font-size: 11px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;
+  }
+  .wa-bg {
+    background: #e5ddd5; padding: 14px; border-radius: 10px;
+    min-height: 140px; display: flex; align-items: flex-end;
+  }
+  [data-theme="dark"] .wa-bg { background: #0a0f0a; }
+  .wa-bubble {
+    background: #d9fdd3; color: #111b21; padding: 8px 11px;
+    border-radius: 8px; border-bottom-right-radius: 1px;
+    font-size: 13px; line-height: 1.4; max-width: 85%;
+    margin-left: auto; white-space: pre-wrap; word-wrap: break-word;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+  }
+  .wa-bubble .wa-var {
+    background: rgba(200, 90, 42, 0.18); padding: 1px 3px; border-radius: 2px;
+    font-weight: 500;
+  }
+  .wa-header {
+    background: rgba(0,0,0,0.08); border-radius: 5px;
+    margin-bottom: 6px; overflow: hidden;
+    display: grid; place-items: center;
+    aspect-ratio: 16 / 9;
+  }
+  .wa-header.header-video {
+    position: relative; color: rgba(0,0,0,0.6);
+    font-size: 24px; background: #c9d1d9;
+  }
+  .wa-header.header-video::after {
+    content: ""; position: absolute; inset: 0; background: rgba(0,0,0,0.0);
+  }
+  .wa-header img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .wa-header video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    background: #000;
+  }
+  .wa-body { white-space: pre-wrap; }
+  .tmpl-header-info {
+    margin-top: 12px; padding: 8px 10px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-size: 12px; color: var(--text-sub);
+  }
+  .tmpl-header-info strong { color: var(--text); }
+
+  /* Personalizar media / texto */
+  .personaliza {
+    margin-top: 18px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .personaliza-section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  .personaliza-section summary {
+    padding: 12px 16px; cursor: pointer; font-size: 13.5px;
+    display: flex; align-items: center; gap: 10px;
+    list-style: none; user-select: none;
+    color: var(--text); font-weight: 500;
+  }
+  .personaliza-section summary::-webkit-details-marker { display: none; }
+  .personaliza-section summary::after {
+    content: "▾"; margin-left: auto; color: var(--text-sub);
+    transition: transform 160ms;
+  }
+  .personaliza-section[open] summary::after { transform: rotate(180deg); }
+  .personaliza-section[open] summary {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .pz-icon { font-size: 15px; }
+  .pz-title { flex: 1; }
+  .pz-badge {
+    font-size: 10px; padding: 2px 8px; background: var(--accent);
+    color: white; border-radius: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .pz-body { padding: 14px 16px; }
+  .pz-help {
+    margin: 0 0 10px; font-size: 12.5px; color: var(--text-sub);
+    line-height: 1.5;
+  }
+  .pz-help code {
+    background: var(--bg); padding: 1px 5px; border-radius: 3px;
+    font-size: 11.5px; color: var(--accent);
+    font-family: ui-monospace, monospace;
+  }
+  .pz-upload-row {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .pz-upload-row input[type="file"] {
+    font-size: 12.5px; color: var(--text); flex: 1; min-width: 200px;
+  }
+  .pz-upload-row input[type="file"]::file-selector-button {
+    background: var(--accent); color: white; border: 0;
+    padding: 7px 12px; border-radius: 6px; margin-right: 10px;
+    font-weight: 600; cursor: pointer; font-size: 12.5px;
+  }
+  .pz-media-preview {
+    margin-top: 10px; background: #e5ddd5; border-radius: 8px;
+    padding: 10px; display: grid; place-items: center;
+    max-width: 320px; aspect-ratio: 16/9; overflow: hidden;
+  }
+  [data-theme="dark"] .pz-media-preview { background: #0a0f0a; }
+  .pz-media-preview img, .pz-media-preview video {
+    max-width: 100%; max-height: 100%; width: 100%; height: 100%;
+    object-fit: cover; border-radius: 4px;
+  }
+  .pz-media-status {
+    margin-top: 8px; font-size: 12px; color: var(--text-sub);
+  }
+  .pz-media-status.error { color: #a8422d; }
+  .pz-media-status.ok { color: #4b7a3a; }
+
+  #pz-body-text {
+    width: 100%; box-sizing: border-box;
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    font-size: 13.5px; line-height: 1.5; resize: vertical;
+    min-height: 160px;
+  }
+  #pz-body-text:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+    border-color: var(--accent);
+  }
+  .pz-text-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 8px; font-size: 12px; color: var(--text-sub);
+  }
+  .pz-text-chars { font-family: ui-monospace, monospace; font-size: 11.5px; }
+  .pz-text-note {
+    margin-top: 10px; padding: 8px 12px;
+    background: #fdf2d4; border-left: 3px solid #b8862e;
+    border-radius: 0 6px 6px 0; font-size: 11.5px;
+    color: #6e5218; line-height: 1.5;
+  }
+  [data-theme="dark"] .pz-text-note {
+    background: #3a2f1a; color: #d4b56e;
+  }
+
+  .tmpl-vars {
+    display: flex; flex-direction: column; gap: 6px;
+    font-size: 12.5px;
+  }
+  .tmpl-var-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 6px 0; border-bottom: 1px dashed var(--border);
+  }
+  .tmpl-var-row:last-child { border-bottom: 0; }
+  .tmpl-var-label { color: var(--text-sub); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .tmpl-var-source { font-family: ui-monospace, monospace; color: var(--text); font-size: 12px; }
+  .tmpl-costo {
+    margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text-sub);
+  }
+  .tmpl-costo strong { color: var(--text); font-family: ui-monospace, monospace; }
+
+  /* Step 3: preview final */
+  .p3-summary {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin-bottom: 18px;
+  }
+  @media (max-width: 560px) { .p3-summary { grid-template-columns: 1fr; } }
+  .p3-sum-cell {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px; text-align: center;
+  }
+  .p3-sum-num {
+    font-size: 24px; font-weight: 700; color: var(--accent);
+    font-variant-numeric: tabular-nums; line-height: 1.1;
+    letter-spacing: -0.3px;
+  }
+  .p3-sum-lab {
+    font-size: 11px; color: var(--text-sub); margin-top: 5px;
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+  }
+  .p3-warnings {
+    background: #fdf2d4; border-left: 3px solid #b8862e;
+    border-radius: 0 10px 10px 0; padding: 10px 14px;
+    margin-bottom: 18px; color: #6e5218; font-size: 12.5px;
+    line-height: 1.5;
+  }
+  [data-theme="dark"] .p3-warnings {
+    background: #3a2f1a; color: #d4b56e;
+  }
+  .p3-warnings ul { margin: 0; padding-left: 18px; }
+  .p3-warnings li { margin: 3px 0; }
+
+  .p3-muestras-label {
+    font-size: 11px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px;
+  }
+  .p3-muestras {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .p3-muestra {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px;
+  }
+  .p3-muestra-head {
+    font-size: 11.5px; color: var(--text-sub); margin-bottom: 8px;
+    padding-bottom: 8px; border-bottom: 1px dashed var(--border);
+  }
+  .p3-muestra-head .cel {
+    font-family: ui-monospace, monospace; color: var(--text); font-size: 11px;
+    margin-left: 6px;
+  }
+  .p3-muestra-wa {
+    background: #e5ddd5; padding: 10px; border-radius: 8px;
+  }
+  [data-theme="dark"] .p3-muestra-wa { background: #0a0f0a; }
+  .p3-muestra-bubble {
+    background: #d9fdd3; color: #111b21; padding: 7px 10px;
+    border-radius: 7px; border-bottom-right-radius: 1px;
+    font-size: 12.5px; line-height: 1.42; white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+  }
+  .p3-muestra-bubble .wa-meta {
+    font-size: 10px; color: #667781; text-align: right; margin-top: 4px;
+  }
+  .p3-muestras-empty {
+    text-align: center; padding: 30px; color: var(--text-sub); font-size: 13px;
+  }
+  .p3-muestras-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .btn-link {
+    background: transparent; border: 0; color: var(--accent);
+    font-size: 12.5px; cursor: pointer; font-weight: 600; padding: 0;
+    text-decoration: underline;
+  }
+  .btn-link:hover { opacity: 0.8; }
+
+  .p3-lista-wrap {
+    margin-top: 16px; border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; background: var(--bg);
+  }
+  .p3-lista-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 10px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px;
+  }
+  .p3-lista-head strong { color: var(--accent); font-size: 15px; }
+  .p3-lista-sub { font-size: 11.5px; color: var(--text-sub); }
+  .p3-lista {
+    max-height: 260px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel);
+  }
+  .p3-lista-row {
+    display: grid; grid-template-columns: 30px 1fr auto auto;
+    gap: 10px; padding: 8px 12px; align-items: center;
+    border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .p3-lista-row:last-child { border-bottom: 0; }
+  .p3-lista-row.excluido { opacity: 0.45; text-decoration: line-through; }
+  .p3-lista-row input[type="checkbox"] { accent-color: var(--accent); }
+  .p3-lista-row .codigo {
+    font-family: ui-monospace, monospace; font-weight: 600; color: var(--text);
+  }
+  .p3-lista-row .etiqueta { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .p3-lista-row .cel {
+    font-size: 11.5px; color: var(--text-sub); font-family: ui-monospace, monospace;
+  }
+  .p3-lista-row .cel.no-cel { color: #a8422d; font-style: italic; }
+  .p3-lista-summary {
+    margin-top: 10px; font-size: 12px; color: var(--text-sub);
+    text-align: right;
+  }
+  .p3-lista-summary strong { color: var(--text); }
+
+  /* Step 4: programar */
+  .p4-resumen {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 18px; margin-bottom: 18px;
+  }
+  .p4-row {
+    display: flex; justify-content: space-between; padding: 7px 0;
+    border-bottom: 1px dashed var(--border); font-size: 13px;
+  }
+  .p4-row:last-child { border-bottom: 0; }
+  .p4-row .k { color: var(--text-sub); }
+  .p4-row .v { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .p4-sched { margin-bottom: 18px; }
+  .p4-sched-label {
+    font-size: 11px; color: var(--text-sub); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;
+  }
+  .p4-sched-opts {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+  }
+  .p4-opt {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 12px 14px; background: var(--panel);
+    border: 1.5px solid var(--border); border-radius: 10px;
+    cursor: pointer; transition: border-color 100ms;
+  }
+  .p4-opt:hover { border-color: var(--accent); }
+  .p4-opt input[type="radio"] { margin-top: 3px; accent-color: var(--accent); }
+  .p4-opt:has(input:checked) {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  }
+  .p4-opt-title { font-weight: 600; font-size: 13px; color: var(--text); }
+  .p4-opt-sub { font-size: 11.5px; color: var(--text-sub); margin-top: 2px; }
+
+  .p4-custom {
+    margin-top: 12px;
+  }
+  .p4-custom input[type="datetime-local"] {
+    padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-size: 14px; font-family: inherit;
+    width: 100%; max-width: 280px;
+    box-sizing: border-box;
+  }
+
+  .p4-autor {
+    margin-bottom: 18px; padding: 14px 16px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .p4-autor-sel {
+    padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel); color: var(--text);
+    font-size: 14px; font-family: inherit; margin-top: 4px;
+    min-width: 240px;
+  }
+  .p4-autor-help {
+    font-size: 11.5px; color: var(--text-sub); margin-top: 6px;
+  }
+  .p4-dryrun-note {
+    background: #fdf2d4; border-left: 3px solid #b8862e;
+    border-radius: 0 10px 10px 0; padding: 12px 16px;
+    color: #6e5218; font-size: 12.5px; line-height: 1.5;
+  }
+  [data-theme="dark"] .p4-dryrun-note {
+    background: #3a2f1a; color: #d4b56e;
+  }
+  .p4-dryrun-note strong { display: block; margin-bottom: 4px; font-size: 13px; }
+  .p4-dryrun-note p { margin: 0; }
+
+  .p4-result {
+    margin-top: 18px; padding: 16px 18px; border-radius: 12px;
+    background: #e3f2d9; border: 1px solid #4b7a3a;
+    color: #2d4a22; font-size: 13.5px; line-height: 1.5;
+  }
+  [data-theme="dark"] .p4-result {
+    background: #1b2817; border-color: #7fae6b; color: #a5ca94;
+  }
+  .p4-result strong { display: block; margin-bottom: 6px; font-size: 14px; }
+
+  /* Footer modal */
+  .modal-foot {
+    padding: 14px 24px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg);
+  }
+  .btn-secondary {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); padding: 9px 16px; border-radius: 8px;
+    font-size: 14px; cursor: pointer; font-weight: 500;
+  }
+  .btn-secondary:hover { background: var(--panel); }
+  .btn-primary {
+    background: var(--accent); color: white; border: 0;
+    padding: 9px 20px; border-radius: 8px; font-size: 14px;
+    cursor: pointer; font-weight: 600;
+  }
+  .btn-primary:hover { opacity: 0.92; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Campañas</h1>
+    <div class="sub">
+      Envíos de templates aprobados por Meta a grupos de propietarios segmentados.
+      Respeta rate limits de warm-up y opt-outs.
+    </div>
+  </div>
+  <button class="cta" onclick="abrirNuevaDifusion()">+ Nueva campaña</button>
+</div>
+
+<div class="list-card">
+  <div class="list-head">Campañas recientes</div>
+  <div class="empty-state">
+    <div class="icon">📣</div>
+    <h3>No hay campañas todavía</h3>
+    <p>Creá tu primera campaña para notificar a un grupo de propietarios.</p>
+  </div>
+</div>
+
+{# ─── Modal: Nueva difusión ──────────────────────────────── #}
+<div class="modal-backdrop" id="modal-difusion" onclick="if(event.target===this)cerrarModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Nueva campaña</h2>
+      <button class="modal-close" onclick="cerrarModal()">×</button>
+    </div>
+
+    <div class="steps-nav">
+      <div class="step-tab active" data-step="1"><span class="num">1</span> Destinatarios</div>
+      <div class="step-tab" data-step="2"><span class="num">2</span> Template</div>
+      <div class="step-tab" data-step="3"><span class="num">3</span> Preview</div>
+      <div class="step-tab" data-step="4"><span class="num">4</span> Programar</div>
+    </div>
+
+    <div class="modal-body">
+
+      {# ─── Paso 1: Destinatarios ──────────────────────── #}
+      <div class="step-pane active" data-step="1">
+        <p style="margin: 0 0 16px; color: var(--text-sub); font-size: 13.5px;">
+          Elegí qué propietarios reciben la campaña. El conteo se actualiza en vivo.
+        </p>
+
+        <div class="filters-grid">
+          <div class="filter-group">
+            <label>Conjunto</label>
+            <select id="f_conjunto" onchange="refrescarPreview()">
+              <option value="">Todos los conjuntos</option>
+              {% for c in conjuntos %}
+              <option value="{{ c.id }}">{{ c.nombre }}{% if c.ciudad %} · {{ c.ciudad }}{% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Operación</label>
+            <select id="f_operacion" onchange="refrescarPreview()">
+              <option value="">Venta y arriendo</option>
+              <option value="venta">Solo venta</option>
+              <option value="arriendo">Solo arriendo</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Estado</label>
+            <select id="f_estado" onchange="refrescarPreview()">
+              <option value="activo">Activos</option>
+              <option value="todos">Activos + inactivos</option>
+              <option value="inactivo">Solo inactivos</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Etapa del embudo</label>
+            <select id="f_etapa" onchange="refrescarPreview()">
+              <option value="">Todas las etapas</option>
+              <option value="sin_bienvenida">Sin notificar publicación</option>
+              <option value="con_bienvenida">Notificados sin ofrecer inmob</option>
+              <option value="con_inmob">Ofrecimos inmob sin crédito</option>
+              <option value="con_credito">Ofrecimos crédito</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Días desde última etapa</label>
+            <select id="f_dias" onchange="refrescarPreview()">
+              <option value="">Cualquier tiempo</option>
+              <option value="3">Hace 3+ días</option>
+              <option value="7">Hace 7+ días</option>
+              <option value="14">Hace 14+ días</option>
+              <option value="30">Hace 30+ días</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Tiene celular válido</label>
+            <select id="f_celular" onchange="refrescarPreview()">
+              <option value="si">Sí (contactables)</option>
+              <option value="todos">Todos</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="preview-count loading" id="preview-count">
+          <span class="big" id="pc-num">—</span>
+          <div class="label" id="pc-label">Calculando destinatarios…</div>
+          <div class="samples" id="pc-samples" hidden>
+            <strong>Ejemplos:</strong>
+            <div id="pc-samples-list"></div>
+          </div>
+        </div>
+      </div>
+
+      {# ─── Paso 2: Template ───────────────────────────── #}
+      <div class="step-pane" data-step="2">
+        <p style="margin: 0 0 16px; color: var(--text-sub); font-size: 13.5px;">
+          Elegí qué template WhatsApp enviar. Meta cobra distinto según categoría.
+        </p>
+
+        <div class="tmpl-picker">
+          {% for t in templates %}
+          <label class="tmpl-card" data-name="{{ t.name }}">
+            <input type="radio" name="tmpl" value="{{ t.name }}" onchange="seleccionarTemplate('{{ t.name }}')">
+            <div class="tmpl-card-main">
+              <div class="tmpl-card-head">
+                <div class="tmpl-card-title">{{ t.display }}</div>
+                <div class="tmpl-card-meta">
+                  <span class="chip chip-{{ t.category|lower }}">{{ t.category }}</span>
+                  <span class="chip chip-price">${{ "%.5f"|format(t.price_usd) }} / envío</span>
+                  {% if t.status != 'approved' %}
+                  <span class="chip chip-warn">sin aprobar</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="tmpl-card-reco">{{ t.recomendacion }}</div>
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+
+        <div class="tmpl-detail" id="tmpl-detail" hidden>
+          <div class="tmpl-detail-grid">
+            <div class="tmpl-preview-wrap">
+              <div class="tmpl-preview-label">Preview WhatsApp (con datos de ejemplo)</div>
+              <div class="wa-bg">
+                <div class="wa-bubble" id="wa-bubble">
+                  <div class="wa-header" id="wa-header" hidden></div>
+                  <div class="wa-body" id="wa-body"></div>
+                </div>
+              </div>
+            </div>
+            <div class="tmpl-vars-wrap">
+              <div class="tmpl-preview-label">Variables</div>
+              <div class="tmpl-vars" id="tmpl-vars"></div>
+              <div class="tmpl-header-info" id="tmpl-header-info" hidden></div>
+              <div class="tmpl-costo" id="tmpl-costo"></div>
+            </div>
+          </div>
+
+          {# ─── Personalizar media y texto ──────────────── #}
+          <div class="personaliza">
+            <details class="personaliza-section">
+              <summary>
+                <span class="pz-icon">🖼️</span>
+                <span class="pz-title">Personalizar media del header</span>
+                <span class="pz-badge" id="pz-media-badge" hidden>Custom</span>
+              </summary>
+              <div class="pz-body">
+                <p class="pz-help">Subí una imagen (jpg/png/webp, máx 16MB) o un
+                   video (mp4/mov/webm, máx 16MB). Reemplaza el header del template
+                   solo para esta campaña.</p>
+                <div class="pz-upload-row">
+                  <input type="file" id="pz-media-file" accept="image/*,video/*" onchange="subirMediaHeader()">
+                  <button type="button" class="btn-link" onclick="limpiarMediaOverride()" id="pz-media-clear" hidden>Volver al default</button>
+                </div>
+                <div class="pz-media-preview" id="pz-media-preview" hidden></div>
+                <div class="pz-media-status" id="pz-media-status"></div>
+              </div>
+            </details>
+
+            <details class="personaliza-section">
+              <summary>
+                <span class="pz-icon">✏️</span>
+                <span class="pz-title">Personalizar el texto</span>
+                <span class="pz-badge" id="pz-body-badge" hidden>Editado</span>
+              </summary>
+              <div class="pz-body">
+                <p class="pz-help">Editá el cuerpo del mensaje para esta campaña.
+                   Las variables <code>{{"{{1}}"}}, {{"{{2}}"}}</code>, etc. se autocompletan
+                   con datos reales de cada destinatario.</p>
+                <textarea id="pz-body-text" rows="8" oninput="onBodyEdit()"></textarea>
+                <div class="pz-text-foot">
+                  <button type="button" class="btn-link" onclick="resetBodyEdit()">Volver al texto original</button>
+                  <span class="pz-text-chars" id="pz-text-chars"></span>
+                </div>
+                <div class="pz-text-note">
+                  Al enviar en real, cambiar el texto requiere someter el template de nuevo
+                  a Meta (1-3 días de aprobación). Por ahora queda registrado en el dry-run.
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      {# ─── Paso 3: Preview ────────────────────────────── #}
+      <div class="step-pane" data-step="3">
+        <p style="margin: 0 0 16px; color: var(--text-sub); font-size: 13.5px;">
+          Validá los mensajes antes de enviar. Datos reales de 3 destinatarios al azar.
+        </p>
+
+        <div class="p3-summary" id="p3-summary">
+          <div class="p3-sum-cell">
+            <div class="p3-sum-num" id="p3-count">—</div>
+            <div class="p3-sum-lab">destinatarios</div>
+          </div>
+          <div class="p3-sum-cell">
+            <div class="p3-sum-num" id="p3-categoria">—</div>
+            <div class="p3-sum-lab">categoría Meta</div>
+          </div>
+          <div class="p3-sum-cell">
+            <div class="p3-sum-num" id="p3-costo">—</div>
+            <div class="p3-sum-lab">costo estimado USD</div>
+          </div>
+        </div>
+
+        <div class="p3-warnings" id="p3-warnings" hidden></div>
+
+        <div class="p3-muestras-head">
+          <div class="p3-muestras-label">3 mensajes de muestra (datos reales)</div>
+          <button type="button" class="btn-link" onclick="toggleListaCompleta()">
+            <span id="btn-lista-label">Ver lista completa</span>
+          </button>
+        </div>
+        <div class="p3-muestras" id="p3-muestras"></div>
+
+        <div class="p3-lista-wrap" id="p3-lista-wrap" hidden>
+          <div class="p3-lista-head">
+            <span>Lista completa · <strong id="p3-lista-count">0</strong> destinatarios</span>
+            <span class="p3-lista-sub">Desmarcá para excluir del envío</span>
+          </div>
+          <div class="p3-lista" id="p3-lista"></div>
+          <button type="button" class="btn-link" id="p3-lista-more" onclick="cargarMasLista()" hidden>
+            Cargar más destinatarios
+          </button>
+          <div class="p3-lista-summary" id="p3-lista-summary"></div>
+        </div>
+      </div>
+
+      {# ─── Paso 4: Programar ─────────────────────────── #}
+      <div class="step-pane" data-step="4">
+        <p style="margin: 0 0 16px; color: var(--text-sub); font-size: 13.5px;">
+          Elegí cuándo se envía. Confirmar genera un dry-run (no envía por WhatsApp todavía).
+        </p>
+
+        <div class="p4-resumen" id="p4-resumen">
+          <div class="p4-row"><span class="k">Template</span><span class="v" id="p4-tmpl">—</span></div>
+          <div class="p4-row"><span class="k">Categoría</span><span class="v" id="p4-cat">—</span></div>
+          <div class="p4-row"><span class="k">Destinatarios</span><span class="v" id="p4-dest">—</span></div>
+          <div class="p4-row"><span class="k">Excluidos manualmente</span><span class="v" id="p4-excl">0</span></div>
+          <div class="p4-row"><span class="k">Costo total estimado</span><span class="v" id="p4-cost">—</span></div>
+        </div>
+
+        <div class="p4-autor">
+          <div class="p4-sched-label">Firmar como (autor de la campaña)</div>
+          <select id="p4-autor-sel" class="p4-autor-sel">
+            {% for a in autores %}
+            <option value="{{ a.id }}">{{ a.label }}</option>
+            {% endfor %}
+          </select>
+          <div class="p4-autor-help">Queda registrado en auditoría para saber quién lanzó cada campaña.</div>
+        </div>
+
+        <div class="p4-sched">
+          <div class="p4-sched-label">Momento del envío</div>
+          <div class="p4-sched-opts">
+            <label class="p4-opt">
+              <input type="radio" name="programar" value="ahora" checked onchange="togglePersonalizado()">
+              <div>
+                <div class="p4-opt-title">Ahora</div>
+                <div class="p4-opt-sub">Dispara al confirmar</div>
+              </div>
+            </label>
+            <label class="p4-opt">
+              <input type="radio" name="programar" value="1h" onchange="togglePersonalizado()">
+              <div>
+                <div class="p4-opt-title">En 1 hora</div>
+                <div class="p4-opt-sub">Dar tiempo a cancelar</div>
+              </div>
+            </label>
+            <label class="p4-opt">
+              <input type="radio" name="programar" value="manana9" onchange="togglePersonalizado()">
+              <div>
+                <div class="p4-opt-title">Mañana 9am</div>
+                <div class="p4-opt-sub">Ventana óptima</div>
+              </div>
+            </label>
+            <label class="p4-opt">
+              <input type="radio" name="programar" value="custom" onchange="togglePersonalizado()">
+              <div>
+                <div class="p4-opt-title">Fecha específica</div>
+                <div class="p4-opt-sub">Elegí día y hora</div>
+              </div>
+            </label>
+          </div>
+          <div class="p4-custom" id="p4-custom" hidden>
+            <input type="datetime-local" id="p4-datetime" min="">
+          </div>
+        </div>
+
+        <div class="p4-dryrun-note">
+          <strong>⚠ Modo dry-run</strong>
+          <p>Esta primera versión de Difusiones no envía mensajes por WhatsApp.
+             Al confirmar se registra la intención (template + destinatarios + momento)
+             en los logs del servidor para auditoría. El envío real se habilita
+             cuando conectemos Meta Cloud API en la siguiente fase.</p>
+        </div>
+
+        <div class="p4-result" id="p4-result" hidden></div>
+      </div>
+
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn-secondary" id="btn-anterior" onclick="pasoAnterior()" disabled>← Anterior</button>
+      <button class="btn-primary" id="btn-siguiente" onclick="pasoSiguiente()">Siguiente →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  var TOKEN = {{ token|tojson }};
+  var TEMPLATES = {{ templates|tojson }};
+  var pasoActual = 1;
+  var previewTimer = null;
+  var ultimoCount = 0;
+  var templateSeleccionado = null;
+
+  // Overrides de personalización (paso 2).
+  var bodyOverride = null;          // string o null
+  var headerOverride = null;        // {url, type} o null
+
+  function abrirNuevaDifusion() {
+    document.getElementById('modal-difusion').classList.add('open');
+    pasoActual = 1;
+    actualizarStepsUI();
+    refrescarPreview();
+  }
+
+  function cerrarModal() {
+    document.getElementById('modal-difusion').classList.remove('open');
+  }
+
+  function irAPaso(n) {
+    pasoActual = n;
+    actualizarStepsUI();
+  }
+
+  function pasoSiguiente() {
+    if (pasoActual < 4) {
+      pasoActual++;
+      actualizarStepsUI();
+    } else if (pasoActual === 4) {
+      confirmarDryRun();
+    }
+  }
+
+  function pasoAnterior() {
+    if (pasoActual > 1) { pasoActual--; actualizarStepsUI(); }
+  }
+
+  function actualizarStepsUI() {
+    document.querySelectorAll('.step-tab').forEach(function(t) {
+      var n = parseInt(t.dataset.step, 10);
+      t.classList.toggle('active', n === pasoActual);
+      t.classList.toggle('done', n < pasoActual);
+    });
+    document.querySelectorAll('.step-pane').forEach(function(p) {
+      p.classList.toggle('active', parseInt(p.dataset.step, 10) === pasoActual);
+    });
+    document.getElementById('btn-anterior').disabled = (pasoActual === 1);
+    var bs = document.getElementById('btn-siguiente');
+    if (pasoActual === 4) {
+      bs.textContent = 'Confirmar envío (dry-run)';
+      bs.disabled = !templateSeleccionado || !ultimoCount;
+    } else if (pasoActual === 2) {
+      bs.textContent = 'Siguiente →';
+      bs.disabled = !templateSeleccionado;
+    } else {
+      bs.textContent = 'Siguiente →';
+      bs.disabled = false;
+    }
+    if (pasoActual === 3) { cargarMuestraPaso3(); }
+    if (pasoActual === 4) { poblarResumenPaso4(); }
+  }
+
+  function poblarResumenPaso4() {
+    if (!templateSeleccionado) return;
+    var p4 = document.getElementById('p4-dest');
+    if (!p4) return;  // paso 4 aún no en DOM
+    document.getElementById('p4-tmpl').textContent = templateSeleccionado.display;
+    document.getElementById('p4-cat').textContent = templateSeleccionado.category;
+    var destinatarios = contarActivos();
+    p4.textContent = destinatarios;
+    document.getElementById('p4-excl').textContent = excluidos.size;
+    var total = (destinatarios * templateSeleccionado.price_usd).toFixed(2);
+    document.getElementById('p4-cost').textContent = '$' + total + ' USD';
+    // Set min del datetime-local a ahora.
+    var dt = document.getElementById('p4-datetime');
+    var now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    dt.min = now.toISOString().slice(0, 16);
+    if (!dt.value) {
+      var def = new Date();
+      def.setDate(def.getDate() + 1);
+      def.setHours(9, 0, 0, 0);
+      def.setMinutes(def.getMinutes() - def.getTimezoneOffset());
+      dt.value = def.toISOString().slice(0, 16);
+    }
+  }
+
+  function togglePersonalizado() {
+    var checked = document.querySelector('input[name="programar"]:checked').value;
+    document.getElementById('p4-custom').hidden = (checked !== 'custom');
+  }
+
+  function confirmarDryRun() {
+    if (!templateSeleccionado || !contarActivos()) return;
+    var programar = document.querySelector('input[name="programar"]:checked').value;
+    if (programar === 'custom') {
+      var dt = document.getElementById('p4-datetime').value;
+      if (!dt) { alert('Elegí una fecha y hora'); return; }
+      programar = dt;
+    }
+    var autor = document.getElementById('p4-autor-sel').value;
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('template', templateSeleccionado.name);
+    fd.append('programar', programar);
+    fd.append('autor', autor);
+    if (excluidos.size) {
+      fd.append('excluidos', Array.from(excluidos).join(','));
+    }
+    if (bodyOverride !== null) {
+      fd.append('body_override', bodyOverride);
+    }
+    if (headerOverride) {
+      fd.append('header_url_override', headerOverride.url);
+      fd.append('header_type_override', headerOverride.type);
+    }
+    fd.append('conjunto', document.getElementById('f_conjunto').value);
+    fd.append('operacion', document.getElementById('f_operacion').value);
+    fd.append('estado', document.getElementById('f_estado').value);
+    fd.append('etapa', document.getElementById('f_etapa').value);
+    fd.append('dias', document.getElementById('f_dias').value);
+    fd.append('celular', document.getElementById('f_celular').value);
+
+    var btn = document.getElementById('btn-siguiente');
+    btn.disabled = true;
+    btn.textContent = 'Procesando…';
+
+    fetch('/panel/petra/v2/difusiones/confirmar', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var box = document.getElementById('p4-result');
+        box.hidden = false;
+        if (d.ok) {
+          var r = d.resumen;
+          box.innerHTML =
+            '<strong>✓ Campaña registrada (dry-run)</strong>' +
+            escapeHtml(d.mensaje) +
+            '<div style="margin-top:8px;font-size:12px;opacity:0.85">' +
+            'Template: <strong>' + escapeHtml(r.template_display) + '</strong> · ' +
+            'Autor: <strong>' + escapeHtml(r.autor) + '</strong> · ' +
+            'Destinatarios: <strong>' + r.destinatarios + '</strong>' +
+            (r.excluidos ? ' (excluidos ' + r.excluidos + ')' : '') + ' · ' +
+            'Costo estimado: <strong>$' + r.costo_total_usd.toFixed(2) + '</strong></div>';
+          btn.textContent = 'Listo ✓';
+          btn.disabled = true;
+        } else {
+          box.style.background = '#faeae5';
+          box.style.borderColor = '#a8422d';
+          box.style.color = '#6b2718';
+          box.innerHTML = '<strong>Error</strong>' + escapeHtml(d.error || 'desconocido');
+          btn.textContent = 'Reintentar';
+          btn.disabled = false;
+        }
+      })
+      .catch(function() {
+        btn.textContent = 'Reintentar';
+        btn.disabled = false;
+        alert('Error de red');
+      });
+  }
+
+  function cargarMuestraPaso3() {
+    if (!templateSeleccionado) return;
+    var params = new URLSearchParams({
+      token: TOKEN,
+      template: templateSeleccionado.name,
+      conjunto: document.getElementById('f_conjunto').value,
+      operacion: document.getElementById('f_operacion').value,
+      estado: document.getElementById('f_estado').value,
+      etapa: document.getElementById('f_etapa').value,
+      dias: document.getElementById('f_dias').value,
+      celular: document.getElementById('f_celular').value,
+    });
+    if (bodyOverride !== null) {
+      params.set('body_override', bodyOverride);
+    }
+    document.getElementById('p3-count').textContent = '…';
+    document.getElementById('p3-costo').textContent = '…';
+    document.getElementById('p3-categoria').textContent = '…';
+    document.getElementById('p3-warnings').hidden = true;
+    document.getElementById('p3-muestras').innerHTML =
+      '<div class="p3-muestras-empty">Cargando muestras…</div>';
+
+    fetch('/panel/petra/v2/difusiones/muestra?' + params.toString())
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        document.getElementById('p3-count').textContent = d.count || 0;
+        document.getElementById('p3-costo').textContent = '$' + (d.costo_total_usd || 0).toFixed(2);
+        document.getElementById('p3-categoria').textContent = d.categoria || '—';
+
+        if (d.warnings && d.warnings.length) {
+          document.getElementById('p3-warnings').innerHTML =
+            '<strong>⚠ Advertencias:</strong><ul>' +
+            d.warnings.map(function(w) { return '<li>' + escapeHtml(w) + '</li>'; }).join('') +
+            '</ul>';
+          document.getElementById('p3-warnings').hidden = false;
+        }
+
+        var cont = document.getElementById('p3-muestras');
+        if (!d.muestras || !d.muestras.length) {
+          cont.innerHTML = '<div class="p3-muestras-empty">No hay destinatarios en este segmento.</div>';
+          return;
+        }
+        cont.innerHTML = d.muestras.map(function(m) {
+          var body = escapeHtml(m.mensaje)
+            .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+            .replace(/_([^_\n]+)_/g, '<em>$1</em>');
+          return '<div class="p3-muestra">' +
+            '<div class="p3-muestra-head">' + escapeHtml(m.etiqueta) +
+            (m.telefono_masked ? '<span class="cel">' + escapeHtml(m.telefono_masked) + '</span>' : '') +
+            '</div>' +
+            '<div class="p3-muestra-wa">' +
+              '<div class="p3-muestra-bubble">' + body +
+                '<div class="wa-meta">ahora ✓✓</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      })
+      .catch(function() {
+        document.getElementById('p3-muestras').innerHTML =
+          '<div class="p3-muestras-empty">Error cargando muestras.</div>';
+      });
+  }
+
+  function seleccionarTemplate(name) {
+    templateSeleccionado = TEMPLATES.find(function(t) { return t.name === name; });
+    document.querySelectorAll('.tmpl-card').forEach(function(c) {
+      c.classList.toggle('selected', c.dataset.name === name);
+    });
+    // Resetear personalización al cambiar template.
+    bodyOverride = null;
+    headerOverride = null;
+    document.getElementById('pz-media-badge').hidden = true;
+    document.getElementById('pz-body-badge').hidden = true;
+    document.getElementById('pz-media-clear').hidden = true;
+    document.getElementById('pz-media-preview').hidden = true;
+    document.getElementById('pz-media-status').textContent = '';
+    document.getElementById('pz-media-file').value = '';
+    var txta = document.getElementById('pz-body-text');
+    if (txta && templateSeleccionado) {
+      txta.value = templateSeleccionado.body;
+      updateCharCount();
+    }
+    renderTemplateDetail();
+    actualizarStepsUI();
+  }
+
+  function getBodyActivo() {
+    return bodyOverride !== null
+      ? bodyOverride
+      : (templateSeleccionado ? templateSeleccionado.body : '');
+  }
+
+  function getHeaderActivo() {
+    if (headerOverride) return headerOverride;
+    return templateSeleccionado ? templateSeleccionado.header : null;
+  }
+
+  function subirMediaHeader() {
+    var inp = document.getElementById('pz-media-file');
+    if (!inp.files || !inp.files[0]) return;
+    var file = inp.files[0];
+    var statusEl = document.getElementById('pz-media-status');
+    statusEl.textContent = 'Subiendo…';
+    statusEl.className = 'pz-media-status';
+
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('archivo', file);
+
+    fetch('/panel/petra/v2/difusiones/upload_header', { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (!ok || !d.url) {
+          statusEl.textContent = d.error || 'Error al subir';
+          statusEl.className = 'pz-media-status error';
+          return;
+        }
+        headerOverride = { url: d.url, type: d.type, label: 'Custom: ' + (d.nombre || '') };
+        statusEl.textContent = 'Subido: ' + d.nombre;
+        statusEl.className = 'pz-media-status ok';
+        document.getElementById('pz-media-badge').hidden = false;
+        document.getElementById('pz-media-clear').hidden = false;
+        var prev = document.getElementById('pz-media-preview');
+        prev.hidden = false;
+        if (d.type === 'video') {
+          prev.innerHTML = '<video src="' + escapeHtml(d.url) + '" muted controls preload="metadata"></video>';
+        } else {
+          prev.innerHTML = '<img src="' + escapeHtml(d.url) + '" alt="preview">';
+        }
+        renderTemplateDetail();
+      })
+      .catch(function() {
+        statusEl.textContent = 'Error de red';
+        statusEl.className = 'pz-media-status error';
+      });
+  }
+
+  function limpiarMediaOverride() {
+    headerOverride = null;
+    document.getElementById('pz-media-file').value = '';
+    document.getElementById('pz-media-badge').hidden = true;
+    document.getElementById('pz-media-clear').hidden = true;
+    document.getElementById('pz-media-preview').hidden = true;
+    document.getElementById('pz-media-status').textContent = '';
+    renderTemplateDetail();
+  }
+
+  function onBodyEdit() {
+    var txta = document.getElementById('pz-body-text');
+    var val = txta.value;
+    if (!templateSeleccionado) return;
+    if (val === templateSeleccionado.body) {
+      bodyOverride = null;
+      document.getElementById('pz-body-badge').hidden = true;
+    } else {
+      bodyOverride = val;
+      document.getElementById('pz-body-badge').hidden = false;
+    }
+    updateCharCount();
+    renderTemplateDetail();
+  }
+
+  function resetBodyEdit() {
+    if (!templateSeleccionado) return;
+    document.getElementById('pz-body-text').value = templateSeleccionado.body;
+    bodyOverride = null;
+    document.getElementById('pz-body-badge').hidden = true;
+    updateCharCount();
+    renderTemplateDetail();
+  }
+
+  function updateCharCount() {
+    var txta = document.getElementById('pz-body-text');
+    var n = txta.value.length;
+    document.getElementById('pz-text-chars').textContent =
+      n + ' caracteres' + (n > 1024 ? ' ⚠ (máx WhatsApp 1024)' : '');
+  }
+
+  function renderTemplateDetail() {
+    var t = templateSeleccionado;
+    if (!t) { document.getElementById('tmpl-detail').hidden = true; return; }
+    document.getElementById('tmpl-detail').hidden = false;
+
+    // Header (puede ser el del template o el override subido por el usuario)
+    var hdrData = getHeaderActivo();
+    var hdr = document.getElementById('wa-header');
+    var hdrInfo = document.getElementById('tmpl-header-info');
+    if (hdrData && hdrData.type) {
+      hdr.hidden = false;
+      hdr.className = 'wa-header header-' + hdrData.type;
+      if (hdrData.type === 'image') {
+        hdr.innerHTML = '<img src="' + escapeHtml(hdrData.url) + '" alt="header">';
+      } else if (hdrData.type === 'video') {
+        hdr.innerHTML = '<video src="' + escapeHtml(hdrData.url) + '" muted controls preload="metadata"></video>';
+      } else {
+        hdr.innerHTML = '';
+      }
+      hdrInfo.hidden = false;
+      hdrInfo.innerHTML = 'Header: <strong>' + escapeHtml(hdrData.type) + '</strong> · ' +
+                         escapeHtml(hdrData.label || '');
+    } else {
+      hdr.hidden = true;
+      hdrInfo.hidden = true;
+    }
+
+    // Preview con valores de ejemplo — usa override si está presente
+    var body = getBodyActivo();
+    t.variables.forEach(function(v) {
+      var marker = '{{' + v.id + '}}';
+      var val = '<span class="wa-var">' + escapeHtml(v.ejemplo) + '</span>';
+      body = body.split(marker).join(val);
+    });
+    // nl2br + conservar markdown básico de WhatsApp (*bold*, _italic_)
+    body = body
+      .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+      .replace(/_([^_\n]+)_/g, '<em>$1</em>');
+    document.getElementById('wa-body').innerHTML = body +
+      '<div style="font-size:10px;color:#667781;text-align:right;margin-top:4px">ahora ✓✓</div>';
+
+    // Lista de variables
+    var varsHtml = t.variables.map(function(v) {
+      return '<div class="tmpl-var-row">' +
+             '<span class="tmpl-var-label">{{' + v.id + '}} ' + escapeHtml(v.label) + '</span>' +
+             '<span class="tmpl-var-source">' + escapeHtml(v.source) + '</span>' +
+             '</div>';
+    }).join('');
+    document.getElementById('tmpl-vars').innerHTML = varsHtml;
+
+    // Costo estimado con el conteo actual del paso 1
+    var destinatarios = contarActivos();
+    var total = (destinatarios * t.price_usd).toFixed(2);
+    document.getElementById('tmpl-costo').innerHTML =
+      'Con <strong>' + destinatarios + '</strong> destinatarios: ' +
+      '<strong>$' + total + ' USD</strong> ' +
+      '(categoría ' + t.category + ')';
+  }
+
+  // ----- Lista completa de destinatarios + exclusión manual --------------
+  var listaCompleta = [];      // todos los destinatarios cargados
+  var excluidos = new Set();   // ids excluidos
+  var listaCursor = null;
+  var listaOpen = false;
+
+  function toggleListaCompleta() {
+    listaOpen = !listaOpen;
+    document.getElementById('p3-lista-wrap').hidden = !listaOpen;
+    document.getElementById('btn-lista-label').textContent =
+      listaOpen ? 'Ocultar lista' : 'Ver lista completa';
+    if (listaOpen && listaCompleta.length === 0) {
+      cargarListaInicial();
+    }
+  }
+
+  function cargarListaInicial() {
+    listaCompleta = [];
+    excluidos = new Set();
+    listaCursor = null;
+    renderLista();
+    cargarMasLista();
+  }
+
+  function cargarMasLista() {
+    var params = new URLSearchParams({
+      token: TOKEN,
+      conjunto: document.getElementById('f_conjunto').value,
+      operacion: document.getElementById('f_operacion').value,
+      estado: document.getElementById('f_estado').value,
+      etapa: document.getElementById('f_etapa').value,
+      dias: document.getElementById('f_dias').value,
+      celular: document.getElementById('f_celular').value,
+    });
+    if (listaCursor) { params.set('cursor', listaCursor); }
+    fetch('/panel/petra/v2/difusiones/listado?' + params.toString())
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        (d.destinatarios || []).forEach(function(x) { listaCompleta.push(x); });
+        listaCursor = d.next_cursor;
+        document.getElementById('p3-lista-more').hidden = !listaCursor;
+        renderLista();
+      });
+  }
+
+  function renderLista() {
+    var cont = document.getElementById('p3-lista');
+    document.getElementById('p3-lista-count').textContent = listaCompleta.length;
+    if (!listaCompleta.length) {
+      cont.innerHTML = '<div class="p3-muestras-empty">Sin destinatarios en este segmento.</div>';
+      document.getElementById('p3-lista-summary').innerHTML = '';
+      return;
+    }
+    cont.innerHTML = listaCompleta.map(function(x) {
+      var excluido = excluidos.has(x.id);
+      var checked = excluido ? '' : 'checked';
+      var noCelCls = x.tiene_celular ? '' : 'no-cel';
+      var celTxt = x.telefono_masked || '(sin celular)';
+      return '<div class="p3-lista-row ' + (excluido ? 'excluido' : '') + '" data-id="' + x.id + '">' +
+             '<input type="checkbox" ' + checked + ' onchange="toggleExcluir(' + x.id + ', this.checked)">' +
+             '<span class="etiqueta"><span class="codigo">' + escapeHtml(x.codigo) + '</span> · ' +
+               escapeHtml(x.etiqueta) + '</span>' +
+             '<span class="cel ' + noCelCls + '">' + escapeHtml(celTxt) + '</span>' +
+             '</div>';
+    }).join('');
+    var activos = contarActivos();
+    document.getElementById('p3-lista-summary').innerHTML =
+      '<strong>' + activos + '</strong> incluidos · ' +
+      '<strong>' + excluidos.size + '</strong> excluidos';
+    if (templateSeleccionado) { renderTemplateDetail(); }
+    poblarResumenPaso4();
+  }
+
+  function toggleExcluir(id, incluido) {
+    if (incluido) { excluidos.delete(id); }
+    else { excluidos.add(id); }
+    renderLista();
+  }
+
+  function contarActivos() {
+    if (listaCompleta.length === 0) return ultimoCount || 0;
+    return listaCompleta.length - excluidos.size;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+
+  function refrescarPreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(function() {
+      var params = new URLSearchParams({
+        token: TOKEN,
+        conjunto: document.getElementById('f_conjunto').value,
+        operacion: document.getElementById('f_operacion').value,
+        estado: document.getElementById('f_estado').value,
+        etapa: document.getElementById('f_etapa').value,
+        dias: document.getElementById('f_dias').value,
+        celular: document.getElementById('f_celular').value,
+      });
+      var card = document.getElementById('preview-count');
+      card.classList.add('loading');
+      document.getElementById('pc-label').textContent = 'Calculando…';
+      fetch('/panel/petra/v2/difusiones/preview?' + params.toString())
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          ultimoCount = d.count;
+          document.getElementById('pc-num').textContent = d.count;
+          document.getElementById('pc-label').textContent =
+            d.count === 1 ? 'propietario cumple los criterios'
+                          : 'propietarios cumplen los criterios';
+          card.classList.remove('loading');
+          // Si ya hay template seleccionado y estamos en paso 2, refrescar costo.
+          if (templateSeleccionado) { renderTemplateDetail(); }
+          var samples = document.getElementById('pc-samples');
+          var list = document.getElementById('pc-samples-list');
+          if (d.muestra && d.muestra.length) {
+            list.innerHTML = d.muestra.map(function(s) {
+              return '<div style="margin-top:4px">• ' + s + '</div>';
+            }).join('');
+            samples.hidden = false;
+          } else {
+            samples.hidden = true;
+          }
+        })
+        .catch(function() {
+          document.getElementById('pc-num').textContent = '!';
+          document.getElementById('pc-label').textContent = 'Error al calcular';
+          card.classList.remove('loading');
+        });
+    }, 250);
+  }
+</script>
+
+{% endblock %}

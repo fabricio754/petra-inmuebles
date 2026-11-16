@@ -3455,6 +3455,1677 @@ def panel_v2_inmuebles():
     )
 
 
+# =============================================================================
+# Panel v2 · Difusiones (broadcast de templates WhatsApp)
+# =============================================================================
+
+def _difusiones_where(args):
+    """Construye el WHERE + params del filtro de destinatarios para difusiones.
+
+    args es un dict (request.args). Devuelve (sql_where, params_tuple).
+    Centralizado acá para que /v2/difusiones y /v2/difusiones/preview
+    usen la misma lógica.
+    """
+    where = ["1=1"]
+    params = []
+
+    conj = (args.get("conjunto") or "").strip()
+    if conj.isdigit():
+        where.append("i.conjunto_id = %s")
+        params.append(int(conj))
+
+    op = (args.get("operacion") or "").strip().lower()
+    if op in ("venta", "arriendo"):
+        where.append("i.operacion = %s")
+        params.append(op)
+
+    estado = (args.get("estado") or "activo").strip().lower()
+    if estado == "activo":
+        where.append("i.activo = TRUE")
+    elif estado == "inactivo":
+        where.append("i.activo = FALSE")
+    # "todos" → sin filtro
+
+    etapa = (args.get("etapa") or "").strip().lower()
+    if etapa == "sin_bienvenida":
+        where.append("i.bienvenida_at IS NULL")
+    elif etapa == "con_bienvenida":
+        where.append("i.bienvenida_at IS NOT NULL AND i.ofrecer_petra_at IS NULL")
+    elif etapa == "con_inmob":
+        where.append("i.ofrecer_petra_at IS NOT NULL AND i.ofrecer_credito_at IS NULL")
+    elif etapa == "con_credito":
+        where.append("i.ofrecer_credito_at IS NOT NULL")
+
+    dias_raw = (args.get("dias") or "").strip()
+    if dias_raw.isdigit():
+        d = int(dias_raw)
+        # Días desde la etapa más reciente del inmueble (el max de los
+        # timestamps). Si no tiene ninguna etapa, se filtra como "0 días"
+        # (lo cual siempre pasa si el usuario puso un valor > 0).
+        where.append(
+            "COALESCE(GREATEST("
+            "  COALESCE(i.bienvenida_at, 'epoch'::timestamptz),"
+            "  COALESCE(i.ofrecer_petra_at, 'epoch'::timestamptz),"
+            "  COALESCE(i.ofrecer_credito_at, 'epoch'::timestamptz)"
+            "), 'epoch'::timestamptz) < NOW() - make_interval(days => %s)"
+        )
+        params.append(d)
+
+    celular = (args.get("celular") or "si").strip().lower()
+    if celular == "si":
+        where.append("i.propietario_telefono IS NOT NULL "
+                     "AND length(regexp_replace(i.propietario_telefono, '\\D', '', 'g')) >= 10")
+
+    return (" AND ".join(where), tuple(params))
+
+
+# Templates WhatsApp disponibles para difusiones.
+#
+# Mientras no hay integración viva con Meta Cloud API (envío real + fetch de
+# templates aprobados), esta lista hardcodea los 3 templates que vamos a
+# someter a Meta. Status "mocked" = todavía no enviamos a aprobación;
+# cuando aprueben, cambia a "approved" y se puede usar en envíos reales.
+#
+# Cada variable declara su origen (source) que apunta a un campo del dict
+# de inmueble (los que vienen de inmuebles_visitante + enriquecidos).
+PETRA_TEMPLATES = [
+    {
+        "name": "notificacion_publicacion_petra",
+        "display": "Notificación de publicación",
+        "category": "UTILITY",
+        "price_usd": 0.00024,
+        "status": "mocked",
+        "header": {
+            "type": "video",
+            "url": "/static/images/propietarios/bienvenida.mp4",
+            "label": "Video bienvenida Petra (1 min)",
+        },
+        "body": (
+            "Hola 👋\n\n"
+            "Te notificamos que la administración de *{{1}}* instaló "
+            "*Petra* para ayudar con la venta y arriendo de inmuebles del conjunto.\n\n"
+            "Tu apto *{{2}}* fue incluido en el catálogo con los datos "
+            "que la administración nos compartió.\n\n"
+            "Podés ver cómo aparece tu publicación acá:\n{{3}}\n\n"
+            "Si NO deseas aparecer en Petra, respondé SALIR y lo removemos de inmediato.\n\n"
+            "— Petra Inmobiliaria"
+        ),
+        "variables": [
+            {"id": "1", "label": "Conjunto", "source": "conjunto_nombre", "ejemplo": "Mitika PH"},
+            {"id": "2", "label": "Código apto", "source": "codigo", "ejemplo": "P0119"},
+            {"id": "3", "label": "URL publicación", "source": "url_publicacion", "ejemplo": "https://petra.co/p/P0119"},
+        ],
+        "recomendacion": "Primer contacto: cuando cargamos el inmueble y el anunciante aún no sabe que está en Petra.",
+    },
+    {
+        "name": "ofrecer_inmobiliaria_petra",
+        "display": "Ofrecer servicio inmobiliario",
+        "category": "MARKETING",
+        "price_usd": 0.015,
+        "status": "mocked",
+        "header": {
+            "type": "image",
+            "url": "/static/images/propietarios/venta.webp",
+            "label": "Imagen ofrecer venta",
+        },
+        "body": (
+            "Hola {{1}} 👋\n\n"
+            "Vi que querés vender tu {{2}} en *{{3}}*.\n\n"
+            "La mayoría de propietarios tardan meses en el proceso. En *Petra* "
+            "trabajamos con una inmobiliaria aliada con comisión del 1.5% "
+            "(vs 3% del mercado) y publicación en los principales portales.\n\n"
+            "¿Te comparto los detalles?\n\n"
+            "_Responde SALIR si no deseas más mensajes._"
+        ),
+        "variables": [
+            {"id": "1", "label": "Nombre propietario", "source": "propietario_nombre", "ejemplo": "María"},
+            {"id": "2", "label": "Tipo inmueble", "source": "tipo", "ejemplo": "apartamento"},
+            {"id": "3", "label": "Conjunto", "source": "conjunto_nombre", "ejemplo": "Mitika PH"},
+        ],
+        "recomendacion": "Segundo paso: solo a propietarios que ya recibieron la notificación de publicación y respondieron (lead cálido).",
+    },
+    {
+        "name": "ofrecer_credito_petra",
+        "display": "Ofrecer aliado de crédito",
+        "category": "MARKETING",
+        "price_usd": 0.015,
+        "status": "mocked",
+        "header": {
+            "type": "image",
+            "url": "/static/images/propietarios/credito.webp",
+            "label": "Imagen ofrecer crédito",
+        },
+        "body": (
+            "Hola {{1}} 👋\n\n"
+            "Muchos compradores de inmuebles en *{{2}}* necesitan crédito "
+            "hipotecario para cerrar.\n\n"
+            "Trabajamos con un aliado que pre-aprueba crédito en 48h, lo que "
+            "aumenta las probabilidades de que tu apto se venda rápido.\n\n"
+            "¿Querés que te mande info?\n\n"
+            "_Responde SALIR si no deseas más mensajes._"
+        ),
+        "variables": [
+            {"id": "1", "label": "Nombre propietario", "source": "propietario_nombre", "ejemplo": "María"},
+            {"id": "2", "label": "Conjunto", "source": "conjunto_nombre", "ejemplo": "Mitika PH"},
+        ],
+        "recomendacion": "Tercer paso: solo a propietarios que ya aceptaron el servicio inmobiliario.",
+    },
+]
+
+# Autores posibles de una difusión. En el futuro esto puede leerse de la
+# tabla de usuarios del panel; por ahora hardcode de los roles conocidos.
+DIFUSION_AUTORES = [
+    {"id": "fabricio", "label": "Fabricio (admin)"},
+    {"id": "sebastian", "label": "Sebastián"},
+    {"id": "petra",     "label": "Petra (equipo)"},
+]
+
+
+def _seed_templates_si_vacio():
+    """Inserta los 3 templates hardcoded en DB si la tabla está vacía.
+
+    Idempotente — ejecuta la inserción solo cuando no hay ninguna fila.
+    Se dispara en la primera visita a /v2/templates o /v2/difusiones, para
+    que el usuario vea los 3 defaults como templates reales editables en vez
+    de un listado hardcoded aparte.
+    """
+    import json as _json
+    import logging as _lg
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM campana_templates").fetchone()
+            count = (row[0] if row else 0) or 0
+            if count > 0:
+                return  # ya tiene templates, no hago nada
+            # Insertar los 3 defaults
+            for t in PETRA_TEMPLATES:
+                conn.execute(
+                    "INSERT INTO campana_templates "
+                    "  (name, display, idioma, categoria, tipo, body, variables, "
+                    "   header, botones, catalogo, recomendacion, autor, status) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s) "
+                    "ON CONFLICT (name) DO NOTHING",
+                    (
+                        t["name"], t["display"], "es",
+                        t["category"], "multimedia" if t.get("header") else "texto",
+                        t["body"],
+                        _json.dumps(t.get("variables", [])),
+                        _json.dumps(t.get("header")) if t.get("header") else None,
+                        _json.dumps([]),
+                        None,
+                        t.get("recomendacion"),
+                        "petra",
+                        "draft",  # arrancan en draft; el usuario los somete a Meta cuando quiera
+                    ),
+                )
+            _lg.getLogger(__name__).info("[seed] campana_templates seeded con %d defaults", len(PETRA_TEMPLATES))
+    except Exception:
+        _lg.getLogger(__name__).exception("[seed] campana_templates fallo")
+
+
+def _templates_para_campanas():
+    """Devuelve la lista de templates que Campañas puede ofrecer.
+
+    Siempre lee de la tabla campana_templates. Al arrancar auto-siembra los
+    3 defaults si está vacía (via _seed_templates_si_vacio). Expone al template
+    el precio_usd derivado de la categoría.
+    """
+    _seed_templates_si_vacio()
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo, "
+                "       recomendacion, autor "
+                "  FROM campana_templates "
+                " WHERE status IN ('draft','aprobado') "
+                " ORDER BY "
+                "   CASE status WHEN 'aprobado' THEN 0 ELSE 1 END, "
+                "   actualizado_en DESC")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] cargar templates para campañas")
+        rows = []
+
+    result = []
+    for r in rows:
+        cat = r.get("categoria") or "MARKETING"
+        result.append({
+            "id": r.get("id"),
+            "name": r.get("name") or "",
+            "display": r.get("display") or "",
+            "category": cat,
+            "price_usd": _precio_por_categoria(cat),
+            "status": r.get("status") or "draft",
+            "body": r.get("body") or "",
+            "variables": r.get("variables") or [],
+            "header": r.get("header"),
+            "recomendacion": r.get("recomendacion") or "",
+        })
+    return result
+
+
+@petra_panel_bp.get("/v2/difusiones")
+def panel_v2_difusiones():
+    """Panel v2: página de Difusiones (envíos masivos de templates WhatsApp)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    conjuntos = []
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conjuntos = _rows(conn,
+                "SELECT id, codigo, nombre, ciudad "
+                "  FROM conjuntos_visitante "
+                " ORDER BY nombre")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones query fallo")
+
+    templates = _templates_para_campanas()
+
+    return render_template(
+        "petra_panel_v2_difusiones.html",
+        token=token, conjuntos=conjuntos, templates=templates,
+        autores=DIFUSION_AUTORES,
+    )
+
+
+@petra_panel_bp.get("/v2/difusiones/listado")
+def panel_v2_difusiones_listado():
+    """Lista completa de destinatarios del segmento (paso 3: review).
+
+    Devuelve hasta 500 filas con id, código, etiqueta legible y teléfono
+    enmascarado. Si count > 500 paginamos (cursor por id).
+    """
+    _check_token()
+    from flask import jsonify
+
+    where_sql, params = _difusiones_where(request.args)
+    cursor_raw = (request.args.get("cursor") or "").strip()
+    LIMIT = 100
+
+    extra_cursor = ""
+    cursor_params = []
+    if cursor_raw.isdigit():
+        extra_cursor = " AND i.id < %s"
+        cursor_params = [int(cursor_raw)]
+
+    destinatarios = []
+    next_cursor = None
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            rows = _rows(conn,
+                "SELECT i.id, i.tipo, i.nro, i.operacion, "
+                "       i.propietario_telefono, c.nombre AS conjunto "
+                "  FROM inmuebles_visitante i "
+                "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                " WHERE " + where_sql + extra_cursor +
+                " ORDER BY i.id DESC LIMIT %s",
+                tuple(list(params) + cursor_params + [LIMIT + 1]))
+            if len(rows) > LIMIT:
+                next_cursor = rows[LIMIT - 1]["id"]
+                rows = rows[:LIMIT]
+            for r in rows:
+                conj = r.get("conjunto") or "tu conjunto"
+                nro = (r.get("nro") or "").strip()
+                tipo = (r.get("tipo") or "inmueble").capitalize()
+                ref = tipo + (f" #{nro}" if nro else "")
+                code = f"P{r['id']:04d}"
+                tel = (r.get("propietario_telefono") or "").strip()
+                tel_digits = ''.join(c for c in tel if c.isdigit())
+                tel_masked = ""
+                if tel_digits:
+                    tel_masked = ("·" * max(len(tel_digits) - 4, 0)) + tel_digits[-4:]
+                destinatarios.append({
+                    "id": r["id"],
+                    "codigo": code,
+                    "etiqueta": f"{ref} en {conj}",
+                    "telefono_masked": tel_masked,
+                    "tiene_celular": bool(tel_digits and len(tel_digits) >= 10),
+                })
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones listado fallo")
+
+    return jsonify({
+        "destinatarios": destinatarios,
+        "next_cursor": next_cursor,
+    })
+
+
+def _tmpl_by_name(name):
+    """Busca un template por name (único). Primero en los hardcoded, después
+    en campana_templates. Normaliza el shape para que coincida con lo que
+    esperan _render_tmpl_body y los endpoints de muestra/confirmar.
+    """
+    name = (name or "").strip()
+    for t in PETRA_TEMPLATES:
+        if t["name"] == name:
+            return t
+    # Fallback a DB
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo, "
+                "       recomendacion "
+                "  FROM campana_templates WHERE name = %s LIMIT 1",
+                (name,))
+            if not rows:
+                return None
+            r = rows[0]
+            cat = r.get("categoria") or "MARKETING"
+            return {
+                "name": r.get("name") or "",
+                "display": r.get("display") or "",
+                "category": cat,
+                "price_usd": _precio_por_categoria(cat),
+                "status": r.get("status") or "draft",
+                "body": r.get("body") or "",
+                "variables": r.get("variables") or [],
+                "header": r.get("header"),
+                "recomendacion": r.get("recomendacion") or "",
+            }
+    except Exception:
+        return None
+
+
+def _var_value_for(inmueble, source, conjunto_nombre=""):
+    """Dado un inmueble (fila SQL) y el nombre del source de una variable
+    del template, devuelve el valor concreto.
+
+    Si la fuente no existe en los datos, devuelve un fallback razonable
+    (nunca string vacío — Meta rechaza templates con variables vacías).
+    """
+    if source == "conjunto_nombre":
+        return conjunto_nombre or inmueble.get("conjunto_nombre") or "tu conjunto"
+    if source == "codigo":
+        iid = inmueble.get("id")
+        return f"P{iid:04d}" if isinstance(iid, int) else "P0000"
+    if source == "tipo":
+        return (inmueble.get("tipo") or "inmueble").lower()
+    if source == "propietario_nombre":
+        # No tenemos este campo en inmuebles_visitante. Fallback neutro.
+        return "propietario"
+    if source == "url_publicacion":
+        iid = inmueble.get("id")
+        code = f"P{iid:04d}" if isinstance(iid, int) else "P0000"
+        # Link a Petra Bot para que el anunciante consulte su publicación.
+        return f"https://wa.me/573001278631?text=Quiero%20ver%20mi%20publicacion%20{code}"
+    return ""
+
+
+def _render_tmpl_body(body, variables, inmueble, conjunto_nombre=""):
+    """Reemplaza {{1}}, {{2}}, ... en body con los valores reales del inmueble."""
+    out = body
+    for v in variables:
+        val = _var_value_for(inmueble, v.get("source", ""), conjunto_nombre)
+        out = out.replace("{{" + v["id"] + "}}", str(val))
+    return out
+
+
+@petra_panel_bp.get("/v2/difusiones/muestra")
+def panel_v2_difusiones_muestra():
+    """Devuelve 3 destinatarios de ejemplo con el template renderizado
+    para preview del paso 3 (datos reales, no ejemplos genéricos).
+    """
+    _check_token()
+    from flask import jsonify
+
+    tmpl_name = (request.args.get("template") or "").strip()
+    tmpl = _tmpl_by_name(tmpl_name)
+    if not tmpl:
+        return jsonify({"error": "template no encontrado",
+                        "count": 0, "muestras": []}), 400
+
+    body_override = (request.args.get("body_override") or "").strip() or None
+    body_para_render = body_override or tmpl["body"]
+
+    where_sql, params = _difusiones_where(request.args)
+
+    count = 0
+    muestras = []
+    sin_celular = 0
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante i WHERE " + where_sql,
+                params,
+            ).fetchone()
+            count = (row[0] if row else 0) or 0
+
+            # Cuántos del segmento no tienen celular válido (si filtro celular=todos)
+            celular_filter = (request.args.get("celular") or "si").lower()
+            if celular_filter == "todos":
+                row2 = conn.execute(
+                    "SELECT COUNT(*) FROM inmuebles_visitante i WHERE " + where_sql +
+                    " AND (i.propietario_telefono IS NULL OR "
+                    "      length(regexp_replace(i.propietario_telefono, '\\D', '', 'g')) < 10)",
+                    params,
+                ).fetchone()
+                sin_celular = (row2[0] if row2 else 0) or 0
+
+            if count:
+                rows = _rows(conn,
+                    "SELECT i.id, i.tipo, i.nro, i.operacion, "
+                    "       i.propietario_telefono, c.nombre AS conjunto "
+                    "  FROM inmuebles_visitante i "
+                    "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                    " WHERE " + where_sql +
+                    " ORDER BY random() LIMIT 3",
+                    params)
+                for r in rows:
+                    conj = r.get("conjunto") or "tu conjunto"
+                    mensaje = _render_tmpl_body(
+                        body_para_render, tmpl["variables"], r, conjunto_nombre=conj)
+                    nro = (r.get("nro") or "").strip()
+                    tipo = (r.get("tipo") or "inmueble").capitalize()
+                    ref = tipo + (f" #{nro}" if nro else "")
+                    code = f"P{r['id']:04d}"
+                    tel = (r.get("propietario_telefono") or "").strip()
+                    tel_masked = ""
+                    if tel:
+                        digits = ''.join(c for c in tel if c.isdigit())
+                        tel_masked = ("·" * max(len(digits) - 4, 0)) + digits[-4:] if digits else ""
+                    muestras.append({
+                        "etiqueta": f"{code} · {ref} en {conj}",
+                        "telefono_masked": tel_masked,
+                        "mensaje": mensaje,
+                    })
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones muestra fallo")
+
+    warnings = []
+    if count >= 100:
+        warnings.append(
+            f"Volumen alto ({count} envíos): si Petra Ventas está en warm-up, "
+            "arrancá con <50/día para no quemar el número.")
+    if sin_celular:
+        warnings.append(
+            f"{sin_celular} del segmento no tiene celular válido y "
+            "no recibirán el mensaje.")
+    if tmpl["category"] == "MARKETING" and count >= 30:
+        warnings.append(
+            "Marketing en volumen alto sube el riesgo de reportes como spam. "
+            "Preferí enviar solo a leads cálidos (que ya respondieron la Utility).")
+
+    return jsonify({
+        "count": count,
+        "costo_total_usd": round(count * tmpl["price_usd"], 2),
+        "categoria": tmpl["category"],
+        "muestras": muestras,
+        "warnings": warnings,
+    })
+
+
+# =============================================================================
+# Panel v2 · Templates (editor de plantillas WhatsApp)
+# =============================================================================
+
+# Los 4 tipos que permitimos crear (match Meta Template categories).
+TEMPLATE_TIPOS = [
+    {
+        "id": "texto",
+        "display": "Texto + variables",
+        "icon": "✉️",
+        "descripcion": "Mensaje de texto simple con variables personalizables "
+                       "por destinatario (nombre, apto, etc.).",
+    },
+    {
+        "id": "multimedia",
+        "display": "Multimedia",
+        "icon": "🎬",
+        "descripcion": "Encabezado visual (imagen, video, documento PDF o "
+                       "ubicación) + cuerpo de texto con variables.",
+    },
+    {
+        "id": "botones",
+        "display": "Interactivo con botones",
+        "icon": "🔘",
+        "descripcion": "Cuerpo + hasta 2 botones de CTA (abrir URL, llamar, "
+                       "copiar código) o respuesta rápida.",
+    },
+    {
+        "id": "catalogo_carrusel",
+        "display": "Catálogo / Carrusel",
+        "icon": "🛒",
+        "descripcion": "Especial Marketing: hasta 10 tarjetas deslizables "
+                       "con productos de tu catálogo Meta Commerce.",
+    },
+]
+
+
+def _row_to_template(row):
+    """Normaliza fila de DB en dict serializable al template Jinja."""
+    return {
+        "id": row.get("id"),
+        "name": row.get("name") or "",
+        "display": row.get("display") or "",
+        "idioma": row.get("idioma") or "es",
+        "categoria": row.get("categoria") or "MARKETING",
+        "tipo": row.get("tipo") or "texto",
+        "status": row.get("status") or "draft",
+        "body": row.get("body") or "",
+        "variables": row.get("variables") or [],
+        "header": row.get("header"),
+        "botones": row.get("botones") or [],
+        "catalogo": row.get("catalogo"),
+        "recomendacion": row.get("recomendacion") or "",
+        "rechazo_motivo": row.get("rechazo_motivo") or "",
+        "autor": row.get("autor") or "",
+        "creado_en": row.get("creado_en"),
+        "actualizado_en": row.get("actualizado_en"),
+    }
+
+
+# =============================================================================
+# Panel v2 · Números WhatsApp (Embedded Signup con coexistencia)
+# =============================================================================
+#
+# El número del BOT (META_PHONE_NUMBER_ID) NUNCA aparece en esta pantalla
+# ni se registra en waba_conectadas. Es operativo y se maneja por env vars.
+# Esta tabla lista solo los números que el usuario conectó explícitamente
+# vía Meta Embedded Signup para usarlos en Campañas de outbound.
+
+@petra_panel_bp.get("/v2/numeros")
+def panel_v2_numeros():
+    """Panel v2: página de Números WhatsApp conectados vía coexistencia."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    numeros = []
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            numeros = _rows(conn,
+                "SELECT id, phone_number_id, waba_id, phone_e164, display_name, "
+                "       propietario, activo, es_coexistencia, conectado_en, "
+                "       ultima_verificacion_at, nota "
+                "  FROM waba_conectadas "
+                " ORDER BY conectado_en DESC")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] numeros query fallo")
+
+    meta_app_id = (os.environ.get("META_APP_ID") or "").strip()
+    signup_config_id = (os.environ.get("META_SIGNUP_CONFIG_ID") or "").strip()
+    setup_ok = bool(meta_app_id and signup_config_id)
+
+    return render_template(
+        "petra_panel_v2_numeros.html",
+        token=token,
+        numeros=numeros,
+        meta_app_id=meta_app_id,
+        signup_config_id=signup_config_id,
+        setup_ok=setup_ok,
+    )
+
+
+@petra_panel_bp.post("/v2/numeros/callback")
+def panel_v2_numeros_callback():
+    """Callback del Embedded Signup de Meta.
+
+    Recibe { code, phone_number_id, waba_id } desde el JS SDK después del
+    flow de signup. Intercambia el code por un access token permanente y
+    guarda el número en waba_conectadas.
+    """
+    _check_token()
+    from flask import jsonify
+
+    code = (request.form.get("code") or "").strip()
+    phone_number_id = (request.form.get("phone_number_id") or "").strip()
+    waba_id = (request.form.get("waba_id") or "").strip()
+    phone_e164 = (request.form.get("phone_e164") or "").strip()
+    display_name = (request.form.get("display_name") or "").strip() or "Sin nombre"
+    propietario = (request.form.get("propietario") or "fabricio").strip()
+    es_coexistencia = (request.form.get("es_coexistencia") or "true").strip().lower() == "true"
+
+    if not code:
+        return jsonify({"error": "falta code"}), 400
+
+    app_id = (os.environ.get("META_APP_ID") or "").strip()
+    app_secret = (os.environ.get("META_APP_SECRET") or "").strip()
+    if not app_id or not app_secret:
+        return jsonify({"error": "faltan env vars META_APP_ID o META_APP_SECRET"}), 500
+
+    # Intercambiar code por access token (long-lived)
+    try:
+        import requests
+        exch = requests.get(
+            "https://graph.facebook.com/v22.0/oauth/access_token",
+            params={
+                "client_id": app_id,
+                "client_secret": app_secret,
+                "code": code,
+            },
+            timeout=15,
+        )
+        if not exch.ok:
+            return jsonify({"error": "intercambio_code_fallo",
+                            "detalle": exch.text[:500]}), 400
+        token_data = exch.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            return jsonify({"error": "sin access_token en respuesta"}), 500
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] exchange code fallo")
+        return jsonify({"error": f"exchange_error:{type(e).__name__}"}), 500
+
+    # Si no vino phone/waba del postMessage, descubrir vía Graph API
+    discovered = None
+    if not phone_number_id or not waba_id:
+        try:
+            import requests
+            # Query the WABAs the user granted access to
+            r = requests.get(
+                "https://graph.facebook.com/v22.0/me",
+                params={
+                    "fields": "businesses{owned_whatsapp_business_accounts{id,name,phone_numbers{id,display_phone_number,verified_name}}}",
+                    "access_token": access_token,
+                },
+                timeout=15,
+            )
+            discovered = r.json()
+            import logging as _lg
+            _lg.getLogger(__name__).info("[numeros] descubrimiento WABAs: %s",
+                                         str(discovered)[:1500])
+            # Si tenemos UNA sola WABA con UN solo número, auto-usar
+            try:
+                biz = (discovered.get("businesses") or {}).get("data") or []
+                for b in biz:
+                    wabas = (b.get("owned_whatsapp_business_accounts") or {}).get("data") or []
+                    for w in wabas:
+                        phones = (w.get("phone_numbers") or {}).get("data") or []
+                        for p in phones:
+                            if not waba_id:
+                                waba_id = w.get("id")
+                            if not phone_number_id:
+                                phone_number_id = p.get("id")
+                                phone_e164 = p.get("display_phone_number") or phone_e164
+                                display_name = p.get("verified_name") or display_name
+                            if waba_id and phone_number_id:
+                                break
+                        if waba_id and phone_number_id:
+                            break
+                    if waba_id and phone_number_id:
+                        break
+            except Exception:
+                pass
+        except Exception:
+            import logging as _lg
+            _lg.getLogger(__name__).exception("[numeros] descubrimiento fallo")
+
+    if not phone_number_id or not waba_id:
+        return jsonify({
+            "error": "no se pudo determinar phone_number_id/waba_id",
+            "code_exchange_ok": True,
+            "discovered": discovered,
+        }), 400
+
+    # Guardar en DB
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "INSERT INTO waba_conectadas "
+                "  (phone_number_id, waba_id, phone_e164, display_name, "
+                "   access_token, propietario, es_coexistencia) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (phone_number_id) DO UPDATE SET "
+                "   access_token = EXCLUDED.access_token, "
+                "   display_name = EXCLUDED.display_name, "
+                "   activo = TRUE, "
+                "   ultima_verificacion_at = NOW()",
+                (phone_number_id, waba_id, phone_e164, display_name,
+                 access_token, propietario, es_coexistencia),
+            )
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] guardar en DB fallo")
+        return jsonify({"error": "db_error"}), 500
+
+    return jsonify({
+        "ok": True,
+        "phone_number_id": phone_number_id,
+        "waba_id": waba_id,
+        "auto_descubierto": bool(discovered),
+    })
+
+
+@petra_panel_bp.post("/v2/numeros/<int:nid>/eliminar")
+def panel_v2_numeros_eliminar(nid):
+    """Desconecta (elimina de DB) un número. No afecta Meta."""
+    _check_token()
+    from flask import jsonify
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute("DELETE FROM waba_conectadas WHERE id = %s", (nid,))
+            return jsonify({"ok": True})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] eliminar fallo")
+        return jsonify({"error": "db_error"}), 500
+
+
+# Asignación default slot → template_name para la pestaña Activados.
+# Se siembra una sola vez (si la tabla template_slots está vacía) para
+# arrancar con los 3 templates que teníamos hardcoded.
+_SLOTS_DEFAULT = {
+    "bienvenida": "notificacion_publicacion_petra",
+    "servicio":   "ofrecer_inmobiliaria_petra",
+    "credito":    "ofrecer_credito_petra",
+}
+
+
+def _seed_slots_si_vacio():
+    """Inserta la asignación default de slots si template_slots está vacía."""
+    import logging as _lg
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM template_slots").fetchone()
+            if ((row[0] if row else 0) or 0) > 0:
+                return
+            for slot, name in _SLOTS_DEFAULT.items():
+                conn.execute(
+                    "INSERT INTO template_slots (slot, template_name, actualizado_por) "
+                    "VALUES (%s, %s, %s) ON CONFLICT (slot) DO NOTHING",
+                    (slot, name, "petra"),
+                )
+            _lg.getLogger(__name__).info("[seed] template_slots seeded")
+    except Exception:
+        _lg.getLogger(__name__).exception("[seed] template_slots fallo")
+
+
+def _leer_slots():
+    """Devuelve {slot: template_name} para los 3 slots de Activados."""
+    out = dict(_SLOTS_DEFAULT)  # fallback si la DB falla
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            cur = conn.execute("SELECT slot, template_name FROM template_slots")
+            for slot, name in cur.fetchall():
+                out[slot] = name
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[slots] leer fallo")
+    return out
+
+
+@petra_panel_bp.get("/v2/templates")
+def panel_v2_templates():
+    """Panel v2: página de Templates (editor de plantillas WhatsApp)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    # Primera visita: sembrar los 3 defaults si la tabla está vacía.
+    _seed_templates_si_vacio()
+    _seed_slots_si_vacio()
+
+    templates_db = []
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            templates_db = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo, "
+                "       recomendacion, rechazo_motivo, autor, "
+                "       creado_en, actualizado_en "
+                "  FROM campana_templates "
+                " ORDER BY actualizado_en DESC")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates query fallo")
+
+    templates = [_row_to_template(r) for r in templates_db]
+    slots = _leer_slots()
+
+    return render_template(
+        "petra_panel_v2_templates.html",
+        token=token,
+        templates=templates,
+        tipos=TEMPLATE_TIPOS,
+        autores=DIFUSION_AUTORES,
+        slots=slots,
+    )
+
+
+@petra_panel_bp.post("/v2/activados/<slot>")
+def panel_v2_activados_set(slot):
+    """Cambia qué template está asignado a un slot de Activados.
+
+    Body (form): template_name = nombre interno (unique en campana_templates).
+    Valida que el template exista localmente antes de guardar.
+    """
+    _check_token()
+    from flask import jsonify
+
+    slot = (slot or "").strip().lower()
+    if slot not in _SLOTS_DEFAULT:
+        return jsonify({"error": "slot_invalido",
+                        "permitidos": list(_SLOTS_DEFAULT.keys())}), 400
+
+    tmpl_name = (request.form.get("template_name") or "").strip()
+    if not tmpl_name:
+        return jsonify({"error": "falta template_name"}), 400
+
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            # Aceptamos cualquier nombre: puede ser un template aprobado en Meta
+            # aunque no tenga borrador local. El runner valida al disparar.
+            conn.execute(
+                "INSERT INTO template_slots (slot, template_name, actualizado_por) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (slot) DO UPDATE SET "
+                "   template_name = EXCLUDED.template_name, "
+                "   actualizado_en = NOW(), "
+                "   actualizado_por = EXCLUDED.actualizado_por",
+                (slot, tmpl_name, "fabricio"),
+            )
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[activados] set fallo")
+        return jsonify({"error": "db_error"}), 500
+
+    return jsonify({"ok": True, "slot": slot, "template_name": tmpl_name})
+
+
+@petra_panel_bp.post("/v2/templates/crear")
+def panel_v2_templates_crear():
+    """Crea un nuevo template en estado draft."""
+    _check_token()
+    from flask import jsonify
+    import json as _json
+
+    name = (request.form.get("name") or "").strip().lower().replace(" ", "_")
+    display = (request.form.get("display") or "").strip()
+    idioma = (request.form.get("idioma") or "es").strip()
+    categoria = (request.form.get("categoria") or "MARKETING").strip().upper()
+    tipo = (request.form.get("tipo") or "texto").strip().lower()
+    body = (request.form.get("body") or "").strip()
+    recomendacion = (request.form.get("recomendacion") or "").strip()
+    autor = (request.form.get("autor") or "fabricio").strip().lower()
+
+    if not name or not display or not body:
+        return jsonify({"error": "name, display y body son requeridos"}), 400
+    if categoria not in ("UTILITY", "MARKETING", "AUTHENTICATION"):
+        return jsonify({"error": "categoría inválida"}), 400
+    if tipo not in {t["id"] for t in TEMPLATE_TIPOS}:
+        return jsonify({"error": "tipo inválido"}), 400
+    if autor not in {a["id"] for a in DIFUSION_AUTORES}:
+        autor = "fabricio"
+
+    # Campos JSON opcionales
+    variables_raw = request.form.get("variables") or "[]"
+    try:
+        variables = _json.loads(variables_raw)
+        if not isinstance(variables, list):
+            variables = []
+    except Exception:
+        variables = []
+
+    header_raw = request.form.get("header")
+    header = None
+    if header_raw:
+        try:
+            header = _json.loads(header_raw)
+        except Exception:
+            header = None
+
+    botones_raw = request.form.get("botones") or "[]"
+    try:
+        botones = _json.loads(botones_raw)
+        if not isinstance(botones, list):
+            botones = []
+    except Exception:
+        botones = []
+
+    catalogo_raw = request.form.get("catalogo")
+    catalogo = None
+    if catalogo_raw:
+        try:
+            catalogo = _json.loads(catalogo_raw)
+        except Exception:
+            catalogo = None
+
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "INSERT INTO campana_templates "
+                "  (name, display, idioma, categoria, tipo, body, variables, "
+                "   header, botones, catalogo, recomendacion, autor) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s) "
+                "RETURNING id",
+                (name, display, idioma, categoria, tipo, body,
+                 _json.dumps(variables),
+                 _json.dumps(header) if header else None,
+                 _json.dumps(botones),
+                 _json.dumps(catalogo) if catalogo else None,
+                 recomendacion or None, autor),
+            ).fetchone()
+            return jsonify({"ok": True, "id": row[0]})
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates crear fallo")
+        return jsonify({"error": "db error", "detalle": str(e)}), 500
+
+
+# Precios Meta Colombia por categoría (USD por conversación 24h).
+# Usados para estimar costo en Campañas. Se mantienen acá hasta que el envío
+# real vía Meta devuelva el costo exacto por mensaje.
+_CATEGORIA_PRECIO_USD = {
+    "UTILITY": 0.00024,
+    "MARKETING": 0.015,
+    "AUTHENTICATION": 0.00924,
+}
+
+
+def _precio_por_categoria(categoria):
+    return _CATEGORIA_PRECIO_USD.get((categoria or "").upper(), 0.015)
+
+
+# Cache simple en memoria del fetch a Meta (TTL 5 min) para no quemar rate
+# limit. Estructura: {"ts": float, "payload": dict}
+_META_TEMPLATES_CACHE = {"ts": 0.0, "payload": None, "error": None}
+_META_CACHE_TTL = 300  # 5 minutos
+
+
+def _normalize_meta_template(raw):
+    """Convierte una entrada del endpoint Meta /message_templates al shape
+    que usa nuestro panel (similar al que viene de la tabla local, con la
+    diferencia de que status/category vienen UPPERCASE desde Meta)."""
+    components = raw.get("components") or []
+
+    header = None
+    body = ""
+    buttons = []
+    cards = []
+    tipo = "texto"
+
+    for c in components:
+        ctype = (c.get("type") or "").upper()
+        if ctype == "BODY":
+            body = c.get("text") or ""
+        elif ctype == "HEADER":
+            fmt = (c.get("format") or "TEXT").upper()
+            if fmt == "TEXT":
+                pass  # headers de solo texto no los contamos como multimedia
+            else:
+                header = {
+                    "type": fmt.lower(),  # image / video / document / location
+                    "url": "",  # Meta solo guarda el template, no la URL fija
+                    "label": f"{fmt} (ejemplo en template)",
+                }
+                tipo = "multimedia"
+        elif ctype == "BUTTONS":
+            for b in (c.get("buttons") or []):
+                btype = (b.get("type") or "").upper()
+                buttons.append({
+                    "type": btype.lower(),
+                    "label": b.get("text") or "",
+                    "value": b.get("url") or b.get("phone_number") or b.get("example") or "",
+                })
+            if tipo == "texto":
+                tipo = "botones"
+        elif ctype == "CAROUSEL":
+            for card in (c.get("cards") or []):
+                card_body = ""
+                card_media = None
+                card_btns = []
+                for cc in (card.get("components") or []):
+                    cct = (cc.get("type") or "").upper()
+                    if cct == "BODY":
+                        card_body = cc.get("text") or ""
+                    elif cct == "HEADER":
+                        fmt = (cc.get("format") or "").upper()
+                        if fmt in ("IMAGE", "VIDEO"):
+                            card_media = {"type": fmt.lower(), "url": ""}
+                    elif cct == "BUTTONS":
+                        for b in (cc.get("buttons") or []):
+                            card_btns.append({
+                                "label": b.get("text") or "",
+                                "value": b.get("url") or b.get("phone_number") or "",
+                            })
+                cards.append({
+                    "media": card_media,
+                    "body": card_body,
+                    "botones": card_btns,
+                })
+            tipo = "catalogo_carrusel"
+
+    cat = (raw.get("category") or "MARKETING").upper()
+    return {
+        "meta_id": raw.get("id"),
+        "name": raw.get("name") or "",
+        "display": (raw.get("name") or "").replace("_", " ").title(),
+        "idioma": raw.get("language") or "es",
+        "categoria": cat,
+        "tipo": tipo,
+        "status": (raw.get("status") or "APPROVED").upper(),  # APPROVED/PENDING/REJECTED
+        "body": body,
+        "header": header,
+        "botones": buttons,
+        "catalogo": {"cards": cards} if cards else None,
+        "quality_score": (raw.get("quality_score") or {}).get("score"),
+        "rejected_reason": raw.get("rejected_reason"),
+    }
+
+
+def _meta_fetch_templates(force=False):
+    """Fetch de templates desde Meta Graph API para el WABA configurado.
+
+    Devuelve (lista, error_str_o_None). Cachea 5 min para no hacer fetch en
+    cada page load.
+    """
+    import time as _time
+    now = _time.time()
+    if not force and _META_TEMPLATES_CACHE["payload"] is not None and \
+       (now - _META_TEMPLATES_CACHE["ts"]) < _META_CACHE_TTL:
+        return _META_TEMPLATES_CACHE["payload"], _META_TEMPLATES_CACHE["error"]
+
+    token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    waba_id = (os.environ.get("META_WABA_ID") or "").strip()
+
+    if not token:
+        return [], "falta_env:META_ACCESS_TOKEN"
+    if not waba_id:
+        return [], "falta_env:META_WABA_ID"
+
+    url = f"https://graph.facebook.com/v22.0/{waba_id}/message_templates"
+    try:
+        import requests
+        r = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            params={"limit": 100, "fields":
+                    "id,name,status,category,language,components,quality_score,rejected_reason"},
+            timeout=15,
+        )
+        if r.status_code == 401:
+            _META_TEMPLATES_CACHE.update({"ts": now, "payload": [], "error": "token_invalido"})
+            return [], "token_invalido"
+        if r.status_code == 403:
+            _META_TEMPLATES_CACHE.update({"ts": now, "payload": [], "error": "sin_permiso_waba"})
+            return [], "sin_permiso_waba"
+        if not r.ok:
+            msg = f"http_{r.status_code}"
+            _META_TEMPLATES_CACHE.update({"ts": now, "payload": [], "error": msg})
+            return [], msg
+        data = r.json().get("data") or []
+        normalized = [_normalize_meta_template(t) for t in data]
+        _META_TEMPLATES_CACHE.update({"ts": now, "payload": normalized, "error": None})
+        return normalized, None
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[meta] fetch templates fallo")
+        return [], f"error:{type(e).__name__}"
+
+
+@petra_panel_bp.get("/v2/templates/meta")
+def panel_v2_templates_meta():
+    """Devuelve la lista de templates traídos desde Meta (JSON).
+
+    Query param force=1 ignora cache.
+    """
+    _check_token()
+    from flask import jsonify
+    force = (request.args.get("force") or "").strip() == "1"
+    lista, err = _meta_fetch_templates(force=force)
+    return jsonify({
+        "templates": lista,
+        "error": err,
+        "fetched_at": _META_TEMPLATES_CACHE["ts"],
+    })
+
+
+@petra_panel_bp.get("/v2/templates/<int:tid>/json")
+def panel_v2_templates_json(tid):
+    """Devuelve un template como JSON (para popular el editor en modo edición)."""
+    _check_token()
+    from flask import jsonify
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo, "
+                "       recomendacion, rechazo_motivo, autor, "
+                "       creado_en, actualizado_en "
+                "  FROM campana_templates "
+                " WHERE id = %s",
+                (tid,))
+            if not rows:
+                return jsonify({"error": "no encontrado"}), 404
+            return jsonify(_row_to_template(rows[0]))
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates json fallo")
+        return jsonify({"error": "db error"}), 500
+
+
+def _meta_upload_media_handle(media_url, access_token, app_id):
+    """Sube un archivo a Meta vía Resumable Upload API y devuelve el handle `h`.
+
+    media_url puede ser:
+      - URL absoluta (http/https) → se descarga y se reupload.
+      - Path local empezando con /static/... → se lee del bundle del app.
+
+    Devuelve (handle, error_str_o_None). handle=None si falla.
+    """
+    import requests
+    import os.path as _osp
+
+    # 1) Obtener bytes + content-type
+    try:
+        if media_url.startswith("http://") or media_url.startswith("https://"):
+            resp = requests.get(media_url, timeout=20)
+            if not resp.ok:
+                return None, f"download_{resp.status_code}"
+            content = resp.content
+            ctype = resp.headers.get("Content-Type", "application/octet-stream")
+        else:
+            # Path relativo: resolver contra el folder static de la app.
+            base_dir = _osp.dirname(_osp.abspath(__file__))
+            # media_url típicamente es "/static/images/...". Quitamos el leading /.
+            rel = media_url.lstrip("/")
+            full = _osp.join(base_dir, rel)
+            if not _osp.isfile(full):
+                return None, f"archivo_no_existe:{media_url}"
+            with open(full, "rb") as f:
+                content = f.read()
+            # Inferir content-type por extensión
+            ext = media_url.rsplit(".", 1)[-1].lower()
+            ctype = {
+                "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "png": "image/png", "webp": "image/webp",
+                "mp4": "video/mp4", "mov": "video/quicktime",
+                "pdf": "application/pdf",
+            }.get(ext, "application/octet-stream")
+    except Exception as e:
+        return None, f"download_error:{type(e).__name__}"
+
+    # 2) Iniciar sesión de upload
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/v22.0/{app_id}/uploads",
+            params={
+                "file_length": len(content),
+                "file_type": ctype,
+                "access_token": access_token,
+            },
+            timeout=20,
+        )
+        if not r.ok:
+            return None, f"upload_init_{r.status_code}:{r.text[:200]}"
+        upload_id = r.json().get("id")
+        if not upload_id:
+            return None, "upload_init_sin_id"
+    except Exception as e:
+        return None, f"upload_init_error:{type(e).__name__}"
+
+    # 3) Subir los bytes
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/v22.0/{upload_id}",
+            headers={
+                "Authorization": f"OAuth {access_token}",
+                "file_offset": "0",
+            },
+            data=content,
+            timeout=60,
+        )
+        if not r.ok:
+            return None, f"upload_data_{r.status_code}:{r.text[:200]}"
+        handle = r.json().get("h")
+        if not handle:
+            return None, "upload_data_sin_handle"
+        return handle, None
+    except Exception as e:
+        return None, f"upload_data_error:{type(e).__name__}"
+
+
+def _construir_meta_components(tpl, access_token, app_id):
+    """Construye el array `components` del payload de Meta a partir del template.
+
+    Devuelve (components, error_str_o_None).
+    """
+    components = []
+
+    # ── Header ─────────────────────────────────────────────────────────
+    if tpl.get("tipo") == "multimedia" and tpl.get("header"):
+        header = tpl["header"]
+        htype = (header.get("type") or "image").upper()
+        if htype == "LOCATION":
+            components.append({"type": "HEADER", "format": "LOCATION"})
+        else:
+            hurl = (header.get("url") or "").strip()
+            if not hurl:
+                return None, "header_sin_url"
+            handle, err = _meta_upload_media_handle(hurl, access_token, app_id)
+            if not handle:
+                return None, f"header_upload_fallo:{err}"
+            components.append({
+                "type": "HEADER",
+                "format": htype,  # IMAGE / VIDEO / DOCUMENT
+                "example": {"header_handle": [handle]},
+            })
+
+    # ── Body ───────────────────────────────────────────────────────────
+    body_text = (tpl.get("body") or "").strip()
+    if not body_text:
+        return None, "body_vacio"
+    body_comp = {"type": "BODY", "text": body_text}
+    variables = tpl.get("variables") or []
+    if variables:
+        ejemplos = []
+        for v in variables:
+            ej = (v.get("ejemplo") or v.get("label") or "ejemplo").strip() or "ejemplo"
+            ejemplos.append(ej)
+        body_comp["example"] = {"body_text": [ejemplos]}
+    components.append(body_comp)
+
+    # ── Buttons ────────────────────────────────────────────────────────
+    if tpl.get("tipo") == "botones":
+        botones = tpl.get("botones") or []
+        meta_btns = []
+        for b in botones:
+            btype = (b.get("type") or "url").upper()
+            label = (b.get("label") or "").strip()[:25]  # Meta max 25
+            value = (b.get("value") or "").strip()
+            if btype == "URL":
+                meta_btns.append({"type": "URL", "text": label, "url": value})
+            elif btype == "PHONE_NUMBER":
+                meta_btns.append({"type": "PHONE_NUMBER", "text": label,
+                                  "phone_number": value})
+            elif btype == "QUICK_REPLY":
+                meta_btns.append({"type": "QUICK_REPLY", "text": label})
+            elif btype == "COPY_CODE":
+                meta_btns.append({"type": "COPY_CODE", "example": [value]})
+        if meta_btns:
+            components.append({"type": "BUTTONS", "buttons": meta_btns})
+
+    return components, None
+
+
+@petra_panel_bp.post("/v2/templates/<int:tid>/aprobar")
+def panel_v2_templates_aprobar(tid):
+    """Somete el template a Meta para aprobación.
+
+    Flujo:
+      1. Leer template de DB (status debe ser 'draft').
+      2. Si es multimedia, subir el header file a Meta (resumable upload)
+         para obtener el handle.
+      3. POST al endpoint de message_templates de Meta.
+      4. Si Meta devuelve 200: update local status a 'pending', guardar id de Meta.
+      5. Devolver resultado al frontend.
+    """
+    _check_token()
+    from flask import jsonify
+    import json as _json
+    import requests
+
+    token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    waba_id = (os.environ.get("META_WABA_ID") or "").strip()
+    app_id = (os.environ.get("META_APP_ID") or "").strip()
+
+    if not token:
+        return jsonify({"error": "falta_env:META_ACCESS_TOKEN"}), 500
+    if not waba_id:
+        return jsonify({"error": "falta_env:META_WABA_ID"}), 500
+    if not app_id:
+        return jsonify({"error": "falta_env:META_APP_ID"}), 500
+
+    # Cargar template
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT id, name, display, idioma, categoria, tipo, status, "
+                "       body, variables, header, botones, catalogo "
+                "  FROM campana_templates WHERE id = %s",
+                (tid,))
+            if not rows:
+                return jsonify({"error": "no_encontrado"}), 404
+            tpl = _row_to_template(rows[0])
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[aprobar] leer template fallo")
+        return jsonify({"error": "db_error"}), 500
+
+    if tpl.get("tipo") == "catalogo_carrusel":
+        return jsonify({"error": "catalogo_no_soportado",
+                        "detalle": "Los templates de catálogo/carrusel requieren "
+                                   "un flujo distinto todavía no implementado."}), 400
+
+    # Construir components
+    components, err = _construir_meta_components(tpl, token, app_id)
+    if err:
+        return jsonify({"error": "construir_payload_fallo", "detalle": err}), 400
+
+    payload = {
+        "name": tpl["name"],
+        "language": tpl.get("idioma") or "es",
+        "category": (tpl.get("categoria") or "MARKETING").upper(),
+        "components": components,
+    }
+
+    # POST a Meta
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/v22.0/{waba_id}/message_templates",
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json"},
+            data=_json.dumps(payload),
+            timeout=30,
+        )
+    except Exception as e:
+        return jsonify({"error": f"red:{type(e).__name__}"}), 500
+
+    if not r.ok:
+        try:
+            err_body = r.json()
+        except Exception:
+            err_body = {"raw": r.text[:500]}
+        return jsonify({
+            "error": "meta_rechazo",
+            "status_code": r.status_code,
+            "detalle": err_body,
+        }), 400
+
+    meta_resp = r.json() if r.content else {}
+    meta_id = meta_resp.get("id")
+    meta_status = (meta_resp.get("status") or "PENDING").upper()
+
+    # Actualizar status local
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "UPDATE campana_templates "
+                "   SET status = %s, "
+                "       actualizado_en = NOW() "
+                " WHERE id = %s",
+                ("pending" if meta_status == "PENDING" else meta_status.lower(), tid),
+            )
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[aprobar] update status fallo")
+
+    # Invalida cache de Meta para que la pestaña "Esperando aprobación" lo muestre
+    _META_TEMPLATES_CACHE["ts"] = 0
+
+    return jsonify({
+        "ok": True,
+        "meta_id": meta_id,
+        "meta_status": meta_status,
+    })
+
+
+@petra_panel_bp.post("/v2/templates/<int:tid>/actualizar")
+def panel_v2_templates_actualizar(tid):
+    """Actualiza campos editables de un template existente.
+
+    Si el template estaba 'aprobado' por Meta, cualquier edición lo
+    devuelve a 'draft' porque el contenido ya no coincide con lo que
+    Meta aprobó. El usuario debe re-someter.
+    """
+    _check_token()
+    from flask import jsonify
+    import json as _json
+
+    campos = {}
+    for key in ("display", "idioma", "categoria", "tipo", "body", "recomendacion"):
+        val = request.form.get(key)
+        if val is not None:
+            campos[key] = val.strip()
+
+    for key in ("variables", "header", "botones", "catalogo"):
+        raw = request.form.get(key)
+        if raw is not None:
+            try:
+                campos[key] = _json.loads(raw) if raw else None
+            except Exception:
+                return jsonify({"error": f"{key} inválido"}), 400
+
+    if not campos:
+        return jsonify({"error": "nada para actualizar"}), 400
+
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            # Si estaba aprobado, bajarlo a draft (contenido cambió).
+            row = conn.execute(
+                "SELECT status FROM campana_templates WHERE id = %s", (tid,),
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "no encontrado"}), 404
+            reset_status = (row[0] == "aprobado")
+
+            set_clauses = []
+            params = []
+            for k, v in campos.items():
+                if k in ("variables", "header", "botones", "catalogo"):
+                    set_clauses.append(f"{k} = %s::jsonb")
+                    params.append(_json.dumps(v) if v is not None else None)
+                else:
+                    set_clauses.append(f"{k} = %s")
+                    params.append(v)
+            if reset_status:
+                set_clauses.append("status = 'draft'")
+                set_clauses.append("rechazo_motivo = NULL")
+            set_clauses.append("actualizado_en = NOW()")
+            params.append(tid)
+
+            conn.execute(
+                f"UPDATE campana_templates SET {', '.join(set_clauses)} WHERE id = %s",
+                tuple(params),
+            )
+            return jsonify({"ok": True, "reset_a_draft": reset_status})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates actualizar fallo")
+        return jsonify({"error": "db error"}), 500
+
+
+@petra_panel_bp.post("/v2/templates/<int:tid>/eliminar")
+def panel_v2_templates_eliminar(tid):
+    """Elimina un template (solo si está en draft)."""
+    _check_token()
+    from flask import jsonify
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT status FROM campana_templates WHERE id = %s",
+                (tid,),
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "no encontrado"}), 404
+            if row[0] != "draft":
+                return jsonify({"error": "solo se pueden eliminar drafts"}), 400
+            conn.execute("DELETE FROM campana_templates WHERE id = %s", (tid,))
+            return jsonify({"ok": True})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] templates eliminar fallo")
+        return jsonify({"error": "db error"}), 500
+
+
+@petra_panel_bp.post("/v2/difusiones/upload_header")
+def panel_v2_difusiones_upload_header():
+    """Sube un archivo custom para usar como header de la campaña.
+
+    Reutiliza el helper _guardar_archivo_media (16MB, imágenes y videos).
+    Devuelve URL pública + tipo inferido por extensión.
+    """
+    _check_token()
+    from flask import jsonify
+    import os as _os
+
+    file = request.files.get("archivo")
+    if not file or not file.filename:
+        return jsonify({"error": "sin archivo"}), 400
+
+    url = _guardar_archivo_media(file)
+    if not url:
+        return jsonify({
+            "error": "archivo inválido (máx 16MB, jpg/png/webp/gif o mp4/mov/webm)"
+        }), 400
+
+    ext = _os.path.splitext(file.filename.lower())[1]
+    if ext in (".mp4", ".mov", ".avi", ".webm", ".mkv"):
+        header_type = "video"
+    else:
+        header_type = "image"
+
+    return jsonify({
+        "url": url,
+        "type": header_type,
+        "nombre": file.filename,
+    })
+
+
+@petra_panel_bp.post("/v2/difusiones/confirmar")
+def panel_v2_difusiones_confirmar():
+    """Dry-run de la difusión: no envía por WhatsApp, pero devuelve el
+    payload completo que SE enviaría y loguea la intención en el server.
+
+    Una vez que tengamos Meta Cloud API cableada (fase siguiente), este
+    endpoint pasa a encolar los envíos reales. Por ahora responde con
+    status=dry_run para que el panel pueda mostrar confirmación clara.
+    """
+    _check_token()
+    from flask import jsonify
+    import json as _json
+    import logging as _lg
+
+    tmpl_name = (request.values.get("template") or "").strip()
+    tmpl = _tmpl_by_name(tmpl_name)
+    if not tmpl:
+        return jsonify({"error": "template inválido"}), 400
+
+    programar = (request.values.get("programar") or "ahora").strip().lower()
+    autor = (request.values.get("autor") or "fabricio").strip().lower()
+    if autor not in {a["id"] for a in DIFUSION_AUTORES}:
+        autor = "fabricio"
+
+    # Overrides opcionales (customización del template para esta campaña).
+    # Cuando conectemos Meta Cloud API, un body_override requiere re-aprobar
+    # el template; dejamos la señal registrada para auditoría.
+    body_override = (request.values.get("body_override") or "").strip() or None
+    header_url_override = (request.values.get("header_url_override") or "").strip() or None
+    header_type_override = (request.values.get("header_type_override") or "").strip() or None
+
+    # IDs de destinatarios que el usuario excluyó manualmente en el paso 3.
+    excluidos_raw = (request.values.get("excluidos") or "").strip()
+    excluidos = set()
+    if excluidos_raw:
+        for p in excluidos_raw.split(","):
+            if p.strip().isdigit():
+                excluidos.add(int(p.strip()))
+
+    body_para_render = body_override or tmpl["body"]
+
+    where_sql, params = _difusiones_where(request.values)
+
+    destinatarios = []
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            rows = _rows(conn,
+                "SELECT i.id, i.tipo, i.nro, i.operacion, "
+                "       i.propietario_telefono, c.nombre AS conjunto "
+                "  FROM inmuebles_visitante i "
+                "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                " WHERE " + where_sql +
+                " ORDER BY i.creado_en DESC",
+                params)
+            for r in rows:
+                if r.get("id") in excluidos:
+                    continue
+                conj = r.get("conjunto") or "tu conjunto"
+                mensaje = _render_tmpl_body(
+                    body_para_render, tmpl["variables"], r, conjunto_nombre=conj)
+                tel_digits = ''.join(c for c in (r.get("propietario_telefono") or "") if c.isdigit())
+                destinatarios.append({
+                    "inmueble_id": r.get("id"),
+                    "telefono": tel_digits,
+                    "mensaje": mensaje,
+                })
+    except Exception:
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones confirmar fallo")
+        return jsonify({"error": "db error"}), 500
+
+    total = len(destinatarios)
+    costo = round(total * tmpl["price_usd"], 2)
+
+    # Log de la intención — queda en Render logs para auditoría manual
+    # mientras no persistamos en DB.
+    overrides_flag = bool(body_override or header_url_override)
+    _lg.getLogger(__name__).info(
+        "[DIFUSION_DRY_RUN] template=%s autor=%s programar=%s destinatarios=%d "
+        "excluidos=%d costo_usd=%.2f overrides=%s header_override=%s muestra=%s",
+        tmpl_name, autor, programar, total, len(excluidos), costo,
+        overrides_flag, header_url_override or "-",
+        _json.dumps(destinatarios[:3], ensure_ascii=False) if destinatarios else "[]",
+    )
+
+    return jsonify({
+        "ok": True,
+        "status": "dry_run",
+        "mensaje": ("Campaña registrada en modo dry-run. "
+                    "El envío real requiere integración con Meta Cloud API, "
+                    "pendiente de la próxima fase."),
+        "resumen": {
+            "template": tmpl_name,
+            "template_display": tmpl["display"],
+            "categoria": tmpl["category"],
+            "programar": programar,
+            "autor": autor,
+            "destinatarios": total,
+            "excluidos": len(excluidos),
+            "costo_total_usd": costo,
+            "personalizado": overrides_flag,
+            "header_override_url": header_url_override,
+            "header_override_type": header_type_override,
+            "body_override": bool(body_override),
+        },
+    })
+
+
+@petra_panel_bp.get("/v2/difusiones/preview")
+def panel_v2_difusiones_preview():
+    """Preview JSON del segmento: count + muestra de 3 destinatarios."""
+    _check_token()
+    from flask import jsonify
+
+    where_sql, params = _difusiones_where(request.args)
+
+    count = 0
+    muestra = []
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante i WHERE " + where_sql,
+                params,
+            ).fetchone()
+            count = (row[0] if row else 0) or 0
+
+            if count:
+                # 3 ejemplos: tipo + conjunto + apto (código P####)
+                rows = _rows(conn,
+                    "SELECT i.id, i.tipo, i.nro, c.nombre AS conjunto "
+                    "  FROM inmuebles_visitante i "
+                    "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                    " WHERE " + where_sql +
+                    " ORDER BY random() LIMIT 3",
+                    params)
+                for r in rows:
+                    tipo = (r.get("tipo") or "inmueble").capitalize()
+                    conj = r.get("conjunto") or "(conjunto s/d)"
+                    nro = (r.get("nro") or "").strip()
+                    ref = f"{tipo}" + (f" #{nro}" if nro else "")
+                    code = f"P{r['id']:04d}"
+                    muestra.append(f"{code} · {ref} en {conj}")
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[panel_v2] difusiones preview fallo")
+
+    return jsonify({"count": count, "muestra": muestra})
+
+
 @petra_panel_bp.get("/visitante")
 def visitante_conjuntos():
     """Index de conjuntos registrados en el flujo visitante QR.

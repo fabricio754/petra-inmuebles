@@ -468,6 +468,10 @@ def _procesar_webhook_petra(payload):
     from app.petra_router import handle_inbound
     from app import petra_wa
 
+    t0 = time.perf_counter()
+    def _ms(mark):
+        return int((time.perf_counter() - mark) * 1000)
+
     try:
         change = payload["entry"][0]["changes"][0]["value"]
     except (KeyError, IndexError, TypeError):
@@ -483,15 +487,6 @@ def _procesar_webhook_petra(payload):
                 _procesar_status(s)
             except Exception:
                 log.exception("[petra] status procesamiento fallo")
-    # Fan-out de voz: cuando flipamos USE_OWN_ORCHESTRATOR, Meta nos manda las
-    # calls y nosotros se las reenviamos a ElevenLabs para que las conteste.
-    if change.get("calls"):
-        try:
-            from app import petra_el_bridge, petra_orchestrator
-            if petra_orchestrator.esta_activo():
-                petra_el_bridge.forward_call_to_el(payload)
-        except Exception:
-            log.exception("[petra] fan-out voz fallo")
     if not change.get("messages"):
         return
 
@@ -619,16 +614,29 @@ def _procesar_webhook_petra(payload):
         # porque el estado sticky expiró entre el envío del Flow y el submit).
         if petra_visitante.es_visitante(phone, texto) or flow_response is not None:
             wamid = message.get("id") if isinstance(message, dict) else None
-            if wamid:
+            t_router = time.perf_counter()
+            # typing_indicator ya se disparó en el HTTP handler (server.py)
+            # vía send_typing_indicator_async — lo evitamos acá para no
+            # pagar 500-1000ms extra de round-trip a Meta.
+            if wamid and not petra_wa.typing_already_sent(wamid):
                 try:
                     petra_wa.send_typing_indicator(wamid)
                 except Exception:
                     log.exception("[petra] typing fallo")
+            t_typing = time.perf_counter()
             petra_visitante.handle_message(
                 telefono=phone, texto=texto,
                 button_id=button_id, list_id=list_id,
                 contacto_nombre=nombre, wa_msg_id=wamid,
                 flow_response=flow_response,
+            )
+            log.info(
+                "[timing] tel=%s path=visitante total=%dms "
+                "parse+router=%dms typing=%dms handle=%dms",
+                phone, _ms(t0),
+                int((t_router - t0) * 1000),
+                int((t_typing - t_router) * 1000),
+                int((time.perf_counter() - t_typing) * 1000),
             )
             return
     except Exception as _e_visit:
@@ -636,19 +644,18 @@ def _procesar_webhook_petra(payload):
         _bot_fallback_y_alertar(phone, texto, "visitante", _e_visit)
         return
 
-    # Feature flag en cascada: multi-agent > orchestrator monolítico > legacy.
-    # - USE_MULTI_AGENT=true → router + sub-agentes especializados
-    # - USE_OWN_ORCHESTRATOR=true → orchestrator monolítico con Claude SDK
-    # - sino → router determinístico legacy
-    # ElevenLabs sólo entra para voz cuando el fan-out está activo.
+    # Post-fase-1 (visitante-only):
+    # - Orchestrator propio eliminado.
+    # - ElevenLabs bridge eliminado.
+    # - USE_MULTI_AGENT=true → multi-agent (en archivado parcial; fase 2 lo mueve).
+    # - Fallback: legacy router (petra_router). Se irá en fase 2.
     try:
         from app import petra_agents, petra_wa
         if petra_agents.esta_activo():
             wamid = message.get("id") if isinstance(message, dict) else None
-            # Typing indicator + read receipt: WhatsApp muestra los 3
-            # puntitos de "escribiendo..." mientras procesamos. Fire-and-
-            # forget — si falla, no bloquea la respuesta real.
-            if wamid:
+            # Igual que la rama de visitante: typing ya salió desde el
+            # HTTP handler; si por algún motivo no, lo reintentamos acá.
+            if wamid and not petra_wa.typing_already_sent(wamid):
                 try:
                     petra_wa.send_typing_indicator(wamid)
                 except Exception:
@@ -664,18 +671,10 @@ def _procesar_webhook_petra(payload):
         # No cortamos acá: dejamos que caiga al orquestador legacy. Si ese
         # también falla, el fallback final se dispara abajo.
         _e_agents_capturado = _e_agents  # noqa: F841
-    try:
-        from app import petra_orchestrator
-        if petra_orchestrator.esta_activo():
-            petra_orchestrator.handle_message(
-                telefono=phone, texto=texto,
-                button_id=button_id, list_id=list_id,
-                contacto_nombre=nombre,
-            )
-            return
-    except Exception:
-        log.exception("[petra] orquestador propio fallo — cae a legacy")
-
+    # NOTA (visitante-only, fase 1): el orchestrator propio se eliminó.
+    # Si cae acá significa que el mensaje no es de un visitante QR ni de
+    # multi-agent; usamos el router legacy como safety-net mientras
+    # archivamos multi-agent en fase 2.
     edificio_slug = _extraer_slug_qr(texto)
     try:
         out = handle_inbound(
