@@ -273,12 +273,20 @@ def receive_webhook():
         except Exception:
             log.exception("[typing-asap] fallo")
 
-        # ENCOLAR en thread: el HTTP handler nunca espera al pool DB.
-        # Si el pool está contendido, el thread cae al spool de disco
-        # (web_worker ya maneja ese caso). Meta recibe 200 en <50ms.
+        # PROCESAR INLINE en thread: saltarse la cola DB para texto/button/
+        # list evita el delay de 2-5s cuando el pool de conexiones está
+        # contendido. El handle real tarda ~1-2s (medido con [timing]),
+        # así que el thread fire-and-forget devuelve control inmediato
+        # al HTTP handler. Meta recibe 200 en <50ms, y el usuario ve la
+        # respuesta en ~1-2s en lugar de 7-9s.
+        #
+        # Si este proceso muere mid-handle, Meta reintenta el webhook en
+        # ~30s con el mismo wamid y procesamos de nuevo. No encolamos en
+        # paralelo porque el worker no tiene dedup por wamid y podría
+        # emitir doble respuesta.
         import threading as _th
-        _th.Thread(target=webhook_worker.encolar, args=(payload,),
-                   name="encolar-async", daemon=True).start()
+        _th.Thread(target=webhook_worker._invocar_logica, args=(payload,),
+                   name="invocar-inline", daemon=True).start()
 
         if phone is not None:
             log.info("Mensaje entrante de %s: %s", phone, event)
