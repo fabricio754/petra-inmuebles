@@ -662,20 +662,20 @@
 {% set t_cred = templates | selectattr('name', 'equalto', slots.get('credito', ''))     | first | default(none) %}
 
 <div class="tabs">
-  <button class="tab active" data-tab="activados" onclick="cambiarTab('activados')">
-    ⚡ Activados <span class="tab-count">(3)</span>
+  <button class="tab" data-tab="rejected" onclick="cambiarTab('rejected')">
+    🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
   </button>
   <button class="tab" data-tab="borradores" onclick="cambiarTab('borradores')">
     📋 Borradores <span class="tab-count">({{ templates|length }})</span>
   </button>
-  <button class="tab" data-tab="meta" onclick="cambiarTab('meta')">
-    ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
-  </button>
   <button class="tab" data-tab="waiting" onclick="cambiarTab('waiting')">
     ⏳ Esperando aprobación <span class="tab-count" id="tab-waiting-count">(…)</span>
   </button>
-  <button class="tab" data-tab="rejected" onclick="cambiarTab('rejected')">
-    🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
+  <button class="tab" data-tab="meta" onclick="cambiarTab('meta')">
+    ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
+  </button>
+  <button class="tab active" data-tab="activados" onclick="cambiarTab('activados')">
+    ⚡ Activados <span class="tab-count">(3)</span>
   </button>
   <div class="tabs-right">
     <button class="btn-sync" id="btn-sync" onclick="sincronizarMeta(true)" hidden>
