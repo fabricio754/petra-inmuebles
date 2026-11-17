@@ -5272,6 +5272,37 @@ def _conjunto_editar_redirect(token, flash):
                             token=token, flash=flash))
 
 
+@petra_panel_bp.post("/v2/conjuntos/<int:cid>/toggle-conectado")
+def panel_v2_conjunto_toggle_conectado(cid):
+    """Togglea el flag qr_instalado del conjunto. Marca/desmarca el chip
+    'Conectado' en la lista. Devuelve el nuevo estado."""
+    _check_token()
+    from flask import jsonify
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "UPDATE conjuntos_visitante "
+                "   SET qr_instalado = NOT qr_instalado, "
+                "       qr_instalado_en = CASE WHEN NOT qr_instalado "
+                "                               THEN NOW() ELSE NULL END "
+                " WHERE id = %s "
+                " RETURNING qr_instalado, qr_instalado_en",
+                (cid,),
+            ).fetchone()
+            conn.commit()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+        return jsonify({
+            "ok": True,
+            "qr_instalado": bool(row[0]),
+            "qr_instalado_en": row[1].isoformat() if row[1] else None,
+        })
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[conjuntos] toggle conectado fallo")
+        return jsonify({"error": "db_error"}), 500
+
+
 @petra_panel_bp.get("/visitante/conjuntos/<int:cid>/qr")
 def visitante_conjunto_qr(cid):
     """QR generator client-side para pegar en el edificio."""
@@ -6030,6 +6061,7 @@ def panel_v2_conjuntos():
     with _db._conexion_directa(timeout=10) as conn:
         conjuntos = _rows(conn,
             "SELECT c.id, c.codigo, c.nombre, c.ciudad, c.creado_en, "
+            "       c.qr_instalado, c.qr_instalado_en, "
             "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='arriendo' "
             "                          THEN 1 ELSE 0 END), 0) AS arr_activos, "
             "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='venta' "
