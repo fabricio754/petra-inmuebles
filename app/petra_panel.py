@@ -3838,21 +3838,75 @@ def _var_value_for(inmueble, source, conjunto_nombre=""):
     Si la fuente no existe en los datos, devuelve un fallback razonable
     (nunca string vacío — Meta rechaza templates con variables vacías).
     """
+    # --- Conjunto / ubicación ---
     if source == "conjunto_nombre":
         return conjunto_nombre or inmueble.get("conjunto_nombre") or "tu conjunto"
+    if source == "ciudad":
+        return inmueble.get("ciudad") or inmueble.get("conjunto_ciudad") or "tu ciudad"
+    if source == "barrio":
+        return inmueble.get("barrio") or "—"
+    if source == "direccion":
+        return inmueble.get("direccion") or "—"
+    if source == "estrato":
+        v = inmueble.get("estrato")
+        return str(v) if v not in (None, "") else "—"
+
+    # --- Apto ---
     if source == "codigo":
         iid = inmueble.get("id")
         return f"P{iid:04d}" if isinstance(iid, int) else "P0000"
-    if source == "tipo":
-        return (inmueble.get("tipo") or "inmueble").lower()
-    if source == "propietario_nombre":
-        # No tenemos este campo en inmuebles_visitante. Fallback neutro.
-        return "propietario"
+    if source == "torre":
+        return inmueble.get("torre") or "—"
+    if source == "piso":
+        return inmueble.get("piso") or "—"
     if source == "url_publicacion":
         iid = inmueble.get("id")
         code = f"P{iid:04d}" if isinstance(iid, int) else "P0000"
         # Link a Petra Bot para que el anunciante consulte su publicación.
         return f"https://wa.me/573001278631?text=Quiero%20ver%20mi%20publicacion%20{code}"
+
+    # --- Características del inmueble ---
+    if source == "tipo":
+        return (inmueble.get("tipo") or "inmueble").lower()
+    if source == "operacion":
+        return (inmueble.get("operacion") or "").lower() or "—"
+    if source == "habitaciones":
+        v = inmueble.get("habitaciones")
+        return str(v) if v not in (None, "") else "—"
+    if source == "banos":
+        v = inmueble.get("banos")
+        return str(v) if v not in (None, "") else "—"
+    if source == "m2":
+        v = inmueble.get("m2")
+        return str(v) if v not in (None, "") else "—"
+    if source == "precio":
+        v = inmueble.get("precio")
+        if v in (None, "", 0):
+            return "—"
+        try:
+            return "${:,.0f}".format(float(v)).replace(",", ".")
+        except (ValueError, TypeError):
+            return str(v)
+    if source == "parqueadero":
+        v = inmueble.get("parqueadero")
+        if v is True:
+            return "Sí"
+        if v is False:
+            return "No"
+        return "—"
+
+    # --- Propietario ---
+    if source == "propietario_nombre":
+        return inmueble.get("propietario_nombre") or "propietario"
+    if source == "propietario_telefono":
+        return inmueble.get("propietario_telefono") or "—"
+
+    # --- Petra ---
+    if source == "agente_nombre":
+        return inmueble.get("agente_nombre") or "Petra"
+    if source == "fecha_visita":
+        return inmueble.get("fecha_visita") or "—"
+
     return ""
 
 
