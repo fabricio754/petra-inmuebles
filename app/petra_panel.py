@@ -4113,16 +4113,47 @@ def panel_v2_numeros_callback():
         _lg.getLogger(__name__).exception("[numeros] exchange code fallo")
         return jsonify({"error": f"exchange_error:{type(e).__name__}"}), 500
 
-    # Si no vino phone/waba del postMessage, descubrir vía Graph API
+    # Diagnóstico del token: muestra qué scopes tiene y qué user/business
+    # autorizó la app. Vital si el descubrimiento de WABAs falla.
+    try:
+        import requests
+        dbg = requests.get(
+            "https://graph.facebook.com/v22.0/debug_token",
+            params={
+                "input_token": access_token,
+                # Para debug_token el access_token tiene que ser APP token.
+                # Usamos "app_id|app_secret" como access_token (app access token).
+                "access_token": f"{app_id}|{(os.environ.get('META_APP_SECRET') or '').strip()}",
+            },
+            timeout=10,
+        )
+        import logging as _lg
+        _lg.getLogger(__name__).info("[numeros] debug_token: %s", str(dbg.json())[:1500])
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] debug_token fallo (no crítico)")
+
+    # Si no vino phone/waba del postMessage, descubrir vía Graph API.
+    # Para Coexistence los assets pueden venir como "shared" en vez de
+    # "owned" si el usuario conectó un número que no es "dueño" directo
+    # del business — por eso pedimos los dos.
     discovered = None
     if not phone_number_id or not waba_id:
         try:
             import requests
-            # Query the WABAs the user granted access to
             r = requests.get(
                 "https://graph.facebook.com/v22.0/me",
                 params={
-                    "fields": "businesses{owned_whatsapp_business_accounts{id,name,phone_numbers{id,display_phone_number,verified_name}}}",
+                    "fields": (
+                        "businesses{"
+                        "owned_whatsapp_business_accounts{"
+                        "id,name,phone_numbers{id,display_phone_number,verified_name}"
+                        "},"
+                        "client_whatsapp_business_accounts{"
+                        "id,name,phone_numbers{id,display_phone_number,verified_name}"
+                        "}"
+                        "}"
+                    ),
                     "access_token": access_token,
                 },
                 timeout=15,
@@ -4130,21 +4161,26 @@ def panel_v2_numeros_callback():
             discovered = r.json()
             import logging as _lg
             _lg.getLogger(__name__).info("[numeros] descubrimiento WABAs: %s",
-                                         str(discovered)[:1500])
-            # Si tenemos UNA sola WABA con UN solo número, auto-usar
+                                         str(discovered)[:2000])
+            # Si tenemos UNA sola WABA con UN solo número, auto-usar.
+            # Buscamos en ambas listas: owned + client.
             try:
                 biz = (discovered.get("businesses") or {}).get("data") or []
                 for b in biz:
-                    wabas = (b.get("owned_whatsapp_business_accounts") or {}).get("data") or []
-                    for w in wabas:
-                        phones = (w.get("phone_numbers") or {}).get("data") or []
-                        for p in phones:
-                            if not waba_id:
-                                waba_id = w.get("id")
-                            if not phone_number_id:
-                                phone_number_id = p.get("id")
-                                phone_e164 = p.get("display_phone_number") or phone_e164
-                                display_name = p.get("verified_name") or display_name
+                    for lista_key in ("owned_whatsapp_business_accounts",
+                                      "client_whatsapp_business_accounts"):
+                        wabas = (b.get(lista_key) or {}).get("data") or []
+                        for w in wabas:
+                            phones = (w.get("phone_numbers") or {}).get("data") or []
+                            for p in phones:
+                                if not waba_id:
+                                    waba_id = w.get("id")
+                                if not phone_number_id:
+                                    phone_number_id = p.get("id")
+                                    phone_e164 = p.get("display_phone_number") or phone_e164
+                                    display_name = p.get("verified_name") or display_name
+                                if waba_id and phone_number_id:
+                                    break
                             if waba_id and phone_number_id:
                                 break
                         if waba_id and phone_number_id:
