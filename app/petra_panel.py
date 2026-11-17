@@ -680,6 +680,7 @@ _MEDIA_MAX_BYTES = 16 * 1024 * 1024  # 16MB (límite WhatsApp)
 _MEDIA_ALLOWED_EXT = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp",  # imágenes
     ".mp4", ".mov", ".avi", ".webm", ".mkv",   # videos
+    ".pdf",                                     # documentos
 }
 
 
@@ -5049,15 +5050,33 @@ def panel_v2_difusiones_upload_header():
     if not file or not file.filename:
         return jsonify({"error": "sin archivo"}), 400
 
-    url = _guardar_archivo_media(file)
-    if not url:
+    # Validar tipo y tamaño ANTES de intentar guardar para dar mensajes claros
+    ext = _os.path.splitext(file.filename.lower())[1]
+    if ext not in _MEDIA_ALLOWED_EXT:
         return jsonify({
-            "error": "archivo inválido (máx 16MB, jpg/png/webp/gif o mp4/mov/webm)"
+            "error": f"tipo de archivo no permitido ({ext or 'sin extensión'}). "
+                     "Permitidos: jpg, png, webp, gif, mp4, mov, webm, pdf."
+        }), 400
+    try:
+        file.stream.seek(0, 2)
+        tam = file.stream.tell()
+        file.stream.seek(0)
+    except Exception:
+        tam = 0
+    if tam > _MEDIA_MAX_BYTES:
+        mb = tam / (1024 * 1024)
+        return jsonify({
+            "error": f"archivo demasiado grande ({mb:.1f} MB). Máximo 16 MB."
         }), 400
 
-    ext = _os.path.splitext(file.filename.lower())[1]
+    url = _guardar_archivo_media(file)
+    if not url:
+        return jsonify({"error": "no se pudo guardar el archivo en el servidor."}), 500
+
     if ext in (".mp4", ".mov", ".avi", ".webm", ".mkv"):
         header_type = "video"
+    elif ext == ".pdf":
+        header_type = "document"
     else:
         header_type = "image"
 
@@ -5065,6 +5084,7 @@ def panel_v2_difusiones_upload_header():
         "url": url,
         "type": header_type,
         "nombre": file.filename,
+        "size": tam,
     })
 
 

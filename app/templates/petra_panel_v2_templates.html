@@ -1075,19 +1075,7 @@
             </div>
           </div>
 
-          <div class="form-field">
-            <label>Cuerpo del mensaje *</label>
-            <textarea id="f-body" placeholder="Hola, …"></textarea>
-            <div class="form-help">Clickeá los chips de abajo para insertar variables en la posición del cursor.
-              Markdown WhatsApp: <code>*negrita*</code>, <code>_cursiva_</code>.</div>
-          </div>
-
-          <div class="form-field">
-            <label>Variables dinámicas</label>
-            <div class="var-palette" id="var-palette"></div>
-          </div>
-
-          {# Paneles específicos por tipo #}
+          {# Paneles específicos por tipo — multimedia va arriba del body #}
           <div class="form-pane" id="pane-multimedia">
             <div class="form-field">
               <label>Tipo de header</label>
@@ -1115,6 +1103,18 @@
               <div class="form-help">Imágenes, videos o PDFs. Máx 16MB.</div>
             </div>
             <input type="hidden" id="f-header-label">
+          </div>
+
+          <div class="form-field">
+            <label>Cuerpo del mensaje *</label>
+            <textarea id="f-body" placeholder="Hola, …"></textarea>
+            <div class="form-help">Clickeá los chips de abajo para insertar variables en la posición del cursor.
+              Markdown WhatsApp: <code>*negrita*</code>, <code>_cursiva_</code>.</div>
+          </div>
+
+          <div class="form-field">
+            <label>Variables dinámicas</label>
+            <div class="var-palette" id="var-palette"></div>
           </div>
 
           <div class="form-pane" id="pane-botones">
@@ -1896,6 +1896,16 @@
   function subirHeaderFile(input) {
     var file = input.files && input.files[0];
     if (!file) return;
+    // Validar tamaño antes de intentar subir (WhatsApp header = 16MB)
+    var MAX = 16 * 1024 * 1024;
+    if (file.size > MAX) {
+      var mb = (file.size / (1024 * 1024)).toFixed(1);
+      alert('El archivo pesa ' + mb + ' MB. Máximo permitido: 16 MB.\n\n' +
+            'Comprimí el video (ej. HandBrake, CloudConvert) o bajá la ' +
+            'resolución a 720p y volvé a intentar.');
+      input.value = '';
+      return;
+    }
     var fd = new FormData();
     fd.append('token', TOKEN);
     fd.append('archivo', file);
