@@ -408,6 +408,43 @@
     font-size: 12.5px; cursor: pointer; font-weight: 500;
     align-self: flex-start;
   }
+
+  /* Upload de header multimedia */
+  .upload-btn {
+    background: var(--panel); border: 1px dashed var(--border);
+    color: var(--text); padding: 10px 14px; border-radius: 8px;
+    font-size: 13px; cursor: pointer; font-family: inherit;
+    font-weight: 500; transition: all 120ms;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .upload-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .upload-btn:disabled { opacity: 0.5; cursor: wait; }
+  .header-preview-card {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px;
+    margin-top: 8px;
+  }
+  .header-preview-thumb {
+    width: 54px; height: 54px; border-radius: 8px;
+    background: var(--panel); display: grid; place-items: center;
+    font-size: 24px; overflow: hidden; flex-shrink: 0;
+  }
+  .header-preview-thumb img, .header-preview-thumb video {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .header-preview-info { flex: 1; min-width: 0; }
+  .header-preview-name {
+    font-size: 13px; font-weight: 500; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .header-preview-meta { font-size: 11px; color: var(--text-sub); }
+  .header-preview-del {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-sub); padding: 5px 10px; border-radius: 6px;
+    font-size: 11.5px; cursor: pointer; font-family: inherit;
+  }
+  .header-preview-del:hover { color: #a8422d; border-color: #a8422d; }
   .add-var-btn:hover { background: var(--panel); }
 
   /* Botones editor (for 'botones' type) */
@@ -1063,10 +1100,20 @@
               </select>
             </div>
             <div class="form-field">
-              <label>URL del header</label>
-              <input type="text" id="f-header-url"
-                     placeholder="https://... o /static/images/...">
-              <div class="form-help">URL pública que Meta pueda descargar al enviar.</div>
+              <label>Archivo multimedia</label>
+              <!-- input oculto que guarda la URL final después del upload -->
+              <input type="hidden" id="f-header-url" value="">
+              <!-- input file oculto que dispara el upload al cambiar -->
+              <input type="file" id="f-header-file" accept="image/*,video/*,application/pdf"
+                     style="display:none" onchange="subirHeaderFile(this)">
+              <div id="header-upload-wrap">
+                <button type="button" class="upload-btn"
+                        onclick="document.getElementById('f-header-file').click()">
+                  📎 Subir archivo
+                </button>
+                <div id="header-preview" hidden></div>
+              </div>
+              <div class="form-help">Imágenes, videos o PDFs. Máx 16MB.</div>
             </div>
             <div class="form-field">
               <label>Nombre visible</label>
@@ -1625,6 +1672,13 @@
       document.getElementById('f-header-type').value = t.header.type || 'image';
       document.getElementById('f-header-url').value = t.header.url || '';
       document.getElementById('f-header-label').value = t.header.label || '';
+      if (t.header.url) {
+        // Re-renderiza la preview card con el archivo ya existente
+        var btn = document.querySelector('#header-upload-wrap .upload-btn');
+        if (btn) btn.innerHTML = '📎 Reemplazar archivo';
+        renderHeaderPreview(t.header.url, t.header.type || 'image',
+                            t.header.label || t.header.url.split('/').pop());
+      }
     }
     if (t.tipo === 'botones') {
       document.getElementById('btn-list').innerHTML = '';
@@ -1684,6 +1738,11 @@
      'f-catalog-id','f-catalog-parent','f-reco'].forEach(function(id) {
       var el = document.getElementById(id); if (el) el.value = '';
     });
+    // Reset del preview + botón del header multimedia
+    var hpBox = document.getElementById('header-preview');
+    if (hpBox) { hpBox.hidden = true; hpBox.innerHTML = ''; hpBox.className = ''; }
+    var hUpBtn = document.querySelector('#header-upload-wrap .upload-btn');
+    if (hUpBtn) hUpBtn.innerHTML = '📎 Subir archivo';
     tplVars = [];
     renderVarPalette();
     renderVarRef();
@@ -1833,6 +1892,83 @@
       };
     });
     renderVarRef();
+  }
+
+  // ----- Upload de header multimedia --------------------------------------
+  function subirHeaderFile(input) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('archivo', file);
+
+    var btn = document.querySelector('#header-upload-wrap .upload-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Subiendo...'; }
+
+    fetch('/panel/petra/v2/difusiones/upload_header', { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (btn) { btn.disabled = false; btn.innerHTML = '📎 Reemplazar archivo'; }
+        if (!ok) { alert('Error: ' + (d.error || 'desconocido')); return; }
+        document.getElementById('f-header-url').value = d.url;
+        // Sincronizar el tipo según lo que detectó el backend
+        var selType = document.getElementById('f-header-type');
+        if (d.type && selType && !selType.value.match(/^(document|location)$/)) {
+          selType.value = d.type;
+        }
+        // Auto-rellenar "Nombre visible" si está vacío
+        var lab = document.getElementById('f-header-label');
+        if (lab && !lab.value.trim() && d.nombre) lab.value = d.nombre;
+        renderHeaderPreview(d.url, selType.value, d.nombre || file.name);
+        renderLivePreview();
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.innerHTML = '📎 Subir archivo'; }
+        alert('Error de red: ' + err);
+      });
+    input.value = '';  // permite subir el mismo archivo otra vez
+  }
+
+  function renderHeaderPreview(url, type, nombre) {
+    var box = document.getElementById('header-preview');
+    if (!url) {
+      box.hidden = true;
+      box.innerHTML = '';
+      return;
+    }
+    box.hidden = false;
+    var thumb = '';
+    if (type === 'image') {
+      thumb = '<img src="' + escapeHtml(url) + '" alt="">';
+    } else if (type === 'video') {
+      thumb = '<video src="' + escapeHtml(url) + '" muted></video>';
+    } else if (type === 'document') {
+      thumb = '📄';
+    } else if (type === 'location') {
+      thumb = '📍';
+    } else {
+      thumb = '📎';
+    }
+    box.className = 'header-preview-card';
+    box.innerHTML =
+      '<div class="header-preview-thumb">' + thumb + '</div>' +
+      '<div class="header-preview-info">' +
+        '<div class="header-preview-name">' + escapeHtml(nombre || 'archivo') + '</div>' +
+        '<div class="header-preview-meta">' + escapeHtml(type) + '</div>' +
+      '</div>' +
+      '<button type="button" class="header-preview-del" onclick="quitarHeaderFile()">Quitar</button>';
+  }
+
+  function quitarHeaderFile() {
+    document.getElementById('f-header-url').value = '';
+    var box = document.getElementById('header-preview');
+    box.hidden = true;
+    box.innerHTML = '';
+    box.className = '';
+    var btn = document.querySelector('#header-upload-wrap .upload-btn');
+    if (btn) btn.innerHTML = '📎 Subir archivo';
+    renderLivePreview();
   }
 
   // ----- Botones editor ----------------------------------------------------
