@@ -1829,7 +1829,7 @@
     if (!meta) return;
     tplVars.push({ source: meta.source, label: meta.label, ejemplo: meta.ejemplo });
     var n = tplVars.length;
-    // OJO: partimos '{' + '{' para evitar que Jinja interprete {{ ... }} aca.
+    // OJO: partimos la cadena en chars sueltos para evitar que Jinja interprete la llave doble aca.
     var token = '{' + '{' + n + '}' + '}';
     var ta = document.getElementById('f-body');
     var start = ta.selectionStart || ta.value.length;
