@@ -1838,9 +1838,15 @@
     var ta = document.getElementById('f-body');
     var start = ta.selectionStart || ta.value.length;
     var end   = ta.selectionEnd   || ta.value.length;
-    ta.value = ta.value.slice(0, start) + token + ta.value.slice(end);
+    var prev  = start > 0 ? ta.value.charAt(start - 1) : ' ';
+    var next  = end < ta.value.length ? ta.value.charAt(end) : ' ';
+    // Espaciado automatico: si pegado a letra/numero, agrega un espacio.
+    var prefix = (/[\wÀ-ɏ]/.test(prev)) ? ' ' : '';
+    var suffix = (/[\wÀ-ɏ]/.test(next)) ? ' ' : '';
+    var insertion = prefix + token + suffix;
+    ta.value = ta.value.slice(0, start) + insertion + ta.value.slice(end);
     ta.focus();
-    var cursor = start + token.length;
+    var cursor = start + insertion.length;
     ta.setSelectionRange(cursor, cursor);
     renderVarRef();
     renderLivePreview();
