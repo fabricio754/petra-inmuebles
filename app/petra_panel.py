@@ -676,25 +676,27 @@ _TIPOS_CONTENIDO = {
 }
 
 
-def _elegir_media_dir():
-    env_dir = os.environ.get("MEDIA_DIR")
-    if env_dir:
-        return env_dir
-    # Probamos crear /var/data/media (disco persistente en prod). Si el
-    # proceso no tiene permisos (típico en staging), caemos a /tmp.
-    for candidato in ("/var/data/media", "/tmp/petra_media"):
+_MEDIA_DIR_ENV = os.environ.get("MEDIA_DIR")
+_MEDIA_DIR_FALLBACK = "/tmp/petra_media"
+_MEDIA_DIR_PREFERIDO = _MEDIA_DIR_ENV or "/var/data/media"
+# Referencia global para que el resto del código la lea. Se puede cambiar
+# en runtime si el preferido deja de ser writable.
+_MEDIA_DIR = _MEDIA_DIR_PREFERIDO
+
+def _media_dir_runtime():
+    """Devuelve el dir donde escribir AHORA. Si el preferido falla, cae a /tmp."""
+    global _MEDIA_DIR
+    try:
+        os.makedirs(_MEDIA_DIR_PREFERIDO, exist_ok=True)
+        _MEDIA_DIR = _MEDIA_DIR_PREFERIDO
+        return _MEDIA_DIR
+    except Exception:
         try:
-            os.makedirs(candidato, exist_ok=True)
-            # Probar que es realmente writable con un touch
-            probe = os.path.join(candidato, ".write_probe")
-            with open(probe, "wb") as f:
-                f.write(b"ok")
-            os.remove(probe)
-            return candidato
+            os.makedirs(_MEDIA_DIR_FALLBACK, exist_ok=True)
+            _MEDIA_DIR = _MEDIA_DIR_FALLBACK
+            return _MEDIA_DIR
         except Exception:
-            continue
-    return "/tmp/petra_media"
-_MEDIA_DIR = _elegir_media_dir()
+            return _MEDIA_DIR_FALLBACK  # se intentará, fallará con log claro
 _MEDIA_MAX_BYTES = 16 * 1024 * 1024  # 16MB (límite WhatsApp)
 _MEDIA_ALLOWED_EXT = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp",  # imágenes
@@ -709,11 +711,12 @@ def _guardar_archivo_media(file_storage, public_base_url=""):
     válido. No propaga excepciones."""
     import os as _os
     import uuid as _uuid
+    media_dir = _media_dir_runtime()
     try:
-        _os.makedirs(_MEDIA_DIR, exist_ok=True)
+        _os.makedirs(media_dir, exist_ok=True)
     except Exception as e:
         logging.getLogger(__name__).exception(
-            "[media] no se pudo crear %s: %s", _MEDIA_DIR, e)
+            "[media] no se pudo crear %s: %s", media_dir, e)
         return None
     nombre = (file_storage.filename or "").strip()
     if not nombre:
@@ -731,7 +734,7 @@ def _guardar_archivo_media(file_storage, public_base_url=""):
     if size > _MEDIA_MAX_BYTES:
         return None
     nuevo = f"{_uuid.uuid4().hex}{ext}"
-    destino = _os.path.join(_MEDIA_DIR, nuevo)
+    destino = _os.path.join(media_dir, nuevo)
     try:
         file_storage.save(destino)
     except Exception as e:
