@@ -1050,7 +1050,10 @@
               <input type="text" id="f-name" placeholder="ej. bienvenida_propietario">
               <div class="form-help">Snake_case, único. Lo verás solo vos, no el destinatario.</div>
             </div>
-            <input type="hidden" id="f-display">
+            <div class="form-field">
+              <label>Nombre visible *</label>
+              <input type="text" id="f-display" placeholder="ej. Bienvenida propietario">
+            </div>
           </div>
 
           <div class="form-row">
@@ -1082,7 +1085,6 @@
           <div class="form-field">
             <label>Variables dinámicas</label>
             <div class="var-palette" id="var-palette"></div>
-            <div class="var-ref" id="var-ref"></div>
           </div>
 
           {# Paneles específicos por tipo #}
@@ -1112,7 +1114,10 @@
               </div>
               <div class="form-help">Imágenes, videos o PDFs. Máx 16MB.</div>
             </div>
-            <input type="hidden" id="f-header-label">
+            <div class="form-field">
+              <label>Nombre visible</label>
+              <input type="text" id="f-header-label" placeholder="ej. Video bienvenida 1 min">
+            </div>
           </div>
 
           <div class="form-pane" id="pane-botones">
@@ -1815,31 +1820,17 @@
     }).join('');
   }
 
-  function renderVarRef() {
-    var el = document.getElementById('var-ref');
-    if (!el) return;
-    if (tplVars.length === 0) {
-      el.innerHTML = '<span class="var-ref-empty">' +
-        'Clickeá un chip de arriba para insertarlo en el cuerpo.' +
-        '</span>';
-      return;
-    }
-    el.innerHTML = tplVars.map(function(v, i) {
-      return '<span class="var-ref-item">' +
-        '<span class="var-ref-num">{{' + (i + 1) + '}}</span>' +
-        '<span class="var-ref-label">' + escapeHtml(v.label) + '</span>' +
-        '<button type="button" class="var-ref-del" title="Quitar"' +
-        ' onclick="quitarVar(' + i + ')">×</button>' +
-      '</span>';
-    }).join('');
-  }
+  // No-op: las cajas de referencia fueron removidas. Se mantiene por
+  // compatibilidad con los callers existentes.
+  function renderVarRef() {}
 
   function insertarVar(source) {
     var meta = VAR_CATALOG.find(function(v) { return v.source === source; });
     if (!meta) return;
     tplVars.push({ source: meta.source, label: meta.label, ejemplo: meta.ejemplo });
     var n = tplVars.length;
-    var token = '{{' + n + '}}';
+    // OJO: partimos '{' + '{' para evitar que Jinja interprete {{ ... }} aca.
+    var token = '{' + '{' + n + '}' + '}';
     var ta = document.getElementById('f-body');
     var start = ta.selectionStart || ta.value.length;
     var end   = ta.selectionEnd   || ta.value.length;
@@ -1860,7 +1851,7 @@
     ta.value = ta.value.replace(/\{\{(\d+)\}\}/g, function(m, n) {
       n = parseInt(n, 10);
       if (n === removedN) return '';
-      if (n > removedN) return '{{' + (n - 1) + '}}';
+      if (n > removedN) return '{' + '{' + (n - 1) + '}' + '}';
       return m;
     });
     renderVarRef();
@@ -2080,7 +2071,7 @@
       var idx = parseInt(n, 10) - 1;
       var v = tplVars[idx];
       if (v && v.ejemplo) return v.ejemplo;
-      return '{{' + n + '}}';
+      return '{' + '{' + n + '}' + '}';
     });
   }
 
@@ -2338,19 +2329,16 @@
   // ----- Guardar -----------------------------------------------------------
   function guardarTemplate() {
     var name = document.getElementById('f-name').value.trim().toLowerCase();
+    var display = document.getElementById('f-display').value.trim();
     var body = document.getElementById('f-body').value.trim();
-    if (!name || !body) {
-      flashError('Completá nombre y cuerpo.');
+    if (!name || !display || !body) {
+      flashError('Completá nombre, nombre visible y cuerpo.');
       return;
     }
     if (!/^[a-z0-9_]+$/.test(name)) {
       flashError('El nombre interno solo acepta minúsculas, dígitos y guión bajo.');
       return;
     }
-    // Derivar el display name del nombre interno (ej. bienvenida_propietario → Bienvenida propietario)
-    var display = name.replace(/_/g, ' ');
-    display = display.charAt(0).toUpperCase() + display.slice(1);
-    document.getElementById('f-display').value = display;
 
     var fd = new FormData();
     fd.append('token', TOKEN);
