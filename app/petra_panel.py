@@ -2,6 +2,7 @@
 agentes, errores de integración). Reutiliza el mismo token del panel
 productivo (?token=<PANEL_TOKEN>)."""
 import os
+import logging
 from flask import Blueprint, render_template, request, redirect, url_for, abort
 
 from app import db as _db
@@ -675,7 +676,9 @@ _TIPOS_CONTENIDO = {
 }
 
 
-_MEDIA_DIR = "/var/data/media"
+_MEDIA_DIR = os.environ.get("MEDIA_DIR") or (
+    "/var/data/media" if os.path.isdir("/var/data") else "/tmp/petra_media"
+)
 _MEDIA_MAX_BYTES = 16 * 1024 * 1024  # 16MB (límite WhatsApp)
 _MEDIA_ALLOWED_EXT = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp",  # imágenes
@@ -692,7 +695,9 @@ def _guardar_archivo_media(file_storage, public_base_url=""):
     import uuid as _uuid
     try:
         _os.makedirs(_MEDIA_DIR, exist_ok=True)
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "[media] no se pudo crear %s: %s", _MEDIA_DIR, e)
         return None
     nombre = (file_storage.filename or "").strip()
     if not nombre:
@@ -713,7 +718,9 @@ def _guardar_archivo_media(file_storage, public_base_url=""):
     destino = _os.path.join(_MEDIA_DIR, nuevo)
     try:
         file_storage.save(destino)
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "[media] save fallo destino=%s err=%s", destino, e)
         return None
     # URL pública relativa (el blueprint tiene url_prefix=/panel/petra, y la
     # ruta `servir_media` responde en /media/<name> → ruta real /panel/petra/media/<name>).
