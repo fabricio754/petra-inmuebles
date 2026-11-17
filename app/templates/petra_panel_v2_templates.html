@@ -662,7 +662,7 @@
 {% set t_cred = templates | selectattr('name', 'equalto', slots.get('credito', ''))     | first | default(none) %}
 
 <div class="tabs">
-  <button class="tab" data-tab="rejected" onclick="cambiarTab('rejected')">
+  <button class="tab active" data-tab="rejected" onclick="cambiarTab('rejected')">
     🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
   </button>
   <button class="tab" data-tab="borradores" onclick="cambiarTab('borradores')">
@@ -674,7 +674,7 @@
   <button class="tab" data-tab="meta" onclick="cambiarTab('meta')">
     ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
   </button>
-  <button class="tab active" data-tab="activados" onclick="cambiarTab('activados')">
+  <button class="tab" data-tab="activados" onclick="cambiarTab('activados')">
     ⚡ Activados <span class="tab-count">(3)</span>
   </button>
   <div class="tabs-right">
@@ -685,7 +685,7 @@
 </div>
 
 {# ─── Tab Activados ────────────────────────────────────────── #}
-<div class="tab-pane active" data-pane="activados">
+<div class="tab-pane" data-pane="activados">
   <p class="activ-intro">
     Cada tarjeta es un momento en el que Petra envía un mensaje automático.
     El template elegido acá es el que se dispara. Cambialo cuando quieras probar
@@ -940,7 +940,7 @@
 </div>
 
 {# ─── Tab Rechazados ────────────────────────────────────────── #}
-<div class="tab-pane" data-pane="rejected">
+<div class="tab-pane active" data-pane="rejected">
   <div id="rejected-loading" class="empty-state">
     <div class="icon">⏳</div>
     <h3>Cargando templates…</h3>
