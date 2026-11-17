@@ -676,9 +676,25 @@ _TIPOS_CONTENIDO = {
 }
 
 
-_MEDIA_DIR = os.environ.get("MEDIA_DIR") or (
-    "/var/data/media" if os.access("/var/data", os.W_OK) else "/tmp/petra_media"
-)
+def _elegir_media_dir():
+    env_dir = os.environ.get("MEDIA_DIR")
+    if env_dir:
+        return env_dir
+    # Probamos crear /var/data/media (disco persistente en prod). Si el
+    # proceso no tiene permisos (típico en staging), caemos a /tmp.
+    for candidato in ("/var/data/media", "/tmp/petra_media"):
+        try:
+            os.makedirs(candidato, exist_ok=True)
+            # Probar que es realmente writable con un touch
+            probe = os.path.join(candidato, ".write_probe")
+            with open(probe, "wb") as f:
+                f.write(b"ok")
+            os.remove(probe)
+            return candidato
+        except Exception:
+            continue
+    return "/tmp/petra_media"
+_MEDIA_DIR = _elegir_media_dir()
 _MEDIA_MAX_BYTES = 16 * 1024 * 1024  # 16MB (límite WhatsApp)
 _MEDIA_ALLOWED_EXT = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp",  # imágenes
