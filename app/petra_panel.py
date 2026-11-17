@@ -677,7 +677,7 @@ _TIPOS_CONTENIDO = {
 
 
 _MEDIA_DIR = os.environ.get("MEDIA_DIR") or (
-    "/var/data/media" if os.path.isdir("/var/data") else "/tmp/petra_media"
+    "/var/data/media" if os.access("/var/data", os.W_OK) else "/tmp/petra_media"
 )
 _MEDIA_MAX_BYTES = 16 * 1024 * 1024  # 16MB (límite WhatsApp)
 _MEDIA_ALLOWED_EXT = {
