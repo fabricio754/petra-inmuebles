@@ -1050,10 +1050,7 @@
               <input type="text" id="f-name" placeholder="ej. bienvenida_propietario">
               <div class="form-help">Snake_case, único. Lo verás solo vos, no el destinatario.</div>
             </div>
-            <div class="form-field">
-              <label>Nombre visible *</label>
-              <input type="text" id="f-display" placeholder="ej. Bienvenida propietario">
-            </div>
+            <input type="hidden" id="f-display">
           </div>
 
           <div class="form-row">
@@ -1114,10 +1111,7 @@
               </div>
               <div class="form-help">Imágenes, videos o PDFs. Máx 16MB.</div>
             </div>
-            <div class="form-field">
-              <label>Nombre visible</label>
-              <input type="text" id="f-header-label" placeholder="ej. Video bienvenida 1 min">
-            </div>
+            <input type="hidden" id="f-header-label">
           </div>
 
           <div class="form-pane" id="pane-botones">
@@ -2339,16 +2333,19 @@
   // ----- Guardar -----------------------------------------------------------
   function guardarTemplate() {
     var name = document.getElementById('f-name').value.trim().toLowerCase();
-    var display = document.getElementById('f-display').value.trim();
     var body = document.getElementById('f-body').value.trim();
-    if (!name || !display || !body) {
-      flashError('Completá nombre, nombre visible y cuerpo.');
+    if (!name || !body) {
+      flashError('Completá nombre y cuerpo.');
       return;
     }
     if (!/^[a-z0-9_]+$/.test(name)) {
       flashError('El nombre interno solo acepta minúsculas, dígitos y guión bajo.');
       return;
     }
+    // Derivar display del nombre interno: bienvenida_propietario → Bienvenida propietario
+    var display = name.replace(/_/g, ' ');
+    display = display.charAt(0).toUpperCase() + display.slice(1);
+    document.getElementById('f-display').value = display;
 
     var fd = new FormData();
     fd.append('token', TOKEN);
