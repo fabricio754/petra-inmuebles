@@ -1859,7 +1859,7 @@
 
   function quitarVar(idx) {
     // Saca la var del state y renumera el body para reflejarlo.
-    // {{idx+1}} desaparece; cualquier {{N>idx+1}} baja 1.
+    // El token (idx+1) desaparece; cualquier N>idx+1 baja 1.
     var removedN = idx + 1;
     tplVars.splice(idx, 1);
     var ta = document.getElementById('f-body');
