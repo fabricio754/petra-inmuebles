@@ -161,7 +161,11 @@
           <div class="row-actions">
             <a class="btn-row" href="/panel/petra/v2/inmuebles?cid={{ c.id }}&token={{ token }}">Ver inmuebles</a>
             <a class="btn-row" href="/panel/petra/v2/conjunto/{{ c.id }}/qr?token={{ token }}">QR</a>
-            <button type="button" class="btn-row" onclick="editar({{ c.id }}, {{ c.nombre|tojson }}, {{ (c.ciudad or '')|tojson }})">Editar</button>
+            <button type="button" class="btn-row"
+                    data-id="{{ c.id }}"
+                    data-nombre="{{ c.nombre }}"
+                    data-ciudad="{{ c.ciudad or '' }}"
+                    onclick="editar(this.dataset.id, this.dataset.nombre, this.dataset.ciudad)">Editar</button>
           </div>
         </td>
       </tr>
