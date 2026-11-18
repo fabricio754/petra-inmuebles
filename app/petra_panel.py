@@ -2,6 +2,7 @@
 agentes, errores de integración). Reutiliza el mismo token del panel
 productivo (?token=<PANEL_TOKEN>)."""
 import os
+import logging
 from flask import Blueprint, render_template, request, redirect, url_for, abort
 
 from app import db as _db
@@ -675,24 +676,89 @@ _TIPOS_CONTENIDO = {
 }
 
 
-_MEDIA_DIR = "/var/data/media"
+_MEDIA_DIR_ENV = os.environ.get("MEDIA_DIR")
+_MEDIA_DIR_FALLBACK = "/tmp/petra_media"
+_MEDIA_DIR_PREFERIDO = _MEDIA_DIR_ENV or "/var/data/media"
+# Referencia global para que el resto del código la lea. Se puede cambiar
+# en runtime si el preferido deja de ser writable.
+_MEDIA_DIR = _MEDIA_DIR_PREFERIDO
+
+def _media_dir_runtime():
+    """Devuelve el dir donde escribir AHORA. Si el preferido falla, cae a /tmp."""
+    global _MEDIA_DIR
+    try:
+        os.makedirs(_MEDIA_DIR_PREFERIDO, exist_ok=True)
+        _MEDIA_DIR = _MEDIA_DIR_PREFERIDO
+        return _MEDIA_DIR
+    except Exception:
+        try:
+            os.makedirs(_MEDIA_DIR_FALLBACK, exist_ok=True)
+            _MEDIA_DIR = _MEDIA_DIR_FALLBACK
+            return _MEDIA_DIR
+        except Exception:
+            return _MEDIA_DIR_FALLBACK  # se intentará, fallará con log claro
 _MEDIA_MAX_BYTES = 16 * 1024 * 1024  # 16MB (límite WhatsApp)
 _MEDIA_ALLOWED_EXT = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp",  # imágenes
     ".mp4", ".mov", ".avi", ".webm", ".mkv",   # videos
+    ".pdf",                                     # documentos
 }
 
 
+def _subir_media_a_github(contenido_bytes, filename):
+    """Sube un archivo al repo de GitHub configurado y devuelve la URL raw
+    pública. Devuelve None si falta configuración o la API falla.
+
+    Requiere env vars:
+      MEDIA_BACKEND=github
+      GITHUB_MEDIA_REPO=owner/repo
+      GITHUB_MEDIA_BRANCH=nombre_rama
+      GITHUB_MEDIA_TOKEN=github_pat_...
+    """
+    import base64 as _b64
+    import requests as _rq
+    repo = os.environ.get("GITHUB_MEDIA_REPO", "").strip()
+    branch = os.environ.get("GITHUB_MEDIA_BRANCH", "").strip() or "main"
+    token = os.environ.get("GITHUB_MEDIA_TOKEN", "").strip()
+    if not (repo and token):
+        logging.getLogger(__name__).error(
+            "[media] backend=github pero falta GITHUB_MEDIA_REPO o _TOKEN")
+        return None
+    folder = os.environ.get("GITHUB_MEDIA_FOLDER", "media-templates").strip("/") or "media-templates"
+    path = f"{folder}/{filename}"
+    url_api = f"https://api.github.com/repos/{repo}/contents/{path}"
+    payload = {
+        "message": f"upload media: {filename}",
+        "content": _b64.b64encode(contenido_bytes).decode("ascii"),
+        "branch": branch,
+    }
+    try:
+        r = _rq.put(
+            url_api,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=30,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).exception("[media] github PUT fallo: %s", e)
+        return None
+    if r.status_code not in (200, 201):
+        logging.getLogger(__name__).error(
+            "[media] github PUT status=%s body=%s", r.status_code, r.text[:500])
+        return None
+    # La URL raw sirve el archivo directamente, sin pasar por la app.
+    return f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+
+
 def _guardar_archivo_media(file_storage, public_base_url=""):
-    """Guarda un archivo subido en /var/data/media con nombre uuid+ext.
-    Devuelve URL pública relativa (/petra/media/<name>) o None si no es
-    válido. No propaga excepciones."""
+    """Guarda un archivo subido y devuelve URL pública (GitHub raw, disco
+    local, o None). No propaga excepciones."""
     import os as _os
     import uuid as _uuid
-    try:
-        _os.makedirs(_MEDIA_DIR, exist_ok=True)
-    except Exception:
-        return None
     nombre = (file_storage.filename or "").strip()
     if not nombre:
         return None
@@ -709,10 +775,37 @@ def _guardar_archivo_media(file_storage, public_base_url=""):
     if size > _MEDIA_MAX_BYTES:
         return None
     nuevo = f"{_uuid.uuid4().hex}{ext}"
-    destino = _os.path.join(_MEDIA_DIR, nuevo)
+
+    # Backend GitHub: commitea al repo y devuelve raw URL.
+    backend = (os.environ.get("MEDIA_BACKEND") or "").strip().lower()
+    if backend == "github":
+        try:
+            contenido = file_storage.stream.read()
+            file_storage.stream.seek(0)
+        except Exception as e:
+            logging.getLogger(__name__).exception(
+                "[media] no se pudo leer stream: %s", e)
+            return None
+        url_raw = _subir_media_a_github(contenido, nuevo)
+        if url_raw:
+            return url_raw
+        logging.getLogger(__name__).warning(
+            "[media] backend=github fallo; cayendo a disco local")
+
+    # Backend disco: guarda en _MEDIA_DIR runtime.
+    media_dir = _media_dir_runtime()
+    try:
+        _os.makedirs(media_dir, exist_ok=True)
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "[media] no se pudo crear %s: %s", media_dir, e)
+        return None
+    destino = _os.path.join(media_dir, nuevo)
     try:
         file_storage.save(destino)
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "[media] save fallo destino=%s err=%s", destino, e)
         return None
     # URL pública relativa (el blueprint tiene url_prefix=/panel/petra, y la
     # ruta `servir_media` responde en /media/<name> → ruta real /panel/petra/media/<name>).
@@ -3838,21 +3931,75 @@ def _var_value_for(inmueble, source, conjunto_nombre=""):
     Si la fuente no existe en los datos, devuelve un fallback razonable
     (nunca string vacío — Meta rechaza templates con variables vacías).
     """
+    # --- Conjunto / ubicación ---
     if source == "conjunto_nombre":
         return conjunto_nombre or inmueble.get("conjunto_nombre") or "tu conjunto"
+    if source == "ciudad":
+        return inmueble.get("ciudad") or inmueble.get("conjunto_ciudad") or "tu ciudad"
+    if source == "barrio":
+        return inmueble.get("barrio") or "—"
+    if source == "direccion":
+        return inmueble.get("direccion") or "—"
+    if source == "estrato":
+        v = inmueble.get("estrato")
+        return str(v) if v not in (None, "") else "—"
+
+    # --- Apto ---
     if source == "codigo":
         iid = inmueble.get("id")
         return f"P{iid:04d}" if isinstance(iid, int) else "P0000"
-    if source == "tipo":
-        return (inmueble.get("tipo") or "inmueble").lower()
-    if source == "propietario_nombre":
-        # No tenemos este campo en inmuebles_visitante. Fallback neutro.
-        return "propietario"
+    if source == "torre":
+        return inmueble.get("torre") or "—"
+    if source == "piso":
+        return inmueble.get("piso") or "—"
     if source == "url_publicacion":
         iid = inmueble.get("id")
         code = f"P{iid:04d}" if isinstance(iid, int) else "P0000"
         # Link a Petra Bot para que el anunciante consulte su publicación.
         return f"https://wa.me/573001278631?text=Quiero%20ver%20mi%20publicacion%20{code}"
+
+    # --- Características del inmueble ---
+    if source == "tipo":
+        return (inmueble.get("tipo") or "inmueble").lower()
+    if source == "operacion":
+        return (inmueble.get("operacion") or "").lower() or "—"
+    if source == "habitaciones":
+        v = inmueble.get("habitaciones")
+        return str(v) if v not in (None, "") else "—"
+    if source == "banos":
+        v = inmueble.get("banos")
+        return str(v) if v not in (None, "") else "—"
+    if source == "m2":
+        v = inmueble.get("m2")
+        return str(v) if v not in (None, "") else "—"
+    if source == "precio":
+        v = inmueble.get("precio")
+        if v in (None, "", 0):
+            return "—"
+        try:
+            return "${:,.0f}".format(float(v)).replace(",", ".")
+        except (ValueError, TypeError):
+            return str(v)
+    if source == "parqueadero":
+        v = inmueble.get("parqueadero")
+        if v is True:
+            return "Sí"
+        if v is False:
+            return "No"
+        return "—"
+
+    # --- Propietario ---
+    if source == "propietario_nombre":
+        return inmueble.get("propietario_nombre") or "propietario"
+    if source == "propietario_telefono":
+        return inmueble.get("propietario_telefono") or "—"
+
+    # --- Petra ---
+    if source == "agente_nombre":
+        return inmueble.get("agente_nombre") or "Petra"
+    if source == "fecha_visita":
+        return inmueble.get("fecha_visita") or "—"
+
     return ""
 
 
@@ -4113,16 +4260,47 @@ def panel_v2_numeros_callback():
         _lg.getLogger(__name__).exception("[numeros] exchange code fallo")
         return jsonify({"error": f"exchange_error:{type(e).__name__}"}), 500
 
-    # Si no vino phone/waba del postMessage, descubrir vía Graph API
+    # Diagnóstico del token: muestra qué scopes tiene y qué user/business
+    # autorizó la app. Vital si el descubrimiento de WABAs falla.
+    try:
+        import requests
+        dbg = requests.get(
+            "https://graph.facebook.com/v22.0/debug_token",
+            params={
+                "input_token": access_token,
+                # Para debug_token el access_token tiene que ser APP token.
+                # Usamos "app_id|app_secret" como access_token (app access token).
+                "access_token": f"{app_id}|{(os.environ.get('META_APP_SECRET') or '').strip()}",
+            },
+            timeout=10,
+        )
+        import logging as _lg
+        _lg.getLogger(__name__).info("[numeros] debug_token: %s", str(dbg.json())[:1500])
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] debug_token fallo (no crítico)")
+
+    # Si no vino phone/waba del postMessage, descubrir vía Graph API.
+    # Para Coexistence los assets pueden venir como "shared" en vez de
+    # "owned" si el usuario conectó un número que no es "dueño" directo
+    # del business — por eso pedimos los dos.
     discovered = None
     if not phone_number_id or not waba_id:
         try:
             import requests
-            # Query the WABAs the user granted access to
             r = requests.get(
                 "https://graph.facebook.com/v22.0/me",
                 params={
-                    "fields": "businesses{owned_whatsapp_business_accounts{id,name,phone_numbers{id,display_phone_number,verified_name}}}",
+                    "fields": (
+                        "businesses{"
+                        "owned_whatsapp_business_accounts{"
+                        "id,name,phone_numbers{id,display_phone_number,verified_name}"
+                        "},"
+                        "client_whatsapp_business_accounts{"
+                        "id,name,phone_numbers{id,display_phone_number,verified_name}"
+                        "}"
+                        "}"
+                    ),
                     "access_token": access_token,
                 },
                 timeout=15,
@@ -4130,21 +4308,26 @@ def panel_v2_numeros_callback():
             discovered = r.json()
             import logging as _lg
             _lg.getLogger(__name__).info("[numeros] descubrimiento WABAs: %s",
-                                         str(discovered)[:1500])
-            # Si tenemos UNA sola WABA con UN solo número, auto-usar
+                                         str(discovered)[:2000])
+            # Si tenemos UNA sola WABA con UN solo número, auto-usar.
+            # Buscamos en ambas listas: owned + client.
             try:
                 biz = (discovered.get("businesses") or {}).get("data") or []
                 for b in biz:
-                    wabas = (b.get("owned_whatsapp_business_accounts") or {}).get("data") or []
-                    for w in wabas:
-                        phones = (w.get("phone_numbers") or {}).get("data") or []
-                        for p in phones:
-                            if not waba_id:
-                                waba_id = w.get("id")
-                            if not phone_number_id:
-                                phone_number_id = p.get("id")
-                                phone_e164 = p.get("display_phone_number") or phone_e164
-                                display_name = p.get("verified_name") or display_name
+                    for lista_key in ("owned_whatsapp_business_accounts",
+                                      "client_whatsapp_business_accounts"):
+                        wabas = (b.get(lista_key) or {}).get("data") or []
+                        for w in wabas:
+                            phones = (w.get("phone_numbers") or {}).get("data") or []
+                            for p in phones:
+                                if not waba_id:
+                                    waba_id = w.get("id")
+                                if not phone_number_id:
+                                    phone_number_id = p.get("id")
+                                    phone_e164 = p.get("display_phone_number") or phone_e164
+                                    display_name = p.get("verified_name") or display_name
+                                if waba_id and phone_number_id:
+                                    break
                             if waba_id and phone_number_id:
                                 break
                         if waba_id and phone_number_id:
@@ -4959,15 +5142,33 @@ def panel_v2_difusiones_upload_header():
     if not file or not file.filename:
         return jsonify({"error": "sin archivo"}), 400
 
-    url = _guardar_archivo_media(file)
-    if not url:
+    # Validar tipo y tamaño ANTES de intentar guardar para dar mensajes claros
+    ext = _os.path.splitext(file.filename.lower())[1]
+    if ext not in _MEDIA_ALLOWED_EXT:
         return jsonify({
-            "error": "archivo inválido (máx 16MB, jpg/png/webp/gif o mp4/mov/webm)"
+            "error": f"tipo de archivo no permitido ({ext or 'sin extensión'}). "
+                     "Permitidos: jpg, png, webp, gif, mp4, mov, webm, pdf."
+        }), 400
+    try:
+        file.stream.seek(0, 2)
+        tam = file.stream.tell()
+        file.stream.seek(0)
+    except Exception:
+        tam = 0
+    if tam > _MEDIA_MAX_BYTES:
+        mb = tam / (1024 * 1024)
+        return jsonify({
+            "error": f"archivo demasiado grande ({mb:.1f} MB). Máximo 16 MB."
         }), 400
 
-    ext = _os.path.splitext(file.filename.lower())[1]
+    url = _guardar_archivo_media(file)
+    if not url:
+        return jsonify({"error": "no se pudo guardar el archivo en el servidor."}), 500
+
     if ext in (".mp4", ".mov", ".avi", ".webm", ".mkv"):
         header_type = "video"
+    elif ext == ".pdf":
+        header_type = "document"
     else:
         header_type = "image"
 
@@ -4975,6 +5176,7 @@ def panel_v2_difusiones_upload_header():
         "url": url,
         "type": header_type,
         "nombre": file.filename,
+        "size": tam,
     })
 
 
@@ -5234,6 +5436,37 @@ def _conjunto_editar_redirect(token, flash):
                                 token=token, flash=flash))
     return redirect(url_for("petra_panel.visitante_conjuntos",
                             token=token, flash=flash))
+
+
+@petra_panel_bp.post("/v2/conjuntos/<int:cid>/toggle-conectado")
+def panel_v2_conjunto_toggle_conectado(cid):
+    """Togglea el flag qr_instalado del conjunto. Marca/desmarca el chip
+    'Conectado' en la lista. Devuelve el nuevo estado."""
+    _check_token()
+    from flask import jsonify
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "UPDATE conjuntos_visitante "
+                "   SET qr_instalado = NOT qr_instalado, "
+                "       qr_instalado_en = CASE WHEN NOT qr_instalado "
+                "                               THEN NOW() ELSE NULL END "
+                " WHERE id = %s "
+                " RETURNING qr_instalado, qr_instalado_en",
+                (cid,),
+            ).fetchone()
+            conn.commit()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+        return jsonify({
+            "ok": True,
+            "qr_instalado": bool(row[0]),
+            "qr_instalado_en": row[1].isoformat() if row[1] else None,
+        })
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[conjuntos] toggle conectado fallo")
+        return jsonify({"error": "db_error"}), 500
 
 
 @petra_panel_bp.get("/visitante/conjuntos/<int:cid>/qr")
@@ -5994,6 +6227,7 @@ def panel_v2_conjuntos():
     with _db._conexion_directa(timeout=10) as conn:
         conjuntos = _rows(conn,
             "SELECT c.id, c.codigo, c.nombre, c.ciudad, c.creado_en, "
+            "       c.qr_instalado, c.qr_instalado_en, "
             "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='arriendo' "
             "                          THEN 1 ELSE 0 END), 0) AS arr_activos, "
             "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='venta' "

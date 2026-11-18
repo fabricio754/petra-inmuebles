@@ -87,6 +87,32 @@
   .btn-row:hover { border-color: var(--accent); }
 
   .empty { padding: 50px; text-align: center; color: var(--text-sub); font-size: 13px; }
+
+  /* Chip "Conectado" (toggle para marcar QR instalado) */
+  .chip-conectado {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 11px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+    font-family: inherit; cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--text-sub); transition: all 120ms;
+    white-space: nowrap;
+  }
+  .chip-conectado:hover {
+    border-color: var(--accent); color: var(--text);
+  }
+  .chip-conectado.on {
+    background: #dcfce7; color: #166534; border-color: #86efac;
+  }
+  .chip-conectado.on:hover {
+    background: #bbf7d0; border-color: #4ade80;
+  }
+  :root[data-theme="dark"] .chip-conectado.on {
+    background: #052e16; color: #86efac; border-color: #166534;
+  }
+  :root[data-theme="dark"] .chip-conectado.on:hover {
+    background: #14532d; border-color: #22c55e;
+  }
 </style>
 
 <div class="hero">
@@ -140,6 +166,7 @@
         <th>Nombre</th>
         <th>Ciudad</th>
         <th>Inmuebles activos</th>
+        <th>QR</th>
         <th>Creado</th>
         <th>Acciones</th>
       </tr>
@@ -154,6 +181,15 @@
           <span class="tag arr">Arr {{ c.arr_activos }}</span>
           <span class="tag ven">Ven {{ c.ven_activos }}</span>
         </td>
+        <td>
+          <button type="button"
+                  class="chip-conectado{% if c.qr_instalado %} on{% endif %}"
+                  data-id="{{ c.id }}"
+                  title="Clic para {% if c.qr_instalado %}desmarcar{% else %}marcar{% endif %} como conectado"
+                  onclick="toggleConectado(this)">
+            {% if c.qr_instalado %}✓ Conectado{% else %}○ No conectado{% endif %}
+          </button>
+        </td>
         <td style="color:var(--text-sub);font-size:12px">
           {% if c.creado_en %}{{ c.creado_en.strftime('%Y-%m-%d') }}{% else %}—{% endif %}
         </td>
@@ -161,7 +197,11 @@
           <div class="row-actions">
             <a class="btn-row" href="/panel/petra/v2/inmuebles?cid={{ c.id }}&token={{ token }}">Ver inmuebles</a>
             <a class="btn-row" href="/panel/petra/v2/conjunto/{{ c.id }}/qr?token={{ token }}">QR</a>
-            <button type="button" class="btn-row" onclick="editar({{ c.id }}, {{ c.nombre|tojson }}, {{ (c.ciudad or '')|tojson }})">Editar</button>
+            <button type="button" class="btn-row"
+                    data-id="{{ c.id }}"
+                    data-nombre="{{ c.nombre }}"
+                    data-ciudad="{{ c.ciudad or '' }}"
+                    onclick="editar(this.dataset.id, this.dataset.nombre, this.dataset.ciudad)">Editar</button>
           </div>
         </td>
       </tr>
@@ -210,6 +250,41 @@ function editar(id, nombre, ciudad) {
   document.getElementById('ed-nombre').value = nombre || '';
   document.getElementById('ed-ciudad').value = ciudad || '';
   document.getElementById('dlg-editar').showModal();
+}
+
+function toggleConectado(btn) {
+  var id = btn.dataset.id;
+  var token = {{ token|tojson }};
+  var original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '...';
+  var fd = new FormData();
+  fd.append('token', token);
+  fetch('/panel/petra/v2/conjuntos/' + id + '/toggle-conectado',
+        { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      btn.disabled = false;
+      if (d.ok) {
+        if (d.qr_instalado) {
+          btn.classList.add('on');
+          btn.innerHTML = '✓ Conectado';
+          btn.title = 'Clic para desmarcar como conectado';
+        } else {
+          btn.classList.remove('on');
+          btn.innerHTML = '○ No conectado';
+          btn.title = 'Clic para marcar como conectado';
+        }
+      } else {
+        btn.innerHTML = original;
+        alert('Error: ' + (d.error || 'desconocido'));
+      }
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.innerHTML = original;
+      alert('Error de red: ' + err);
+    });
 }
 </script>
 

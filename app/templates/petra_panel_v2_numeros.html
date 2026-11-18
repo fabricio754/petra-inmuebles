@@ -203,9 +203,14 @@
     try {
       var data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
       console.log('[WA_DEBUG] parsed FB data:', data);
+      // En Coexistence el evento final NO es siempre 'FINISH' — puede ser
+      // 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING' u otros según el flow.
       if (data && data.type === 'WA_EMBEDDED_SIGNUP') {
-        window._wa_signup_data = data.data || {};
-        console.log('[WA_DEBUG] WA_EMBEDDED_SIGNUP capturado:', window._wa_signup_data);
+        var payload = data.data || {};
+        console.log('[WA_DEBUG] WA_EMBEDDED_SIGNUP event=' + payload.event, payload);
+        // Acumular cualquier payload con info útil (varios eventos pueden
+        // traer datos parciales que después hay que mergear).
+        window._wa_signup_data = Object.assign(window._wa_signup_data || {}, payload);
       }
     } catch (err) { /* no era JSON */ }
   });
@@ -216,41 +221,58 @@
     window._wa_all_messages = [];
     console.log('[WA_DEBUG] Lanzando FB.login con config_id=' + CONFIG_ID);
 
-    FB.login(function(response) {
-      console.log('[WA_DEBUG] FB.login callback response:', response);
-      console.log('[WA_DEBUG] window._wa_signup_data:', window._wa_signup_data);
-      console.log('[WA_DEBUG] todos los postMessages capturados:', window._wa_all_messages);
+    // Forzar re-autorización: si Meta tiene sesión FB previa cacheada
+    // (porque ya autorizaste la app antes), FB.login salta directo al
+    // "done" sin disparar el wizard de WhatsApp/QR. auth_type:reauthorize
+    // obliga a Meta a re-correr el flujo completo cada vez.
+    //
+    // Además hacemos un FB.logout previo si hay sesión, para limpiar
+    // el estado antes de arrancar.
+    FB.getLoginStatus(function(statusResp) {
+      console.log('[WA_DEBUG] FB status pre-login:', statusResp && statusResp.status);
+      var launch = function() {
+        FB.login(function(response) {
+          console.log('[WA_DEBUG] FB.login callback response:', response);
+          console.log('[WA_DEBUG] window._wa_signup_data:', window._wa_signup_data);
+          console.log('[WA_DEBUG] todos los postMessages:', window._wa_all_messages);
 
-      if (!response.authResponse || !response.authResponse.code) {
-        alert('FB.login no devolvió un code. status=' + response.status +
-              '. Ver consola para detalles.');
-        return;
-      }
-      var code = response.authResponse.code;
-      var signup = window._wa_signup_data || {};
-      var phone_number_id = signup.phone_number_id || '';
-      var waba_id = signup.waba_id || '';
+          if (!response.authResponse || !response.authResponse.code) {
+            alert('FB.login no devolvió un code. status=' + response.status +
+                  '. Ver consola para detalles.');
+            return;
+          }
+          var code = response.authResponse.code;
+          var signup = window._wa_signup_data || {};
+          var phone_number_id = signup.phone_number_id || signup.primary_waac_id || '';
+          var waba_id = signup.waba_id || signup.business_id || '';
 
-      if (!phone_number_id || !waba_id) {
-        // Fallback: mandar el code igual al backend para que descubra WABAs
-        // vía Graph API con el token intercambiado. Permite diagnóstico.
-        if (confirm('Meta no devolvió phone/waba en el postMessage.\n\n' +
-                    '¿Mandar el code al backend igual para descubrir WABAs del usuario?\n\n' +
-                    'Ver consola para ver todos los postMessages recibidos.')) {
-          enviarCallback(code, '', '');
-        }
-        return;
+          if (!phone_number_id || !waba_id) {
+            if (confirm('Meta no devolvió phone/waba en el postMessage.\n\n' +
+                        '¿Mandar el code al backend igual para descubrir WABAs?\n\n' +
+                        'Ver consola para los postMessages recibidos.')) {
+              enviarCallback(code, '', '');
+            }
+            return;
+          }
+          enviarCallback(code, phone_number_id, waba_id);
+        }, {
+          config_id: CONFIG_ID,
+          response_type: 'code',
+          override_default_response_type: true,
+          auth_type: 'reauthorize',
+          extras: {
+            setup: {},
+            featureType: 'whatsapp_business_app_onboarding',
+            sessionInfoVersion: '3',
+          },
+        });
+      };
+      if (statusResp && statusResp.status === 'connected') {
+        console.log('[WA_DEBUG] FB ya conectado, hago logout para forzar flow limpio');
+        FB.logout(function() { setTimeout(launch, 200); });
+      } else {
+        launch();
       }
-      enviarCallback(code, phone_number_id, waba_id);
-    }, {
-      config_id: CONFIG_ID,
-      response_type: 'code',
-      override_default_response_type: true,
-      extras: {
-        setup: {},
-        featureType: 'whatsapp_business_app_onboarding',
-        sessionInfoVersion: '3',
-      },
     });
   }
 

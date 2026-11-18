@@ -354,34 +354,97 @@
     font-family: ui-monospace, monospace; color: var(--accent); font-size: 11.5px;
   }
 
-  /* Variables editor */
-  .var-list { display: flex; flex-direction: column; gap: 6px; }
-  .var-row {
-    display: grid; grid-template-columns: 50px 1fr 1fr 1fr auto;
-    gap: 8px; align-items: center;
+  /* Variables editor — catálogo (chips) + referencia compacta */
+  .var-palette {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 10px;
   }
-  .var-row .num {
-    font-family: ui-monospace, monospace;
-    text-align: center; font-size: 12.5px; color: var(--text-sub);
-    background: var(--bg); padding: 6px 0; border-radius: 6px;
+  .var-chip {
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 12px; border-radius: 999px;
+    font-family: inherit; font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all 120ms;
+    display: inline-flex; align-items: center; gap: 4px;
   }
-  .var-row input {
-    padding: 7px 10px; font-size: 13px; border: 1px solid var(--border);
-    border-radius: 6px; background: var(--panel); color: var(--text);
-    box-sizing: border-box; width: 100%;
+  .var-chip::before {
+    content: "+"; color: var(--accent); font-weight: 700;
+  }
+  .var-chip:hover {
+    border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  }
+  .var-ref {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    min-height: 32px; padding: 8px 10px;
+    background: var(--bg); border-radius: 8px;
+    border: 1px dashed var(--border);
+  }
+  .var-ref-empty {
+    color: var(--text-sub); font-size: 11.5px; font-style: italic;
+    padding: 2px 4px;
+  }
+  .var-ref-item {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 3px 4px 3px 10px; border-radius: 999px;
+    font-size: 12px;
+  }
+  .var-ref-num {
+    font-family: ui-monospace, monospace; color: var(--accent);
+    font-weight: 600; font-size: 11px;
+  }
+  .var-ref-label { color: var(--text); font-weight: 500; }
+  .var-ref-del {
+    background: var(--bg); border: 0; color: var(--text-sub);
+    width: 20px; height: 20px; border-radius: 50%;
+    cursor: pointer; display: grid; place-items: center;
+    font-size: 13px; line-height: 1; padding: 0;
     font-family: inherit;
   }
-  .var-row .del-btn {
-    background: transparent; border: 0; color: var(--text-sub);
-    font-size: 16px; cursor: pointer; padding: 4px 8px;
-  }
-  .var-row .del-btn:hover { color: #a8422d; }
+  .var-ref-del:hover { background: #faeae5; color: #a8422d; }
+  /* Mantenemos .add-var-btn porque la usa el editor de botones */
   .add-var-btn {
     background: var(--bg); border: 1px dashed var(--border);
     color: var(--accent); padding: 8px 12px; border-radius: 8px;
     font-size: 12.5px; cursor: pointer; font-weight: 500;
     align-self: flex-start;
   }
+
+  /* Upload de header multimedia */
+  .upload-btn {
+    background: var(--panel); border: 1px dashed var(--border);
+    color: var(--text); padding: 10px 14px; border-radius: 8px;
+    font-size: 13px; cursor: pointer; font-family: inherit;
+    font-weight: 500; transition: all 120ms;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .upload-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .upload-btn:disabled { opacity: 0.5; cursor: wait; }
+  .header-preview-card {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px;
+    margin-top: 8px;
+  }
+  .header-preview-thumb {
+    width: 54px; height: 54px; border-radius: 8px;
+    background: var(--panel); display: grid; place-items: center;
+    font-size: 24px; overflow: hidden; flex-shrink: 0;
+  }
+  .header-preview-thumb img, .header-preview-thumb video {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .header-preview-info { flex: 1; min-width: 0; }
+  .header-preview-name {
+    font-size: 13px; font-weight: 500; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .header-preview-meta { font-size: 11px; color: var(--text-sub); }
+  .header-preview-del {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-sub); padding: 5px 10px; border-radius: 6px;
+    font-size: 11.5px; cursor: pointer; font-family: inherit;
+  }
+  .header-preview-del:hover { color: #a8422d; border-color: #a8422d; }
   .add-var-btn:hover { background: var(--panel); }
 
   /* Botones editor (for 'botones' type) */
@@ -662,20 +725,20 @@
 {% set t_cred = templates | selectattr('name', 'equalto', slots.get('credito', ''))     | first | default(none) %}
 
 <div class="tabs">
-  <button class="tab active" data-tab="activados" onclick="cambiarTab('activados')">
-    ⚡ Activados <span class="tab-count">(3)</span>
+  <button class="tab active" data-tab="rejected" onclick="cambiarTab('rejected')">
+    🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
   </button>
   <button class="tab" data-tab="borradores" onclick="cambiarTab('borradores')">
     📋 Borradores <span class="tab-count">({{ templates|length }})</span>
   </button>
-  <button class="tab" data-tab="meta" onclick="cambiarTab('meta')">
-    ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
-  </button>
   <button class="tab" data-tab="waiting" onclick="cambiarTab('waiting')">
     ⏳ Esperando aprobación <span class="tab-count" id="tab-waiting-count">(…)</span>
   </button>
-  <button class="tab" data-tab="rejected" onclick="cambiarTab('rejected')">
-    🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
+  <button class="tab" data-tab="meta" onclick="cambiarTab('meta')">
+    ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
+  </button>
+  <button class="tab" data-tab="activados" onclick="cambiarTab('activados')">
+    ⚡ Activados <span class="tab-count">(3)</span>
   </button>
   <div class="tabs-right">
     <button class="btn-sync" id="btn-sync" onclick="sincronizarMeta(true)" hidden>
@@ -685,7 +748,7 @@
 </div>
 
 {# ─── Tab Activados ────────────────────────────────────────── #}
-<div class="tab-pane active" data-pane="activados">
+<div class="tab-pane" data-pane="activados">
   <p class="activ-intro">
     Cada tarjeta es un momento en el que Petra envía un mensaje automático.
     El template elegido acá es el que se dispara. Cambialo cuando quieras probar
@@ -940,7 +1003,7 @@
 </div>
 
 {# ─── Tab Rechazados ────────────────────────────────────────── #}
-<div class="tab-pane" data-pane="rejected">
+<div class="tab-pane active" data-pane="rejected">
   <div id="rejected-loading" class="empty-state">
     <div class="icon">⏳</div>
     <h3>Cargando templates…</h3>
@@ -1012,20 +1075,7 @@
             </div>
           </div>
 
-          <div class="form-field">
-            <label>Cuerpo del mensaje *</label>
-            <textarea id="f-body" placeholder="Hola {{'{{1}}'}}, ..."></textarea>
-            <div class="form-help">Usá <code>{{'{{1}}'}}, {{'{{2}}'}}</code>, etc. para variables dinámicas.
-              Markdown básico WhatsApp: <code>*negrita*</code>, <code>_cursiva_</code>.</div>
-          </div>
-
-          <div class="form-field">
-            <label>Variables</label>
-            <div class="var-list" id="var-list"></div>
-            <button type="button" class="add-var-btn" onclick="agregarVariable()">+ Agregar variable</button>
-          </div>
-
-          {# Paneles específicos por tipo #}
+          {# Paneles específicos por tipo — multimedia va arriba del body #}
           <div class="form-pane" id="pane-multimedia">
             <div class="form-field">
               <label>Tipo de header</label>
@@ -1037,15 +1087,34 @@
               </select>
             </div>
             <div class="form-field">
-              <label>URL del header</label>
-              <input type="text" id="f-header-url"
-                     placeholder="https://... o /static/images/...">
-              <div class="form-help">URL pública que Meta pueda descargar al enviar.</div>
+              <label>Archivo multimedia</label>
+              <!-- input oculto que guarda la URL final después del upload -->
+              <input type="hidden" id="f-header-url" value="">
+              <!-- input file oculto que dispara el upload al cambiar -->
+              <input type="file" id="f-header-file" accept="image/*,video/*,application/pdf"
+                     style="display:none" onchange="subirHeaderFile(this)">
+              <div id="header-upload-wrap">
+                <button type="button" class="upload-btn"
+                        onclick="document.getElementById('f-header-file').click()">
+                  📎 Subir archivo
+                </button>
+                <div id="header-preview" hidden></div>
+              </div>
+              <div class="form-help">Imágenes, videos o PDFs. Máx 16MB.</div>
             </div>
-            <div class="form-field">
-              <label>Label (descripción interna)</label>
-              <input type="text" id="f-header-label" placeholder="ej. Video bienvenida 1 min">
-            </div>
+            <input type="hidden" id="f-header-label">
+          </div>
+
+          <div class="form-field">
+            <label>Cuerpo del mensaje *</label>
+            <textarea id="f-body" placeholder="Hola, …"></textarea>
+            <div class="form-help">Clickeá los chips de abajo para insertar variables en la posición del cursor.
+              Markdown WhatsApp: <code>*negrita*</code>, <code>_cursiva_</code>.</div>
+          </div>
+
+          <div class="form-field">
+            <label>Variables dinámicas</label>
+            <div class="var-palette" id="var-palette"></div>
           </div>
 
           <div class="form-pane" id="pane-botones">
@@ -1591,21 +1660,21 @@
     document.getElementById('f-autor').value = t.autor || 'fabricio';
     document.getElementById('f-reco').value = t.recomendacion || '';
 
-    // Variables
-    document.getElementById('var-list').innerHTML = '';
-    (t.variables || []).forEach(function(v) {
-      agregarVariable();
-      var last = document.querySelector('#var-list .var-row:last-child');
-      last.querySelector('[data-k="label"]').value = v.label || '';
-      last.querySelector('[data-k="source"]').value = v.source || '';
-      last.querySelector('[data-k="ejemplo"]').value = v.ejemplo || '';
-    });
+    // Variables (hidrata state desde DB)
+    cargarVariables(t.variables || []);
 
     // Según tipo
     if (t.tipo === 'multimedia' && t.header) {
       document.getElementById('f-header-type').value = t.header.type || 'image';
       document.getElementById('f-header-url').value = t.header.url || '';
       document.getElementById('f-header-label').value = t.header.label || '';
+      if (t.header.url) {
+        // Re-renderiza la preview card con el archivo ya existente
+        var btn = document.querySelector('#header-upload-wrap .upload-btn');
+        if (btn) btn.innerHTML = '📎 Reemplazar archivo';
+        renderHeaderPreview(t.header.url, t.header.type || 'image',
+                            t.header.label || t.header.url.split('/').pop());
+      }
     }
     if (t.tipo === 'botones') {
       document.getElementById('btn-list').innerHTML = '';
@@ -1665,7 +1734,14 @@
      'f-catalog-id','f-catalog-parent','f-reco'].forEach(function(id) {
       var el = document.getElementById(id); if (el) el.value = '';
     });
-    document.getElementById('var-list').innerHTML = '';
+    // Reset del preview + botón del header multimedia
+    var hpBox = document.getElementById('header-preview');
+    if (hpBox) { hpBox.hidden = true; hpBox.innerHTML = ''; hpBox.className = ''; }
+    var hUpBtn = document.querySelector('#header-upload-wrap .upload-btn');
+    if (hUpBtn) hUpBtn.innerHTML = '📎 Subir archivo';
+    tplVars = [];
+    renderVarPalette();
+    renderVarRef();
     document.getElementById('btn-list').innerHTML = '';
     // Reset carrusel
     carouselState = { cards: [], parentBody: "", catalogId: "", botonTipo: "url" };
@@ -1709,35 +1785,198 @@
   }
 
   // ----- Variables editor --------------------------------------------------
-  function agregarVariable() {
-    var list = document.getElementById('var-list');
-    var n = list.children.length + 1;
-    var row = document.createElement('div');
-    row.className = 'var-row';
-    row.innerHTML =
-      '<div class="num">{{"{{"}}' + n + '{{"}}"}}</div>' +
-      '<input type="text" placeholder="Label (ej. Nombre)" data-k="label">' +
-      '<input type="text" placeholder="Source (ej. propietario_nombre)" data-k="source">' +
-      '<input type="text" placeholder="Ejemplo (ej. María)" data-k="ejemplo">' +
-      '<button type="button" class="del-btn" onclick="this.closest(\'.var-row\').remove(); renumerarVars()">×</button>';
-    list.appendChild(row);
+  // Catálogo fijo de variables que Petra sabe resolver al enviar un
+  // template. Agregar un nuevo campo = agregarlo acá + que el runner
+  // sepa resolverlo contra el contexto.
+  var VAR_CATALOG = [
+    { source: 'propietario_nombre',  label: 'Propietario',     ejemplo: 'María' },
+    { source: 'propietario_telefono',label: 'Tel propietario', ejemplo: '+57 300 1234567' },
+    { source: 'conjunto_nombre',     label: 'Conjunto',        ejemplo: 'Mitika PH' },
+    { source: 'ciudad',              label: 'Ciudad',          ejemplo: 'Bogotá' },
+    { source: 'barrio',              label: 'Barrio',          ejemplo: 'Chapinero' },
+    { source: 'direccion',           label: 'Dirección',       ejemplo: 'Calle 72 #10-30' },
+    { source: 'estrato',             label: 'Estrato',         ejemplo: '4' },
+    { source: 'codigo',              label: 'Código apto',     ejemplo: 'P0119' },
+    { source: 'torre',               label: 'Torre',           ejemplo: 'B' },
+    { source: 'piso',                label: 'Piso',            ejemplo: '7' },
+    { source: 'url_publicacion',     label: 'URL publicación', ejemplo: 'https://petra.co/p/P0119' },
+    { source: 'precio',              label: 'Precio',          ejemplo: '$1.800.000' },
+    { source: 'operacion',           label: 'Operación',       ejemplo: 'arriendo' },
+    { source: 'tipo',                label: 'Tipo inmueble',   ejemplo: 'apartamento' },
+    { source: 'habitaciones',        label: 'Habitaciones',    ejemplo: '3' },
+    { source: 'banos',               label: 'Baños',           ejemplo: '2' },
+    { source: 'm2',                  label: 'Metros²',         ejemplo: '85' },
+    { source: 'parqueadero',         label: 'Parqueadero',     ejemplo: 'Sí' },
+    { source: 'agente_nombre',       label: 'Agente Petra',    ejemplo: 'Lucía' },
+    { source: 'fecha_visita',        label: 'Fecha visita',    ejemplo: 'mar 18 nov 10:00' },
+  ];
+
+  // Estado: lista ordenada de variables agregadas al template.
+  // Cada entrada: { source, label, ejemplo }. El índice + 1 = el número
+  // {{N}} que figura en el body.
+  var tplVars = [];
+
+  function renderVarPalette() {
+    var el = document.getElementById('var-palette');
+    if (!el) return;
+    el.innerHTML = VAR_CATALOG.map(function(v) {
+      return '<button type="button" class="var-chip"' +
+             ' data-source="' + escapeHtml(v.source) + '"' +
+             ' onclick="insertarVar(this.dataset.source)">' +
+             escapeHtml(v.label) + '</button>';
+    }).join('');
   }
-  function renumerarVars() {
-    document.querySelectorAll('#var-list .var-row .num').forEach(function(el, i) {
-      el.textContent = '{{"{{"}}' + (i + 1) + '{{"}}"}}';
+
+  // No-op: las cajas de referencia fueron removidas. Se mantiene por
+  // compatibilidad con los callers existentes.
+  function renderVarRef() {}
+
+  function insertarVar(source) {
+    var meta = VAR_CATALOG.find(function(v) { return v.source === source; });
+    if (!meta) return;
+    tplVars.push({ source: meta.source, label: meta.label, ejemplo: meta.ejemplo });
+    var n = tplVars.length;
+    // OJO: partimos la cadena en chars sueltos para evitar que Jinja interprete la llave doble aca.
+    var token = '{' + '{' + n + '}' + '}';
+    var ta = document.getElementById('f-body');
+    var start = ta.selectionStart || ta.value.length;
+    var end   = ta.selectionEnd   || ta.value.length;
+    var prev  = start > 0 ? ta.value.charAt(start - 1) : ' ';
+    var next  = end < ta.value.length ? ta.value.charAt(end) : ' ';
+    // Espaciado automatico: si pegado a letra/numero, agrega un espacio.
+    var prefix = (/[\wÀ-ɏ]/.test(prev)) ? ' ' : '';
+    var suffix = (/[\wÀ-ɏ]/.test(next)) ? ' ' : '';
+    var insertion = prefix + token + suffix;
+    ta.value = ta.value.slice(0, start) + insertion + ta.value.slice(end);
+    ta.focus();
+    var cursor = start + insertion.length;
+    ta.setSelectionRange(cursor, cursor);
+    renderVarRef();
+    renderLivePreview();
+  }
+
+  function quitarVar(idx) {
+    // Saca la var del state y renumera el body para reflejarlo.
+    // El token (idx+1) desaparece; cualquier N>idx+1 baja 1.
+    var removedN = idx + 1;
+    tplVars.splice(idx, 1);
+    var ta = document.getElementById('f-body');
+    ta.value = ta.value.replace(/\{\{(\d+)\}\}/g, function(m, n) {
+      n = parseInt(n, 10);
+      if (n === removedN) return '';
+      if (n > removedN) return '{' + '{' + (n - 1) + '}' + '}';
+      return m;
     });
+    renderVarRef();
+    renderLivePreview();
   }
 
   function recolectarVariables() {
-    var vars = [];
-    document.querySelectorAll('#var-list .var-row').forEach(function(row, i) {
-      var v = { id: String(i + 1) };
-      row.querySelectorAll('input').forEach(function(inp) {
-        v[inp.dataset.k] = inp.value.trim();
-      });
-      if (v.label) vars.push(v);
+    return tplVars.map(function(v, i) {
+      return { id: String(i + 1), source: v.source,
+               label: v.label, ejemplo: v.ejemplo };
     });
-    return vars;
+  }
+
+  function cargarVariables(arr) {
+    // Para modo edición: hidrata el state desde lo que vino de DB.
+    tplVars = (arr || []).map(function(v) {
+      // Intenta encontrar en el catálogo para completar label actualizado
+      var cat = VAR_CATALOG.find(function(c) { return c.source === v.source; });
+      return {
+        source: v.source || '',
+        label:  v.label || (cat ? cat.label : v.source || 'Variable'),
+        ejemplo: v.ejemplo || (cat ? cat.ejemplo : ''),
+      };
+    });
+    renderVarRef();
+  }
+
+  // ----- Upload de header multimedia --------------------------------------
+  function subirHeaderFile(input) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    // Validar tamaño antes de intentar subir (WhatsApp header = 16MB)
+    var MAX = 16 * 1024 * 1024;
+    if (file.size > MAX) {
+      var mb = (file.size / (1024 * 1024)).toFixed(1);
+      alert('El archivo pesa ' + mb + ' MB. Máximo permitido: 16 MB.\n\n' +
+            'Comprimí el video (ej. HandBrake, CloudConvert) o bajá la ' +
+            'resolución a 720p y volvé a intentar.');
+      input.value = '';
+      return;
+    }
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('archivo', file);
+
+    var btn = document.querySelector('#header-upload-wrap .upload-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Subiendo...'; }
+
+    fetch('/panel/petra/v2/difusiones/upload_header', { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        if (btn) { btn.disabled = false; btn.innerHTML = '📎 Reemplazar archivo'; }
+        if (!ok) { alert('Error: ' + (d.error || 'desconocido')); return; }
+        document.getElementById('f-header-url').value = d.url;
+        // Sincronizar el tipo según lo que detectó el backend
+        var selType = document.getElementById('f-header-type');
+        if (d.type && selType && !selType.value.match(/^(document|location)$/)) {
+          selType.value = d.type;
+        }
+        // Auto-rellenar "Nombre visible" si está vacío
+        var lab = document.getElementById('f-header-label');
+        if (lab && !lab.value.trim() && d.nombre) lab.value = d.nombre;
+        renderHeaderPreview(d.url, selType.value, d.nombre || file.name);
+        renderLivePreview();
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.innerHTML = '📎 Subir archivo'; }
+        alert('Error de red: ' + err);
+      });
+    input.value = '';  // permite subir el mismo archivo otra vez
+  }
+
+  function renderHeaderPreview(url, type, nombre) {
+    var box = document.getElementById('header-preview');
+    if (!url) {
+      box.hidden = true;
+      box.innerHTML = '';
+      return;
+    }
+    box.hidden = false;
+    var thumb = '';
+    if (type === 'image') {
+      thumb = '<img src="' + escapeHtml(url) + '" alt="">';
+    } else if (type === 'video') {
+      thumb = '<video src="' + escapeHtml(url) + '" muted></video>';
+    } else if (type === 'document') {
+      thumb = '📄';
+    } else if (type === 'location') {
+      thumb = '📍';
+    } else {
+      thumb = '📎';
+    }
+    box.className = 'header-preview-card';
+    box.innerHTML =
+      '<div class="header-preview-thumb">' + thumb + '</div>' +
+      '<div class="header-preview-info">' +
+        '<div class="header-preview-name">' + escapeHtml(nombre || 'archivo') + '</div>' +
+        '<div class="header-preview-meta">' + escapeHtml(type) + '</div>' +
+      '</div>' +
+      '<button type="button" class="header-preview-del" onclick="quitarHeaderFile()">Quitar</button>';
+  }
+
+  function quitarHeaderFile() {
+    document.getElementById('f-header-url').value = '';
+    var box = document.getElementById('header-preview');
+    box.hidden = true;
+    box.innerHTML = '';
+    box.className = '';
+    var btn = document.querySelector('#header-upload-wrap .upload-btn');
+    if (btn) btn.innerHTML = '📎 Subir archivo';
+    renderLivePreview();
   }
 
   // ----- Botones editor ----------------------------------------------------
@@ -1850,14 +2089,12 @@
   }
 
   function sustituirVariables(body) {
-    // Reemplaza {{1}}, {{2}}, … por los ejemplos cargados en el editor de vars.
-    var ejemplos = {};
-    document.querySelectorAll('#var-list .var-row').forEach(function(row, i) {
-      var ej = row.querySelector('input[data-k="ejemplo"]');
-      if (ej && ej.value.trim()) ejemplos[String(i + 1)] = ej.value.trim();
-    });
+    // Reemplaza {{1}}, {{2}}, … por los ejemplos del state tplVars.
     return body.replace(/\{\{(\d+)\}\}/g, function(_, n) {
-      return ejemplos[n] || ('{{' + n + '}}');
+      var idx = parseInt(n, 10) - 1;
+      var v = tplVars[idx];
+      if (v && v.ejemplo) return v.ejemplo;
+      return '{' + '{' + n + '}' + '}';
     });
   }
 
@@ -1933,6 +2170,10 @@
     pf.addEventListener('input', renderLivePreview);
     pf.addEventListener('change', renderLivePreview);
   })();
+
+  // Inicializa el catálogo de variables + referencia vacía al cargar.
+  renderVarPalette();
+  renderVarRef();
 
   // ----- Carrusel (cards) editor ------------------------------------------
   var carouselState = {

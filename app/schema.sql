@@ -1999,6 +1999,14 @@ ALTER TABLE conjuntos_visitante
 ALTER TABLE conjuntos_visitante
   ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'activo';
 
+-- QR físico instalado en el edificio. Se togglea manualmente desde el
+-- panel cuando el agente confirma que fue a pegarlo.
+ALTER TABLE conjuntos_visitante
+  ADD COLUMN IF NOT EXISTS qr_instalado BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE conjuntos_visitante
+  ADD COLUMN IF NOT EXISTS qr_instalado_en TIMESTAMPTZ;
+
 -- ============================================================================
 -- Dummy inventario para Conjunto Prados 15 (id=2155, codigo=AG2-...).
 -- Como si una agente hubiera mandado la foto del libro y lo hubiéramos
