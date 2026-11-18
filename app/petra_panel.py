@@ -705,19 +705,60 @@ _MEDIA_ALLOWED_EXT = {
 }
 
 
+def _subir_media_a_github(contenido_bytes, filename):
+    """Sube un archivo al repo de GitHub configurado y devuelve la URL raw
+    pública. Devuelve None si falta configuración o la API falla.
+
+    Requiere env vars:
+      MEDIA_BACKEND=github
+      GITHUB_MEDIA_REPO=owner/repo
+      GITHUB_MEDIA_BRANCH=nombre_rama
+      GITHUB_MEDIA_TOKEN=github_pat_...
+    """
+    import base64 as _b64
+    import requests as _rq
+    repo = os.environ.get("GITHUB_MEDIA_REPO", "").strip()
+    branch = os.environ.get("GITHUB_MEDIA_BRANCH", "").strip() or "main"
+    token = os.environ.get("GITHUB_MEDIA_TOKEN", "").strip()
+    if not (repo and token):
+        logging.getLogger(__name__).error(
+            "[media] backend=github pero falta GITHUB_MEDIA_REPO o _TOKEN")
+        return None
+    folder = os.environ.get("GITHUB_MEDIA_FOLDER", "media-templates").strip("/") or "media-templates"
+    path = f"{folder}/{filename}"
+    url_api = f"https://api.github.com/repos/{repo}/contents/{path}"
+    payload = {
+        "message": f"upload media: {filename}",
+        "content": _b64.b64encode(contenido_bytes).decode("ascii"),
+        "branch": branch,
+    }
+    try:
+        r = _rq.put(
+            url_api,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=30,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).exception("[media] github PUT fallo: %s", e)
+        return None
+    if r.status_code not in (200, 201):
+        logging.getLogger(__name__).error(
+            "[media] github PUT status=%s body=%s", r.status_code, r.text[:500])
+        return None
+    # La URL raw sirve el archivo directamente, sin pasar por la app.
+    return f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+
+
 def _guardar_archivo_media(file_storage, public_base_url=""):
-    """Guarda un archivo subido en /var/data/media con nombre uuid+ext.
-    Devuelve URL pública relativa (/petra/media/<name>) o None si no es
-    válido. No propaga excepciones."""
+    """Guarda un archivo subido y devuelve URL pública (GitHub raw, disco
+    local, o None). No propaga excepciones."""
     import os as _os
     import uuid as _uuid
-    media_dir = _media_dir_runtime()
-    try:
-        _os.makedirs(media_dir, exist_ok=True)
-    except Exception as e:
-        logging.getLogger(__name__).exception(
-            "[media] no se pudo crear %s: %s", media_dir, e)
-        return None
     nombre = (file_storage.filename or "").strip()
     if not nombre:
         return None
@@ -734,6 +775,31 @@ def _guardar_archivo_media(file_storage, public_base_url=""):
     if size > _MEDIA_MAX_BYTES:
         return None
     nuevo = f"{_uuid.uuid4().hex}{ext}"
+
+    # Backend GitHub: commitea al repo y devuelve raw URL.
+    backend = (os.environ.get("MEDIA_BACKEND") or "").strip().lower()
+    if backend == "github":
+        try:
+            contenido = file_storage.stream.read()
+            file_storage.stream.seek(0)
+        except Exception as e:
+            logging.getLogger(__name__).exception(
+                "[media] no se pudo leer stream: %s", e)
+            return None
+        url_raw = _subir_media_a_github(contenido, nuevo)
+        if url_raw:
+            return url_raw
+        logging.getLogger(__name__).warning(
+            "[media] backend=github fallo; cayendo a disco local")
+
+    # Backend disco: guarda en _MEDIA_DIR runtime.
+    media_dir = _media_dir_runtime()
+    try:
+        _os.makedirs(media_dir, exist_ok=True)
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "[media] no se pudo crear %s: %s", media_dir, e)
+        return None
     destino = _os.path.join(media_dir, nuevo)
     try:
         file_storage.save(destino)
