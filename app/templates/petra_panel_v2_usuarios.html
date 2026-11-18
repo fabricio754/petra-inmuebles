@@ -126,6 +126,9 @@
         <td class="tel-col">
           <a href="/panel/petra/v2/usuario/{{ u.telefono }}?token={{ token }}"
              style="color:var(--accent)">{{ u.telefono }}</a>
+          {% if u.username %}
+            <div style="font-size:12px;color:var(--accent);margin-top:2px">@{{ u.username }}</div>
+          {% endif %}
         </td>
         <td>{{ u.nombre or u.username or '—' }}</td>
         <td style="color:var(--text-sub)">{{ u.conjunto_nombre or '—' }}</td>
