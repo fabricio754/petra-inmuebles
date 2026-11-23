@@ -4176,11 +4176,50 @@ def _row_to_template(row):
 # Esta tabla lista solo los números que el usuario conectó explícitamente
 # vía Meta Embedded Signup para usarlos en Campañas de outbound.
 
+def _autoregistrar_numero_kapso():
+    """Si tenemos KAPSO_PHONE_NUMBER_ID + WABA_ID seteados y el numero
+    no esta en waba_conectadas, lo auto-insertamos como provider='kapso'
+    para que aparezca en el panel de Numeros."""
+    kapso_phone_id = (os.environ.get("KAPSO_PHONE_NUMBER_ID") or "").strip()
+    kapso_waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    if not (kapso_phone_id and kapso_waba_id):
+        return
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM waba_conectadas WHERE phone_number_id = %s",
+                (kapso_phone_id,),
+            ).fetchone()
+            if exists:
+                return
+            # Phone E.164 se puede derivar del env opcional KAPSO_PHONE_E164;
+            # si no, placeholder descriptivo.
+            phone_e164 = (os.environ.get("KAPSO_PHONE_E164") or "").strip() or "+573001301331"
+            display_name = (os.environ.get("KAPSO_DISPLAY_NAME") or "").strip() or "Petra"
+            conn.execute(
+                "INSERT INTO waba_conectadas "
+                "(phone_number_id, waba_id, phone_e164, display_name, "
+                " access_token, propietario, activo, es_coexistencia, "
+                " provider, nota) "
+                "VALUES (%s, %s, %s, %s, %s, %s, TRUE, TRUE, 'kapso', %s)",
+                (kapso_phone_id, kapso_waba_id, phone_e164, display_name,
+                 "kapso_managed", "Petra Inmuebles",
+                 "Conectado vía Kapso BSP (coexistencia)"),
+            )
+    except Exception as _e:
+        import logging as _lg
+        _lg.getLogger(__name__).warning(
+            "[panel_v2] autoregistro Kapso fallo: %s", _e)
+
+
 @petra_panel_bp.get("/v2/numeros")
 def panel_v2_numeros():
     """Panel v2: página de Números WhatsApp conectados vía coexistencia."""
     _check_token()
     token = (request.args.get("token") or "").strip()
+
+    # Auto-registrar el numero Kapso si existe config y falta en la tabla.
+    _autoregistrar_numero_kapso()
 
     numeros = []
     try:
@@ -4188,7 +4227,7 @@ def panel_v2_numeros():
             numeros = _rows(conn,
                 "SELECT id, phone_number_id, waba_id, phone_e164, display_name, "
                 "       propietario, activo, es_coexistencia, conectado_en, "
-                "       ultima_verificacion_at, nota "
+                "       ultima_verificacion_at, nota, provider "
                 "  FROM waba_conectadas "
                 " ORDER BY conectado_en DESC")
     except Exception:
