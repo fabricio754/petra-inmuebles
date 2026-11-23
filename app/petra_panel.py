@@ -4704,20 +4704,22 @@ def _meta_fetch_templates(force=False):
        (now - _META_TEMPLATES_CACHE["ts"]) < _META_CACHE_TTL:
         return _META_TEMPLATES_CACHE["payload"], _META_TEMPLATES_CACHE["error"]
 
-    token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
-    waba_id = (os.environ.get("META_WABA_ID") or "").strip()
+    # Lista desde la WABA de Kapso (+573001301331), no la del bot.
+    from app import petra_kapso as _kapso_mod
+    k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
+    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
 
-    if not token:
-        return [], "falta_env:META_ACCESS_TOKEN"
+    if not k_api_key:
+        return [], "falta_env:KAPSO_API_KEY"
     if not waba_id:
-        return [], "falta_env:META_WABA_ID"
+        return [], "falta_env:KAPSO_WABA_ID"
 
-    url = f"https://graph.facebook.com/v22.0/{waba_id}/message_templates"
+    url = f"{k_base}/{k_version}/{waba_id}/message_templates"
     try:
         import requests
         r = requests.get(
             url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"X-API-Key": k_api_key},
             params={"limit": 100, "fields":
                     "id,name,status,category,language,components,quality_score,rejected_reason"},
             timeout=15,
@@ -4864,10 +4866,19 @@ def _meta_upload_media_handle(media_url, access_token, app_id):
         return None, f"upload_data_error:{type(e).__name__}"
 
 
-def _construir_meta_components(tpl, access_token, app_id):
+def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
     """Construye el array `components` del payload de Meta a partir del template.
 
     Devuelve (components, error_str_o_None).
+
+    Args:
+      access_token: token de Meta Cloud API. Solo requerido si usar_url=False
+        (para hacer Resumable Upload).
+      app_id: app id de Meta (solo con usar_url=False).
+      usar_url: si True, pasamos `header_url` con la URL pública del archivo
+        en vez de hacer Resumable Upload. Ahorra una llamada y simplifica
+        cuando el archivo ya está en un host accesible (GitHub raw, CDN).
+        Lo usa el flujo de aprobación via Kapso.
     """
     components = []
 
@@ -4881,14 +4892,22 @@ def _construir_meta_components(tpl, access_token, app_id):
             hurl = (header.get("url") or "").strip()
             if not hurl:
                 return None, "header_sin_url"
-            handle, err = _meta_upload_media_handle(hurl, access_token, app_id)
-            if not handle:
-                return None, f"header_upload_fallo:{err}"
-            components.append({
-                "type": "HEADER",
-                "format": htype,  # IMAGE / VIDEO / DOCUMENT
-                "example": {"header_handle": [handle]},
-            })
+            if usar_url:
+                # Meta tambien acepta example.header_url con URL publica HTTPS.
+                components.append({
+                    "type": "HEADER",
+                    "format": htype,  # IMAGE / VIDEO / DOCUMENT
+                    "example": {"header_url": [hurl]},
+                })
+            else:
+                handle, err = _meta_upload_media_handle(hurl, access_token, app_id)
+                if not handle:
+                    return None, f"header_upload_fallo:{err}"
+                components.append({
+                    "type": "HEADER",
+                    "format": htype,  # IMAGE / VIDEO / DOCUMENT
+                    "example": {"header_handle": [handle]},
+                })
 
     # ── Body ───────────────────────────────────────────────────────────
     body_text = (tpl.get("body") or "").strip()
@@ -4941,19 +4960,22 @@ def panel_v2_templates_aprobar(tid):
     """
     _check_token()
     from flask import jsonify
+    from app import petra_kapso as _kapso_mod
     import json as _json
     import requests
 
-    token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
-    waba_id = (os.environ.get("META_WABA_ID") or "").strip()
+    # Las aprobaciones de templates van a la WABA de Kapso (+573001301331).
+    # El bot (+573001278631) no envia templates; es solo chat libre.
+    k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
+    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    # app_id solo se usaba para Resumable Upload de media directo a Meta;
+    # ahora via Kapso NO hace falta si usamos header_url en vez de handle.
     app_id = (os.environ.get("META_APP_ID") or "").strip()
 
-    if not token:
-        return jsonify({"error": "falta_env:META_ACCESS_TOKEN"}), 500
+    if not k_api_key:
+        return jsonify({"error": "falta_env:KAPSO_API_KEY"}), 500
     if not waba_id:
-        return jsonify({"error": "falta_env:META_WABA_ID"}), 500
-    if not app_id:
-        return jsonify({"error": "falta_env:META_APP_ID"}), 500
+        return jsonify({"error": "falta_env:KAPSO_WABA_ID"}), 500
 
     # Cargar template
     try:
@@ -4976,8 +4998,10 @@ def panel_v2_templates_aprobar(tid):
                         "detalle": "Los templates de catálogo/carrusel requieren "
                                    "un flujo distinto todavía no implementado."}), 400
 
-    # Construir components
-    components, err = _construir_meta_components(tpl, token, app_id)
+    # Construir components. Para templates con header multimedia, usamos
+    # la URL publica (GitHub raw) directamente en vez de hacer Resumable
+    # Upload — Kapso/Meta la descarga para armar el example.
+    components, err = _construir_meta_components(tpl, None, app_id, usar_url=True)
     if err:
         return jsonify({"error": "construir_payload_fallo", "detalle": err}), 400
 
@@ -4988,11 +5012,11 @@ def panel_v2_templates_aprobar(tid):
         "components": components,
     }
 
-    # POST a Meta
+    # POST a Kapso (que es proxy de Meta Graph API para esta WABA).
     try:
         r = requests.post(
-            f"https://graph.facebook.com/v22.0/{waba_id}/message_templates",
-            headers={"Authorization": f"Bearer {token}",
+            f"{k_base}/{k_version}/{waba_id}/message_templates",
+            headers={"X-API-Key": k_api_key,
                      "Content-Type": "application/json"},
             data=_json.dumps(payload),
             timeout=30,
@@ -5006,7 +5030,7 @@ def panel_v2_templates_aprobar(tid):
         except Exception:
             err_body = {"raw": r.text[:500]}
         return jsonify({
-            "error": "meta_rechazo",
+            "error": "kapso_rechazo",
             "status_code": r.status_code,
             "detalle": err_body,
         }), 400
