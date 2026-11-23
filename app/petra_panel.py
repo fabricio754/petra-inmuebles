@@ -5051,20 +5051,26 @@ def panel_v2_templates_aprobar(tid):
         "components": components,
     }
 
-    # Si el template estaba rechazado antes, Meta todavia tiene una copia
-    # en su lado y rechaza el POST con "Content in This Language Already
-    # Exists". Hacemos un DELETE preventivo (idempotente). Si Meta no lo
-    # tiene, devuelve 404 y seguimos sin error.
-    if (tpl.get("status") or "") in ("rechazado", "pendiente"):
-        try:
-            requests.delete(
-                f"{k_base}/{k_version}/{waba_id}/message_templates",
-                headers={"X-API-Key": k_api_key},
-                params={"name": tpl["name"]},
-                timeout=15,
-            )
-        except Exception:
-            pass  # no bloqueamos el flujo si el DELETE falla
+    # DELETE preventivo siempre: Meta puede tener una copia "sombra" de
+    # un intento anterior (otro nombre o categoria) aunque localmente
+    # tengamos status 'draft'. Si Meta no lo tiene, devuelve 404 y
+    # seguimos; si lo tiene, lo limpia para que el POST siguiente
+    # pueda crearlo con la categoria actual.
+    try:
+        rd = requests.delete(
+            f"{k_base}/{k_version}/{waba_id}/message_templates",
+            headers={"X-API-Key": k_api_key},
+            params={"name": tpl["name"]},
+            timeout=15,
+        )
+        import logging as _lg_d
+        _lg_d.getLogger(__name__).info(
+            "[aprobar] DELETE preventivo name=%s status=%s body=%s",
+            tpl["name"], rd.status_code, (rd.text or "")[:200])
+    except Exception as _e:
+        import logging as _lg_d
+        _lg_d.getLogger(__name__).warning(
+            "[aprobar] DELETE preventivo fallo: %s", _e)
 
     # POST a Kapso (que es proxy de Meta Graph API para esta WABA).
     try:
