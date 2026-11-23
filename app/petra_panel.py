@@ -4430,6 +4430,97 @@ def panel_v2_numeros_eliminar(nid):
         return jsonify({"error": "db_error"}), 500
 
 
+@petra_panel_bp.post("/v2/numeros/kapso/sincronizar")
+def panel_v2_numeros_kapso_sincronizar():
+    """Trae los numeros conectados en Kapso y los inserta en waba_conectadas
+    si no estan ya. Usa la API de Kapso /meta/whatsapp/<version>/<WABA>/
+    phone_numbers para listarlos.
+
+    Devuelve: encontrados, nuevos, existentes, errores.
+    """
+    from flask import jsonify
+    from app import petra_kapso as _kapso_mod
+    import logging as _lg
+    import requests as _rq
+
+    _check_token()
+
+    k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
+    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    if not (k_api_key and waba_id):
+        return jsonify({"error": "kapso_no_configurado"}), 500
+
+    url = f"{k_base}/{k_version}/{waba_id}/phone_numbers"
+    try:
+        r = _rq.get(url, headers={"X-API-Key": k_api_key}, timeout=20)
+    except Exception as e:
+        _lg.getLogger(__name__).exception("[kapso sync] GET fallo")
+        return jsonify({"error": f"red:{type(e).__name__}", "detalle": str(e)}), 502
+
+    if not r.ok:
+        try:
+            eb = r.json()
+        except Exception:
+            eb = {"raw": r.text[:300]}
+        _lg.getLogger(__name__).error(
+            "[kapso sync] GET %s status=%s body=%s", url, r.status_code, eb)
+        return jsonify({"error": "kapso_api_error",
+                        "status": r.status_code, "detalle": eb}), 502
+
+    data = (r.json() or {}).get("data") or []
+    encontrados = len(data)
+    nuevos = 0
+    existentes = 0
+    errores = []
+
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            for num in data:
+                pnid = str(num.get("id") or "").strip()
+                if not pnid:
+                    continue
+                phone_e164 = num.get("display_phone_number") or ""
+                phone_e164 = ("+" + phone_e164.replace(" ", "").replace("+", "")) \
+                             if phone_e164 and not phone_e164.startswith("+") \
+                             else phone_e164
+                display_name = (num.get("verified_name") or
+                                num.get("display_phone_number") or
+                                "Número Kapso")
+                # ¿Ya existe?
+                existe = conn.execute(
+                    "SELECT id FROM waba_conectadas WHERE phone_number_id = %s",
+                    (pnid,),
+                ).fetchone()
+                if existe:
+                    existentes += 1
+                    continue
+                try:
+                    conn.execute(
+                        "INSERT INTO waba_conectadas "
+                        "(phone_number_id, waba_id, phone_e164, display_name, "
+                        " access_token, propietario, activo, es_coexistencia, "
+                        " provider, nota) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, TRUE, TRUE, 'kapso', %s)",
+                        (pnid, waba_id, phone_e164, display_name,
+                         "kapso_managed", "Petra Inmuebles",
+                         "Sincronizado desde Kapso"),
+                    )
+                    nuevos += 1
+                except Exception as e:
+                    errores.append({"phone_number_id": pnid, "error": str(e)[:200]})
+    except Exception as e:
+        _lg.getLogger(__name__).exception("[kapso sync] DB error")
+        return jsonify({"error": "db_error", "detalle": str(e)}), 500
+
+    return jsonify({
+        "ok": True,
+        "encontrados": encontrados,
+        "nuevos": nuevos,
+        "existentes": existentes,
+        "errores": errores,
+    })
+
+
 # Asignación default slot → template_name para la pestaña Activados.
 # Se siembra una sola vez (si la tabla template_slots está vacía) para
 # arrancar con los 3 templates que teníamos hardcoded.
