@@ -37,7 +37,9 @@ def _is_ready():
 
 def _url(phone_id, version):
     base, _, _, _ = _config()
-    return f"{base}/whatsapp/{version}/{phone_id}/messages"
+    # Kapso proxea la Graph API de Meta: {base}/{version}/{phone_id}/messages
+    # Ejemplo: https://app.kapso.ai/api/meta/v24.0/1386371191233822/messages
+    return f"{base}/{version}/{phone_id}/messages"
 
 
 def send_template(to, template_name, language="es_ES", components=None,
