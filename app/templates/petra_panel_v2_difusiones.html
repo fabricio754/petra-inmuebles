@@ -872,7 +872,25 @@
     <div class="modal-foot">
       <button class="btn-secondary" id="btn-anterior" onclick="pasoAnterior()" disabled>← Anterior</button>
       <button class="btn-primary" id="btn-siguiente" onclick="pasoSiguiente()">Siguiente →</button>
+      <button class="btn-danger" id="btn-enviar-real" onclick="enviarReal()" hidden>
+        🚀 Enviar ahora
+      </button>
     </div>
+    <style>
+      .btn-danger {
+        background: #dc3545;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 16px;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 14px;
+        margin-left: 8px;
+      }
+      .btn-danger:hover { background: #bb2d3b; }
+      .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
   </div>
 </div>
 
@@ -928,15 +946,20 @@
     });
     document.getElementById('btn-anterior').disabled = (pasoActual === 1);
     var bs = document.getElementById('btn-siguiente');
+    var be = document.getElementById('btn-enviar-real');
     if (pasoActual === 4) {
-      bs.textContent = 'Confirmar envío (dry-run)';
+      bs.textContent = 'Probar (dry-run)';
       bs.disabled = !templateSeleccionado || !ultimoCount;
+      be.hidden = false;
+      be.disabled = !templateSeleccionado || !ultimoCount;
     } else if (pasoActual === 2) {
       bs.textContent = 'Siguiente →';
       bs.disabled = !templateSeleccionado;
+      be.hidden = true;
     } else {
       bs.textContent = 'Siguiente →';
       bs.disabled = false;
+      be.hidden = true;
     }
     if (pasoActual === 3) { cargarMuestraPaso3(); }
     if (pasoActual === 4) { poblarResumenPaso4(); }
@@ -972,7 +995,18 @@
     document.getElementById('p4-custom').hidden = (checked !== 'custom');
   }
 
-  function confirmarDryRun() {
+  function enviarReal() {
+    var n = contarActivos();
+    if (!n) return;
+    var msg = '¿Enviar AHORA el template a ' + n + ' destinatarios?\n\n' +
+              'Esto dispara mensajes de WhatsApp reales via Kapso.\n' +
+              'Costo estimado: $' +
+              (n * templateSeleccionado.price_usd).toFixed(2) + ' USD.';
+    if (!confirm(msg)) return;
+    confirmarDryRun(true);
+  }
+
+  function confirmarDryRun(enviarRealFlag) {
     if (!templateSeleccionado || !contarActivos()) return;
     var programar = document.querySelector('input[name="programar"]:checked').value;
     if (programar === 'custom') {
@@ -987,6 +1021,9 @@
     fd.append('template', templateSeleccionado.name);
     fd.append('programar', programar);
     fd.append('autor', autor);
+    if (enviarRealFlag) {
+      fd.append('enviar', '1');
+    }
     if (excluidos.size) {
       fd.append('excluidos', Array.from(excluidos).join(','));
     }
@@ -1005,8 +1042,10 @@
     fd.append('celular', document.getElementById('f_celular').value);
 
     var btn = document.getElementById('btn-siguiente');
+    var btnR = document.getElementById('btn-enviar-real');
     btn.disabled = true;
-    btn.textContent = 'Procesando…';
+    btnR.disabled = true;
+    btn.textContent = enviarRealFlag ? 'Enviando…' : 'Procesando…';
 
     fetch('/panel/petra/v2/difusiones/confirmar', { method: 'POST', body: fd })
       .then(function(r) { return r.json(); })
@@ -1015,17 +1054,36 @@
         box.hidden = false;
         if (d.ok) {
           var r = d.resumen;
+          var e = d.envio || {};
+          var header = enviarRealFlag
+            ? '<strong style="color:#1e8e3e">🚀 Campaña enviada real</strong>'
+            : '<strong>✓ Campaña registrada (dry-run)</strong>';
+          var detalleEnvio = '';
+          if (enviarRealFlag) {
+            detalleEnvio =
+              '<div style="margin-top:6px;font-size:13px">' +
+              '✅ Enviados: <strong>' + (e.ok || 0) + '</strong> · ' +
+              '❌ Fallos: <strong>' + (e.fallos || 0) + '</strong> · ' +
+              '📵 Sin teléfono: <strong>' + (e.sin_telefono || 0) + '</strong>' +
+              '</div>';
+            if ((e.errores || []).length) {
+              detalleEnvio += '<details style="margin-top:6px;font-size:11px"><summary>Ver errores</summary><pre style="white-space:pre-wrap">' +
+                escapeHtml(JSON.stringify(e.errores, null, 2)) + '</pre></details>';
+            }
+          }
           box.innerHTML =
-            '<strong>✓ Campaña registrada (dry-run)</strong>' +
-            escapeHtml(d.mensaje) +
+            header +
+            '<div style="margin-top:4px">' + escapeHtml(d.mensaje) + '</div>' +
+            detalleEnvio +
             '<div style="margin-top:8px;font-size:12px;opacity:0.85">' +
             'Template: <strong>' + escapeHtml(r.template_display) + '</strong> · ' +
             'Autor: <strong>' + escapeHtml(r.autor) + '</strong> · ' +
             'Destinatarios: <strong>' + r.destinatarios + '</strong>' +
             (r.excluidos ? ' (excluidos ' + r.excluidos + ')' : '') + ' · ' +
-            'Costo estimado: <strong>$' + r.costo_total_usd.toFixed(2) + '</strong></div>';
+            'Costo: <strong>$' + r.costo_total_usd.toFixed(2) + '</strong></div>';
           btn.textContent = 'Listo ✓';
           btn.disabled = true;
+          btnR.disabled = enviarRealFlag;  // se bloquea el real tras enviar
         } else {
           box.style.background = '#faeae5';
           box.style.borderColor = '#a8422d';
@@ -1033,11 +1091,13 @@
           box.innerHTML = '<strong>Error</strong>' + escapeHtml(d.error || 'desconocido');
           btn.textContent = 'Reintentar';
           btn.disabled = false;
+          btnR.disabled = false;
         }
       })
       .catch(function() {
         btn.textContent = 'Reintentar';
         btn.disabled = false;
+        btnR.disabled = false;
         alert('Error de red');
       });
   }
