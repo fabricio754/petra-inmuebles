@@ -5206,15 +5206,15 @@ def panel_v2_difusiones_upload_header():
 
 @petra_panel_bp.post("/v2/difusiones/confirmar")
 def panel_v2_difusiones_confirmar():
-    """Dry-run de la difusión: no envía por WhatsApp, pero devuelve el
-    payload completo que SE enviaría y loguea la intención en el server.
+    """Envía la difusión real por WhatsApp via Kapso.
 
-    Una vez que tengamos Meta Cloud API cableada (fase siguiente), este
-    endpoint pasa a encolar los envíos reales. Por ahora responde con
-    status=dry_run para que el panel pueda mostrar confirmación clara.
+    Por default hace dry-run para que el usuario vea el payload antes de
+    disparar. Si llega el parametro `enviar=1`, encola los envíos uno
+    por uno via la API de Kapso y persiste cada OUT en `mensajes`.
     """
     _check_token()
     from flask import jsonify
+    from app import petra_kapso as _kapso_mod
     import json as _json
     import logging as _lg
 
@@ -5223,6 +5223,7 @@ def panel_v2_difusiones_confirmar():
     if not tmpl:
         return jsonify({"error": "template inválido"}), 400
 
+    enviar_real = (request.values.get("enviar") or "").strip() == "1"
     programar = (request.values.get("programar") or "ahora").strip().lower()
     autor = (request.values.get("autor") or "fabricio").strip().lower()
     if autor not in {a["id"] for a in DIFUSION_AUTORES}:
@@ -5265,35 +5266,111 @@ def panel_v2_difusiones_confirmar():
                 mensaje = _render_tmpl_body(
                     body_para_render, tmpl["variables"], r, conjunto_nombre=conj)
                 tel_digits = ''.join(c for c in (r.get("propietario_telefono") or "") if c.isdigit())
+                # Armar los parameters del body para Kapso: un {type:"text",text}
+                # por cada variable en orden, usando _var_value_for con el
+                # inmueble real.
+                body_params = []
+                for v in (tmpl["variables"] or []):
+                    val = _var_value_for(r, v.get("source", ""), conjunto_nombre=conj)
+                    body_params.append({"type": "text", "text": str(val)})
                 destinatarios.append({
                     "inmueble_id": r.get("id"),
                     "telefono": tel_digits,
                     "mensaje": mensaje,
+                    "body_params": body_params,
                 })
     except Exception:
         _lg.getLogger(__name__).exception("[panel_v2] difusiones confirmar fallo")
         return jsonify({"error": "db error"}), 500
 
+    # ─── Envío real via Kapso ─────────────────────────────────────────────
+    envio = {"ok": 0, "fallos": 0, "errores": [], "sin_telefono": 0}
+    if enviar_real:
+        if not _kapso_mod._is_ready():
+            return jsonify({"error": "kapso_no_configurado",
+                            "msg": "Faltan env vars KAPSO_API_KEY / KAPSO_PHONE_NUMBER_ID"}), 500
+        # Idioma del template (si viene vacío, default es)
+        lang_code = (tmpl.get("language") or tmpl.get("idioma") or "es").strip() or "es"
+        # Header con variables del template (si multimedia)
+        header_url_tpl = (tmpl.get("header") or {}).get("url") if tmpl.get("header") else None
+        header_type_tpl = ((tmpl.get("header") or {}).get("type") or "").lower()
+        # Override opcional desde el paso 3 de la campaña
+        header_url_final = header_url_override or header_url_tpl
+        header_type_final = header_type_override or header_type_tpl
+
+        for d in destinatarios:
+            tel = d["telefono"]
+            if not tel or len(tel) < 10:
+                envio["sin_telefono"] += 1
+                continue
+            components = []
+            if header_url_final and header_type_final in ("image", "video", "document"):
+                components.append({
+                    "type": "header",
+                    "parameters": [{
+                        "type": header_type_final,
+                        header_type_final: {"link": header_url_final},
+                    }],
+                })
+            if d["body_params"]:
+                components.append({
+                    "type": "body",
+                    "parameters": d["body_params"],
+                })
+            resultado = _kapso_mod.send_template(
+                to=tel,
+                template_name=tmpl["name"],
+                language=lang_code,
+                components=components,
+            )
+            if resultado.get("ok"):
+                envio["ok"] += 1
+                # Persistir OUT en mensajes
+                try:
+                    _db.log_mensaje(
+                        tel, "OUT", f"kapso_template_{tmpl['name']}",
+                        d["mensaje"][:4000],
+                        payload={"template": tmpl["name"],
+                                 "lang": lang_code,
+                                 "inmueble_id": d["inmueble_id"],
+                                 "kapso_response": resultado.get("body")},
+                        wa_msg_id=resultado.get("message_id"),
+                    )
+                except Exception as e:
+                    _lg.getLogger(__name__).warning(
+                        "[difusion] log_mensaje fallo para %s: %s", tel, e)
+            else:
+                envio["fallos"] += 1
+                if len(envio["errores"]) < 10:
+                    envio["errores"].append({
+                        "telefono": tel,
+                        "status": resultado.get("status"),
+                        "body": resultado.get("body"),
+                    })
+
     total = len(destinatarios)
     costo = round(total * tmpl["price_usd"], 2)
 
-    # Log de la intención — queda en Render logs para auditoría manual
-    # mientras no persistamos en DB.
+    # Log de la intención.
     overrides_flag = bool(body_override or header_url_override)
     _lg.getLogger(__name__).info(
-        "[DIFUSION_DRY_RUN] template=%s autor=%s programar=%s destinatarios=%d "
-        "excluidos=%d costo_usd=%.2f overrides=%s header_override=%s muestra=%s",
+        "[DIFUSION%s] template=%s autor=%s programar=%s destinatarios=%d "
+        "excluidos=%d costo_usd=%.2f overrides=%s enviados=%d fallos=%d",
+        "_REAL" if enviar_real else "_DRY_RUN",
         tmpl_name, autor, programar, total, len(excluidos), costo,
-        overrides_flag, header_url_override or "-",
-        _json.dumps(destinatarios[:3], ensure_ascii=False) if destinatarios else "[]",
+        overrides_flag, envio["ok"], envio["fallos"],
     )
 
     return jsonify({
         "ok": True,
-        "status": "dry_run",
-        "mensaje": ("Campaña registrada en modo dry-run. "
-                    "El envío real requiere integración con Meta Cloud API, "
-                    "pendiente de la próxima fase."),
+        "status": "enviado" if enviar_real else "dry_run",
+        "mensaje": (
+            f"Campaña enviada: {envio['ok']} ok, {envio['fallos']} fallos, "
+            f"{envio['sin_telefono']} sin teléfono."
+            if enviar_real else
+            "Campaña en dry-run. Agregá ?enviar=1 para disparar real."
+        ),
+        "envio": envio,
         "resumen": {
             "template": tmpl_name,
             "template_display": tmpl["display"],
