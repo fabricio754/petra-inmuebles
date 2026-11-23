@@ -5089,6 +5089,10 @@ def panel_v2_templates_aprobar(tid):
             err_body = r.json()
         except Exception:
             err_body = {"raw": r.text[:500]}
+        import logging as _lg_err
+        _lg_err.getLogger(__name__).error(
+            "[aprobar] POST rechazado name=%s status=%s detalle=%s",
+            tpl["name"], r.status_code, _json.dumps(err_body)[:1000])
         return jsonify({
             "error": "kapso_rechazo",
             "status_code": r.status_code,
