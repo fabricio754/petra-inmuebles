@@ -49,6 +49,40 @@ def health():
     return {"status": "ok", "service": "petra-inmuebles-webhook"}
 
 
+@app.route("/webhook/kapso", methods=["GET", "POST"])
+def webhook_kapso():
+    """Recibe eventos de Kapso (mensajes entrantes, estados, echoes).
+
+    Por ahora solo loguea el payload completo para que podamos ver el
+    formato real de los eventos y después mapearlos a nuestro schema.
+    Devuelve 200 siempre para que Kapso no reintente.
+    """
+    import logging as _lg
+    log = _lg.getLogger("petra.webhook.kapso")
+
+    if request.method == "GET":
+        # Verificación/handshake: Kapso puede mandar GET para validar que
+        # el endpoint responde. No usamos challenge style de Meta porque
+        # Kapso maneja su propia verificación por secret en POST.
+        return {"ok": True, "endpoint": "/webhook/kapso"}, 200
+
+    try:
+        payload = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        payload = {}
+
+    # Log del evento. Si llega mucho ruido, filtramos por kind acá.
+    try:
+        import json as _json
+        log.info("[kapso webhook] body=%s", _json.dumps(payload)[:2000])
+    except Exception:
+        log.info("[kapso webhook] body=<unparseable>")
+
+    # Ack inmediato. Después vamos a parsear según event_type y persistir
+    # en tablas mensajes/petra_contactos, igual que hace el webhook de Meta.
+    return {"ok": True}, 200
+
+
 @app.get("/petra/health_full")
 def health_full():
     """Diagnóstico end-to-end: valida DB, env tokens críticos, scheduler.

@@ -8784,3 +8784,38 @@ def staging_whitelist_eliminar(telefono):
     except Exception:
         return _whitelist_redirect(token, "error")
     return _whitelist_redirect(token, "eliminado")
+
+
+# ────────────────────────────────────────────────────────────────────
+# Kapso — endpoint de prueba para enviar templates via el BSP.
+# ────────────────────────────────────────────────────────────────────
+@petra_panel_bp.get("/kapso/test-template")
+def kapso_test_template():
+    """Dispara un envío de template vía Kapso para probar la integración.
+
+    Query params:
+      token    = PANEL_TOKEN (requerido).
+      to       = destinatario E.164 (ej. +573001301331).
+      template = nombre del template (default: petra_test_hola).
+      lang     = código idioma (default: es_ES).
+
+    Devuelve JSON con el resultado del POST a Kapso para debug.
+    """
+    from flask import jsonify
+    from app import petra_kapso as _kapso
+    _check_token()
+
+    to = (request.args.get("to") or "").strip()
+    if not to:
+        return jsonify({"error": "falta ?to=+57..."}), 400
+    tpl = (request.args.get("template") or "petra_test_hola").strip()
+    lang = (request.args.get("lang") or "es_ES").strip()
+
+    if not _kapso._is_ready():
+        return jsonify({
+            "error": "kapso_no_configurado",
+            "msg": "Faltan env vars KAPSO_API_KEY, KAPSO_BASE_URL o KAPSO_PHONE_NUMBER_ID",
+        }), 500
+
+    resultado = _kapso.send_template(to=to, template_name=tpl, language=lang)
+    return jsonify(resultado), (200 if resultado.get("ok") else 502)
