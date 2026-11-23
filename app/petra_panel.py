@@ -4704,20 +4704,22 @@ def _meta_fetch_templates(force=False):
        (now - _META_TEMPLATES_CACHE["ts"]) < _META_CACHE_TTL:
         return _META_TEMPLATES_CACHE["payload"], _META_TEMPLATES_CACHE["error"]
 
-    token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
-    waba_id = (os.environ.get("META_WABA_ID") or "").strip()
+    # Lista desde la WABA de Kapso (+573001301331), no la del bot.
+    from app import petra_kapso as _kapso_mod
+    k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
+    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
 
-    if not token:
-        return [], "falta_env:META_ACCESS_TOKEN"
+    if not k_api_key:
+        return [], "falta_env:KAPSO_API_KEY"
     if not waba_id:
-        return [], "falta_env:META_WABA_ID"
+        return [], "falta_env:KAPSO_WABA_ID"
 
-    url = f"https://graph.facebook.com/v22.0/{waba_id}/message_templates"
+    url = f"{k_base}/{k_version}/{waba_id}/message_templates"
     try:
         import requests
         r = requests.get(
             url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"X-API-Key": k_api_key},
             params={"limit": 100, "fields":
                     "id,name,status,category,language,components,quality_score,rejected_reason"},
             timeout=15,
@@ -4864,10 +4866,19 @@ def _meta_upload_media_handle(media_url, access_token, app_id):
         return None, f"upload_data_error:{type(e).__name__}"
 
 
-def _construir_meta_components(tpl, access_token, app_id):
+def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
     """Construye el array `components` del payload de Meta a partir del template.
 
     Devuelve (components, error_str_o_None).
+
+    Args:
+      access_token: token de Meta Cloud API. Solo requerido si usar_url=False
+        (para hacer Resumable Upload).
+      app_id: app id de Meta (solo con usar_url=False).
+      usar_url: si True, pasamos `header_url` con la URL pública del archivo
+        en vez de hacer Resumable Upload. Ahorra una llamada y simplifica
+        cuando el archivo ya está en un host accesible (GitHub raw, CDN).
+        Lo usa el flujo de aprobación via Kapso.
     """
     components = []
 
@@ -4881,14 +4892,22 @@ def _construir_meta_components(tpl, access_token, app_id):
             hurl = (header.get("url") or "").strip()
             if not hurl:
                 return None, "header_sin_url"
-            handle, err = _meta_upload_media_handle(hurl, access_token, app_id)
-            if not handle:
-                return None, f"header_upload_fallo:{err}"
-            components.append({
-                "type": "HEADER",
-                "format": htype,  # IMAGE / VIDEO / DOCUMENT
-                "example": {"header_handle": [handle]},
-            })
+            if usar_url:
+                # Meta tambien acepta example.header_url con URL publica HTTPS.
+                components.append({
+                    "type": "HEADER",
+                    "format": htype,  # IMAGE / VIDEO / DOCUMENT
+                    "example": {"header_url": [hurl]},
+                })
+            else:
+                handle, err = _meta_upload_media_handle(hurl, access_token, app_id)
+                if not handle:
+                    return None, f"header_upload_fallo:{err}"
+                components.append({
+                    "type": "HEADER",
+                    "format": htype,  # IMAGE / VIDEO / DOCUMENT
+                    "example": {"header_handle": [handle]},
+                })
 
     # ── Body ───────────────────────────────────────────────────────────
     body_text = (tpl.get("body") or "").strip()
@@ -4941,19 +4960,22 @@ def panel_v2_templates_aprobar(tid):
     """
     _check_token()
     from flask import jsonify
+    from app import petra_kapso as _kapso_mod
     import json as _json
     import requests
 
-    token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
-    waba_id = (os.environ.get("META_WABA_ID") or "").strip()
+    # Las aprobaciones de templates van a la WABA de Kapso (+573001301331).
+    # El bot (+573001278631) no envia templates; es solo chat libre.
+    k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
+    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    # app_id solo se usaba para Resumable Upload de media directo a Meta;
+    # ahora via Kapso NO hace falta si usamos header_url en vez de handle.
     app_id = (os.environ.get("META_APP_ID") or "").strip()
 
-    if not token:
-        return jsonify({"error": "falta_env:META_ACCESS_TOKEN"}), 500
+    if not k_api_key:
+        return jsonify({"error": "falta_env:KAPSO_API_KEY"}), 500
     if not waba_id:
-        return jsonify({"error": "falta_env:META_WABA_ID"}), 500
-    if not app_id:
-        return jsonify({"error": "falta_env:META_APP_ID"}), 500
+        return jsonify({"error": "falta_env:KAPSO_WABA_ID"}), 500
 
     # Cargar template
     try:
@@ -4976,8 +4998,10 @@ def panel_v2_templates_aprobar(tid):
                         "detalle": "Los templates de catálogo/carrusel requieren "
                                    "un flujo distinto todavía no implementado."}), 400
 
-    # Construir components
-    components, err = _construir_meta_components(tpl, token, app_id)
+    # Construir components. Para templates con header multimedia, usamos
+    # la URL publica (GitHub raw) directamente en vez de hacer Resumable
+    # Upload — Kapso/Meta la descarga para armar el example.
+    components, err = _construir_meta_components(tpl, None, app_id, usar_url=True)
     if err:
         return jsonify({"error": "construir_payload_fallo", "detalle": err}), 400
 
@@ -4988,11 +5012,11 @@ def panel_v2_templates_aprobar(tid):
         "components": components,
     }
 
-    # POST a Meta
+    # POST a Kapso (que es proxy de Meta Graph API para esta WABA).
     try:
         r = requests.post(
-            f"https://graph.facebook.com/v22.0/{waba_id}/message_templates",
-            headers={"Authorization": f"Bearer {token}",
+            f"{k_base}/{k_version}/{waba_id}/message_templates",
+            headers={"X-API-Key": k_api_key,
                      "Content-Type": "application/json"},
             data=_json.dumps(payload),
             timeout=30,
@@ -5006,7 +5030,7 @@ def panel_v2_templates_aprobar(tid):
         except Exception:
             err_body = {"raw": r.text[:500]}
         return jsonify({
-            "error": "meta_rechazo",
+            "error": "kapso_rechazo",
             "status_code": r.status_code,
             "detalle": err_body,
         }), 400
@@ -5182,15 +5206,15 @@ def panel_v2_difusiones_upload_header():
 
 @petra_panel_bp.post("/v2/difusiones/confirmar")
 def panel_v2_difusiones_confirmar():
-    """Dry-run de la difusión: no envía por WhatsApp, pero devuelve el
-    payload completo que SE enviaría y loguea la intención en el server.
+    """Envía la difusión real por WhatsApp via Kapso.
 
-    Una vez que tengamos Meta Cloud API cableada (fase siguiente), este
-    endpoint pasa a encolar los envíos reales. Por ahora responde con
-    status=dry_run para que el panel pueda mostrar confirmación clara.
+    Por default hace dry-run para que el usuario vea el payload antes de
+    disparar. Si llega el parametro `enviar=1`, encola los envíos uno
+    por uno via la API de Kapso y persiste cada OUT en `mensajes`.
     """
     _check_token()
     from flask import jsonify
+    from app import petra_kapso as _kapso_mod
     import json as _json
     import logging as _lg
 
@@ -5199,6 +5223,7 @@ def panel_v2_difusiones_confirmar():
     if not tmpl:
         return jsonify({"error": "template inválido"}), 400
 
+    enviar_real = (request.values.get("enviar") or "").strip() == "1"
     programar = (request.values.get("programar") or "ahora").strip().lower()
     autor = (request.values.get("autor") or "fabricio").strip().lower()
     if autor not in {a["id"] for a in DIFUSION_AUTORES}:
@@ -5241,35 +5266,111 @@ def panel_v2_difusiones_confirmar():
                 mensaje = _render_tmpl_body(
                     body_para_render, tmpl["variables"], r, conjunto_nombre=conj)
                 tel_digits = ''.join(c for c in (r.get("propietario_telefono") or "") if c.isdigit())
+                # Armar los parameters del body para Kapso: un {type:"text",text}
+                # por cada variable en orden, usando _var_value_for con el
+                # inmueble real.
+                body_params = []
+                for v in (tmpl["variables"] or []):
+                    val = _var_value_for(r, v.get("source", ""), conjunto_nombre=conj)
+                    body_params.append({"type": "text", "text": str(val)})
                 destinatarios.append({
                     "inmueble_id": r.get("id"),
                     "telefono": tel_digits,
                     "mensaje": mensaje,
+                    "body_params": body_params,
                 })
     except Exception:
         _lg.getLogger(__name__).exception("[panel_v2] difusiones confirmar fallo")
         return jsonify({"error": "db error"}), 500
 
+    # ─── Envío real via Kapso ─────────────────────────────────────────────
+    envio = {"ok": 0, "fallos": 0, "errores": [], "sin_telefono": 0}
+    if enviar_real:
+        if not _kapso_mod._is_ready():
+            return jsonify({"error": "kapso_no_configurado",
+                            "msg": "Faltan env vars KAPSO_API_KEY / KAPSO_PHONE_NUMBER_ID"}), 500
+        # Idioma del template (si viene vacío, default es)
+        lang_code = (tmpl.get("language") or tmpl.get("idioma") or "es").strip() or "es"
+        # Header con variables del template (si multimedia)
+        header_url_tpl = (tmpl.get("header") or {}).get("url") if tmpl.get("header") else None
+        header_type_tpl = ((tmpl.get("header") or {}).get("type") or "").lower()
+        # Override opcional desde el paso 3 de la campaña
+        header_url_final = header_url_override or header_url_tpl
+        header_type_final = header_type_override or header_type_tpl
+
+        for d in destinatarios:
+            tel = d["telefono"]
+            if not tel or len(tel) < 10:
+                envio["sin_telefono"] += 1
+                continue
+            components = []
+            if header_url_final and header_type_final in ("image", "video", "document"):
+                components.append({
+                    "type": "header",
+                    "parameters": [{
+                        "type": header_type_final,
+                        header_type_final: {"link": header_url_final},
+                    }],
+                })
+            if d["body_params"]:
+                components.append({
+                    "type": "body",
+                    "parameters": d["body_params"],
+                })
+            resultado = _kapso_mod.send_template(
+                to=tel,
+                template_name=tmpl["name"],
+                language=lang_code,
+                components=components,
+            )
+            if resultado.get("ok"):
+                envio["ok"] += 1
+                # Persistir OUT en mensajes
+                try:
+                    _db.log_mensaje(
+                        tel, "OUT", f"kapso_template_{tmpl['name']}",
+                        d["mensaje"][:4000],
+                        payload={"template": tmpl["name"],
+                                 "lang": lang_code,
+                                 "inmueble_id": d["inmueble_id"],
+                                 "kapso_response": resultado.get("body")},
+                        wa_msg_id=resultado.get("message_id"),
+                    )
+                except Exception as e:
+                    _lg.getLogger(__name__).warning(
+                        "[difusion] log_mensaje fallo para %s: %s", tel, e)
+            else:
+                envio["fallos"] += 1
+                if len(envio["errores"]) < 10:
+                    envio["errores"].append({
+                        "telefono": tel,
+                        "status": resultado.get("status"),
+                        "body": resultado.get("body"),
+                    })
+
     total = len(destinatarios)
     costo = round(total * tmpl["price_usd"], 2)
 
-    # Log de la intención — queda en Render logs para auditoría manual
-    # mientras no persistamos en DB.
+    # Log de la intención.
     overrides_flag = bool(body_override or header_url_override)
     _lg.getLogger(__name__).info(
-        "[DIFUSION_DRY_RUN] template=%s autor=%s programar=%s destinatarios=%d "
-        "excluidos=%d costo_usd=%.2f overrides=%s header_override=%s muestra=%s",
+        "[DIFUSION%s] template=%s autor=%s programar=%s destinatarios=%d "
+        "excluidos=%d costo_usd=%.2f overrides=%s enviados=%d fallos=%d",
+        "_REAL" if enviar_real else "_DRY_RUN",
         tmpl_name, autor, programar, total, len(excluidos), costo,
-        overrides_flag, header_url_override or "-",
-        _json.dumps(destinatarios[:3], ensure_ascii=False) if destinatarios else "[]",
+        overrides_flag, envio["ok"], envio["fallos"],
     )
 
     return jsonify({
         "ok": True,
-        "status": "dry_run",
-        "mensaje": ("Campaña registrada en modo dry-run. "
-                    "El envío real requiere integración con Meta Cloud API, "
-                    "pendiente de la próxima fase."),
+        "status": "enviado" if enviar_real else "dry_run",
+        "mensaje": (
+            f"Campaña enviada: {envio['ok']} ok, {envio['fallos']} fallos, "
+            f"{envio['sin_telefono']} sin teléfono."
+            if enviar_real else
+            "Campaña en dry-run. Agregá ?enviar=1 para disparar real."
+        ),
+        "envio": envio,
         "resumen": {
             "template": tmpl_name,
             "template_display": tmpl["display"],
@@ -8784,3 +8885,57 @@ def staging_whitelist_eliminar(telefono):
     except Exception:
         return _whitelist_redirect(token, "error")
     return _whitelist_redirect(token, "eliminado")
+
+
+# ────────────────────────────────────────────────────────────────────
+# Kapso — endpoint de prueba para enviar templates via el BSP.
+# ────────────────────────────────────────────────────────────────────
+@petra_panel_bp.get("/kapso/test-template")
+def kapso_test_template():
+    """Dispara un envío de template vía Kapso para probar la integración.
+
+    Query params:
+      token    = PANEL_TOKEN (requerido).
+      to       = destinatario E.164 (ej. +573001301331).
+      template = nombre del template (default: petra_test_hola).
+      lang     = código idioma (default: es_ES).
+
+    Devuelve JSON con el resultado del POST a Kapso para debug.
+    """
+    from flask import jsonify
+    from app import petra_kapso as _kapso
+    _check_token()
+
+    to = (request.args.get("to") or "").strip()
+    if not to:
+        return jsonify({"error": "falta ?to=+57..."}), 400
+    tpl = (request.args.get("template") or "petra_test_hola").strip()
+    lang = (request.args.get("lang") or "es_ES").strip()
+
+    if not _kapso._is_ready():
+        return jsonify({
+            "error": "kapso_no_configurado",
+            "msg": "Faltan env vars KAPSO_API_KEY, KAPSO_BASE_URL o KAPSO_PHONE_NUMBER_ID",
+        }), 500
+
+    resultado = _kapso.send_template(to=to, template_name=tpl, language=lang)
+    return jsonify(resultado), (200 if resultado.get("ok") else 502)
+
+
+@petra_panel_bp.get("/v2/kapso")
+def panel_v2_kapso():
+    """Panel v2: página de Kapso. Muestra el estado del número conectado
+    al BSP y permite enviar un template manual de prueba.
+    """
+    from app import petra_kapso as _kapso
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    base, api_key, phone_id, _version = _kapso._config()
+    cfg = {
+        "ready": bool(api_key and phone_id),
+        "phone_id": phone_id or "—",
+        "waba_id": (os.environ.get("KAPSO_WABA_ID") or "").strip() or "",
+        "base": base or "—",
+    }
+    return render_template("petra_panel_v2_kapso.html", token=token, cfg=cfg)
