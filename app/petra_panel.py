@@ -5051,46 +5051,80 @@ def panel_v2_templates_aprobar(tid):
         "components": components,
     }
 
-    # DELETE preventivo siempre: Meta puede tener una copia "sombra" de
-    # un intento anterior (otro nombre o categoria) aunque localmente
-    # tengamos status 'draft'. Si Meta no lo tiene, devuelve 404 y
-    # seguimos; si lo tiene, lo limpia para que el POST siguiente
-    # pueda crearlo con la categoria actual.
-    try:
-        rd = requests.delete(
-            f"{k_base}/{k_version}/{waba_id}/message_templates",
-            headers={"X-API-Key": k_api_key},
-            params={"name": tpl["name"]},
-            timeout=15,
-        )
-        import logging as _lg_d
-        _lg_d.getLogger(__name__).info(
-            "[aprobar] DELETE preventivo name=%s status=%s body=%s",
-            tpl["name"], rd.status_code, (rd.text or "")[:200])
-    except Exception as _e:
-        import logging as _lg_d
-        _lg_d.getLogger(__name__).warning(
-            "[aprobar] DELETE preventivo fallo: %s", _e)
+    import logging as _lg_apr
+    _log = _lg_apr.getLogger(__name__)
 
-    # POST a Kapso (que es proxy de Meta Graph API para esta WABA).
-    try:
-        r = requests.post(
-            f"{k_base}/{k_version}/{waba_id}/message_templates",
-            headers={"X-API-Key": k_api_key,
-                     "Content-Type": "application/json"},
-            data=_json.dumps(payload),
-            timeout=30,
-        )
-    except Exception as e:
-        return jsonify({"error": f"red:{type(e).__name__}"}), 500
-
-    if not r.ok:
+    def _post_template():
+        """POST a Kapso. Devuelve (response, parsed_err_body_or_none)."""
         try:
-            err_body = r.json()
+            r = requests.post(
+                f"{k_base}/{k_version}/{waba_id}/message_templates",
+                headers={"X-API-Key": k_api_key,
+                         "Content-Type": "application/json"},
+                data=_json.dumps(payload),
+                timeout=30,
+            )
+        except Exception as e:
+            return None, {"red": f"{type(e).__name__}: {e}"}
+        if r.ok:
+            return r, None
+        try:
+            eb = r.json()
         except Exception:
-            err_body = {"raw": r.text[:500]}
-        import logging as _lg_err
-        _lg_err.getLogger(__name__).error(
+            eb = {"raw": r.text[:500]}
+        return r, eb
+
+    # 1er intento: POST directo, sin DELETE preventivo.
+    r, err_body = _post_template()
+    if r is None:
+        return jsonify({"error": "red", "detalle": err_body}), 500
+
+    # Si Meta rechaza por "Content Already Exists" o
+    # "Category Doesn't Match", significa que hay una copia "sombra" de
+    # un intento anterior en Meta. Hacemos UN DELETE y le decimos al
+    # user que espere ~1 min y reintente (Meta necesita propagar).
+    # NO reintentamos en el mismo request porque Meta devuelve el
+    # error "being deleted" durante la ventana.
+    if not r.ok:
+        err_subcode = None
+        err_msg = ""
+        try:
+            e = (err_body or {}).get("error") or {}
+            err_subcode = e.get("error_subcode")
+            err_msg = (e.get("error_user_msg") or e.get("message") or "")
+        except Exception:
+            pass
+        es_conflicto_name = (
+            err_subcode in (2593002, 2593006, 2593008)
+            or "Already Exists" in err_msg
+            or "doesn't match" in err_msg
+            or "Doesn't Match" in err_msg
+        )
+        if es_conflicto_name:
+            # Intentamos borrar la sombra en Meta para desbloquear
+            # el próximo intento del usuario.
+            try:
+                rd = requests.delete(
+                    f"{k_base}/{k_version}/{waba_id}/message_templates",
+                    headers={"X-API-Key": k_api_key},
+                    params={"name": tpl["name"]},
+                    timeout=15,
+                )
+                _log.info(
+                    "[aprobar] shadow DELETE name=%s status=%s body=%s",
+                    tpl["name"], rd.status_code, (rd.text or "")[:300])
+            except Exception as _e:
+                _log.warning("[aprobar] shadow DELETE fallo: %s", _e)
+            return jsonify({
+                "error": "meta_conflicto_nombre",
+                "status_code": r.status_code,
+                "detalle": err_body,
+                "msg": ("Meta tenía una copia previa de este template. "
+                        "La limpiamos ahora. Esperá ~60 segundos y "
+                        "volvé a clickear 'Aprobar'."),
+            }), 409
+
+        _log.error(
             "[aprobar] POST rechazado name=%s status=%s detalle=%s",
             tpl["name"], r.status_code, _json.dumps(err_body)[:1000])
         return jsonify({
