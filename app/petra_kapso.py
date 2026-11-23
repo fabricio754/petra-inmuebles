@@ -20,10 +20,17 @@ import requests
 _LOG = logging.getLogger(__name__)
 
 _DEFAULT_GRAPH_VERSION = "v24.0"
+# URL base real del proxy de Kapso para la Graph API de Meta. El env var
+# KAPSO_BASE_URL puede sobreescribirla, pero el default es el correcto.
+_DEFAULT_BASE_URL = "https://api.kapso.ai/meta/whatsapp"
 
 
 def _config():
-    base = (os.environ.get("KAPSO_BASE_URL") or "").rstrip("/")
+    base = (os.environ.get("KAPSO_BASE_URL") or _DEFAULT_BASE_URL).rstrip("/")
+    # Protección: si la env var tiene el valor viejo que apuntaba al host
+    # equivocado (app.kapso.ai), lo reemplazamos por el correcto en runtime.
+    if "app.kapso.ai" in base or "/api/meta" in base:
+        base = _DEFAULT_BASE_URL
     api_key = (os.environ.get("KAPSO_API_KEY") or "").strip()
     phone_id = (os.environ.get("KAPSO_PHONE_NUMBER_ID") or "").strip()
     version = (os.environ.get("KAPSO_GRAPH_VERSION") or _DEFAULT_GRAPH_VERSION).strip()
