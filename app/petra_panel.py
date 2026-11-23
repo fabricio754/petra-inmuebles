@@ -5078,6 +5078,20 @@ def panel_v2_templates_aprobar(tid):
     meta_id = meta_resp.get("id")
     meta_status = (meta_resp.get("status") or "PENDING").upper()
 
+    # Mapear status de Meta al esquema local (español).
+    # El CHECK constraint de campana_templates.status acepta:
+    # 'draft', 'pendiente', 'aprobado', 'rechazado'.
+    _STATUS_MAP = {
+        "PENDING": "pendiente",
+        "APPROVED": "aprobado",
+        "REJECTED": "rechazado",
+        "DELETED": "rechazado",
+        "DISABLED": "rechazado",
+        "IN_APPEAL": "pendiente",
+        "PENDING_DELETION": "pendiente",
+    }
+    status_local = _STATUS_MAP.get(meta_status, "pendiente")
+
     # Actualizar status local
     try:
         with _db._conexion_directa(timeout=10) as conn:
@@ -5086,7 +5100,7 @@ def panel_v2_templates_aprobar(tid):
                 "   SET status = %s, "
                 "       actualizado_en = NOW() "
                 " WHERE id = %s",
-                ("pending" if meta_status == "PENDING" else meta_status.lower(), tid),
+                (status_local, tid),
             )
     except Exception:
         import logging as _lg
