@@ -5051,6 +5051,21 @@ def panel_v2_templates_aprobar(tid):
         "components": components,
     }
 
+    # Si el template estaba rechazado antes, Meta todavia tiene una copia
+    # en su lado y rechaza el POST con "Content in This Language Already
+    # Exists". Hacemos un DELETE preventivo (idempotente). Si Meta no lo
+    # tiene, devuelve 404 y seguimos sin error.
+    if (tpl.get("status") or "") in ("rechazado", "pendiente"):
+        try:
+            requests.delete(
+                f"{k_base}/{k_version}/{waba_id}/message_templates",
+                headers={"X-API-Key": k_api_key},
+                params={"name": tpl["name"]},
+                timeout=15,
+            )
+        except Exception:
+            pass  # no bloqueamos el flujo si el DELETE falla
+
     # POST a Kapso (que es proxy de Meta Graph API para esta WABA).
     try:
         r = requests.post(
