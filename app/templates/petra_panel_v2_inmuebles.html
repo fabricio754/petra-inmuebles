@@ -268,19 +268,37 @@
     <h1>Inmuebles</h1>
     <div class="sub">{% if conjunto %}{{ conjunto.nombre }} · Código {{ conjunto.codigo }}{% else %}Elegí un conjunto para ver sus inmuebles{% endif %}</div>
   </div>
+  <div class="conj-select-wrap">
+    <label class="conj-select-lbl">Conjunto</label>
+    <select class="conj-select" onchange="if(this.value) window.location.href = '?token={{ token }}&cid=' + this.value;">
+      <option value="">— Elegí un conjunto —</option>
+      {% for c in conjuntos %}
+      <option value="{{ c.id }}" {% if cid == c.id %}selected{% endif %}>
+        {{ c.nombre }}{% if c.ciudad %} · {{ c.ciudad }}{% endif %} ({{ c.act }} activos)
+      </option>
+      {% endfor %}
+    </select>
+  </div>
 </div>
 
-<!-- Selector de conjuntos -->
-<div class="conj-pills">
-  {% for c in conjuntos %}
-  <a class="conj-pill {% if cid == c.id %}active{% endif %}"
-     href="?token={{ token }}&cid={{ c.id }}">
-    <div class="n">{{ c.nombre }}</div>
-    <div class="c">{{ c.ciudad or '—' }}</div>
-    <div class="cnt">{{ c.act }} activos</div>
-  </a>
-  {% endfor %}
-</div>
+<style>
+  .conj-select-wrap {
+    display: flex; flex-direction: column; gap: 4px;
+    min-width: 280px;
+  }
+  .conj-select-lbl {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); font-weight: 600;
+  }
+  .conj-select {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px;
+    font-size: 14px; color: var(--text);
+    cursor: pointer; min-width: 280px;
+    font-family: inherit;
+  }
+  .conj-select:hover { border-color: var(--accent); }
+</style>
 
 {% if not conjunto %}
   <div class="main-card">
