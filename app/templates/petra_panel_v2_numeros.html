@@ -99,17 +99,30 @@
       Los números acá no interfieren con el bot — es una separación estricta.
     </div>
   </div>
-  {% if setup_ok %}
-  <button class="cta" onclick="conectarWhatsApp()">
-    <span class="wa-logo">✓</span>
-    Conectar número con coexistencia
-  </button>
-  {% else %}
-  <button class="cta" disabled title="Falta configurar Meta en Render">
-    + Conectar número
-  </button>
-  {% endif %}
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="cta cta-kapso" onclick="conectarKapso()" title="Conectar un número por coexistencia a través de Kapso (BSP)">
+      🧩 Conectar número con Kapso
+    </button>
+    <button class="cta-secondary" onclick="sincronizarKapso(this)" title="Trae a este listado los números ya conectados en Kapso">
+      ↻ Sincronizar con Kapso
+    </button>
+  </div>
 </div>
+<style>
+  .cta-kapso { background: #ffe066; color: #5a4a00; border: 1px solid #e6b800; }
+  .cta-kapso:hover { background: #ffd43b; }
+  .cta-secondary {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-weight: 500;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .cta-secondary:hover { background: var(--bg-elev); }
+</style>
 
 {% if not setup_ok %}
 <div class="setup-warn">
@@ -308,7 +321,58 @@
         else alert(d.error || 'error');
       });
   }
+
 </script>
+
 {% endif %}
+
+{# ── Script Kapso (siempre carga, no depende de setup_ok de Meta) ── #}
+<script>
+  var KAPSO_TOKEN = {{ token|tojson }};
+
+  function conectarKapso() {
+    var msg = 'Para conectar un nuevo número por coexistencia:\n\n' +
+              '1. Se va a abrir Kapso en una nueva pestaña.\n' +
+              '2. Entrás a "Phone numbers" → "Set up number" → "Connect WhatsApp Business App".\n' +
+              '3. Seguís el flow (escaneás QR desde la app WhatsApp Business).\n' +
+              '4. Volvés a esta pestaña y clickeás "↻ Sincronizar con Kapso".\n\n' +
+              '¿Continuar?';
+    if (!confirm(msg)) return;
+    window.open('https://app.kapso.ai/projects', '_blank');
+  }
+
+  function sincronizarKapso(btn) {
+    btn.disabled = true;
+    var txtOrig = btn.textContent;
+    btn.textContent = '⏳ Sincronizando…';
+    var fd = new FormData();
+    fd.append('token', KAPSO_TOKEN);
+    fetch('/panel/petra/v2/numeros/kapso/sincronizar', { method: 'POST', body: fd })
+      .then(function(r) { return r.json().then(function(d) { return [r.ok, d]; }); })
+      .then(function(pair) {
+        var ok = pair[0], d = pair[1];
+        btn.disabled = false;
+        btn.textContent = txtOrig;
+        if (!ok) {
+          alert('Error: ' + (d.error || 'sincronización fallo'));
+          return;
+        }
+        var msg = '✓ Sincronizado con Kapso\n\n';
+        msg += '• Encontrados: ' + (d.encontrados || 0) + '\n';
+        msg += '• Nuevos agregados: ' + (d.nuevos || 0) + '\n';
+        msg += '• Ya existían: ' + (d.existentes || 0);
+        if ((d.errores || []).length) {
+          msg += '\n• Errores: ' + d.errores.length;
+        }
+        alert(msg);
+        if ((d.nuevos || 0) > 0) window.location.reload();
+      })
+      .catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = txtOrig;
+        alert('Error de red: ' + err);
+      });
+  }
+</script>
 
 {% endblock %}
