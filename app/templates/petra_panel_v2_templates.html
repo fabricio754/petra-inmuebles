@@ -2506,6 +2506,12 @@
           window.location.reload();
           return;
         }
+        // Caso especial: Meta tenía copia previa — ya la limpiamos.
+        if (d.error === 'meta_conflicto_nombre') {
+          alert('⏳ ' + (d.msg || 'Meta tenía una copia previa. Esperá ~60s y reintentá.'));
+          if (btn) { btn.disabled = false; btn.textContent = '✅ Aprobar (reintentar en 60s)'; }
+          return;
+        }
         var msg = 'Meta rechazó el template.\n\n';
         if (d.detalle && d.detalle.error) {
           var e = d.detalle.error;
