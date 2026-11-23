@@ -5051,6 +5051,21 @@ def panel_v2_templates_aprobar(tid):
         "components": components,
     }
 
+    # Si el template estaba rechazado antes, Meta todavia tiene una copia
+    # en su lado y rechaza el POST con "Content in This Language Already
+    # Exists". Hacemos un DELETE preventivo (idempotente). Si Meta no lo
+    # tiene, devuelve 404 y seguimos sin error.
+    if (tpl.get("status") or "") in ("rechazado", "pendiente"):
+        try:
+            requests.delete(
+                f"{k_base}/{k_version}/{waba_id}/message_templates",
+                headers={"X-API-Key": k_api_key},
+                params={"name": tpl["name"]},
+                timeout=15,
+            )
+        except Exception:
+            pass  # no bloqueamos el flujo si el DELETE falla
+
     # POST a Kapso (que es proxy de Meta Graph API para esta WABA).
     try:
         r = requests.post(
@@ -5078,6 +5093,20 @@ def panel_v2_templates_aprobar(tid):
     meta_id = meta_resp.get("id")
     meta_status = (meta_resp.get("status") or "PENDING").upper()
 
+    # Mapear status de Meta al esquema local (español).
+    # El CHECK constraint de campana_templates.status acepta:
+    # 'draft', 'pendiente', 'aprobado', 'rechazado'.
+    _STATUS_MAP = {
+        "PENDING": "pendiente",
+        "APPROVED": "aprobado",
+        "REJECTED": "rechazado",
+        "DELETED": "rechazado",
+        "DISABLED": "rechazado",
+        "IN_APPEAL": "pendiente",
+        "PENDING_DELETION": "pendiente",
+    }
+    status_local = _STATUS_MAP.get(meta_status, "pendiente")
+
     # Actualizar status local
     try:
         with _db._conexion_directa(timeout=10) as conn:
@@ -5086,7 +5115,7 @@ def panel_v2_templates_aprobar(tid):
                 "   SET status = %s, "
                 "       actualizado_en = NOW() "
                 " WHERE id = %s",
-                ("pending" if meta_status == "PENDING" else meta_status.lower(), tid),
+                (status_local, tid),
             )
     except Exception:
         import logging as _lg
@@ -5139,7 +5168,9 @@ def panel_v2_templates_actualizar(tid):
             ).fetchone()
             if not row:
                 return jsonify({"error": "no encontrado"}), 404
-            reset_status = (row[0] == "aprobado")
+            # Un template aprobado por Meta, o rechazado, vuelve a 'draft'
+            # al editarlo: hay que re-someterlo con el contenido nuevo.
+            reset_status = (row[0] in ("aprobado", "rechazado"))
 
             set_clauses = []
             params = []
