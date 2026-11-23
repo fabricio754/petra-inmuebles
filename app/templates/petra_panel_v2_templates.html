@@ -1227,7 +1227,8 @@
   // Lista mínima de templates locales para el picker de Activados.
   var LOCAL_TEMPLATES = [
     {% for t in templates %}
-    { name: {{ t.name|tojson }},
+    { id: {{ t.id }},
+      name: {{ t.name|tojson }},
       display: {{ t.display|tojson }},
       tipo: {{ t.tipo|tojson }},
       categoria: {{ t.categoria|tojson }},
@@ -1502,8 +1503,30 @@
           '<div class="rejected-reason-text">' + escapeHtml(motivo) + '</div>' +
         '</div>' +
         '<div class="tpl-card-body">' + escapeHtml(bodyPrev) + '</div>' +
+        '<div class="tpl-card-actions">' +
+          '<div class="tpl-card-meta"></div>' +
+          '<div class="tpl-card-btns">' +
+            '<button class="mini-btn" onclick="editarRechazadoPorNombre(\'' +
+              escapeHtml(t.name) + '\')">✏️ Editar y reintentar</button>' +
+          '</div>' +
+        '</div>' +
       '</div>';
     }).join('');
+  }
+
+  function editarRechazadoPorNombre(name) {
+    // Buscar el template en los borradores locales por nombre.
+    // Si existe (lo subimos nosotros), abrirlo en el editor para
+    // reintentar con el fix (típico caso: variable mal formada).
+    var row = (LOCAL_TEMPLATES || []).find(function(t) { return t.name === name; });
+    if (row) {
+      editarTemplate(row.id);
+      return;
+    }
+    // Caso borde: el rechazado vino solo de Meta y no lo tenemos
+    // local. Abrimos el modal de nuevo con el nombre pre-rellenado.
+    alert('Este template no está en tus borradores locales.\n' +
+          'Creá uno nuevo con el nombre "' + name + '" desde "+ Nuevo template".');
   }
 
   function minutesAgo(ts) {

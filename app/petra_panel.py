@@ -5153,7 +5153,9 @@ def panel_v2_templates_actualizar(tid):
             ).fetchone()
             if not row:
                 return jsonify({"error": "no encontrado"}), 404
-            reset_status = (row[0] == "aprobado")
+            # Un template aprobado por Meta, o rechazado, vuelve a 'draft'
+            # al editarlo: hay que re-someterlo con el contenido nuevo.
+            reset_status = (row[0] in ("aprobado", "rechazado"))
 
             set_clauses = []
             params = []
