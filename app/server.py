@@ -78,8 +78,16 @@ def webhook_kapso():
     except Exception:
         log.info("[kapso webhook] body=<unparseable>")
 
-    # Ack inmediato. Después vamos a parsear según event_type y persistir
-    # en tablas mensajes/petra_contactos, igual que hace el webhook de Meta.
+    # Mapear el evento al schema interno de mensajes (INSERT o UPDATE
+    # segun corresponda). No bloquea el ack a Kapso: cualquier error se
+    # loguea y devolvemos 200 igual.
+    try:
+        from app import petra_kapso as _k
+        resultado = _k.procesar_webhook(payload)
+        log.info("[kapso webhook] resultado=%s", resultado)
+    except Exception as e:
+        log.exception("[kapso webhook] procesar_webhook excepcion: %s", e)
+
     return {"ok": True}, 200
 
 

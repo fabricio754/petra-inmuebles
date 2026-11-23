@@ -120,3 +120,93 @@ def send_template(to, template_name, language="es_ES", components=None,
         "body": body,
         "message_id": message_id,
     }
+
+
+# ============================================================================
+# Webhook handler: mapea eventos de Kapso al schema interno de mensajes.
+# ============================================================================
+
+def procesar_webhook(payload):
+    """Parsea un evento del webhook de Kapso y lo persiste en nuestras tablas.
+
+    Soporta tres casos principales:
+      1. Mensaje saliente nuevo (direction=outbound + sin statuses):
+         INSERT en `mensajes` como OUT.
+      2. Cambio de estado del saliente (statuses[] con sent/delivered/read/failed):
+         UPDATE del estado_entrega del OUT via wa_msg_id.
+      3. Mensaje entrante (direction=inbound):
+         INSERT en `mensajes` como IN.
+
+    Devuelve dict con 'ok' y descripcion de lo que se hizo (util para debug).
+    No propaga excepciones — el webhook siempre debe responder 200.
+    """
+    from app import db as _db
+    log = logging.getLogger("petra.webhook.kapso")
+
+    try:
+        msg = (payload or {}).get("message") or {}
+        kapso_meta = msg.get("kapso") or {}
+        direction = (kapso_meta.get("direction") or "").lower()
+        wa_msg_id = msg.get("id")
+        statuses = kapso_meta.get("statuses") or []
+
+        # --- Caso 2: evento de estado de un OUT ya logueado ---
+        if statuses:
+            cambios = []
+            for st in statuses:
+                estado = (st.get("status") or "").lower()
+                ts = st.get("timestamp") or 0
+                try:
+                    ts = int(ts)
+                except (TypeError, ValueError):
+                    ts = 0
+                error_text = None
+                errs = st.get("errors") or []
+                if errs:
+                    e0 = errs[0] or {}
+                    error_text = (
+                        f"{e0.get('code')}: {e0.get('title') or e0.get('message') or ''}"
+                    )[:500]
+                target_id = st.get("id") or wa_msg_id
+                if target_id and estado:
+                    try:
+                        _db.actualizar_estado_entrega(target_id, estado, ts, error_text)
+                        cambios.append(f"{estado}@{target_id[:16]}")
+                    except Exception as e:
+                        log.warning("[kapso] actualizar_estado_entrega fallo: %s", e)
+            return {"ok": True, "accion": "status_update", "cambios": cambios}
+
+        # --- Caso 1 o 3: mensaje nuevo (IN u OUT sin status previo) ---
+        if direction == "outbound":
+            telefono = msg.get("to") or ""
+            tipo = msg.get("type") or "unknown"
+            resumen = kapso_meta.get("content") or ""
+            try:
+                _db.log_mensaje(telefono, "OUT", f"kapso_{tipo}", resumen[:4000],
+                                payload=payload, wa_msg_id=wa_msg_id)
+                return {"ok": True, "accion": "insert_out", "wa_msg_id": wa_msg_id}
+            except Exception as e:
+                log.exception("[kapso] log_mensaje OUT fallo: %s", e)
+                return {"ok": False, "accion": "insert_out_fallo", "error": str(e)}
+
+        if direction == "inbound":
+            telefono = msg.get("from") or kapso_meta.get("from") or ""
+            tipo = msg.get("type") or "unknown"
+            resumen = kapso_meta.get("content") or ""
+            if not telefono:
+                # Fallback: tomar del conversation
+                conv = (payload or {}).get("conversation") or {}
+                telefono = conv.get("phone_number") or conv.get("business_scoped_user_id") or ""
+            try:
+                _db.log_mensaje(telefono, "IN", f"kapso_{tipo}", resumen[:4000],
+                                payload=payload, wa_msg_id=wa_msg_id)
+                return {"ok": True, "accion": "insert_in", "wa_msg_id": wa_msg_id}
+            except Exception as e:
+                log.exception("[kapso] log_mensaje IN fallo: %s", e)
+                return {"ok": False, "accion": "insert_in_fallo", "error": str(e)}
+
+        return {"ok": True, "accion": "no_op", "motivo": "evento_sin_direction_ni_status"}
+
+    except Exception as e:
+        log.exception("[kapso] procesar_webhook fallo: %s", e)
+        return {"ok": False, "accion": "excepcion", "error": str(e)}
