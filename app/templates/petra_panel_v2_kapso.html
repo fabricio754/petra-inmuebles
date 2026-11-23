@@ -1,0 +1,203 @@
+{% extends "base_panel_v2.html" %}
+
+{% set block = 'kapso' %}
+{% block titulo %}Kapso · Petra{% endblock %}
+
+{% block content %}
+<style>
+  .kapso-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    max-width: 1100px;
+  }
+  @media (max-width: 860px) {
+    .kapso-grid { grid-template-columns: 1fr; }
+  }
+  .kapso-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .kapso-card h3 { margin: 0 0 14px; font-size: 16px; }
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-sub);
+    margin-bottom: 4px;
+  }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 14px;
+    box-sizing: border-box;
+    font-family: inherit;
+  }
+  .field textarea { min-height: 80px; resize: vertical; }
+  .send-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .send-btn:hover:not(:disabled) { filter: brightness(1.1); }
+  .result {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 420px;
+    overflow: auto;
+  }
+  .result.ok { border-color: #1e8e3e; }
+  .result.err { border-color: #c5221f; }
+  .info-row { display: flex; justify-content: space-between; padding: 6px 0;
+    border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .info-row:last-child { border-bottom: none; }
+  .info-label { color: var(--text-sub); }
+  .info-val { font-family: ui-monospace, Menlo, monospace; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .badge.ok { background: #d4edda; color: #155724; }
+  .badge.warn { background: #fff3cd; color: #856404; }
+  .badge.err { background: #f8d7da; color: #721c24; }
+</style>
+
+<h1>Kapso</h1>
+<div class="sub">Enviar templates y recibir mensajes a través del BSP Kapso. Separado del bot principal de Petra.</div>
+
+<div class="kapso-grid" style="margin-top: 24px;">
+
+  <!-- Card: info del número conectado -->
+  <div class="kapso-card">
+    <h3>Número conectado</h3>
+    {% if cfg.ready %}
+      <div class="info-row">
+        <span class="info-label">Estado</span>
+        <span><span class="badge ok">Configurado</span></span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Phone number ID</span>
+        <span class="info-val">{{ cfg.phone_id }}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">WABA ID</span>
+        <span class="info-val">{{ cfg.waba_id or '—' }}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Base URL</span>
+        <span class="info-val" style="font-size: 11px;">{{ cfg.base }}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Webhook</span>
+        <span class="info-val" style="font-size: 11px;">/webhook/kapso</span>
+      </div>
+    {% else %}
+      <div class="info-row">
+        <span class="info-label">Estado</span>
+        <span><span class="badge err">Sin configurar</span></span>
+      </div>
+      <div style="font-size: 13px; color: var(--text-sub); margin-top: 12px;">
+        Faltan env vars: <code>KAPSO_API_KEY</code>, <code>KAPSO_PHONE_NUMBER_ID</code>.
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Card: enviar template -->
+  <div class="kapso-card">
+    <h3>Enviar template</h3>
+    <form id="form-send" onsubmit="return enviarTemplate(event)">
+      <div class="field">
+        <label>Destinatario (E.164)</label>
+        <input type="text" id="f-to" placeholder="+573001234567" required>
+      </div>
+      <div class="field">
+        <label>Template name</label>
+        <input type="text" id="f-template" value="petra_test_hola" required>
+      </div>
+      <div class="field">
+        <label>Idioma</label>
+        <select id="f-lang">
+          <option value="es_ES">es_ES</option>
+          <option value="es_CO">es_CO</option>
+          <option value="es">es</option>
+          <option value="en_US">en_US</option>
+        </select>
+      </div>
+      <button type="submit" class="send-btn" id="send-btn" {% if not cfg.ready %}disabled{% endif %}>
+        Enviar
+      </button>
+    </form>
+
+    <div id="result-wrap" hidden style="margin-top: 16px;">
+      <div style="font-size: 12px; color: var(--text-sub); margin-bottom: 6px;">Resultado</div>
+      <div class="result" id="result-box"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var TOKEN = {{ token|tojson }};
+
+function enviarTemplate(ev) {
+  ev.preventDefault();
+  var btn = document.getElementById('send-btn');
+  var to = document.getElementById('f-to').value.trim();
+  var tpl = document.getElementById('f-template').value.trim();
+  var lang = document.getElementById('f-lang').value;
+  if (!to || !tpl) return false;
+
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+
+  var url = '/panel/petra/kapso/test-template'
+    + '?token=' + encodeURIComponent(TOKEN)
+    + '&to=' + encodeURIComponent(to)
+    + '&template=' + encodeURIComponent(tpl)
+    + '&lang=' + encodeURIComponent(lang);
+
+  fetch(url)
+    .then(function(r) { return r.json().then(function(j) { return [r.ok, j]; }); })
+    .then(function(pair) {
+      var ok = pair[0], data = pair[1];
+      var box = document.getElementById('result-box');
+      box.textContent = JSON.stringify(data, null, 2);
+      box.classList.remove('ok', 'err');
+      box.classList.add(ok ? 'ok' : 'err');
+      document.getElementById('result-wrap').hidden = false;
+      btn.disabled = false;
+      btn.textContent = 'Enviar';
+    })
+    .catch(function(err) {
+      alert('Error de red: ' + err);
+      btn.disabled = false;
+      btn.textContent = 'Enviar';
+    });
+
+  return false;
+}
+</script>
+{% endblock %}

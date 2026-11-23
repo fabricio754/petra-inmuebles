@@ -8819,3 +8819,22 @@ def kapso_test_template():
 
     resultado = _kapso.send_template(to=to, template_name=tpl, language=lang)
     return jsonify(resultado), (200 if resultado.get("ok") else 502)
+
+
+@petra_panel_bp.get("/v2/kapso")
+def panel_v2_kapso():
+    """Panel v2: página de Kapso. Muestra el estado del número conectado
+    al BSP y permite enviar un template manual de prueba.
+    """
+    from app import petra_kapso as _kapso
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    base, api_key, phone_id, _version = _kapso._config()
+    cfg = {
+        "ready": bool(api_key and phone_id),
+        "phone_id": phone_id or "—",
+        "waba_id": (os.environ.get("KAPSO_WABA_ID") or "").strip() or "",
+        "base": base or "—",
+    }
+    return render_template("petra_panel_v2_kapso.html", token=token, cfg=cfg)

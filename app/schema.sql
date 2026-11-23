@@ -2395,6 +2395,12 @@ CREATE TABLE IF NOT EXISTS waba_conectadas (
   ultima_verificacion_at TIMESTAMPTZ,
   nota TEXT
 );
+
+-- Proveedor del transport del numero: 'meta' envia directo a la Cloud API
+-- de Meta (petra_wa.send_template); 'kapso' envia via la API de Kapso
+-- (petra_kapso.send_template). Default: meta.
+ALTER TABLE waba_conectadas
+    ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'meta';
 CREATE INDEX IF NOT EXISTS waba_conectadas_waba_id_idx
   ON waba_conectadas(waba_id);
 
