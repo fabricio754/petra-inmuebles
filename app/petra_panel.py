@@ -3406,6 +3406,8 @@ def panel_v2_inmuebles():
         'pendiente_confirmar', 'confirmado_sin_datos', 'confirmado_completo',
         'post_bienvenida', 'post_petra', 'post_credito', 'mandato',
     )}
+    # Contadores por etapa v2 (para los tabs de /v2/inmuebles).
+    cont_v2 = {k: 0 for k in _ETAPAS_V2}
 
     try:
         with _db._conexion_directa(timeout=10) as conn:
@@ -3457,6 +3459,7 @@ def panel_v2_inmuebles():
                         i["codigo"] = f"P{i['id']:04d}"
                         i["conjunto_nombre"] = conjunto["nombre"]
                         i["etapa"] = _etapa_inmueble(i)
+                        i["etapa_v2"] = _etapa_inmueble_v2(i)
                         cel = _normalizar_celular_co(i.get("propietario_telefono"))
                         i["celular_e164"] = cel
                         i["celular_valido"] = bool(cel)
@@ -3520,15 +3523,26 @@ def panel_v2_inmuebles():
                         else:
                             i["ult_sales_lbl"] = ""
                     if etapa_filtro:
-                        inmuebles = [i for i in inmuebles if i["etapa"] == etapa_filtro]
+                        # Si el filtro matchea un slug v2, usar etapa_v2.
+                        # Si matchea el embudo viejo, usar etapa.
+                        if etapa_filtro in _ETAPAS_V2:
+                            inmuebles = [i for i in inmuebles if i["etapa_v2"] == etapa_filtro]
+                        else:
+                            inmuebles = [i for i in inmuebles if i["etapa"] == etapa_filtro]
                     # Contadores por etapa (universo del conjunto)
                     all_rows = _rows(conn,
-                        """SELECT activo, precio, m2,
+                        """SELECT activo, precio, m2, operacion,
                                   datos_confirmado_at, bienvenida_at,
                                   ofrecer_petra_at, ofrecer_credito_at, mandato_at
                              FROM inmuebles_visitante WHERE conjunto_id=%s""",
                         (cid,))
                     for r in all_rows:
+                        # Contadores v2 (todos: activos + inactivos, porque
+                        # 'no_publicar' justamente es un estado valido).
+                        e2 = _etapa_inmueble_v2(r)
+                        if e2 in cont_v2:
+                            cont_v2[e2] += 1
+                        # Contadores viejos (solo activos — compatibilidad)
                         if not r.get("activo"):
                             continue
                         e = _etapa_inmueble(r)
@@ -3544,7 +3558,7 @@ def panel_v2_inmuebles():
         inmuebles=inmuebles, cid=cid,
         op_filtro=op_filtro, estado_filtro=estado_filtro,
         tipo_filtro=tipo_filtro, etapa_filtro=etapa_filtro,
-        cont=cont,
+        cont=cont, cont_v2=cont_v2,
     )
 
 
@@ -7797,6 +7811,46 @@ def _wa_url(cel_e164, texto):
     api.whatsapp.com y muestra una landing con 'Abrir aplicación'."""
     return (f"https://web.whatsapp.com/send?phone={cel_e164}"
             f"&text={_urlencode_min(texto)}") if cel_e164 else ""
+
+
+def _etapa_inmueble_v2(inm):
+    """Clasifica el inmueble en una de las 10 etapas del flujo nuevo.
+
+    Reglas (primera que coincide gana):
+      no_publicar       → activo=False
+      proceso_arriendo  → mandato_at AND operacion='arriendo'
+      proceso_venta     → mandato_at AND operacion='venta'
+      oferta_credito    → ofrecer_credito_at AND NOT mandato_at
+      oferta_servicio   → ofrecer_petra_at AND NOT ofrecer_credito_at
+      confirmar_datos   → bienvenida_at AND (precio o m2 vacios) AND NOT ofrecer_petra_at
+      bienvenida        → bienvenida_at AND NOT ofrecer_petra_at
+      nuevo             → default
+      proceso_credito y no_contactar → todavia sin regla automatica.
+    """
+    if inm.get("activo") is False:
+        return 'no_publicar'
+    if inm.get("mandato_at"):
+        op = (inm.get("operacion") or "").lower()
+        return 'proceso_venta' if op == 'venta' else 'proceso_arriendo'
+    if inm.get("ofrecer_credito_at"):
+        return 'oferta_credito'
+    if inm.get("ofrecer_petra_at"):
+        return 'oferta_servicio'
+    if inm.get("bienvenida_at"):
+        tiene_precio = (inm.get("precio") or 0) > 0
+        tiene_m2 = (inm.get("m2") or 0) > 0
+        if not (tiene_precio and tiene_m2):
+            return 'confirmar_datos'
+        return 'bienvenida'
+    return 'nuevo'
+
+
+_ETAPAS_V2 = (
+    'nuevo', 'bienvenida', 'confirmar_datos',
+    'oferta_servicio', 'oferta_credito',
+    'proceso_venta', 'proceso_arriendo', 'proceso_credito',
+    'no_publicar', 'no_contactar',
+)
 
 
 def _etapa_inmueble(inm):

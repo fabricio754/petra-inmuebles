@@ -113,10 +113,20 @@
   .state-pill.inactivo { background: #fee2e2; color: #991b1b; }
   .etapa-chip {
     display: inline-flex; padding: 3px 10px; border-radius: 999px;
-    font-size: 11.5px; font-weight: 500;
+    font-size: 11.5px; font-weight: 500; white-space: nowrap;
     background: var(--bg); color: var(--text-sub);
     border: 1px solid var(--border);
   }
+  .etapa-chip.etapa-nuevo            { background: #e0e7ff; color: #3730a3; }
+  .etapa-chip.etapa-bienvenida       { background: #fef3c7; color: #92400e; }
+  .etapa-chip.etapa-confirmar_datos  { background: #fde68a; color: #78350f; }
+  .etapa-chip.etapa-oferta_servicio  { background: #d1fae5; color: #065f46; }
+  .etapa-chip.etapa-oferta_credito   { background: #ccfbf1; color: #115e59; }
+  .etapa-chip.etapa-proceso_venta    { background: #ede9fe; color: #5b21b6; }
+  .etapa-chip.etapa-proceso_arriendo { background: #dbeafe; color: #1e40af; }
+  .etapa-chip.etapa-proceso_credito  { background: #fce7f3; color: #9d174d; }
+  .etapa-chip.etapa-no_publicar      { background: #fee2e2; color: #991b1b; }
+  .etapa-chip.etapa-no_contactar     { background: #f3f4f6; color: #4b5563; }
   :root[data-theme="dark"] .state-pill.activo   { background: #052e1a; color: #4ade80; }
 
   .etapa-pill {
@@ -397,7 +407,7 @@
           ('no_contactar',      '🔕',  'No contactar')
       ] %}
       <a class="inm-tab {% if etapa_filtro == key %}on{% endif %}" href="{{ _base }}&etapa={{ key }}">
-        {{ emoji }} {{ lbl }} <span class="inm-tab-cnt">(…)</span>
+        {{ emoji }} {{ lbl }} <span class="inm-tab-cnt">({{ cont_v2.get(key, 0) }})</span>
       </a>
       {% endfor %}
     </div>
@@ -455,12 +465,21 @@
             {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
           </td>
-          {# Etapa del inmueble — placeholder hasta que definamos cómo
-             se calcula cada etapa (nuevo, bienvenida, confirmar_datos,
-             oferta_servicio, oferta_credito, proceso_*, no_publicar,
-             no_contactar). Por ahora muestra "—". #}
+          {# Etapa del inmueble — calculada automáticamente. #}
           <td>
-            <span class="etapa-chip">— sin definir</span>
+            {% set _etapa_lbl = {
+              'nuevo':             '🆕 Nuevo',
+              'bienvenida':        '👋 Bienvenida',
+              'confirmar_datos':   '✅ Confirmar datos',
+              'oferta_servicio':   '🏡 Oferta servicio',
+              'oferta_credito':    '💳 Oferta crédito',
+              'proceso_venta':     '💰 Venta',
+              'proceso_arriendo':  '🔑 Arriendo',
+              'proceso_credito':   '📝 Crédito',
+              'no_publicar':       '🚫 No publicar',
+              'no_contactar':      '🔕 No contactar',
+            } %}
+            <span class="etapa-chip etapa-{{ i.etapa_v2 }}">{{ _etapa_lbl.get(i.etapa_v2, i.etapa_v2) }}</span>
           </td>
           <td>
             <div class="row-actions">
