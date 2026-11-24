@@ -6185,16 +6185,18 @@ def visitante_inmueble_confirmar_datos(iid):
 
 
 # Mapeo slot → (env var del template, columna timestamp a marcar).
-# slot "confirmar_datos" es marca local (admin OK), no manda plantilla.
+# Todos los slots pueden mandar plantilla si está configurada; si no hay
+# plantilla aprobada ni config, cae a "sólo marcar la columna *_at".
 _PIPELINE_SLOTS = {
     "bienvenida":      ("PETRA_TPL_BIENVENIDA",       "bienvenida_at"),
-    "confirmar_datos": (None,                         "datos_confirmado_at"),
+    "confirmar_datos": ("PETRA_TPL_PEDIR_DATOS",      "datos_confirmado_at"),
     "oferta_servicio": ("PETRA_TPL_OFRECER_SERVICIO", "ofrecer_petra_at"),
     "oferta_credito":  ("PETRA_TPL_OFRECER_CREDITO",  "ofrecer_credito_at"),
 }
 
 _PIPELINE_SLOTS_LBL = {
     "bienvenida":      "👋 Bienvenida",
+    "confirmar_datos": "✅ Confirmar datos",
     "oferta_servicio": "🏡 Oferta de servicio",
     "oferta_credito":  "💳 Oferta de crédito",
 }
@@ -6202,6 +6204,7 @@ _PIPELINE_SLOTS_LBL = {
 
 _PIPELINE_SLOT_KEYWORDS = {
     "bienvenida":      ("bienvenida",),
+    "confirmar_datos": ("pedir_datos", "confirmar_datos", "datos"),
     "oferta_servicio": ("inmobiliaria", "servicio", "ofrecer_servicio"),
     "oferta_credito":  ("credito", "credit"),
 }
@@ -6325,9 +6328,11 @@ def v2_inmuebles_enviar_etapa():
 
     env_var, col_at = _PIPELINE_SLOTS[slot]
     ok, fallos, sin_tel = [], [], []
+    tpl_name = _pipeline_tpl_get(slot)
 
-    # Slot "confirmar_datos" = marca local, no manda plantilla.
-    if env_var is None:
+    # Si no hay plantilla configurada/matcheada, cae a "sólo marcar la
+    # columna *_at" (comportamiento histórico de confirmar_datos).
+    if not tpl_name:
         with _db._conexion_directa(timeout=20) as conn:
             conn.execute(
                 f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
@@ -6336,9 +6341,8 @@ def v2_inmuebles_enviar_etapa():
             ok = [{"id": i} for i in ids]
         return jsonify({"slot": slot, "template": None,
                         "ok": ok, "fallos": [], "sin_telefono": [],
-                        "total": len(ids)})
-
-    tpl_name = _pipeline_tpl_get(slot)
+                        "total": len(ids),
+                        "nota": "Sin plantilla configurada — sólo marcado local."})
     # Idioma: busca el real de la plantilla en Kapso (match por nombre).
     # Fallback env PETRA_TPL_LANG, luego 'es'.
     lang = (os.environ.get("PETRA_TPL_LANG") or "").strip()
@@ -6352,9 +6356,6 @@ def v2_inmuebles_enviar_etapa():
         pass
     if not lang:
         lang = "es"
-    if not tpl_name:
-        return jsonify({"error": "template_no_configurado",
-                        "slot": slot, "hint": "Configurá la plantilla en Marketing → Pipeline."}), 409
 
     from app import petra_kapso as _k
     if not _k._is_ready():
