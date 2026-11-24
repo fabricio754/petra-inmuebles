@@ -127,6 +127,11 @@
   .etapa-chip.etapa-proceso_credito  { background: #fce7f3; color: #9d174d; }
   .etapa-chip.etapa-no_publicar      { background: #fee2e2; color: #991b1b; }
   .etapa-chip.etapa-no_contactar     { background: #f3f4f6; color: #4b5563; }
+  .btn-ok-datos {
+    background: #16a34a; color: #fff; border: 0; padding: 6px 12px;
+    border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .btn-ok-datos:hover { background: #15803d; }
   :root[data-theme="dark"] .state-pill.activo   { background: #052e1a; color: #4ade80; }
 
   .etapa-pill {
@@ -441,7 +446,7 @@
       <thead>
         <tr>
           <th>Código</th><th>Estado</th><th>Op</th><th>Tipo</th><th>m²</th>
-          <th>Precio</th><th>Teléfono</th><th>Etapa</th><th>Acciones</th>
+          <th>Precio</th><th>Teléfono</th><th>Etapa</th><th>OK</th><th>Acciones</th>
         </tr>
       </thead>
       <tbody>
@@ -480,6 +485,18 @@
               'no_contactar':      '🔕 No contactar',
             } %}
             <span class="etapa-chip etapa-{{ i.etapa_v2 }}">{{ _etapa_lbl.get(i.etapa_v2, i.etapa_v2) }}</span>
+          </td>
+          <td>
+            {% if i.etapa_v2 == 'confirmar_datos' %}
+              <form class="inline-form" method="POST"
+                    action="{{ url_for('petra_panel.visitante_inmueble_confirmar_datos', iid=i.id) }}"
+                    onsubmit="return confirm('Marcar datos como confirmados y avanzar a bienvenida?')">
+                <input type="hidden" name="token" value="{{ token }}">
+                <button type="submit" class="btn-ok-datos" title="Confirmar datos y pasar a bienvenida">✅ OK</button>
+              </form>
+            {% else %}
+              <span style="color:var(--muted)">—</span>
+            {% endif %}
           </td>
           <td>
             <div class="row-actions">

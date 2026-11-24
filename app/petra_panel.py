@@ -6078,6 +6078,31 @@ def _inmueble_back(cid, token, flash):
                             cid=cid, token=token, flash=flash))
 
 
+@petra_panel_bp.post("/visitante/inmuebles/<int:iid>/confirmar-datos")
+def visitante_inmueble_confirmar_datos(iid):
+    """Marca el inmueble como 'datos confirmados' (sello manual del admin).
+    Avanza la etapa de 'confirmar_datos' → 'bienvenida' aunque falte
+    precio/m2. Luego el pipeline V2 lo tomará para oferta_servicio."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT conjunto_id FROM inmuebles_visitante WHERE id=%s",
+                (iid,)).fetchone()
+            if not row:
+                abort(404)
+            cid = row[0]
+            conn.execute(
+                "UPDATE inmuebles_visitante "
+                "   SET datos_confirmado_at = NOW() WHERE id=%s", (iid,))
+            conn.commit()
+    except Exception:
+        return redirect(request.referrer or url_for(
+            "petra_panel.visitante_conjuntos", token=token))
+    return _inmueble_back(cid, token, "datos_ok")
+
+
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle")
 def visitante_inmueble_toggle(iid):
     _check_token()
@@ -7837,6 +7862,10 @@ def _etapa_inmueble_v2(inm):
     if inm.get("ofrecer_petra_at"):
         return 'oferta_servicio'
     if inm.get("bienvenida_at"):
+        # Confirmación manual: si el admin apretó "OK" → pasa a bienvenida
+        # aunque falten precio/m2.
+        if inm.get("datos_confirmado_at"):
+            return 'bienvenida'
         tiene_precio = (inm.get("precio") or 0) > 0
         tiene_m2 = (inm.get("m2") or 0) > 0
         if not (tiene_precio and tiene_m2):
