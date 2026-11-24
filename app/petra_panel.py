@@ -6159,6 +6159,7 @@ def v2_inmuebles_enviar_etapa():
                 "ids":[1,2,3], "token":"..."}
     """
     _check_token()
+    from flask import jsonify
     data = request.get_json(silent=True) or {}
     slot = (data.get("slot") or "").strip()
     ids = data.get("ids") or []
