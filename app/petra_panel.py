@@ -6104,8 +6104,10 @@ def visitante_inmueble_confirmar_datos(iid):
 
 
 # Mapeo slot → (env var del template, columna timestamp a marcar).
+# slot "confirmar_datos" es marca local (admin OK), no manda plantilla.
 _PIPELINE_SLOTS = {
     "bienvenida":      ("PETRA_TPL_BIENVENIDA",       "bienvenida_at"),
+    "confirmar_datos": (None,                         "datos_confirmado_at"),
     "oferta_servicio": ("PETRA_TPL_OFRECER_SERVICIO", "ofrecer_petra_at"),
     "oferta_credito":  ("PETRA_TPL_OFRECER_CREDITO",  "ofrecer_credito_at"),
 }
@@ -6133,6 +6135,20 @@ def v2_inmuebles_enviar_etapa():
         return jsonify({"error": "sin_ids"}), 400
 
     env_var, col_at = _PIPELINE_SLOTS[slot]
+    ok, fallos, sin_tel = [], [], []
+
+    # Slot "confirmar_datos" = marca local, no manda plantilla.
+    if env_var is None:
+        with _db._conexion_directa(timeout=20) as conn:
+            conn.execute(
+                f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
+                f" WHERE id = ANY(%s) AND {col_at} IS NULL", (ids,))
+            conn.commit()
+            ok = [{"id": i} for i in ids]
+        return jsonify({"slot": slot, "template": None,
+                        "ok": ok, "fallos": [], "sin_telefono": [],
+                        "total": len(ids)})
+
     tpl_name = (os.environ.get(env_var) or "").strip()
     lang = (os.environ.get("PETRA_TPL_LANG") or "es_CO").strip()
     if not tpl_name:
@@ -6143,7 +6159,6 @@ def v2_inmuebles_enviar_etapa():
     if not _k._is_ready():
         return jsonify({"error": "kapso_no_listo"}), 503
 
-    ok, fallos, sin_tel = [], [], []
     with _db._conexion_directa(timeout=20) as conn:
         rows = conn.execute(
             "SELECT id, propietario_telefono FROM inmuebles_visitante "
@@ -7930,15 +7945,9 @@ def _etapa_inmueble_v2(inm):
         return 'oferta_credito'
     if inm.get("ofrecer_petra_at"):
         return 'oferta_servicio'
+    if inm.get("datos_confirmado_at"):
+        return 'confirmar_datos'
     if inm.get("bienvenida_at"):
-        # Confirmación manual: si el admin apretó "OK" → pasa a bienvenida
-        # aunque falten precio/m2.
-        if inm.get("datos_confirmado_at"):
-            return 'bienvenida'
-        tiene_precio = (inm.get("precio") or 0) > 0
-        tiene_m2 = (inm.get("m2") or 0) > 0
-        if not (tiene_precio and tiene_m2):
-            return 'confirmar_datos'
         return 'bienvenida'
     return 'nuevo'
 

@@ -463,11 +463,13 @@
 
     <!-- Tabla -->
     {% if inmuebles %}
-    {# Mapeo etapa filtrada → slot de acción (siguiente paso del pipeline) #}
+    {# Mapeo etapa filtrada → slot de acción (siguiente paso del pipeline).
+       'confirmar_datos' no manda plantilla — es una marca local (admin OK). #}
     {% set _slot_map = {
-         'nuevo':            ('bienvenida',      '👋 Enviar bienvenida'),
-         'bienvenida':       ('oferta_servicio', '🏡 Enviar oferta servicio'),
-         'oferta_servicio':  ('oferta_credito',  '💳 Enviar oferta crédito'),
+         'nuevo':            ('bienvenida',      '👋 Enviar bienvenida',      false),
+         'bienvenida':       ('confirmar_datos', '✅ Confirmar datos',         true),
+         'confirmar_datos':  ('oferta_servicio', '🏡 Enviar oferta servicio', false),
+         'oferta_servicio':  ('oferta_credito',  '💳 Enviar oferta crédito',  false),
        } %}
     {% set _action = _slot_map.get(etapa_filtro) %}
     {% if _action %}
@@ -488,7 +490,7 @@
           <th>Código</th><th>Estado</th><th>Op</th><th>Tipo</th><th>m²</th>
           <th>Precio</th><th>Teléfono</th>
           <th>{% if _action %}Acción{% else %}Etapa{% endif %}</th>
-          <th>OK</th><th>Acciones</th>
+          <th>Acciones</th>
         </tr>
       </thead>
       <tbody>
@@ -496,7 +498,7 @@
         <tr class="{% if not i.activo %}inactivo{% endif %}" data-iid="{{ i.id }}" data-tel-ok="{{ 1 if i.celular_valido else 0 }}">
           {% if _action %}
           <td><input type="checkbox" class="row-check" value="{{ i.id }}"
-                     {% if not i.celular_valido %}disabled title="Sin teléfono válido"{% endif %}></td>
+                     {% if not _action[2] and not i.celular_valido %}disabled title="Sin teléfono válido"{% endif %}></td>
           {% endif %}
           <td class="code-col">{{ i.codigo }}</td>
           <td>
@@ -533,23 +535,11 @@
             {% if _action %}
               <button type="button" class="btn-send-etapa"
                       data-iid="{{ i.id }}" data-slot="{{ _action[0] }}"
-                      {% if not i.celular_valido %}disabled title="Sin teléfono válido"{% endif %}>
+                      {% if not _action[2] and not i.celular_valido %}disabled title="Sin teléfono válido"{% endif %}>
                 {{ _action[1] }}
               </button>
             {% else %}
               <span class="etapa-chip etapa-{{ i.etapa_v2 }}">{{ _etapa_lbl.get(i.etapa_v2, i.etapa_v2) }}</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if i.etapa_v2 == 'confirmar_datos' %}
-              <form class="inline-form" method="POST"
-                    action="{{ url_for('petra_panel.visitante_inmueble_confirmar_datos', iid=i.id) }}"
-                    onsubmit="return confirm('Marcar datos como confirmados y avanzar a bienvenida?')">
-                <input type="hidden" name="token" value="{{ token }}">
-                <button type="submit" class="btn-ok-datos" title="Confirmar datos y pasar a bienvenida">✅ OK</button>
-              </form>
-            {% else %}
-              <span style="color:var(--muted)">—</span>
             {% endif %}
           </td>
           <td>
