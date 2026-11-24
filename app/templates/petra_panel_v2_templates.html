@@ -1243,6 +1243,8 @@
               <div class="live-bubble" id="live-bubble">
                 <div class="live-bubble-media" id="live-media" hidden></div>
                 <div class="live-bubble-body" id="live-body"></div>
+                <div class="live-bubble-footer-text" id="live-footer" hidden
+                     style="color:#999;font-size:12px;margin-top:4px"></div>
                 <div class="live-bubble-footer">
                   <span id="live-time">10:00</span>
                 </div>
@@ -2196,47 +2198,51 @@
       String(now.getHours()).padStart(2, '0') + ':' +
       String(now.getMinutes()).padStart(2, '0');
 
-    // Header (solo multimedia)
+    // Header (mensaje o multimedia legacy)
     var media = document.getElementById('live-media');
     media.hidden = true; media.className = 'live-bubble-media';
     media.innerHTML = '';
-    if (tipoSeleccionado === 'multimedia') {
+    if (tipoSeleccionado === 'mensaje' || tipoSeleccionado === 'multimedia') {
       var htype = document.getElementById('f-header-type').value;
       var hurl = (document.getElementById('f-header-url').value || '').trim();
-      media.hidden = false;
-      if (htype === 'image') {
-        media.innerHTML = hurl
-          ? '<img src="' + escapeHtml(hurl) + '" onerror="this.parentNode.innerHTML=\'🖼️\'" alt="">'
-          : '🖼️';
-      } else if (htype === 'video') {
-        media.innerHTML = hurl
-          ? '<video src="' + escapeHtml(hurl) + '" muted></video>'
-          : '🎬';
-      } else if (htype === 'document') {
-        media.className = 'live-bubble-media doc';
-        var label = document.getElementById('f-header-label').value || 'documento.pdf';
-        media.innerHTML = '📄 <span>' + escapeHtml(label) + '</span>';
-      } else if (htype === 'location') {
-        media.innerHTML = '📍';
+      if (hurl) {
+        media.hidden = false;
+        if (htype === 'image') {
+          media.innerHTML = '<img src="' + escapeHtml(hurl) + '" onerror="this.parentNode.innerHTML=\'🖼️\'" alt="">';
+        } else if (htype === 'video') {
+          media.innerHTML = '<video src="' + escapeHtml(hurl) + '" muted></video>';
+        } else if (htype === 'document') {
+          media.className = 'live-bubble-media doc';
+          var label = document.getElementById('f-header-label').value || 'documento.pdf';
+          media.innerHTML = '📄 <span>' + escapeHtml(label) + '</span>';
+        } else if (htype === 'location') {
+          media.innerHTML = '📍';
+        }
       }
     }
 
-    // Botones (solo tipo botones)
+    // Footer (universal)
+    var footEl = document.getElementById('live-footer');
+    var footTxt = (document.getElementById('f-footer').value || '').trim();
+    if (footEl) {
+      footEl.hidden = !footTxt;
+      footEl.textContent = footTxt;
+    }
+
+    // Botones (universal — cualquier tipo puede tenerlos)
     var btnsBox = document.getElementById('live-btns');
     btnsBox.innerHTML = ''; btnsBox.hidden = true;
-    if (tipoSeleccionado === 'botones') {
-      var btns = recolectarBotones();
-      if (btns.length) {
-        btnsBox.hidden = false;
-        var icons = { url: '🔗', phone_number: '📞', copy_code: '📋', quick_reply: '↩️' };
-        btns.forEach(function(b) {
-          var ic = icons[b.type] || '';
-          var row = document.createElement('div');
-          row.className = 'live-bubble-btn';
-          row.textContent = (ic ? ic + '  ' : '') + (b.label || 'botón');
-          btnsBox.appendChild(row);
-        });
-      }
+    var btns = recolectarBotones();
+    if (btns.length) {
+      btnsBox.hidden = false;
+      var icons = { url: '🔗', phone_number: '📞', copy_code: '📋', quick_reply: '↩️' };
+      btns.forEach(function(b) {
+        var ic = icons[b.type] || '';
+        var row = document.createElement('div');
+        row.className = 'live-bubble-btn';
+        row.textContent = (ic ? ic + '  ' : '') + (b.label || 'botón');
+        btnsBox.appendChild(row);
+      });
     }
   }
 
