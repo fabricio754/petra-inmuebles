@@ -5291,10 +5291,23 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
     import re as _re_vars
     n_placeholders = len(set(_re_vars.findall(r"\{\{\s*(\d+)\s*\}\}", body_text)))
     if n_placeholders:
+        # Resolvemos ejemplos desde un inmueble real de la DB. Fallback al
+        # ejemplo estático del template, luego al label, luego "ejemplo".
+        inm_sample, conj_sample = _sample_inmueble_conjunto()
         ejemplos = []
         for v in variables[:n_placeholders]:
-            ej = (v.get("ejemplo") or v.get("label") or "ejemplo").strip() or "ejemplo"
-            ejemplos.append(ej)
+            source = (v.get("source") or "").strip()
+            val = ""
+            if source and inm_sample:
+                try:
+                    val = str(_var_value_for(
+                        inm_sample, source,
+                        (conj_sample or {}).get("nombre") or "")).strip()
+                except Exception:
+                    val = ""
+            if not val or val in ("—",):
+                val = (v.get("ejemplo") or v.get("label") or "ejemplo").strip() or "ejemplo"
+            ejemplos.append(val)
         while len(ejemplos) < n_placeholders:
             ejemplos.append("ejemplo")
         body_comp["example"] = {"body_text": [ejemplos]}
@@ -5318,9 +5331,10 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
             if btype == "URL":
                 btn = {"type": "URL", "text": label, "url": value}
                 # Si la URL tiene {{N}}, Meta exige `example` con una
-                # URL de ejemplo con los valores resueltos.
+                # URL de ejemplo con los valores resueltos. Resolvemos
+                # desde DB según preset_id (o un fallback genérico).
                 if "{{" in value:
-                    ej_sample = (b.get("ejemplo") or "ejemplo").strip() or "ejemplo"
+                    ej_sample = _resolver_ejemplo_boton_url(b)
                     ej_url = _re_vars.sub(r"\{\{\s*\d+\s*\}\}", ej_sample, value)
                     btn["example"] = [ej_url]
                 meta_btns.append(btn)
@@ -6498,6 +6512,55 @@ def _reescribir_media_url_para_meta(url):
         return f"{base}/petra-media/{path}"
     except Exception:
         return url
+
+
+def _sample_inmueble_conjunto():
+    """Devuelve (inmueble_dict, conjunto_dict) de un caso real de la DB
+    para usar como ejemplo al someter templates a Meta. Devuelve (None, None)
+    si no hay datos."""
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            cols_i = ("id", "tipo", "operacion", "habitaciones", "banos",
+                      "m2", "precio", "propietario_telefono", "nro")
+            cols_c = ("id", "codigo", "nombre", "ciudad")
+            row = conn.execute(
+                "SELECT iv.id, iv.tipo, iv.operacion, iv.habitaciones, iv.banos, "
+                "       iv.m2, iv.precio, iv.propietario_telefono, iv.nro, "
+                "       cv.id AS cid, cv.codigo AS ccodigo, "
+                "       cv.nombre AS cnombre, cv.ciudad AS cciudad "
+                "  FROM inmuebles_visitante iv "
+                "  JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id "
+                " WHERE iv.activo = TRUE "
+                " ORDER BY iv.id ASC LIMIT 1").fetchone()
+            if not row:
+                return None, None
+            inm = dict(zip(cols_i, row[:9]))
+            conj = dict(zip(cols_c, row[9:]))
+            inm["conjunto_nombre"] = conj.get("nombre")
+            inm["conjunto_id"] = conj.get("id")
+            return inm, conj
+    except Exception:
+        return None, None
+
+
+def _resolver_ejemplo_boton_url(b):
+    """Devuelve el texto que reemplaza {{1}} en la URL de un botón URL.
+    Prioridad:
+      1. preset_id reconocido → genera desde DB real.
+      2. Campo 'ejemplo' estático del botón.
+      3. Fallback genérico.
+    """
+    preset = (b.get("preset_id") or "").strip()
+    if preset == "qr_conjunto":
+        _inm, conj = _sample_inmueble_conjunto()
+        if conj and conj.get("nombre"):
+            ciudad = conj.get("ciudad") or "Colombia"
+            codigo = conj.get("codigo") or "0001"
+            return f"Estoy en el edificio {conj['nombre']} en {ciudad}. Cod: {codigo}"
+    ej = (b.get("ejemplo") or "").strip()
+    if ej:
+        return ej
+    return "ejemplo"
 
 
 def _build_kapso_send_components(tpl, inmueble):
