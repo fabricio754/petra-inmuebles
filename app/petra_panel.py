@@ -4237,34 +4237,24 @@ def panel_v2_difusiones_muestra():
 # Los 4 tipos que permitimos crear (match Meta Template categories).
 TEMPLATE_TIPOS = [
     {
-        "id": "texto",
-        "display": "Texto + variables",
-        "icon": "✉️",
-        "descripcion": "Mensaje de texto simple con variables personalizables "
-                       "por destinatario (nombre, apto, etc.).",
-    },
-    {
-        "id": "multimedia",
-        "display": "Multimedia",
-        "icon": "🎬",
-        "descripcion": "Encabezado visual (imagen, video, documento PDF o "
-                       "ubicación) + cuerpo de texto con variables.",
-    },
-    {
-        "id": "botones",
-        "display": "Interactivo con botones",
-        "icon": "🔘",
-        "descripcion": "Cuerpo + hasta 2 botones de CTA (abrir URL, llamar, "
-                       "copiar código) o respuesta rápida.",
+        "id": "mensaje",
+        "display": "Mensaje estándar",
+        "icon": "💬",
+        "descripcion": "Header opcional (texto/imagen/video/PDF) + body con "
+                       "variables + footer opcional + hasta 2 botones. "
+                       "Usá sólo lo que necesites.",
     },
     {
         "id": "catalogo_carrusel",
-        "display": "Catálogo / Carrusel",
+        "display": "Carrusel",
         "icon": "🛒",
-        "descripcion": "Especial Marketing: hasta 10 tarjetas deslizables "
-                       "con productos de tu catálogo Meta Commerce.",
+        "descripcion": "Hasta 10 tarjetas deslizables con el mismo tipo de "
+                       "media y botones. Para catálogos y combos de ofertas.",
     },
 ]
+
+# Para compatibilidad, los tipos viejos se mapean al nuevo "mensaje".
+_TIPOS_LEGACY_A_MENSAJE = {"texto", "multimedia", "botones"}
 
 
 def _row_to_template(row):
@@ -4796,7 +4786,10 @@ def panel_v2_templates_crear():
         return jsonify({"error": "name, display y body son requeridos"}), 400
     if categoria not in ("UTILITY", "MARKETING", "AUTHENTICATION"):
         return jsonify({"error": "categoría inválida"}), 400
-    if tipo not in {t["id"] for t in TEMPLATE_TIPOS}:
+    # Aceptamos el nuevo "mensaje" + los legacy. Si viene nuevo, lo
+    # mapeamos al enum DB correcto más abajo según qué piezas tenga.
+    _tipos_validos = {t["id"] for t in TEMPLATE_TIPOS} | _TIPOS_LEGACY_A_MENSAJE
+    if tipo not in _tipos_validos:
         return jsonify({"error": "tipo inválido"}), 400
     if autor not in {a["id"] for a in DIFUSION_AUTORES}:
         autor = "fabricio"
@@ -4833,6 +4826,16 @@ def panel_v2_templates_crear():
             catalogo = _json.loads(catalogo_raw)
         except Exception:
             catalogo = None
+
+    # Si viene "mensaje" (del nuevo editor unificado), derivamos el enum
+    # DB a partir del contenido. Mantenemos compat con legacy enviados.
+    if tipo == "mensaje":
+        if botones:
+            tipo = "botones"
+        elif header:
+            tipo = "multimedia"
+        else:
+            tipo = "texto"
 
     try:
         with _db._conexion_directa(timeout=10) as conn:
@@ -5557,6 +5560,17 @@ def panel_v2_templates_actualizar(tid):
 
     if not campos:
         return jsonify({"error": "nada para actualizar"}), 400
+
+    # Si viene tipo=mensaje del editor unificado, derivamos el enum DB.
+    if campos.get("tipo") == "mensaje":
+        botones_new = campos.get("botones") or []
+        header_new = campos.get("header")
+        if botones_new:
+            campos["tipo"] = "botones"
+        elif header_new:
+            campos["tipo"] = "multimedia"
+        else:
+            campos["tipo"] = "texto"
 
     try:
         with _db._conexion_directa(timeout=10) as conn:

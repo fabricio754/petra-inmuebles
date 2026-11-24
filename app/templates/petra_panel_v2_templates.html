@@ -1713,8 +1713,10 @@
         document.getElementById('modal-nuevo').classList.add('open');
         volverAPaso1();  // reset base (deja editandoId en null)
         editandoId = id;  // marcamos edición DESPUÉS del reset
-        // Simular selección de tipo para mostrar el panel adecuado
-        elegirTipo(t.tipo);
+        // Mapeo de los tipos legacy al nuevo "mensaje" unificado.
+        var tipoUI = (t.tipo === 'texto' || t.tipo === 'multimedia' ||
+                       t.tipo === 'botones') ? 'mensaje' : t.tipo;
+        elegirTipo(tipoUI);
         setTimeout(function() { poblarForm(t); }, 200);
       });
   }
@@ -1831,10 +1833,11 @@
     // Pequeño delay visual
     setTimeout(function() {
       var titulos = {
-        texto: 'Nuevo template · Texto + variables',
-        multimedia: 'Nuevo template · Multimedia',
-        botones: 'Nuevo template · Interactivo con botones',
-        catalogo_carrusel: 'Nuevo template · Catálogo / Carrusel',
+        mensaje: 'Nuevo template · Mensaje',
+        texto: 'Nuevo template · Mensaje',
+        multimedia: 'Nuevo template · Mensaje',
+        botones: 'Nuevo template · Mensaje',
+        catalogo_carrusel: 'Nuevo template · Carrusel',
       };
       document.getElementById('modal-title').textContent = titulos[tipo] || 'Nuevo template';
       document.getElementById('paso-tipo').hidden = true;
@@ -1844,9 +1847,9 @@
 
       // Mostrar panel específico
       document.querySelectorAll('.form-pane').forEach(function(p) { p.classList.remove('active'); });
-      if (tipo === 'multimedia') document.getElementById('pane-multimedia').classList.add('active');
-      if (tipo === 'botones') {
-        document.getElementById('pane-botones').classList.add('active');
+      // En "mensaje" (nuevo unificado) y "multimedia" (legacy) → header visible.
+      if (tipo === 'mensaje' || tipo === 'multimedia') {
+        document.getElementById('pane-multimedia').classList.add('active');
       }
       if (tipo === 'catalogo_carrusel') {
         document.getElementById('pane-catalogo').classList.add('active');
@@ -2454,7 +2457,8 @@
     fd.append('footer', document.getElementById('f-footer').value.trim());
     fd.append('botones', JSON.stringify(recolectarBotones()));
 
-    if (tipoSeleccionado === 'multimedia') {
+    // Header: válido tanto para el nuevo "mensaje" como para "multimedia" legacy.
+    if (tipoSeleccionado === 'mensaje' || tipoSeleccionado === 'multimedia') {
       var url = document.getElementById('f-header-url').value.trim();
       if (url) {
         fd.append('header', JSON.stringify({
