@@ -6294,7 +6294,19 @@ def v2_inmuebles_enviar_etapa():
                         "total": len(ids)})
 
     tpl_name = _pipeline_tpl_get(slot)
-    lang = (os.environ.get("PETRA_TPL_LANG") or "es_CO").strip()
+    # Idioma: busca el real de la plantilla en Kapso (match por nombre).
+    # Fallback env PETRA_TPL_LANG, luego 'es'.
+    lang = (os.environ.get("PETRA_TPL_LANG") or "").strip()
+    try:
+        lista, _e = _meta_fetch_templates(force=False)
+        for t in (lista or []):
+            if (t.get("name") or "") == tpl_name:
+                lang = (t.get("idioma") or t.get("language") or lang or "es")
+                break
+    except Exception:
+        pass
+    if not lang:
+        lang = "es"
     if not tpl_name:
         return jsonify({"error": "template_no_configurado",
                         "slot": slot, "hint": "Configurá la plantilla en Marketing → Pipeline."}), 409
