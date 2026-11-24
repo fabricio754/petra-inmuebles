@@ -720,9 +720,10 @@
 
 {# Templates "activados": los que Petra dispara automáticamente.
    Lookup slot → template_name viene de DB (template_slots). #}
-{% set t_bien = templates | selectattr('name', 'equalto', slots.get('bienvenida', '')) | first | default(none) %}
-{% set t_serv = templates | selectattr('name', 'equalto', slots.get('servicio', ''))    | first | default(none) %}
-{% set t_cred = templates | selectattr('name', 'equalto', slots.get('credito', ''))     | first | default(none) %}
+{% set t_bien = templates | selectattr('name', 'equalto', slots.get('bienvenida', ''))      | first | default(none) %}
+{% set t_conf = templates | selectattr('name', 'equalto', slots.get('confirmar_datos', '')) | first | default(none) %}
+{% set t_serv = templates | selectattr('name', 'equalto', slots.get('servicio', ''))        | first | default(none) %}
+{% set t_cred = templates | selectattr('name', 'equalto', slots.get('credito', ''))         | first | default(none) %}
 
 <div class="tabs">
   <button class="tab active" data-tab="rejected" onclick="cambiarTab('rejected')">
@@ -738,7 +739,7 @@
     ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
   </button>
   <button class="tab" data-tab="activados" onclick="cambiarTab('activados')">
-    ⚡ Activados <span class="tab-count">(3)</span>
+    ⚡ Activados <span class="tab-count">(4)</span>
   </button>
   <div class="tabs-right">
     <button class="btn-sync" id="btn-sync" onclick="sincronizarMeta(true)" hidden>
@@ -794,7 +795,45 @@
       </div>
     </div>
 
-    {# ── 2. Servicio ──────────────────────── #}
+    {# ── 2. Confirmar datos ───────────────── #}
+    <div class="activ-card">
+      <div class="activ-card-head">
+        <div class="activ-icon bienvenida">✅</div>
+        <div>
+          <h3 class="activ-title">Confirmar datos</h3>
+          <div class="activ-sub">Utility · auto</div>
+        </div>
+        <span class="activ-status" style="margin-left:auto;">
+          <span class="dot"></span>Activo
+        </span>
+      </div>
+      <div class="activ-trigger">
+        Se dispara cuando apretás <strong>"Confirmar datos"</strong> en el tab
+        Bienvenida de Inmuebles. Le pide al propietario que confirme precio,
+        m² y otros datos del inmueble.
+      </div>
+      <div class="activ-link">
+        <div class="activ-link-info">
+          <div class="activ-link-label">Template actual</div>
+          <div class="activ-link-value">
+            {% if t_conf %}{{ t_conf.display }}
+            {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="activ-actions">
+        {% if t_conf %}
+        <button class="mini-btn" onclick="verTemplate({{ t_conf.id }})">
+          Ver
+        </button>
+        {% endif %}
+        <button class="mini-btn" onclick="cambiarActivado('confirmar_datos')">
+          Cambiar
+        </button>
+      </div>
+    </div>
+
+    {# ── 3. Servicio ──────────────────────── #}
     <div class="activ-card">
       <div class="activ-card-head">
         <div class="activ-icon servicio">🏠</div>
@@ -1556,9 +1595,10 @@
 
   // ----- Activados · Cambiar template (picker) -----------------------------
   var ACTIV_NOMBRE = {
-    bienvenida: 'Bienvenida',
-    servicio:   'Servicio',
-    credito:    'Crédito'
+    bienvenida:      'Bienvenida',
+    confirmar_datos: 'Confirmar datos',
+    servicio:        'Servicio',
+    credito:         'Crédito'
   };
 
   function cambiarActivado(slot) {

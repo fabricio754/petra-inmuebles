@@ -4594,27 +4594,37 @@ def panel_v2_numeros_kapso_sincronizar():
 # Se siembra una sola vez (si la tabla template_slots está vacía) para
 # arrancar con los 3 templates que teníamos hardcoded.
 _SLOTS_DEFAULT = {
-    "bienvenida": "notificacion_publicacion_petra",
-    "servicio":   "ofrecer_inmobiliaria_petra",
-    "credito":    "ofrecer_credito_petra",
+    "bienvenida":      "bienvenida_anunciante",
+    "confirmar_datos": "pedir_datos_petra",
+    "servicio":        "ofrecer_inmobiliaria_petra",
+    "credito":         "ofrecer_credito_petra",
+}
+
+# Mapeo slot del pipeline (oferta_servicio/oferta_credito) → slot de la
+# tabla template_slots que maneja la UI Activados.
+_PIPELINE_TO_ACTIVADOS_SLOT = {
+    "bienvenida":      "bienvenida",
+    "confirmar_datos": "confirmar_datos",
+    "oferta_servicio": "servicio",
+    "oferta_credito":  "credito",
 }
 
 
 def _seed_slots_si_vacio():
-    """Inserta la asignación default de slots si template_slots está vacía."""
+    """Asegura que todos los slots default existan en template_slots.
+    Es idempotente: ON CONFLICT DO NOTHING no pisa el valor que el admin
+    haya elegido en Activados. Sólo agrega slots nuevos (ej. confirmar_datos)
+    que todavía no estaban en DB."""
     import logging as _lg
     try:
         with _db._conexion_directa(timeout=10) as conn:
-            row = conn.execute("SELECT COUNT(*) FROM template_slots").fetchone()
-            if ((row[0] if row else 0) or 0) > 0:
-                return
             for slot, name in _SLOTS_DEFAULT.items():
                 conn.execute(
                     "INSERT INTO template_slots (slot, template_name, actualizado_por) "
                     "VALUES (%s, %s, %s) ON CONFLICT (slot) DO NOTHING",
                     (slot, name, "petra"),
                 )
-            _lg.getLogger(__name__).info("[seed] template_slots seeded")
+            conn.commit()
     except Exception:
         _lg.getLogger(__name__).exception("[seed] template_slots fallo")
 
@@ -6294,11 +6304,26 @@ _PIPELINE_SLOT_KEYWORDS = {
 def _pipeline_tpl_get(slot):
     """Devuelve el nombre de plantilla configurado para ese slot.
     Orden:
-      1. meta.pipeline_tpl_<slot>  (elegido en UI)
-      2. env var (PETRA_TPL_*)
-      3. Auto-match: primera plantilla APPROVED cuyo nombre contenga una
+      1. template_slots (Activados tab — fuente principal).
+      2. meta.pipeline_tpl_<slot>  (legacy UI Pipeline).
+      3. env var (PETRA_TPL_*).
+      4. Auto-match: primera plantilla APPROVED cuyo nombre contenga una
          de las keywords del slot.
     """
+    # 1. Activados (template_slots) — mapear el nombre del slot pipeline
+    #    al nombre del slot en template_slots.
+    activados_slot = _PIPELINE_TO_ACTIVADOS_SLOT.get(slot)
+    if activados_slot:
+        try:
+            with _db._conexion_directa(timeout=5) as conn:
+                row = conn.execute(
+                    "SELECT template_name FROM template_slots WHERE slot = %s",
+                    (activados_slot,)).fetchone()
+                if row and row[0]:
+                    return row[0].strip()
+        except Exception:
+            pass
+    # 2. meta.pipeline_tpl_* legacy
     try:
         with _db._conexion_directa(timeout=5) as conn:
             row = conn.execute(
