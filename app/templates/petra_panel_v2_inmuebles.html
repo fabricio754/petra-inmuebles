@@ -879,10 +879,19 @@ function petraDeshacer(ev, quien, formId, label) {
         botones.forEach(function(b){ b.disabled = false; });
         return;
       }
-      var msg = '✅ OK: ' + (j.ok||[]).length +
-                '\n❌ Fallos: ' + (j.fallos||[]).length +
-                '\n📵 Sin teléfono: ' + (j.sin_telefono||[]).length;
-      alert(msg);
+      var nOk = (j.ok||[]).length;
+      var nFail = (j.fallos||[]).length;
+      var nSinTel = (j.sin_telefono||[]).length;
+      // Avisar sólo si hubo problemas; si todo OK, avanzar silenciosamente.
+      if (nFail > 0 || nSinTel > 0) {
+        var msg = '✅ OK: ' + nOk +
+                  '\n❌ Fallos: ' + nFail +
+                  '\n📵 Sin teléfono: ' + nSinTel;
+        if (nFail > 0 && j.fallos && j.fallos[0] && j.fallos[0].body) {
+          msg += '\n\nDetalle: ' + String(j.fallos[0].body).slice(0, 300);
+        }
+        alert(msg);
+      }
       window.location.reload();
     })
     .catch(function(e){
