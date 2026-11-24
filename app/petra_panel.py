@@ -6103,6 +6103,75 @@ def visitante_inmueble_confirmar_datos(iid):
     return _inmueble_back(cid, token, "datos_ok")
 
 
+# Mapeo slot → (env var del template, columna timestamp a marcar).
+_PIPELINE_SLOTS = {
+    "bienvenida":      ("PETRA_TPL_BIENVENIDA",       "bienvenida_at"),
+    "oferta_servicio": ("PETRA_TPL_OFRECER_SERVICIO", "ofrecer_petra_at"),
+    "oferta_credito":  ("PETRA_TPL_OFRECER_CREDITO",  "ofrecer_credito_at"),
+}
+
+
+@petra_panel_bp.post("/v2/inmuebles/enviar-etapa")
+def v2_inmuebles_enviar_etapa():
+    """Envía la plantilla correspondiente al slot indicado a los inmuebles
+    seleccionados (vía Kapso). Marca la columna *_at al tener éxito.
+
+    JSON body: {"slot":"bienvenida"|"oferta_servicio"|"oferta_credito",
+                "ids":[1,2,3], "token":"..."}
+    """
+    _check_token()
+    data = request.get_json(silent=True) or {}
+    slot = (data.get("slot") or "").strip()
+    ids = data.get("ids") or []
+    if slot not in _PIPELINE_SLOTS:
+        return jsonify({"error": "slot_invalido"}), 400
+    try:
+        ids = [int(x) for x in ids if str(x).strip()]
+    except Exception:
+        return jsonify({"error": "ids_invalidos"}), 400
+    if not ids:
+        return jsonify({"error": "sin_ids"}), 400
+
+    env_var, col_at = _PIPELINE_SLOTS[slot]
+    tpl_name = (os.environ.get(env_var) or "").strip()
+    lang = (os.environ.get("PETRA_TPL_LANG") or "es_CO").strip()
+    if not tpl_name:
+        return jsonify({"error": "template_no_configurado",
+                        "env": env_var}), 409
+
+    from app import petra_kapso as _k
+    if not _k._is_ready():
+        return jsonify({"error": "kapso_no_listo"}), 503
+
+    ok, fallos, sin_tel = [], [], []
+    with _db._conexion_directa(timeout=20) as conn:
+        rows = conn.execute(
+            "SELECT id, propietario_telefono FROM inmuebles_visitante "
+            " WHERE id = ANY(%s)", (ids,)).fetchall()
+        tel_por_id = {r[0]: r[1] for r in rows}
+        for iid in ids:
+            tel = (tel_por_id.get(iid) or "").strip()
+            if not tel:
+                sin_tel.append(iid)
+                continue
+            r = _k.send_template(tel, tpl_name, language=lang)
+            if r.get("ok"):
+                conn.execute(
+                    f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
+                    f" WHERE id = %s", (iid,))
+                ok.append({"id": iid, "message_id": r.get("message_id")})
+            else:
+                fallos.append({"id": iid, "status": r.get("status"),
+                               "body": str(r.get("body"))[:300]})
+        conn.commit()
+
+    return jsonify({
+        "slot": slot, "template": tpl_name,
+        "ok": ok, "fallos": fallos, "sin_telefono": sin_tel,
+        "total": len(ids),
+    })
+
+
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/toggle")
 def visitante_inmueble_toggle(iid):
     _check_token()
