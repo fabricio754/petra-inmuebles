@@ -127,6 +127,32 @@
   .etapa-chip.etapa-proceso_credito  { background: #fce7f3; color: #9d174d; }
   .etapa-chip.etapa-no_publicar      { background: #fee2e2; color: #991b1b; }
   .etapa-chip.etapa-no_contactar     { background: #f3f4f6; color: #4b5563; }
+  .btn-ok-datos {
+    background: #16a34a; color: #fff; border: 0; padding: 6px 12px;
+    border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .btn-ok-datos:hover { background: #15803d; }
+  .bulk-bar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 20px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; margin: 10px 0;
+  }
+  .bulk-check { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13.5px; }
+  .btn-bulk {
+    margin-left: auto; background: #2563eb; color: #fff; border: 0;
+    padding: 8px 16px; border-radius: 8px; font-weight: 600;
+    cursor: pointer; font-size: 13.5px;
+  }
+  .btn-bulk:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-bulk:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-send-etapa {
+    background: #0ea5e9; color: #fff; border: 0; padding: 6px 12px;
+    border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 12.5px;
+    white-space: nowrap;
+  }
+  .btn-send-etapa:hover:not(:disabled) { background: #0284c7; }
+  .btn-send-etapa:disabled { opacity: 0.5; cursor: not-allowed; }
+  .row-check { width: 16px; height: 16px; cursor: pointer; }
   :root[data-theme="dark"] .state-pill.activo   { background: #052e1a; color: #4ade80; }
 
   .etapa-pill {
@@ -437,16 +463,41 @@
 
     <!-- Tabla -->
     {% if inmuebles %}
+    {# Mapeo etapa filtrada → slot de acción (siguiente paso del pipeline) #}
+    {% set _slot_map = {
+         'nuevo':            ('bienvenida',      '👋 Enviar bienvenida'),
+         'bienvenida':       ('oferta_servicio', '🏡 Enviar oferta servicio'),
+         'oferta_servicio':  ('oferta_credito',  '💳 Enviar oferta crédito'),
+       } %}
+    {% set _action = _slot_map.get(etapa_filtro) %}
+    {% if _action %}
+    <div class="bulk-bar">
+      <label class="bulk-check">
+        <input type="checkbox" id="bulk-all"> Seleccionar todos
+      </label>
+      <span id="bulk-count" style="color:var(--text-sub);font-size:13px">0 seleccionados</span>
+      <button type="button" id="bulk-send" class="btn-bulk" disabled
+              data-slot="{{ _action[0] }}"
+              data-label="{{ _action[1] }}">{{ _action[1] }} a seleccionados</button>
+    </div>
+    {% endif %}
     <table class="table-x">
       <thead>
         <tr>
+          {% if _action %}<th style="width:28px"></th>{% endif %}
           <th>Código</th><th>Estado</th><th>Op</th><th>Tipo</th><th>m²</th>
-          <th>Precio</th><th>Teléfono</th><th>Etapa</th><th>Acciones</th>
+          <th>Precio</th><th>Teléfono</th>
+          <th>{% if _action %}Acción{% else %}Etapa{% endif %}</th>
+          <th>OK</th><th>Acciones</th>
         </tr>
       </thead>
       <tbody>
         {% for i in inmuebles %}
-        <tr class="{% if not i.activo %}inactivo{% endif %}">
+        <tr class="{% if not i.activo %}inactivo{% endif %}" data-iid="{{ i.id }}" data-tel-ok="{{ 1 if i.celular_valido else 0 }}">
+          {% if _action %}
+          <td><input type="checkbox" class="row-check" value="{{ i.id }}"
+                     {% if not i.celular_valido %}disabled title="Sin teléfono válido"{% endif %}></td>
+          {% endif %}
           <td class="code-col">{{ i.codigo }}</td>
           <td>
             <span class="state-pill {% if i.activo %}activo{% else %}inactivo{% endif %}">
@@ -479,7 +530,27 @@
               'no_publicar':       '🚫 No publicar',
               'no_contactar':      '🔕 No contactar',
             } %}
-            <span class="etapa-chip etapa-{{ i.etapa_v2 }}">{{ _etapa_lbl.get(i.etapa_v2, i.etapa_v2) }}</span>
+            {% if _action %}
+              <button type="button" class="btn-send-etapa"
+                      data-iid="{{ i.id }}" data-slot="{{ _action[0] }}"
+                      {% if not i.celular_valido %}disabled title="Sin teléfono válido"{% endif %}>
+                {{ _action[1] }}
+              </button>
+            {% else %}
+              <span class="etapa-chip etapa-{{ i.etapa_v2 }}">{{ _etapa_lbl.get(i.etapa_v2, i.etapa_v2) }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if i.etapa_v2 == 'confirmar_datos' %}
+              <form class="inline-form" method="POST"
+                    action="{{ url_for('petra_panel.visitante_inmueble_confirmar_datos', iid=i.id) }}"
+                    onsubmit="return confirm('Marcar datos como confirmados y avanzar a bienvenida?')">
+                <input type="hidden" name="token" value="{{ token }}">
+                <button type="submit" class="btn-ok-datos" title="Confirmar datos y pasar a bienvenida">✅ OK</button>
+              </form>
+            {% else %}
+              <span style="color:var(--muted)">—</span>
+            {% endif %}
           </td>
           <td>
             <div class="row-actions">
@@ -773,6 +844,81 @@ function petraDeshacer(ev, quien, formId, label) {
     .catch(function(e){ alert('Error de red: ' + e); });
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Bulk acciones de etapa (enviar bienvenida / oferta_servicio / oferta_credito)
+// ---------------------------------------------------------------------------
+(function(){
+  var bulkAll = document.getElementById('bulk-all');
+  var bulkBtn = document.getElementById('bulk-send');
+  var bulkCnt = document.getElementById('bulk-count');
+  if (!bulkBtn) return;
+  var checks = Array.prototype.slice.call(
+    document.querySelectorAll('.row-check:not([disabled])'));
+
+  function refresh(){
+    var n = checks.filter(function(c){ return c.checked; }).length;
+    bulkCnt.textContent = n + ' seleccionados';
+    bulkBtn.disabled = (n === 0);
+  }
+  if (bulkAll) {
+    bulkAll.addEventListener('change', function(){
+      checks.forEach(function(c){ c.checked = bulkAll.checked; });
+      refresh();
+    });
+  }
+  checks.forEach(function(c){ c.addEventListener('change', refresh); });
+
+  function enviarIds(slot, label, ids){
+    if (!ids.length) return;
+    if (!confirm('Enviar "' + label + '" a ' + ids.length + ' inmueble(s)?')) return;
+    bulkBtn.disabled = true;
+    var botones = document.querySelectorAll('.btn-send-etapa');
+    botones.forEach(function(b){ b.disabled = true; });
+    fetch('{{ url_for("petra_panel.v2_inmuebles_enviar_etapa") }}?token={{ token }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({slot: slot, ids: ids, token: '{{ token }}'})
+    })
+    .then(function(r){ return r.json().then(function(j){ return {s:r.status, j:j}; }); })
+    .then(function(x){
+      var j = x.j || {};
+      if (x.s >= 400) {
+        alert('Error: ' + (j.error || x.s) + (j.env ? ' (falta env ' + j.env + ')' : ''));
+        bulkBtn.disabled = false;
+        botones.forEach(function(b){ b.disabled = false; });
+        return;
+      }
+      var msg = '✅ OK: ' + (j.ok||[]).length +
+                '\n❌ Fallos: ' + (j.fallos||[]).length +
+                '\n📵 Sin teléfono: ' + (j.sin_telefono||[]).length;
+      alert(msg);
+      window.location.reload();
+    })
+    .catch(function(e){
+      alert('Error de red: ' + e);
+      bulkBtn.disabled = false;
+      botones.forEach(function(b){ b.disabled = false; });
+    });
+  }
+
+  bulkBtn.addEventListener('click', function(){
+    var slot = bulkBtn.getAttribute('data-slot');
+    var label = bulkBtn.getAttribute('data-label');
+    var ids = checks.filter(function(c){ return c.checked; })
+                    .map(function(c){ return parseInt(c.value, 10); });
+    enviarIds(slot, label, ids);
+  });
+
+  document.querySelectorAll('.btn-send-etapa').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var iid = parseInt(btn.getAttribute('data-iid'), 10);
+      var slot = btn.getAttribute('data-slot');
+      var label = btn.textContent.trim();
+      enviarIds(slot, label, [iid]);
+    });
+  });
+})();
 </script>
 
 {% endblock %}
