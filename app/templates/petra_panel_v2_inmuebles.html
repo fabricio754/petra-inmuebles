@@ -372,26 +372,13 @@
       <span class="count-badge">{{ inmuebles|length }} resultados</span>
     </div>
 
-    <!-- Embudo chips -->
+    <!-- Embudo chips (vacío por ahora — se repuebla cuando definamos
+         las nuevas etapas que vamos a usar) -->
     <div class="embudo-row">
-      <a class="embudo-chip {% if not etapa_filtro %}on{% endif %}"
+      <a class="embudo-chip on"
          href="?token={{ token }}&cid={{ cid }}&op={{ op_filtro }}&estado={{ estado_filtro }}&tipo={{ tipo_filtro }}">
         📋 Todos
       </a>
-      {% for key, emoji, lbl in [
-        ('pendiente_confirmar','🌑','Falta Sebas'),
-        ('confirmado_sin_datos','🌘','Confirmado sin datos'),
-        ('confirmado_completo','🌕','Listo bienvenida'),
-        ('post_bienvenida','🏡','Listo ofrecer Petra'),
-        ('post_petra','💳','Listo crédito'),
-        ('post_credito','📝','Listo mandato'),
-        ('mandato','🤝','Con mandato')] %}
-      <a class="embudo-chip {% if etapa_filtro == key %}on{% endif %}"
-         href="?token={{ token }}&cid={{ cid }}&op={{ op_filtro }}&estado={{ estado_filtro }}&tipo={{ tipo_filtro }}&etapa={{ key }}">
-        {{ emoji }} {{ lbl }}
-        <span class="cn">{{ cont[key] }}</span>
-      </a>
-      {% endfor %}
     </div>
 
     <!-- Tabla -->
