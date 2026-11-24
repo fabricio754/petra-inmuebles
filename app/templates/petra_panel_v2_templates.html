@@ -1156,13 +1156,20 @@
             <div class="var-palette" id="var-palette"></div>
           </div>
 
-          <div class="form-pane" id="pane-botones">
-            <div class="form-field">
-              <label>Botones (hasta 2)</label>
-              <div class="btn-list" id="btn-list"></div>
-              <button type="button" class="add-var-btn" onclick="agregarBoton()"
-                      style="margin-top:8px">+ Agregar botón</button>
-            </div>
+          <div class="form-field">
+            <label>Footer (opcional)</label>
+            <input type="text" id="f-footer" maxlength="60"
+                   placeholder="ej. Responde SALIR para darte de baja."
+                   oninput="renderLivePreview()">
+            <div class="form-help">Texto chiquito al pie, máximo 60 caracteres. Útil para opt-out.</div>
+          </div>
+
+          <div class="form-field" id="pane-botones">
+            <label>Botones (hasta 2, opcional)</label>
+            <div class="btn-list" id="btn-list"></div>
+            <button type="button" class="add-var-btn" onclick="agregarBoton()"
+                    style="margin-top:8px">+ Agregar botón</button>
+            <div class="form-help">Para URLs con <code>{{1}}</code> dinámico, completá el "ejemplo" con un valor real para que Meta lo apruebe.</div>
           </div>
 
           <div class="form-pane" id="pane-catalogo">
@@ -1722,9 +1729,22 @@
     document.getElementById('f-body').value = t.body || '';
     document.getElementById('f-autor').value = t.autor || 'fabricio';
     document.getElementById('f-reco').value = t.recomendacion || '';
+    document.getElementById('f-footer').value = t.footer || '';
 
     // Variables (hidrata state desde DB)
     cargarVariables(t.variables || []);
+
+    // Botones (universales — se pueden editar en cualquier tipo de template).
+    document.getElementById('btn-list').innerHTML = '';
+    (t.botones || []).forEach(function(b) {
+      agregarBoton();
+      var last = document.querySelector('#btn-list .btn-row:last-child');
+      last.querySelector('[data-k="type"]').value = b.type || 'url';
+      last.querySelector('[data-k="label"]').value = b.label || '';
+      last.querySelector('[data-k="value"]').value = b.value || '';
+      var ej = last.querySelector('[data-k="ejemplo"]');
+      if (ej) ej.value = b.ejemplo || '';
+    });
 
     // Según tipo
     if (t.tipo === 'multimedia' && t.header) {
@@ -1739,16 +1759,7 @@
                             t.header.label || t.header.url.split('/').pop());
       }
     }
-    if (t.tipo === 'botones') {
-      document.getElementById('btn-list').innerHTML = '';
-      (t.botones || []).forEach(function(b) {
-        agregarBoton();
-        var last = document.querySelector('#btn-list .btn-row:last-child');
-        last.querySelector('[data-k="type"]').value = b.type || 'url';
-        last.querySelector('[data-k="label"]').value = b.label || '';
-        last.querySelector('[data-k="value"]').value = b.value || '';
-      });
-    }
+    // Botones ya cargados arriba (universal).
     if (t.tipo === 'catalogo_carrusel' && t.catalogo) {
       document.getElementById('f-catalog-id').value = t.catalogo.catalog_id || '';
       document.getElementById('f-catalog-parent').value = t.catalogo.body_parent || '';
@@ -2051,15 +2062,16 @@
     var row = document.createElement('div');
     row.className = 'btn-row';
     row.innerHTML =
-      '<select data-k="type">' +
+      '<select data-k="type" onchange="renderLivePreview()">' +
       '<option value="url">Abrir URL</option>' +
       '<option value="phone_number">Llamar</option>' +
       '<option value="copy_code">Copiar código</option>' +
       '<option value="quick_reply">Respuesta rápida</option>' +
       '</select>' +
-      '<input type="text" placeholder="Texto del botón" data-k="label">' +
-      '<input type="text" placeholder="URL / número / código / payload" data-k="value">' +
-      '<button type="button" class="del-btn" onclick="this.closest(\'.btn-row\').remove()">×</button>';
+      '<input type="text" placeholder="Texto del botón" data-k="label" oninput="renderLivePreview()">' +
+      '<input type="text" placeholder="URL / número / código / payload" data-k="value" oninput="renderLivePreview()">' +
+      '<input type="text" placeholder="Ejemplo (si URL tiene {{1}})" data-k="ejemplo">' +
+      '<button type="button" class="del-btn" onclick="this.closest(\'.btn-row\').remove();renderLivePreview()">×</button>';
     list.appendChild(row);
   }
 
@@ -2438,6 +2450,10 @@
     fd.append('recomendacion', document.getElementById('f-reco').value.trim());
     fd.append('variables', JSON.stringify(recolectarVariables()));
 
+    // Footer + botones son universales ahora (válidos para cualquier tipo).
+    fd.append('footer', document.getElementById('f-footer').value.trim());
+    fd.append('botones', JSON.stringify(recolectarBotones()));
+
     if (tipoSeleccionado === 'multimedia') {
       var url = document.getElementById('f-header-url').value.trim();
       if (url) {
@@ -2447,9 +2463,6 @@
           label: document.getElementById('f-header-label').value.trim()
         }));
       }
-    }
-    if (tipoSeleccionado === 'botones') {
-      fd.append('botones', JSON.stringify(recolectarBotones()));
     }
     if (tipoSeleccionado === 'catalogo_carrusel') {
       // Validar que tenga al menos 1 card

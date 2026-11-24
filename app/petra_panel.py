@@ -4714,7 +4714,7 @@ def panel_v2_templates():
             templates_db = _rows(conn,
                 "SELECT id, name, display, idioma, categoria, tipo, status, "
                 "       body, variables, header, botones, catalogo, "
-                "       recomendacion, rechazo_motivo, autor, "
+                "       footer, recomendacion, rechazo_motivo, autor, "
                 "       creado_en, actualizado_en "
                 "  FROM campana_templates "
                 " ORDER BY actualizado_en DESC")
@@ -4788,6 +4788,7 @@ def panel_v2_templates_crear():
     categoria = (request.form.get("categoria") or "MARKETING").strip().upper()
     tipo = (request.form.get("tipo") or "texto").strip().lower()
     body = (request.form.get("body") or "").strip()
+    footer = (request.form.get("footer") or "").strip()[:60]
     recomendacion = (request.form.get("recomendacion") or "").strip()
     autor = (request.form.get("autor") or "fabricio").strip().lower()
 
@@ -4838,14 +4839,16 @@ def panel_v2_templates_crear():
             row = conn.execute(
                 "INSERT INTO campana_templates "
                 "  (name, display, idioma, categoria, tipo, body, variables, "
-                "   header, botones, catalogo, recomendacion, autor) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s) "
+                "   header, botones, catalogo, footer, recomendacion, autor) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,"
+                "        %s,%s,%s) "
                 "RETURNING id",
                 (name, display, idioma, categoria, tipo, body,
                  _json.dumps(variables),
                  _json.dumps(header) if header else None,
                  _json.dumps(botones),
                  _json.dumps(catalogo) if catalogo else None,
+                 footer or None,
                  recomendacion or None, autor),
             ).fetchone()
             return jsonify({"ok": True, "id": row[0]})
@@ -5536,10 +5539,13 @@ def panel_v2_templates_actualizar(tid):
     import json as _json
 
     campos = {}
-    for key in ("display", "idioma", "categoria", "tipo", "body", "recomendacion"):
+    for key in ("display", "idioma", "categoria", "tipo", "body", "recomendacion", "footer"):
         val = request.form.get(key)
         if val is not None:
-            campos[key] = val.strip()
+            v = val.strip()
+            if key == "footer":
+                v = v[:60]
+            campos[key] = v
 
     for key in ("variables", "header", "botones", "catalogo"):
         raw = request.form.get(key)
