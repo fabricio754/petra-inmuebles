@@ -1306,7 +1306,7 @@ def _petra_pipeline_inmuebles_avanzar():
                         log.warning("[pipeline_inm] bienvenida fallo inm=%s body=%s",
                                     inm_id, r.get("body"))
 
-            # Candidatos paso 2 — oferta_servicio (bienvenida >=Nd, datos completos)
+            # Candidatos paso 2 — oferta_servicio (datos confirmados >=Nd)
             if tpl_os and enviados < batch_max:
                 rows = conn.execute(
                     "SELECT id, propietario_telefono "
@@ -1314,13 +1314,11 @@ def _petra_pipeline_inmuebles_avanzar():
                     " WHERE activo = TRUE "
                     "   AND propietario_telefono IS NOT NULL "
                     "   AND propietario_telefono <> '' "
-                    "   AND bienvenida_at IS NOT NULL "
-                    "   AND bienvenida_at <= NOW() - (%s || ' days')::interval "
-                    "   AND COALESCE(precio,0) > 0 "
-                    "   AND COALESCE(m2,0) > 0 "
+                    "   AND datos_confirmado_at IS NOT NULL "
+                    "   AND datos_confirmado_at <= NOW() - (%s || ' days')::interval "
                     "   AND ofrecer_petra_at IS NULL "
                     "   AND mandato_at IS NULL "
-                    " ORDER BY bienvenida_at ASC "
+                    " ORDER BY datos_confirmado_at ASC "
                     " LIMIT %s", (str(delay_dias), batch_max - enviados)
                 ).fetchall()
                 for inm_id, tel in rows:
