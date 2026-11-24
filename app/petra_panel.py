@@ -5155,6 +5155,18 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
             hurl = (header.get("url") or "").strip()
             if not hurl:
                 return None, "header_sin_url"
+            # Meta necesita URL absoluta HTTPS. Si viene un path local
+            # (/static/...), lo absolutizamos con el host actual.
+            if hurl.startswith("/"):
+                try:
+                    from flask import request as _req
+                    base = (_req.host_url or "").rstrip("/")
+                except Exception:
+                    base = ""
+                if not base:
+                    base = (os.environ.get("PUBLIC_BASE_URL") or
+                            "https://petra-inmuebles.onrender.com").rstrip("/")
+                hurl = base + hurl
             # Meta rechaza VIDEO/DOCUMENT con `example.header_url` — exige
             # un handle de Resumable Upload. Para IMAGE sí acepta URL.
             # Si tenemos access_token+app_id, para VIDEO/DOCUMENT forzamos
@@ -6304,15 +6316,33 @@ def _pipeline_tpl_get(slot):
 
 
 def _reescribir_media_url_para_meta(url):
-    """Si la URL apunta a GitHub raw, la reemplaza por nuestro proxy
-    /petra-media/* que fuerza el Content-Type correcto. Otras URLs se
-    devuelven tal cual.
-
-    Formato GitHub raw:
-      https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>
+    """Normaliza la URL de media para que Meta pueda descargarla:
+    - Si es un path relativo (/static/...), le antepone el host actual.
+    - Si apunta a GitHub raw, la reescribe a nuestro proxy /petra-media/*
+      para forzar el Content-Type correcto.
+    Otras URLs absolutas HTTPS se devuelven tal cual.
     """
     if not url:
         return url
+
+    def _base_url():
+        base = (os.environ.get("PETRA_MEDIA_PROXY_BASE") or "").strip()
+        if base:
+            return base.rstrip("/")
+        try:
+            from flask import request as _req
+            base = (_req.host_url or "").rstrip("/")
+            if base:
+                return base
+        except Exception:
+            pass
+        return (os.environ.get("PUBLIC_BASE_URL") or
+                "https://petra-inmuebles.onrender.com").rstrip("/")
+
+    # Path relativo → absolutizar
+    if url.startswith("/"):
+        return _base_url() + url
+
     marker = "raw.githubusercontent.com/"
     if marker not in url:
         return url
