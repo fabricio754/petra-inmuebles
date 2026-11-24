@@ -3692,6 +3692,27 @@ PETRA_TEMPLATES = [
         "recomendacion": "Segundo paso: solo a propietarios que ya recibieron la notificación de publicación y respondieron (lead cálido).",
     },
     {
+        "name": "pedir_datos_petra",
+        "display": "Pedir datos al propietario",
+        "category": "UTILITY",
+        "price_usd": 0.00024,
+        "status": "mocked",
+        "header": None,
+        "body": (
+            "Hola {{1}} 👋\n\n"
+            "Soy Fabricio de *Petra*. Necesito confirmar algunos datos "
+            "de tu {{2}} para poder publicarlo.\n\n"
+            "¿Me podés compartir el valor del *arriendo/venta* y los *m²* "
+            "del inmueble?\n\n"
+            "_Responde SALIR si no deseas recibir más mensajes._"
+        ),
+        "variables": [
+            {"id": "1", "label": "Nombre propietario", "source": "propietario_nombre", "ejemplo": "María"},
+            {"id": "2", "label": "Tipo inmueble", "source": "tipo", "ejemplo": "apartamento"},
+        ],
+        "recomendacion": "Se envía automáticamente al apretar 'Confirmar datos' en el tab Bienvenida.",
+    },
+    {
         "name": "ofrecer_credito_petra",
         "display": "Ofrecer aliado de crédito",
         "category": "MARKETING",
@@ -3728,13 +3749,46 @@ DIFUSION_AUTORES = [
 ]
 
 
+def _seed_templates_nuevos():
+    """Upserteá los templates de PETRA_TEMPLATES que todavía no existen en
+    DB (ON CONFLICT DO NOTHING). Idempotente — inserta sólo los nuevos."""
+    import json as _json
+    import logging as _lg
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            for t in PETRA_TEMPLATES:
+                conn.execute(
+                    "INSERT INTO campana_templates "
+                    "  (name, display, idioma, categoria, tipo, body, variables, "
+                    "   header, botones, catalogo, recomendacion, autor, status) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s) "
+                    "ON CONFLICT (name) DO NOTHING",
+                    (
+                        t["name"], t["display"], "es",
+                        t["category"], "multimedia" if t.get("header") else "texto",
+                        t["body"],
+                        _json.dumps(t.get("variables", [])),
+                        _json.dumps(t.get("header")) if t.get("header") else None,
+                        _json.dumps([]),
+                        None,
+                        t.get("recomendacion"),
+                        "petra",
+                        "draft",
+                    ),
+                )
+            conn.commit()
+    except Exception:
+        _lg.getLogger(__name__).exception("[seed] upsert templates fallo")
+
+
 def _seed_templates_si_vacio():
-    """Inserta los 3 templates hardcoded en DB si la tabla está vacía.
+    """Inserta los templates hardcoded en DB si la tabla está vacía.
 
     Idempotente — ejecuta la inserción solo cuando no hay ninguna fila.
     Se dispara en la primera visita a /v2/templates o /v2/difusiones, para
-    que el usuario vea los 3 defaults como templates reales editables en vez
-    de un listado hardcoded aparte.
+    que el usuario vea los defaults como templates reales editables en vez
+    de un listado hardcoded aparte. Además, siempre pide seed de los
+    que falten (para incorporar templates nuevos en deploys posteriores).
     """
     import json as _json
     import logging as _lg
@@ -3743,8 +3797,9 @@ def _seed_templates_si_vacio():
             row = conn.execute("SELECT COUNT(*) FROM campana_templates").fetchone()
             count = (row[0] if row else 0) or 0
             if count > 0:
-                return  # ya tiene templates, no hago nada
-            # Insertar los 3 defaults
+                _seed_templates_nuevos()
+                return
+            # Insertar los defaults
             for t in PETRA_TEMPLATES:
                 conn.execute(
                     "INSERT INTO campana_templates "
