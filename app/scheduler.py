@@ -204,6 +204,14 @@ def iniciar():
                        minutes=5,
                        id="petra_alertas_metricas",
                        max_instances=1, coalesce=True)
+    # Pipeline inmuebles V2: avanza inmuebles automáticamente entre etapas
+    # (nuevo → bienvenida → oferta_servicio → oferta_credito) con 3 días
+    # entre pasos. Envía plantillas vía Kapso. Pausable con
+    # PETRA_PIPELINE_INMUEBLES_PAUSADO=1.
+    _scheduler.add_job(_petra_pipeline_inmuebles_avanzar, "interval",
+                       hours=1,
+                       id="petra_pipeline_inmuebles",
+                       max_instances=1, coalesce=True)
     _scheduler.start()
     log.info("[Scheduler] Iniciado — healthcheck webhook_queue c/10min, drain log_mensaje spool c/10min, "
              "nudges/citas/kit/tc_queue Petra.")
@@ -1219,3 +1227,150 @@ def _petra_chequear_alertas_metricas():
         log.exception("[alertas] persist cooldowns fallo (no crítico)")
 
     log.info("[alertas] enviadas %s alertas.", len(nuevas_alertas))
+
+
+# ---------------------------------------------------------------------------
+# Pipeline inmuebles V2 — avance automático entre etapas vía Kapso
+# ---------------------------------------------------------------------------
+
+def _petra_pipeline_inmuebles_avanzar():
+    """Avanza inmuebles entre etapas disparando plantillas vía Kapso.
+
+    Reglas (3 días entre pasos, configurable con PETRA_PIPELINE_DELAY_DIAS):
+      • nuevo → bienvenida (inmediato): inmueble activo con propietario_telefono
+        y bienvenida_at NULL → envía template PETRA_TPL_BIENVENIDA, marca
+        bienvenida_at=NOW().
+      • bienvenida (>=3d, datos completos) → oferta_servicio: precio>0 y m2>0
+        y ofrecer_petra_at NULL → template PETRA_TPL_OFRECER_SERVICIO.
+      • oferta_servicio (>=3d) → oferta_credito: ofrecer_credito_at NULL →
+        template PETRA_TPL_OFRECER_CREDITO.
+
+    Pausable con env PETRA_PIPELINE_INMUEBLES_PAUSADO=1.
+    Rate limit: PETRA_PIPELINE_BATCH envíos por tick (default 20).
+    """
+    import os as _os
+    if (_os.environ.get("PETRA_PIPELINE_INMUEBLES_PAUSADO") or "").strip() == "1":
+        return
+
+    tpl_bv  = (_os.environ.get("PETRA_TPL_BIENVENIDA") or "").strip()
+    tpl_os  = (_os.environ.get("PETRA_TPL_OFRECER_SERVICIO") or "").strip()
+    tpl_oc  = (_os.environ.get("PETRA_TPL_OFRECER_CREDITO") or "").strip()
+    lang    = (_os.environ.get("PETRA_TPL_LANG") or "es_CO").strip()
+    try:
+        delay_dias = int(_os.environ.get("PETRA_PIPELINE_DELAY_DIAS") or "3")
+    except Exception:
+        delay_dias = 3
+    try:
+        batch_max = int(_os.environ.get("PETRA_PIPELINE_BATCH") or "20")
+    except Exception:
+        batch_max = 20
+
+    if not (tpl_bv or tpl_os or tpl_oc):
+        log.info("[pipeline_inm] sin templates configuradas — nada que hacer.")
+        return
+
+    from app import db as _db
+    from app import petra_kapso as _k
+    if not _k._is_ready():
+        log.warning("[pipeline_inm] Kapso no está listo (falta API_KEY/PHONE_ID).")
+        return
+
+    enviados = 0
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            # Candidatos paso 1 — bienvenida
+            if tpl_bv and enviados < batch_max:
+                rows = conn.execute(
+                    "SELECT id, propietario_telefono, conjunto "
+                    "  FROM inmuebles_visitante "
+                    " WHERE activo = TRUE "
+                    "   AND propietario_telefono IS NOT NULL "
+                    "   AND propietario_telefono <> '' "
+                    "   AND bienvenida_at IS NULL "
+                    " ORDER BY creado DESC "
+                    " LIMIT %s", (batch_max - enviados,)
+                ).fetchall()
+                for inm_id, tel, _conj in rows:
+                    if enviados >= batch_max:
+                        break
+                    r = _k.send_template(tel, tpl_bv, language=lang)
+                    if r.get("ok"):
+                        conn.execute(
+                            "UPDATE inmuebles_visitante "
+                            "   SET bienvenida_at = NOW() WHERE id = %s",
+                            (inm_id,))
+                        conn.commit()
+                        enviados += 1
+                        log.info("[pipeline_inm] bienvenida inm=%s tel=%s", inm_id, tel)
+                    else:
+                        log.warning("[pipeline_inm] bienvenida fallo inm=%s body=%s",
+                                    inm_id, r.get("body"))
+
+            # Candidatos paso 2 — oferta_servicio (bienvenida >=Nd, datos completos)
+            if tpl_os and enviados < batch_max:
+                rows = conn.execute(
+                    "SELECT id, propietario_telefono "
+                    "  FROM inmuebles_visitante "
+                    " WHERE activo = TRUE "
+                    "   AND propietario_telefono IS NOT NULL "
+                    "   AND propietario_telefono <> '' "
+                    "   AND bienvenida_at IS NOT NULL "
+                    "   AND bienvenida_at <= NOW() - (%s || ' days')::interval "
+                    "   AND COALESCE(precio,0) > 0 "
+                    "   AND COALESCE(m2,0) > 0 "
+                    "   AND ofrecer_petra_at IS NULL "
+                    "   AND mandato_at IS NULL "
+                    " ORDER BY bienvenida_at ASC "
+                    " LIMIT %s", (str(delay_dias), batch_max - enviados)
+                ).fetchall()
+                for inm_id, tel in rows:
+                    if enviados >= batch_max:
+                        break
+                    r = _k.send_template(tel, tpl_os, language=lang)
+                    if r.get("ok"):
+                        conn.execute(
+                            "UPDATE inmuebles_visitante "
+                            "   SET ofrecer_petra_at = NOW() WHERE id = %s",
+                            (inm_id,))
+                        conn.commit()
+                        enviados += 1
+                        log.info("[pipeline_inm] oferta_servicio inm=%s tel=%s", inm_id, tel)
+                    else:
+                        log.warning("[pipeline_inm] oferta_servicio fallo inm=%s body=%s",
+                                    inm_id, r.get("body"))
+
+            # Candidatos paso 3 — oferta_credito (ofrecer_petra >=Nd)
+            if tpl_oc and enviados < batch_max:
+                rows = conn.execute(
+                    "SELECT id, propietario_telefono "
+                    "  FROM inmuebles_visitante "
+                    " WHERE activo = TRUE "
+                    "   AND propietario_telefono IS NOT NULL "
+                    "   AND propietario_telefono <> '' "
+                    "   AND ofrecer_petra_at IS NOT NULL "
+                    "   AND ofrecer_petra_at <= NOW() - (%s || ' days')::interval "
+                    "   AND ofrecer_credito_at IS NULL "
+                    "   AND mandato_at IS NULL "
+                    " ORDER BY ofrecer_petra_at ASC "
+                    " LIMIT %s", (str(delay_dias), batch_max - enviados)
+                ).fetchall()
+                for inm_id, tel in rows:
+                    if enviados >= batch_max:
+                        break
+                    r = _k.send_template(tel, tpl_oc, language=lang)
+                    if r.get("ok"):
+                        conn.execute(
+                            "UPDATE inmuebles_visitante "
+                            "   SET ofrecer_credito_at = NOW() WHERE id = %s",
+                            (inm_id,))
+                        conn.commit()
+                        enviados += 1
+                        log.info("[pipeline_inm] oferta_credito inm=%s tel=%s", inm_id, tel)
+                    else:
+                        log.warning("[pipeline_inm] oferta_credito fallo inm=%s body=%s",
+                                    inm_id, r.get("body"))
+
+        if enviados:
+            log.info("[pipeline_inm] tick OK — %s plantillas enviadas.", enviados)
+    except Exception:
+        log.exception("[pipeline_inm] error en tick.")
