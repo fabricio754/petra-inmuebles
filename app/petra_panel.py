@@ -6200,9 +6200,20 @@ _PIPELINE_SLOTS_LBL = {
 }
 
 
+_PIPELINE_SLOT_KEYWORDS = {
+    "bienvenida":      ("bienvenida",),
+    "oferta_servicio": ("inmobiliaria", "servicio", "ofrecer_servicio"),
+    "oferta_credito":  ("credito", "credit"),
+}
+
+
 def _pipeline_tpl_get(slot):
     """Devuelve el nombre de plantilla configurado para ese slot.
-    Primero mira meta.pipeline_tpl_<slot>, luego cae al env var.
+    Orden:
+      1. meta.pipeline_tpl_<slot>  (elegido en UI)
+      2. env var (PETRA_TPL_*)
+      3. Auto-match: primera plantilla APPROVED cuyo nombre contenga una
+         de las keywords del slot.
     """
     try:
         with _db._conexion_directa(timeout=5) as conn:
@@ -6215,7 +6226,22 @@ def _pipeline_tpl_get(slot):
         pass
     env_var = (_PIPELINE_SLOTS.get(slot) or (None, None))[0]
     if env_var:
-        return (os.environ.get(env_var) or "").strip()
+        val = (os.environ.get(env_var) or "").strip()
+        if val:
+            return val
+    # Auto-match: busca entre plantillas aprobadas por keyword del slot.
+    try:
+        keywords = _PIPELINE_SLOT_KEYWORDS.get(slot, ())
+        if keywords:
+            lista, _err = _meta_fetch_templates(force=False)
+            for t in (lista or []):
+                if (t.get("status") or "").lower() != "approved":
+                    continue
+                name = (t.get("name") or "").lower()
+                if any(k in name for k in keywords):
+                    return t.get("name") or ""
+    except Exception:
+        pass
     return ""
 
 
