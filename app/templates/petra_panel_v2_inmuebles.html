@@ -425,7 +425,7 @@
       <thead>
         <tr>
           <th>Código</th><th>Estado</th><th>Op</th><th>Tipo</th><th>m²</th>
-          <th>Precio</th><th>Teléfono</th><th>Sales</th><th>Datos (Sebas)</th><th>Acciones</th>
+          <th>Precio</th><th>Teléfono</th><th>Acciones</th>
         </tr>
       </thead>
       <tbody>
@@ -449,88 +449,8 @@
             {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
           </td>
-          {# ═══ SALES TRACK ═══════════════════════════════════════ #}
-          <td class="etapa-cell">
-            {# 3 pasos: ✉️ Bienvenida → 🏢 Inmob → 💵 Crédito
-               (Mandato ya vive en botón Petra, no en la columna) #}
-            {% set s_bienv = i.bienvenida_at is not none %}
-            {% set s_inmob = i.ofrecer_petra_at is not none %}
-            {% set s_cred  = i.ofrecer_credito_at is not none %}
-            <div class="sales-track">
-              <span class="sstep {% if s_bienv %}done{% elif not s_bienv %}now{% endif %}"
-                    title="Bienvenida{% if i.bienv_dias is not none %} · hace {{ i.bienv_dias }}d ({{ i.bienvenida_at.strftime('%Y-%m-%d') }}){% endif %}">✉️</span>
-              <span class="ssep {% if s_bienv %}done{% endif %}"></span>
-              <span class="sstep {% if s_inmob %}done{% elif s_bienv %}now{% else %}todo{% endif %}"
-                    title="Ofrecer Inmob{% if i.op_dias is not none %} · hace {{ i.op_dias }}d ({{ i.ofrecer_petra_at.strftime('%Y-%m-%d') }}){% endif %}">🏢</span>
-              <span class="ssep {% if s_inmob %}done{% endif %}"></span>
-              <span class="sstep {% if s_cred %}done{% elif s_inmob %}now{% else %}todo{% endif %}"
-                    title="Ofrecer Crédito{% if i.cr_dias is not none %} · hace {{ i.cr_dias }}d ({{ i.ofrecer_credito_at.strftime('%Y-%m-%d') }}){% endif %}">💵</span>
-            </div>
-            {% if i.ult_sales_lbl %}
-            <div class="sales-last">⏱ Última: {{ i.ult_sales_lbl }}</div>
-            {% endif %}
-            {% if not s_bienv %}
-              {% if i.celular_valido %}
-              <a class="wa-step" href="{{ i.wa_bienvenida }}" target="_blank"
-                 onclick="return petraEjecutar(event, 'fabricio', 'f-bv-{{ i.id }}')">💬 Notificar publicación</a>
-              <form id="f-bv-{{ i.id }}" method="post" style="display:none"
-                    action="/panel/petra/inmueble/{{ i.id }}/etapa/bienvenida?token={{ token }}">
-                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
-              </form>
-              {% else %}<span class="muted">Tel inválido</span>{% endif %}
-            {% elif not s_inmob %}
-              {% if i.celular_valido %}
-              <a class="wa-step wa-sec" href="{{ i.wa_ofrecer_petra }}" target="_blank"
-                 onclick="return petraEjecutar(event, 'fabricio', 'f-op-{{ i.id }}')">💬 Ofrecer inmob</a>
-              <form id="f-op-{{ i.id }}" method="post" style="display:none"
-                    action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_petra?token={{ token }}">
-                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
-              </form>
-              {% endif %}
-              <a class="undo-step" onclick="return petraDeshacer(event, 'fabricio', 'u-bv-{{ i.id }}', 'bienvenida')">↶ deshacer bienvenida</a>
-              <form id="u-bv-{{ i.id }}" method="post" style="display:none"
-                    action="/panel/petra/inmueble/{{ i.id }}/etapa/bienvenida/deshacer?token={{ token }}">
-                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
-              </form>
-            {% elif not s_cred %}
-              {% if i.celular_valido %}
-              <a class="wa-step wa-sec" href="{{ i.wa_ofrecer_credito }}" target="_blank"
-                 onclick="return petraEjecutar(event, 'fabricio', 'f-cr-{{ i.id }}')">💬 Ofrecer crédito</a>
-              <form id="f-cr-{{ i.id }}" method="post" style="display:none"
-                    action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_credito?token={{ token }}">
-                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
-              </form>
-              {% endif %}
-              <a class="undo-step" onclick="return petraDeshacer(event, 'fabricio', 'u-op-{{ i.id }}', 'ofrecer inmob')">↶ deshacer ofrecer inmob</a>
-              <form id="u-op-{{ i.id }}" method="post" style="display:none"
-                    action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_petra/deshacer?token={{ token }}">
-                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
-              </form>
-            {% else %}
-              <span class="muted">✅ Sales completo</span>
-              <a class="undo-step" onclick="return petraDeshacer(event, 'fabricio', 'u-cr-{{ i.id }}', 'ofrecer crédito')">↶ deshacer ofrecer crédito</a>
-              <form id="u-cr-{{ i.id }}" method="post" style="display:none"
-                    action="/panel/petra/inmueble/{{ i.id }}/etapa/ofrecer_credito/deshacer?token={{ token }}">
-                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
-              </form>
-            {% endif %}
-          </td>
-
-          {# ═══ DATOS TRACK (Sebas) ═══════════════════════════════ #}
-          <td class="etapa-cell">
-            {% if i.datos_estado == 'ok' %}
-              <span class="muted">✅ Completado</span>
-            {% elif i.celular_valido %}
-              <a class="wa-step wa-datos" href="{{ i.wa_pedir_datos }}" target="_blank"
-                 onclick="return petraEjecutar(event, 'sebastian', 'f-pd-{{ i.id }}')">
-                💬 {% if i.datos_estado == 'stale' %}Re-pedir ({{ i.datos_dias_pedido }}d){% else %}Contactar propietario{% endif %}
-              </a>
-              <form id="f-pd-{{ i.id }}" method="post" style="display:none"
-                    action="/panel/petra/inmueble/{{ i.id }}/etapa/pedir_datos?token={{ token }}">
-                <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="pin" value="">
-              </form>
-            {% endif %}
-          </td>
+          {# Columnas Sales y Datos (Sebas) removidas — se reemplazan por
+             el flujo nuevo basado en tabs de etapa. #}
           <td>
             <div class="row-actions">
               <button type="button" class="btn-like editar-inm-btn"
