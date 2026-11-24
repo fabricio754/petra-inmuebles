@@ -5067,11 +5067,18 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
         return None, "body_vacio"
     body_comp = {"type": "BODY", "text": body_text}
     variables = tpl.get("variables") or []
-    if variables:
+    # Detectar cuántos placeholders {{N}} aparecen en el body — Meta rechaza
+    # si la cantidad de ejemplos no matchea. Pad con "ejemplo" si faltan y
+    # trunca si sobran.
+    import re as _re_vars
+    n_placeholders = len(set(_re_vars.findall(r"\{\{\s*(\d+)\s*\}\}", body_text)))
+    if n_placeholders:
         ejemplos = []
-        for v in variables:
+        for v in variables[:n_placeholders]:
             ej = (v.get("ejemplo") or v.get("label") or "ejemplo").strip() or "ejemplo"
             ejemplos.append(ej)
+        while len(ejemplos) < n_placeholders:
+            ejemplos.append("ejemplo")
         body_comp["example"] = {"body_text": [ejemplos]}
     components.append(body_comp)
 
