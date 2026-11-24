@@ -111,6 +111,12 @@
   }
   .state-pill.activo   { background: #dcfce7; color: #166534; }
   .state-pill.inactivo { background: #fee2e2; color: #991b1b; }
+  .etapa-chip {
+    display: inline-flex; padding: 3px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 500;
+    background: var(--bg); color: var(--text-sub);
+    border: 1px solid var(--border);
+  }
   :root[data-theme="dark"] .state-pill.activo   { background: #052e1a; color: #4ade80; }
 
   .etapa-pill {
@@ -425,7 +431,7 @@
       <thead>
         <tr>
           <th>Código</th><th>Estado</th><th>Op</th><th>Tipo</th><th>m²</th>
-          <th>Precio</th><th>Teléfono</th><th>Acciones</th>
+          <th>Precio</th><th>Teléfono</th><th>Etapa</th><th>Acciones</th>
         </tr>
       </thead>
       <tbody>
@@ -449,8 +455,13 @@
             {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
           </td>
-          {# Columnas Sales y Datos (Sebas) removidas — se reemplazan por
-             el flujo nuevo basado en tabs de etapa. #}
+          {# Etapa del inmueble — placeholder hasta que definamos cómo
+             se calcula cada etapa (nuevo, bienvenida, confirmar_datos,
+             oferta_servicio, oferta_credito, proceso_*, no_publicar,
+             no_contactar). Por ahora muestra "—". #}
+          <td>
+            <span class="etapa-chip">— sin definir</span>
+          </td>
           <td>
             <div class="row-actions">
               <button type="button" class="btn-like editar-inm-btn"
