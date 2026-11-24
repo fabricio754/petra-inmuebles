@@ -6245,6 +6245,51 @@ def _pipeline_tpl_get(slot):
     return ""
 
 
+def _build_kapso_send_components(tpl, inmueble):
+    """Arma el array `components` para enviar un template vía Kapso/Meta.
+
+    - Si el template tiene header multimedia (image/video/document), agrega
+      un header component con el link al archivo.
+    - Si el template tiene variables {{N}} en el body, agrega un body
+      component con parameters resolvidos por el inmueble.
+    """
+    comps = []
+    header = tpl.get("header") or {}
+    htype = (header.get("type") or "").lower()
+    hurl = (header.get("url") or "").strip()
+    if htype in ("image", "video", "document") and hurl:
+        comps.append({
+            "type": "header",
+            "parameters": [{
+                "type": htype,
+                htype: {"link": hurl},
+            }],
+        })
+    # Body con variables
+    body_text = (tpl.get("body") or "")
+    variables = tpl.get("variables") or []
+    import re as _re_vars
+    n_ph = len(set(_re_vars.findall(r"\{\{\s*(\d+)\s*\}\}", body_text)))
+    if n_ph:
+        conj_nombre = inmueble.get("conjunto_nombre") or ""
+        params = []
+        for i in range(n_ph):
+            v = variables[i] if i < len(variables) else {}
+            source = v.get("source") or ""
+            if source:
+                try:
+                    val = _var_value_for(inmueble, source, conj_nombre)
+                except Exception:
+                    val = v.get("ejemplo") or v.get("label") or "ejemplo"
+            else:
+                val = v.get("ejemplo") or v.get("label") or "ejemplo"
+            if not val or str(val).strip() in ("", "—"):
+                val = conj_nombre or "ejemplo"
+            params.append({"type": "text", "text": str(val)})
+        comps.append({"type": "body", "parameters": params})
+    return comps or None
+
+
 def _pipeline_tpl_set(slot, name):
     name = (name or "").strip()
     with _db._conexion_directa(timeout=5) as conn:
@@ -6315,17 +6360,31 @@ def v2_inmuebles_enviar_etapa():
     if not _k._is_ready():
         return jsonify({"error": "kapso_no_listo"}), 503
 
+    # Cargar el template local por nombre para armar los components de envío
+    # (header media + body variables).
+    tpl_local = _tmpl_by_name(tpl_name) or {}
+
     with _db._conexion_directa(timeout=20) as conn:
         rows = conn.execute(
-            "SELECT id, propietario_telefono FROM inmuebles_visitante "
-            " WHERE id = ANY(%s)", (ids,)).fetchall()
-        tel_por_id = {r[0]: r[1] for r in rows}
+            "SELECT iv.id, iv.propietario_telefono, iv.tipo, iv.operacion, "
+            "       iv.habitaciones, iv.banos, iv.m2, iv.precio, "
+            "       cv.nombre AS conjunto_nombre "
+            "  FROM inmuebles_visitante iv "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id "
+            " WHERE iv.id = ANY(%s)", (ids,)).fetchall()
+        inmueble_por_id = {}
+        cols = ("id","propietario_telefono","tipo","operacion",
+                "habitaciones","banos","m2","precio","conjunto_nombre")
+        for r in rows:
+            inmueble_por_id[r[0]] = dict(zip(cols, r))
         for iid in ids:
-            tel = (tel_por_id.get(iid) or "").strip()
+            inm = inmueble_por_id.get(iid) or {}
+            tel = (inm.get("propietario_telefono") or "").strip()
             if not tel:
                 sin_tel.append(iid)
                 continue
-            r = _k.send_template(tel, tpl_name, language=lang)
+            comps = _build_kapso_send_components(tpl_local, inm)
+            r = _k.send_template(tel, tpl_name, language=lang, components=comps)
             if r.get("ok"):
                 conn.execute(
                     f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
