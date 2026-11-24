@@ -5036,14 +5036,22 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
             hurl = (header.get("url") or "").strip()
             if not hurl:
                 return None, "header_sin_url"
-            if usar_url:
-                # Meta tambien acepta example.header_url con URL publica HTTPS.
+            # Meta rechaza VIDEO/DOCUMENT con `example.header_url` — exige
+            # un handle de Resumable Upload. Para IMAGE sí acepta URL.
+            # Si tenemos access_token+app_id, para VIDEO/DOCUMENT forzamos
+            # el path de handle aunque usar_url=True.
+            forzar_handle = (htype in ("VIDEO", "DOCUMENT")
+                             and access_token and app_id)
+            if usar_url and not forzar_handle:
                 components.append({
                     "type": "HEADER",
                     "format": htype,  # IMAGE / VIDEO / DOCUMENT
                     "example": {"header_url": [hurl]},
                 })
             else:
+                if not (access_token and app_id):
+                    return None, (f"header_{htype.lower()}_requiere_META_ACCESS_TOKEN"
+                                  "+META_APP_ID para Resumable Upload")
                 handle, err = _meta_upload_media_handle(hurl, access_token, app_id)
                 if not handle:
                     return None, f"header_upload_fallo:{err}"
@@ -5142,10 +5150,12 @@ def panel_v2_templates_aprobar(tid):
                         "detalle": "Los templates de catálogo/carrusel requieren "
                                    "un flujo distinto todavía no implementado."}), 400
 
-    # Construir components. Para templates con header multimedia, usamos
-    # la URL publica (GitHub raw) directamente en vez de hacer Resumable
-    # Upload — Kapso/Meta la descarga para armar el example.
-    components, err = _construir_meta_components(tpl, None, app_id, usar_url=True)
+    # Construir components. Para IMAGE usamos header_url (simple).
+    # Para VIDEO/DOCUMENT Meta exige handle de Resumable Upload — pasamos
+    # META_ACCESS_TOKEN para que _construir_meta_components lo haga.
+    meta_access_token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    components, err = _construir_meta_components(
+        tpl, meta_access_token, app_id, usar_url=True)
     if err:
         return jsonify({"error": "construir_payload_fallo", "detalle": err}), 400
 
