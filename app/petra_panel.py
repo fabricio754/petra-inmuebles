@@ -6322,8 +6322,19 @@ def _reescribir_media_url_para_meta(url):
         if len(parts) < 4:
             return url
         _owner, _repo, _branch, path = parts
-        base = (os.environ.get("PUBLIC_BASE_URL") or
-                "https://petra-inmuebles.onrender.com").rstrip("/")
+        # Prioridad: PETRA_MEDIA_PROXY_BASE (override explícito) →
+        # host actual (request) → PUBLIC_BASE_URL → default prod.
+        base = (os.environ.get("PETRA_MEDIA_PROXY_BASE") or "").strip()
+        if not base:
+            try:
+                from flask import request as _req
+                base = (_req.host_url or "").rstrip("/")
+            except Exception:
+                base = ""
+        if not base:
+            base = (os.environ.get("PUBLIC_BASE_URL") or
+                    "https://petra-inmuebles.onrender.com").rstrip("/")
+        base = base.rstrip("/")
         return f"{base}/petra-media/{path}"
     except Exception:
         return url
