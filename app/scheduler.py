@@ -1252,9 +1252,24 @@ def _petra_pipeline_inmuebles_avanzar():
     if (_os.environ.get("PETRA_PIPELINE_INMUEBLES_PAUSADO") or "").strip() == "1":
         return
 
-    tpl_bv  = (_os.environ.get("PETRA_TPL_BIENVENIDA") or "").strip()
-    tpl_os  = (_os.environ.get("PETRA_TPL_OFRECER_SERVICIO") or "").strip()
-    tpl_oc  = (_os.environ.get("PETRA_TPL_OFRECER_CREDITO") or "").strip()
+    # Resuelve el nombre de plantilla por slot: meta.pipeline_tpl_<slot>
+    # primero, env var como fallback.
+    def _resolve_tpl(slot, env_var):
+        try:
+            from app import db as _db
+            with _db._conexion_directa(timeout=5) as conn:
+                row = conn.execute(
+                    "SELECT valor FROM meta WHERE clave = %s",
+                    (f"pipeline_tpl_{slot}",)).fetchone()
+                if row and row[0]:
+                    return (row[0] or "").strip()
+        except Exception:
+            pass
+        return (_os.environ.get(env_var) or "").strip()
+
+    tpl_bv = _resolve_tpl("bienvenida",      "PETRA_TPL_BIENVENIDA")
+    tpl_os = _resolve_tpl("oferta_servicio", "PETRA_TPL_OFRECER_SERVICIO")
+    tpl_oc = _resolve_tpl("oferta_credito",  "PETRA_TPL_OFRECER_CREDITO")
     lang    = (_os.environ.get("PETRA_TPL_LANG") or "es_CO").strip()
     try:
         delay_dias = int(_os.environ.get("PETRA_PIPELINE_DELAY_DIAS") or "3")

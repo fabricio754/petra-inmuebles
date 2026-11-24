@@ -172,7 +172,7 @@
       <img class="logo" src="/static/petra_logo.webp" alt="Petra">
     </span>
   </div>
-  {% set g_marketing = ['difusiones', 'templates', 'numeros', 'kapso'] %}
+  {% set g_marketing = ['difusiones', 'templates', 'numeros', 'kapso', 'pipeline'] %}
   {% set g_bot = ['contenidos', 'faq', 'automatizaciones', 'whitelist'] %}
   {% set g_oferta = ['conjuntos', 'catalogo', 'inmuebles', 'oferta', 'embudo', 'mandatos'] %}
   {% set g_demanda = ['buscadores', 'usuarios', 'demanda', 'solicitudes'] %}
@@ -196,6 +196,8 @@
            href="/panel/petra/v2/numeros?token={{ token }}">📱 Números WhatsApp</a>
         <a class="{% if block == 'kapso' %}active{% endif %}"
            href="/panel/petra/v2/kapso?token={{ token }}">🧩 Kapso</a>
+        <a class="{% if block == 'pipeline' %}active{% endif %}"
+           href="/panel/petra/v2/pipeline?token={{ token }}">⚙️ Pipeline</a>
       </div>
     </details>
 

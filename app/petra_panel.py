@@ -4888,6 +4888,50 @@ def _meta_fetch_templates(force=False):
         return [], f"error:{type(e).__name__}"
 
 
+@petra_panel_bp.get("/v2/pipeline")
+def panel_v2_pipeline():
+    """Página para seleccionar qué plantilla usa cada etapa del pipeline."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    actual = {s: _pipeline_tpl_get(s) for s in _PIPELINE_SLOTS_LBL}
+    return render_template(
+        "petra_panel_v2_pipeline.html",
+        token=token, slots=_PIPELINE_SLOTS_LBL, actual=actual,
+    )
+
+
+@petra_panel_bp.get("/v2/pipeline/config")
+def panel_v2_pipeline_config_get():
+    """Devuelve JSON con la config actual + plantillas aprobadas en Kapso."""
+    _check_token()
+    from flask import jsonify
+    lista, err = _meta_fetch_templates(force=False)
+    aprobadas = [{"name": t["name"],
+                  "language": t.get("idioma") or t.get("language") or "es",
+                  "category": t.get("categoria") or t.get("category") or ""}
+                 for t in (lista or [])
+                 if (t.get("status") or "").lower() == "approved"]
+    actual = {s: _pipeline_tpl_get(s) for s in _PIPELINE_SLOTS_LBL}
+    return jsonify({"actual": actual, "aprobadas": aprobadas,
+                    "slots": _PIPELINE_SLOTS_LBL, "error": err})
+
+
+@petra_panel_bp.post("/v2/pipeline/config")
+def panel_v2_pipeline_config_set():
+    """Guarda la plantilla elegida para cada slot."""
+    _check_token()
+    from flask import jsonify
+    data = request.get_json(silent=True) or {}
+    mapping = data.get("mapping") or {}
+    guardado = {}
+    for slot, name in mapping.items():
+        if slot not in _PIPELINE_SLOTS_LBL:
+            continue
+        _pipeline_tpl_set(slot, name)
+        guardado[slot] = name
+    return jsonify({"ok": True, "guardado": guardado})
+
+
 @petra_panel_bp.get("/v2/templates/meta")
 def panel_v2_templates_meta():
     """Devuelve la lista de templates traídos desde Meta (JSON).
@@ -6149,6 +6193,113 @@ _PIPELINE_SLOTS = {
     "oferta_credito":  ("PETRA_TPL_OFRECER_CREDITO",  "ofrecer_credito_at"),
 }
 
+_PIPELINE_SLOTS_LBL = {
+    "bienvenida":      "👋 Bienvenida",
+    "oferta_servicio": "🏡 Oferta de servicio",
+    "oferta_credito":  "💳 Oferta de crédito",
+}
+
+
+_PIPELINE_SLOT_KEYWORDS = {
+    "bienvenida":      ("bienvenida",),
+    "oferta_servicio": ("inmobiliaria", "servicio", "ofrecer_servicio"),
+    "oferta_credito":  ("credito", "credit"),
+}
+
+
+def _pipeline_tpl_get(slot):
+    """Devuelve el nombre de plantilla configurado para ese slot.
+    Orden:
+      1. meta.pipeline_tpl_<slot>  (elegido en UI)
+      2. env var (PETRA_TPL_*)
+      3. Auto-match: primera plantilla APPROVED cuyo nombre contenga una
+         de las keywords del slot.
+    """
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT valor FROM meta WHERE clave = %s",
+                (f"pipeline_tpl_{slot}",)).fetchone()
+            if row and row[0]:
+                return row[0].strip()
+    except Exception:
+        pass
+    env_var = (_PIPELINE_SLOTS.get(slot) or (None, None))[0]
+    if env_var:
+        val = (os.environ.get(env_var) or "").strip()
+        if val:
+            return val
+    # Auto-match: busca entre plantillas aprobadas por keyword del slot.
+    try:
+        keywords = _PIPELINE_SLOT_KEYWORDS.get(slot, ())
+        if keywords:
+            lista, _err = _meta_fetch_templates(force=False)
+            for t in (lista or []):
+                if (t.get("status") or "").lower() != "approved":
+                    continue
+                name = (t.get("name") or "").lower()
+                if any(k in name for k in keywords):
+                    return t.get("name") or ""
+    except Exception:
+        pass
+    return ""
+
+
+def _build_kapso_send_components(tpl, inmueble):
+    """Arma el array `components` para enviar un template vía Kapso/Meta.
+
+    - Si el template tiene header multimedia (image/video/document), agrega
+      un header component con el link al archivo.
+    - Si el template tiene variables {{N}} en el body, agrega un body
+      component con parameters resolvidos por el inmueble.
+    """
+    comps = []
+    header = tpl.get("header") or {}
+    htype = (header.get("type") or "").lower()
+    hurl = (header.get("url") or "").strip()
+    if htype in ("image", "video", "document") and hurl:
+        comps.append({
+            "type": "header",
+            "parameters": [{
+                "type": htype,
+                htype: {"link": hurl},
+            }],
+        })
+    # Body con variables
+    body_text = (tpl.get("body") or "")
+    variables = tpl.get("variables") or []
+    import re as _re_vars
+    n_ph = len(set(_re_vars.findall(r"\{\{\s*(\d+)\s*\}\}", body_text)))
+    if n_ph:
+        conj_nombre = inmueble.get("conjunto_nombre") or ""
+        params = []
+        for i in range(n_ph):
+            v = variables[i] if i < len(variables) else {}
+            source = v.get("source") or ""
+            if source:
+                try:
+                    val = _var_value_for(inmueble, source, conj_nombre)
+                except Exception:
+                    val = v.get("ejemplo") or v.get("label") or "ejemplo"
+            else:
+                val = v.get("ejemplo") or v.get("label") or "ejemplo"
+            if not val or str(val).strip() in ("", "—"):
+                val = conj_nombre or "ejemplo"
+            params.append({"type": "text", "text": str(val)})
+        comps.append({"type": "body", "parameters": params})
+    return comps or None
+
+
+def _pipeline_tpl_set(slot, name):
+    name = (name or "").strip()
+    with _db._conexion_directa(timeout=5) as conn:
+        conn.execute(
+            "INSERT INTO meta (clave, valor) VALUES (%s, %s) "
+            "ON CONFLICT (clave) DO UPDATE "
+            "   SET valor = EXCLUDED.valor, actualizado = NOW()",
+            (f"pipeline_tpl_{slot}", name))
+        conn.commit()
+
 
 @petra_panel_bp.post("/v2/inmuebles/enviar-etapa")
 def v2_inmuebles_enviar_etapa():
@@ -6159,6 +6310,7 @@ def v2_inmuebles_enviar_etapa():
                 "ids":[1,2,3], "token":"..."}
     """
     _check_token()
+    from flask import jsonify
     data = request.get_json(silent=True) or {}
     slot = (data.get("slot") or "").strip()
     ids = data.get("ids") or []
@@ -6186,27 +6338,53 @@ def v2_inmuebles_enviar_etapa():
                         "ok": ok, "fallos": [], "sin_telefono": [],
                         "total": len(ids)})
 
-    tpl_name = (os.environ.get(env_var) or "").strip()
-    lang = (os.environ.get("PETRA_TPL_LANG") or "es_CO").strip()
+    tpl_name = _pipeline_tpl_get(slot)
+    # Idioma: busca el real de la plantilla en Kapso (match por nombre).
+    # Fallback env PETRA_TPL_LANG, luego 'es'.
+    lang = (os.environ.get("PETRA_TPL_LANG") or "").strip()
+    try:
+        lista, _e = _meta_fetch_templates(force=False)
+        for t in (lista or []):
+            if (t.get("name") or "") == tpl_name:
+                lang = (t.get("idioma") or t.get("language") or lang or "es")
+                break
+    except Exception:
+        pass
+    if not lang:
+        lang = "es"
     if not tpl_name:
         return jsonify({"error": "template_no_configurado",
-                        "env": env_var}), 409
+                        "slot": slot, "hint": "Configurá la plantilla en Marketing → Pipeline."}), 409
 
     from app import petra_kapso as _k
     if not _k._is_ready():
         return jsonify({"error": "kapso_no_listo"}), 503
 
+    # Cargar el template local por nombre para armar los components de envío
+    # (header media + body variables).
+    tpl_local = _tmpl_by_name(tpl_name) or {}
+
     with _db._conexion_directa(timeout=20) as conn:
         rows = conn.execute(
-            "SELECT id, propietario_telefono FROM inmuebles_visitante "
-            " WHERE id = ANY(%s)", (ids,)).fetchall()
-        tel_por_id = {r[0]: r[1] for r in rows}
+            "SELECT iv.id, iv.propietario_telefono, iv.tipo, iv.operacion, "
+            "       iv.habitaciones, iv.banos, iv.m2, iv.precio, "
+            "       cv.nombre AS conjunto_nombre "
+            "  FROM inmuebles_visitante iv "
+            "  LEFT JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id "
+            " WHERE iv.id = ANY(%s)", (ids,)).fetchall()
+        inmueble_por_id = {}
+        cols = ("id","propietario_telefono","tipo","operacion",
+                "habitaciones","banos","m2","precio","conjunto_nombre")
+        for r in rows:
+            inmueble_por_id[r[0]] = dict(zip(cols, r))
         for iid in ids:
-            tel = (tel_por_id.get(iid) or "").strip()
+            inm = inmueble_por_id.get(iid) or {}
+            tel = (inm.get("propietario_telefono") or "").strip()
             if not tel:
                 sin_tel.append(iid)
                 continue
-            r = _k.send_template(tel, tpl_name, language=lang)
+            comps = _build_kapso_send_components(tpl_local, inm)
+            r = _k.send_template(tel, tpl_name, language=lang, components=comps)
             if r.get("ok"):
                 conn.execute(
                     f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
