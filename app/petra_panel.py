@@ -4942,13 +4942,33 @@ def _meta_upload_media_handle(media_url, access_token, app_id):
     import os.path as _osp
 
     # 1) Obtener bytes + content-type
+    def _ctype_por_ext(url):
+        ext = url.rsplit("?", 1)[0].rsplit(".", 1)[-1].lower()
+        return {
+            "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "png": "image/png", "webp": "image/webp",
+            "mp4": "video/mp4", "mov": "video/quicktime",
+            "3gp": "video/3gpp",
+            "pdf": "application/pdf",
+        }.get(ext)
+
     try:
         if media_url.startswith("http://") or media_url.startswith("https://"):
-            resp = requests.get(media_url, timeout=20)
+            resp = requests.get(media_url, timeout=30)
             if not resp.ok:
                 return None, f"download_{resp.status_code}"
             content = resp.content
-            ctype = resp.headers.get("Content-Type", "application/octet-stream")
+            # GitHub raw devuelve application/octet-stream para binarios,
+            # que Meta rechaza. Forzamos content-type por extensión cuando
+            # la URL tiene una conocida.
+            ctype_por_ext = _ctype_por_ext(media_url)
+            ctype_server = resp.headers.get("Content-Type", "")
+            if ctype_por_ext:
+                ctype = ctype_por_ext
+            elif ctype_server and ctype_server != "application/octet-stream":
+                ctype = ctype_server
+            else:
+                ctype = "application/octet-stream"
         else:
             # Path relativo: resolver contra el folder static de la app.
             base_dir = _osp.dirname(_osp.abspath(__file__))
