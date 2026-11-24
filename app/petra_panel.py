@@ -5002,6 +5002,10 @@ def _meta_fetch_templates(force=False):
             return [], "sin_permiso_waba"
         if not r.ok:
             msg = f"http_{r.status_code}"
+            import logging as _lg_mt
+            _lg_mt.getLogger(__name__).error(
+                "[meta] fetch templates fallo url=%s status=%s body=%s",
+                url, r.status_code, (r.text or "")[:300])
             _META_TEMPLATES_CACHE.update({"ts": now, "payload": [], "error": msg})
             return [], msg
         data = r.json().get("data") or []
