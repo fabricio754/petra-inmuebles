@@ -6303,6 +6303,32 @@ def _pipeline_tpl_get(slot):
     return ""
 
 
+def _reescribir_media_url_para_meta(url):
+    """Si la URL apunta a GitHub raw, la reemplaza por nuestro proxy
+    /petra-media/* que fuerza el Content-Type correcto. Otras URLs se
+    devuelven tal cual.
+
+    Formato GitHub raw:
+      https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>
+    """
+    if not url:
+        return url
+    marker = "raw.githubusercontent.com/"
+    if marker not in url:
+        return url
+    try:
+        tail = url.split(marker, 1)[1]
+        parts = tail.split("/", 3)
+        if len(parts) < 4:
+            return url
+        _owner, _repo, _branch, path = parts
+        base = (os.environ.get("PUBLIC_BASE_URL") or
+                "https://petra-inmuebles.onrender.com").rstrip("/")
+        return f"{base}/petra-media/{path}"
+    except Exception:
+        return url
+
+
 def _build_kapso_send_components(tpl, inmueble):
     """Arma el array `components` para enviar un template vía Kapso/Meta.
 
@@ -6316,11 +6342,15 @@ def _build_kapso_send_components(tpl, inmueble):
     htype = (header.get("type") or "").lower()
     hurl = (header.get("url") or "").strip()
     if htype in ("image", "video", "document") and hurl:
+        # Reescribir URLs de GitHub raw a nuestro proxy /petra-media/* porque
+        # GitHub devuelve application/octet-stream y Meta rechaza (131053).
+        # Nuestro proxy fuerza Content-Type por extensión.
+        rewritten = _reescribir_media_url_para_meta(hurl)
         comps.append({
             "type": "header",
             "parameters": [{
                 "type": htype,
-                htype: {"link": hurl},
+                htype: {"link": rewritten},
             }],
         })
     # Body con variables
