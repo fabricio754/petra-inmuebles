@@ -4942,13 +4942,33 @@ def _meta_upload_media_handle(media_url, access_token, app_id):
     import os.path as _osp
 
     # 1) Obtener bytes + content-type
+    def _ctype_por_ext(url):
+        ext = url.rsplit("?", 1)[0].rsplit(".", 1)[-1].lower()
+        return {
+            "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "png": "image/png", "webp": "image/webp",
+            "mp4": "video/mp4", "mov": "video/quicktime",
+            "3gp": "video/3gpp",
+            "pdf": "application/pdf",
+        }.get(ext)
+
     try:
         if media_url.startswith("http://") or media_url.startswith("https://"):
-            resp = requests.get(media_url, timeout=20)
+            resp = requests.get(media_url, timeout=30)
             if not resp.ok:
                 return None, f"download_{resp.status_code}"
             content = resp.content
-            ctype = resp.headers.get("Content-Type", "application/octet-stream")
+            # GitHub raw devuelve application/octet-stream para binarios,
+            # que Meta rechaza. Forzamos content-type por extensión cuando
+            # la URL tiene una conocida.
+            ctype_por_ext = _ctype_por_ext(media_url)
+            ctype_server = resp.headers.get("Content-Type", "")
+            if ctype_por_ext:
+                ctype = ctype_por_ext
+            elif ctype_server and ctype_server != "application/octet-stream":
+                ctype = ctype_server
+            else:
+                ctype = "application/octet-stream"
         else:
             # Path relativo: resolver contra el folder static de la app.
             base_dir = _osp.dirname(_osp.abspath(__file__))
@@ -5036,14 +5056,22 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
             hurl = (header.get("url") or "").strip()
             if not hurl:
                 return None, "header_sin_url"
-            if usar_url:
-                # Meta tambien acepta example.header_url con URL publica HTTPS.
+            # Meta rechaza VIDEO/DOCUMENT con `example.header_url` — exige
+            # un handle de Resumable Upload. Para IMAGE sí acepta URL.
+            # Si tenemos access_token+app_id, para VIDEO/DOCUMENT forzamos
+            # el path de handle aunque usar_url=True.
+            forzar_handle = (htype in ("VIDEO", "DOCUMENT")
+                             and access_token and app_id)
+            if usar_url and not forzar_handle:
                 components.append({
                     "type": "HEADER",
                     "format": htype,  # IMAGE / VIDEO / DOCUMENT
                     "example": {"header_url": [hurl]},
                 })
             else:
+                if not (access_token and app_id):
+                    return None, (f"header_{htype.lower()}_requiere_META_ACCESS_TOKEN"
+                                  "+META_APP_ID para Resumable Upload")
                 handle, err = _meta_upload_media_handle(hurl, access_token, app_id)
                 if not handle:
                     return None, f"header_upload_fallo:{err}"
@@ -5059,11 +5087,18 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
         return None, "body_vacio"
     body_comp = {"type": "BODY", "text": body_text}
     variables = tpl.get("variables") or []
-    if variables:
+    # Detectar cuántos placeholders {{N}} aparecen en el body — Meta rechaza
+    # si la cantidad de ejemplos no matchea. Pad con "ejemplo" si faltan y
+    # trunca si sobran.
+    import re as _re_vars
+    n_placeholders = len(set(_re_vars.findall(r"\{\{\s*(\d+)\s*\}\}", body_text)))
+    if n_placeholders:
         ejemplos = []
-        for v in variables:
+        for v in variables[:n_placeholders]:
             ej = (v.get("ejemplo") or v.get("label") or "ejemplo").strip() or "ejemplo"
             ejemplos.append(ej)
+        while len(ejemplos) < n_placeholders:
+            ejemplos.append("ejemplo")
         body_comp["example"] = {"body_text": [ejemplos]}
     components.append(body_comp)
 
@@ -5142,10 +5177,12 @@ def panel_v2_templates_aprobar(tid):
                         "detalle": "Los templates de catálogo/carrusel requieren "
                                    "un flujo distinto todavía no implementado."}), 400
 
-    # Construir components. Para templates con header multimedia, usamos
-    # la URL publica (GitHub raw) directamente en vez de hacer Resumable
-    # Upload — Kapso/Meta la descarga para armar el example.
-    components, err = _construir_meta_components(tpl, None, app_id, usar_url=True)
+    # Construir components. Para IMAGE usamos header_url (simple).
+    # Para VIDEO/DOCUMENT Meta exige handle de Resumable Upload — pasamos
+    # META_ACCESS_TOKEN para que _construir_meta_components lo haga.
+    meta_access_token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    components, err = _construir_meta_components(
+        tpl, meta_access_token, app_id, usar_url=True)
     if err:
         return jsonify({"error": "construir_payload_fallo", "detalle": err}), 400
 
