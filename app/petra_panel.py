@@ -5068,6 +5068,20 @@ def _meta_upload_media_handle(media_url, access_token, app_id):
                 ctype = ctype_server
             else:
                 ctype = "application/octet-stream"
+            # Meta Resumable Upload no acepta image/webp — convertimos a PNG.
+            if ctype == "image/webp":
+                try:
+                    from PIL import Image as _PILImage
+                    import io as _io
+                    im = _PILImage.open(_io.BytesIO(content))
+                    if im.mode not in ("RGB", "RGBA"):
+                        im = im.convert("RGBA" if "A" in im.mode else "RGB")
+                    buf = _io.BytesIO()
+                    im.save(buf, format="PNG")
+                    content = buf.getvalue()
+                    ctype = "image/png"
+                except Exception as _ce:
+                    return None, f"webp_conversion_fallo:{type(_ce).__name__}"
         else:
             # Path relativo: resolver contra el folder static de la app.
             base_dir = _osp.dirname(_osp.abspath(__file__))
