@@ -8155,15 +8155,30 @@ def _op_label(op):
 # --- Textos de cada etapa ----------------------------------------------------
 
 def _texto_confirmar_datos(inm):
-    """Mensaje ① — Sebastián sondeando datos. Sin marca, sin mencionar admin."""
+    """Mensaje ① — Sebastián sondeando datos. Sin marca, sin mencionar admin.
+    Incluye conjunto + info conocida del inmueble (código, operación, lo que
+    ya tenemos cargado) para que el propietario confirme o complete.
+    """
     tipo = _tipo_label(inm)
     art = _articulo(tipo)
     conjunto = inm.get("conjunto_nombre") or "el conjunto"
-    return (
-        f"Hola, buen día.\n"
-        f"Quería preguntarte por {art} {tipo} que tenés en {conjunto}. "
-        f"¿Me puedes contar de cuántos metros es y qué precio tiene?"
+    op = (inm.get("operacion") or "").lower()
+    op_lbl = "arriendo" if op == "arriendo" else ("venta" if op == "venta" else "")
+    codigo = inm.get("codigo") or ""
+    partes = [f"Hola, buen día 👋"]
+    partes.append(
+        f"Te escribo por {art} {tipo} que tenés en *{conjunto}*"
+        + (f" (código {codigo})" if codigo else "") + "."
     )
+    if op_lbl:
+        partes.append(f"Lo tenemos registrado para *{op_lbl}*.")
+    partes.append(
+        "¿Me podés confirmar algunos datos para publicarlo bien?\n"
+        "• Metros cuadrados (m²)\n"
+        "• Precio" + (f" de {op_lbl}" if op_lbl else "") + "\n"
+        "• Número de habitaciones y baños"
+    )
+    return "\n\n".join(partes)
 
 
 def _texto_bienvenida(inm):

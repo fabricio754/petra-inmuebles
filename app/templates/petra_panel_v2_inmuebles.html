@@ -532,7 +532,21 @@
               'no_publicar':       '🚫 No publicar',
               'no_contactar':      '🔕 No contactar',
             } %}
-            {% if _action %}
+            {% if _action and _action[0] == 'confirmar_datos' %}
+              {# Confirmar datos abre WhatsApp personal con el texto
+                 prellenado (conjunto + inmueble). Al abrir, también marca
+                 datos_confirmado_at para que el inmueble avance de etapa. #}
+              {% if i.celular_valido and i.wa_confirmar %}
+                <a class="btn-send-etapa" href="{{ i.wa_confirmar }}" target="_blank"
+                   data-iid="{{ i.id }}" data-wa-confirmar="1"
+                   style="text-decoration:none;display:inline-block">
+                  {{ _action[1] }}
+                </a>
+              {% else %}
+                <button type="button" class="btn-send-etapa" disabled
+                        title="Sin teléfono válido">{{ _action[1] }}</button>
+              {% endif %}
+            {% elif _action %}
               <button type="button" class="btn-send-etapa"
                       data-iid="{{ i.id }}" data-slot="{{ _action[0] }}"
                       {% if not _action[2] and not i.celular_valido %}disabled title="Sin teléfono válido"{% endif %}>
@@ -910,6 +924,24 @@ function petraDeshacer(ev, quien, formId, label) {
   });
 
   document.querySelectorAll('.btn-send-etapa').forEach(function(btn){
+    // Los <a> con data-wa-confirmar=1 abren WhatsApp personal y marcan
+    // datos_confirmado_at en background — sin fetch al endpoint Kapso.
+    if (btn.getAttribute('data-wa-confirmar') === '1') {
+      btn.addEventListener('click', function(){
+        var iid = parseInt(btn.getAttribute('data-iid'), 10);
+        // Mandamos la marca al endpoint específico que setea
+        // datos_confirmado_at. No bloqueamos la navegación a WA.
+        fetch('{{ url_for("petra_panel.visitante_inmueble_confirmar_datos", iid=0) }}'.replace('/0/', '/' + iid + '/'), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: 'token=' + encodeURIComponent('{{ token }}'),
+          keepalive: true
+        }).catch(function(){});
+        // Devolver true para permitir la navegación a wa.me.
+        return true;
+      });
+      return;
+    }
     btn.addEventListener('click', function(){
       var iid = parseInt(btn.getAttribute('data-iid'), 10);
       var slot = btn.getAttribute('data-slot');
