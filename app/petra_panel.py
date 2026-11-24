@@ -3637,6 +3637,43 @@ def _difusiones_where(args):
 # de inmueble (los que vienen de inmuebles_visitante + enriquecidos).
 PETRA_TEMPLATES = [
     {
+        "name": "bienvenida_petra",
+        "display": "Bienvenida Petra",
+        "category": "MARKETING",
+        "price_usd": 0.015,
+        "status": "mocked",
+        "tipo": "botones",  # botones + header + footer
+        "header": {
+            "type": "video",
+            "url": "/static/images/propietarios/bienvenida.mp4",
+            "label": "Video bienvenida Petra (1 min)",
+        },
+        "body": (
+            "Hola 👋\n\n"
+            "El conjunto *{{1}}* instaló *Petra* para ayudar a los "
+            "propietarios a vender y arrendar más rápido.\n\n"
+            "Tu {{2}} ya está publicado en nuestro catálogo. "
+            "Si faltan datos o querés corregir algo, respondé este "
+            "mensaje.\n\n"
+            "En el video de 1 min te cuento cómo funciona 👆"
+        ),
+        "variables": [
+            {"id": "1", "label": "Conjunto", "source": "conjunto_nombre", "ejemplo": "Mitika PH"},
+            {"id": "2", "label": "Tipo inmueble", "source": "tipo", "ejemplo": "apartamento"},
+        ],
+        "footer": "Responde SALIR para quitar la publicación de tu inmueble.",
+        "botones": [
+            {
+                "type": "URL",
+                "label": "📋 Ver mi publicación",
+                "value": "https://wa.me/573001278631?text={{1}}",
+                "ejemplo": "Estoy en el edificio Mitika PH en Bogotá. Cod: 0001",
+                "source": "wa_catalogo_conjunto",
+            },
+        ],
+        "recomendacion": "Día 0 del pipeline — se envía apenas cargamos el inmueble al catálogo.",
+    },
+    {
         "name": "notificacion_publicacion_petra",
         "display": "Notificación de publicación",
         "category": "UTILITY",
@@ -3757,20 +3794,25 @@ def _seed_templates_nuevos():
     try:
         with _db._conexion_directa(timeout=10) as conn:
             for t in PETRA_TEMPLATES:
+                tipo = t.get("tipo") or ("botones" if t.get("botones")
+                                         else ("multimedia" if t.get("header") else "texto"))
                 conn.execute(
                     "INSERT INTO campana_templates "
                     "  (name, display, idioma, categoria, tipo, body, variables, "
-                    "   header, botones, catalogo, recomendacion, autor, status) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s) "
+                    "   header, botones, catalogo, footer, recomendacion, "
+                    "   autor, status) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,"
+                    "        %s,%s,%s,%s) "
                     "ON CONFLICT (name) DO NOTHING",
                     (
                         t["name"], t["display"], "es",
-                        t["category"], "multimedia" if t.get("header") else "texto",
+                        t["category"], tipo,
                         t["body"],
                         _json.dumps(t.get("variables", [])),
                         _json.dumps(t.get("header")) if t.get("header") else None,
-                        _json.dumps([]),
+                        _json.dumps(t.get("botones", [])),
                         None,
+                        t.get("footer") or None,
                         t.get("recomendacion"),
                         "petra",
                         "draft",
@@ -3971,7 +4013,7 @@ def _tmpl_by_name(name):
             rows = _rows(conn,
                 "SELECT id, name, display, idioma, categoria, tipo, status, "
                 "       body, variables, header, botones, catalogo, "
-                "       recomendacion "
+                "       footer, recomendacion "
                 "  FROM campana_templates WHERE name = %s LIMIT 1",
                 (name,))
             if not rows:
@@ -3987,6 +4029,9 @@ def _tmpl_by_name(name):
                 "body": r.get("body") or "",
                 "variables": r.get("variables") or [],
                 "header": r.get("header"),
+                "botones": r.get("botones") or [],
+                "footer": r.get("footer") or "",
+                "tipo": r.get("tipo") or "texto",
                 "recomendacion": r.get("recomendacion") or "",
             }
     except Exception:
@@ -4226,6 +4271,7 @@ def _row_to_template(row):
         "body": row.get("body") or "",
         "variables": row.get("variables") or [],
         "header": row.get("header"),
+        "footer": row.get("footer") or "",
         "botones": row.get("botones") or [],
         "catalogo": row.get("catalogo"),
         "recomendacion": row.get("recomendacion") or "",
@@ -5170,7 +5216,9 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
     components = []
 
     # ── Header ─────────────────────────────────────────────────────────
-    if tpl.get("tipo") == "multimedia" and tpl.get("header"):
+    # Independiente del `tipo` para permitir templates con header + body +
+    # buttons al mismo tiempo (ej. bienvenida_petra).
+    if tpl.get("header"):
         header = tpl["header"]
         htype = (header.get("type") or "image").upper()
         if htype == "LOCATION":
@@ -5237,16 +5285,30 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
         body_comp["example"] = {"body_text": [ejemplos]}
     components.append(body_comp)
 
+    # ── Footer ─────────────────────────────────────────────────────────
+    # Pie de página chiquito, hasta 60 chars. Típicamente para opt-out.
+    footer_text = (tpl.get("footer") or "").strip()
+    if footer_text:
+        components.append({"type": "FOOTER", "text": footer_text[:60]})
+
     # ── Buttons ────────────────────────────────────────────────────────
-    if tpl.get("tipo") == "botones":
-        botones = tpl.get("botones") or []
+    # Independiente del `tipo` para soportar header + body + buttons juntos.
+    botones = tpl.get("botones") or []
+    if botones:
         meta_btns = []
         for b in botones:
             btype = (b.get("type") or "url").upper()
             label = (b.get("label") or "").strip()[:25]  # Meta max 25
             value = (b.get("value") or "").strip()
             if btype == "URL":
-                meta_btns.append({"type": "URL", "text": label, "url": value})
+                btn = {"type": "URL", "text": label, "url": value}
+                # Si la URL tiene {{N}}, Meta exige `example` con una
+                # URL de ejemplo con los valores resueltos.
+                if "{{" in value:
+                    ej_sample = (b.get("ejemplo") or "ejemplo").strip() or "ejemplo"
+                    ej_url = _re_vars.sub(r"\{\{\s*\d+\s*\}\}", ej_sample, value)
+                    btn["example"] = [ej_url]
+                meta_btns.append(btn)
             elif btype == "PHONE_NUMBER":
                 meta_btns.append({"type": "PHONE_NUMBER", "text": label,
                                   "phone_number": value})

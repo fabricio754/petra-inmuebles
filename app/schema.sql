@@ -2372,6 +2372,9 @@ CREATE TABLE IF NOT EXISTS campana_templates (
 );
 CREATE INDEX IF NOT EXISTS campana_templates_status_idx
   ON campana_templates(status, actualizado_en DESC);
+-- Footer de template (opcional, hasta 60 chars). Separado del body para
+-- cumplir con el patrón canónico de Meta (texto chiquito en pie de página).
+ALTER TABLE campana_templates ADD COLUMN IF NOT EXISTS footer TEXT;
 
 
 -- ============================================================================
