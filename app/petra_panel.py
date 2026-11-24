@@ -5167,11 +5167,11 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
                     base = (os.environ.get("PUBLIC_BASE_URL") or
                             "https://petra-inmuebles.onrender.com").rstrip("/")
                 hurl = base + hurl
-            # Meta rechaza VIDEO/DOCUMENT con `example.header_url` — exige
-            # un handle de Resumable Upload. Para IMAGE sí acepta URL.
-            # Si tenemos access_token+app_id, para VIDEO/DOCUMENT forzamos
-            # el path de handle aunque usar_url=True.
-            forzar_handle = (htype in ("VIDEO", "DOCUMENT")
+            # Meta rechaza header media (IMAGE/VIDEO/DOCUMENT) con
+            # `example.header_url` en varias categorías/configs — exige
+            # un handle de Resumable Upload. Si tenemos access_token+app_id,
+            # forzamos el path de handle para todo tipo de media.
+            forzar_handle = (htype in ("IMAGE", "VIDEO", "DOCUMENT")
                              and access_token and app_id)
             if usar_url and not forzar_handle:
                 components.append({
