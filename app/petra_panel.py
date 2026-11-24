@@ -4888,6 +4888,50 @@ def _meta_fetch_templates(force=False):
         return [], f"error:{type(e).__name__}"
 
 
+@petra_panel_bp.get("/v2/pipeline")
+def panel_v2_pipeline():
+    """Página para seleccionar qué plantilla usa cada etapa del pipeline."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    actual = {s: _pipeline_tpl_get(s) for s in _PIPELINE_SLOTS_LBL}
+    return render_template(
+        "petra_panel_v2_pipeline.html",
+        token=token, slots=_PIPELINE_SLOTS_LBL, actual=actual,
+    )
+
+
+@petra_panel_bp.get("/v2/pipeline/config")
+def panel_v2_pipeline_config_get():
+    """Devuelve JSON con la config actual + plantillas aprobadas en Kapso."""
+    _check_token()
+    from flask import jsonify
+    lista, err = _meta_fetch_templates(force=False)
+    aprobadas = [{"name": t["name"],
+                  "language": t.get("idioma") or t.get("language") or "es",
+                  "category": t.get("categoria") or t.get("category") or ""}
+                 for t in (lista or [])
+                 if (t.get("status") or "").lower() == "approved"]
+    actual = {s: _pipeline_tpl_get(s) for s in _PIPELINE_SLOTS_LBL}
+    return jsonify({"actual": actual, "aprobadas": aprobadas,
+                    "slots": _PIPELINE_SLOTS_LBL, "error": err})
+
+
+@petra_panel_bp.post("/v2/pipeline/config")
+def panel_v2_pipeline_config_set():
+    """Guarda la plantilla elegida para cada slot."""
+    _check_token()
+    from flask import jsonify
+    data = request.get_json(silent=True) or {}
+    mapping = data.get("mapping") or {}
+    guardado = {}
+    for slot, name in mapping.items():
+        if slot not in _PIPELINE_SLOTS_LBL:
+            continue
+        _pipeline_tpl_set(slot, name)
+        guardado[slot] = name
+    return jsonify({"ok": True, "guardado": guardado})
+
+
 @petra_panel_bp.get("/v2/templates/meta")
 def panel_v2_templates_meta():
     """Devuelve la lista de templates traídos desde Meta (JSON).
@@ -6149,6 +6193,42 @@ _PIPELINE_SLOTS = {
     "oferta_credito":  ("PETRA_TPL_OFRECER_CREDITO",  "ofrecer_credito_at"),
 }
 
+_PIPELINE_SLOTS_LBL = {
+    "bienvenida":      "👋 Bienvenida",
+    "oferta_servicio": "🏡 Oferta de servicio",
+    "oferta_credito":  "💳 Oferta de crédito",
+}
+
+
+def _pipeline_tpl_get(slot):
+    """Devuelve el nombre de plantilla configurado para ese slot.
+    Primero mira meta.pipeline_tpl_<slot>, luego cae al env var.
+    """
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT valor FROM meta WHERE clave = %s",
+                (f"pipeline_tpl_{slot}",)).fetchone()
+            if row and row[0]:
+                return row[0].strip()
+    except Exception:
+        pass
+    env_var = (_PIPELINE_SLOTS.get(slot) or (None, None))[0]
+    if env_var:
+        return (os.environ.get(env_var) or "").strip()
+    return ""
+
+
+def _pipeline_tpl_set(slot, name):
+    name = (name or "").strip()
+    with _db._conexion_directa(timeout=5) as conn:
+        conn.execute(
+            "INSERT INTO meta (clave, valor) VALUES (%s, %s) "
+            "ON CONFLICT (clave) DO UPDATE "
+            "   SET valor = EXCLUDED.valor, actualizado = NOW()",
+            (f"pipeline_tpl_{slot}", name))
+        conn.commit()
+
 
 @petra_panel_bp.post("/v2/inmuebles/enviar-etapa")
 def v2_inmuebles_enviar_etapa():
@@ -6187,11 +6267,11 @@ def v2_inmuebles_enviar_etapa():
                         "ok": ok, "fallos": [], "sin_telefono": [],
                         "total": len(ids)})
 
-    tpl_name = (os.environ.get(env_var) or "").strip()
+    tpl_name = _pipeline_tpl_get(slot)
     lang = (os.environ.get("PETRA_TPL_LANG") or "es_CO").strip()
     if not tpl_name:
         return jsonify({"error": "template_no_configurado",
-                        "env": env_var}), 409
+                        "slot": slot, "hint": "Configurá la plantilla en Marketing → Pipeline."}), 409
 
     from app import petra_kapso as _k
     if not _k._is_ready():

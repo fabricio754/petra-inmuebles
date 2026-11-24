@@ -1,0 +1,126 @@
+{% extends "base_panel_v2.html" %}
+
+{% set block = 'pipeline' %}
+{% block titulo %}Pipeline · Petra{% endblock %}
+
+{% block content %}
+<style>
+  .pip-wrap { max-width: 720px; }
+  .pip-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 22px; margin-bottom: 14px;
+  }
+  .pip-card h3 { margin: 0 0 8px; font-size: 16px; }
+  .pip-card .muted { color: var(--text-sub); font-size: 13px; margin-bottom: 12px; }
+  .pip-select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--bg); color: var(--text);
+    font-size: 14px;
+  }
+  .pip-actions { display: flex; gap: 10px; margin-top: 10px; }
+  .pip-btn {
+    background: #2563eb; color: #fff; border: 0; padding: 10px 18px;
+    border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  .pip-btn:hover:not(:disabled) { background: #1d4ed8; }
+  .pip-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .pip-flash { padding: 10px 14px; border-radius: 8px; margin-top: 12px;
+               font-size: 13.5px; display: none; }
+  .pip-flash.ok { background: #dcfce7; color: #166534; display: block; }
+  .pip-flash.err { background: #fee2e2; color: #991b1b; display: block; }
+</style>
+
+<h1 style="margin:0 0 6px">⚙️ Configuración del pipeline</h1>
+<p style="color:var(--text-sub);margin:0 0 20px;font-size:14px">
+  Seleccioná qué plantilla de WhatsApp (aprobada por Meta en Kapso) usar
+  para cada paso automático del pipeline de inmuebles.
+</p>
+
+<div class="pip-wrap">
+  {% for slot, label in slots.items() %}
+  <div class="pip-card">
+    <h3>{{ label }}</h3>
+    <div class="muted">Plantilla que se envía cuando un inmueble llega a este paso.</div>
+    <select class="pip-select" data-slot="{{ slot }}" id="sel-{{ slot }}">
+      <option value="">— Cargando plantillas aprobadas… —</option>
+    </select>
+    <div class="muted" id="actual-{{ slot }}" style="margin-top:6px">
+      Actual: <code>{{ actual[slot] or '(sin configurar)' }}</code>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="pip-actions">
+    <button class="pip-btn" id="pip-save">💾 Guardar cambios</button>
+  </div>
+  <div class="pip-flash" id="pip-flash"></div>
+</div>
+
+<script>
+(function(){
+  var TOKEN = {{ token|tojson }};
+  var flash = document.getElementById('pip-flash');
+  function showFlash(ok, msg){
+    flash.className = 'pip-flash ' + (ok ? 'ok' : 'err');
+    flash.textContent = msg;
+  }
+
+  fetch('{{ url_for("petra_panel.panel_v2_pipeline_config_get") }}?token=' + encodeURIComponent(TOKEN))
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var aprobadas = j.aprobadas || [];
+      var actual = j.actual || {};
+      Object.keys(j.slots || {}).forEach(function(slot){
+        var sel = document.getElementById('sel-' + slot);
+        if (!sel) return;
+        sel.innerHTML = '';
+        var optEmpty = document.createElement('option');
+        optEmpty.value = ''; optEmpty.textContent = '— Sin configurar —';
+        sel.appendChild(optEmpty);
+        aprobadas.forEach(function(t){
+          var opt = document.createElement('option');
+          opt.value = t.name;
+          opt.textContent = t.name + ' (' + (t.language || '') + ' · ' + (t.category || '') + ')';
+          if (t.name === actual[slot]) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        if (aprobadas.length === 0) {
+          optEmpty.textContent = '— No hay plantillas aprobadas en Kapso —';
+        }
+      });
+      if (j.error) showFlash(false, 'Aviso al cargar plantillas: ' + j.error);
+    })
+    .catch(function(e){ showFlash(false, 'Error de red: ' + e); });
+
+  document.getElementById('pip-save').addEventListener('click', function(){
+    var btn = this; btn.disabled = true;
+    var mapping = {};
+    document.querySelectorAll('.pip-select').forEach(function(s){
+      mapping[s.getAttribute('data-slot')] = s.value || '';
+    });
+    fetch('{{ url_for("petra_panel.panel_v2_pipeline_config_set") }}?token=' + encodeURIComponent(TOKEN), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mapping: mapping})
+    })
+    .then(function(r){ return r.json().then(function(j){ return {s:r.status, j:j}; }); })
+    .then(function(x){
+      btn.disabled = false;
+      if (x.s >= 400 || !x.j.ok) {
+        showFlash(false, 'Error: ' + JSON.stringify(x.j));
+        return;
+      }
+      showFlash(true, '✅ Guardado. Los próximos envíos usarán estas plantillas.');
+      Object.keys(x.j.guardado || {}).forEach(function(slot){
+        var el = document.getElementById('actual-' + slot);
+        if (el) el.innerHTML = 'Actual: <code>' + (x.j.guardado[slot] || '(sin configurar)') + '</code>';
+      });
+    })
+    .catch(function(e){
+      btn.disabled = false;
+      showFlash(false, 'Error de red: ' + e);
+    });
+  });
+})();
+</script>
+{% endblock %}
