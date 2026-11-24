@@ -3791,12 +3791,14 @@ def _seed_templates_nuevos():
     DB (ON CONFLICT DO NOTHING). Idempotente — inserta sólo los nuevos."""
     import json as _json
     import logging as _lg
+    _log = _lg.getLogger(__name__)
     try:
         with _db._conexion_directa(timeout=10) as conn:
+            insertados = 0
             for t in PETRA_TEMPLATES:
                 tipo = t.get("tipo") or ("botones" if t.get("botones")
                                          else ("multimedia" if t.get("header") else "texto"))
-                conn.execute(
+                res = conn.execute(
                     "INSERT INTO campana_templates "
                     "  (name, display, idioma, categoria, tipo, body, variables, "
                     "   header, botones, catalogo, footer, recomendacion, "
@@ -3818,9 +3820,14 @@ def _seed_templates_nuevos():
                         "draft",
                     ),
                 )
+                if res.rowcount:
+                    insertados += res.rowcount
+                    _log.info("[seed] insertado template: %s", t["name"])
             conn.commit()
+            if insertados:
+                _log.info("[seed] %d templates nuevos insertados.", insertados)
     except Exception:
-        _lg.getLogger(__name__).exception("[seed] upsert templates fallo")
+        _log.exception("[seed] upsert templates fallo")
 
 
 def _seed_templates_si_vacio():
@@ -3834,12 +3841,14 @@ def _seed_templates_si_vacio():
     """
     import json as _json
     import logging as _lg
+    # Primero intentamos upsert de los nuevos (idempotente) — no bloqueamos
+    # con doble-contexto de conexión.
+    _seed_templates_nuevos()
     try:
         with _db._conexion_directa(timeout=10) as conn:
             row = conn.execute("SELECT COUNT(*) FROM campana_templates").fetchone()
             count = (row[0] if row else 0) or 0
             if count > 0:
-                _seed_templates_nuevos()
                 return
             # Insertar los defaults
             for t in PETRA_TEMPLATES:
