@@ -176,11 +176,10 @@ _TOOLS = [
     {
         "name": "actualizar_agente",
         "description": (
-            "Actualiza datos de ficha de una agente. Campos soportados: "
-            "nombre, cedula, ciudad, direccion_agente, ubicacion_maps, "
-            "fecha_envio_qr (ISO YYYY-MM-DD), fecha_activacion_qr, "
-            "envio_fotos_inventario (bool), envio_videos_conjunto (bool), "
-            "envio_inventario_inmueble (bool), notas."
+            "Actualiza datos de la AGENTE (persona). Campos soportados: "
+            "nombre, cedula, ciudad, direccion_agente, notas. "
+            "Los datos del conjunto (dirección, ubicación, fechas, flags "
+            "de envío) se editan con actualizar_conjunto."
         ),
         "inputSchema": {
             "type": "object",
@@ -194,9 +193,35 @@ _TOOLS = [
                         "cedula": {"type": "string"},
                         "ciudad": {"type": "string"},
                         "direccion_agente": {"type": "string"},
+                        "notas": {"type": "string"},
+                    },
+                },
+            },
+            "required": ["telefono", "campos"],
+        },
+    },
+    {
+        "name": "actualizar_conjunto",
+        "description": (
+            "Actualiza datos del CONJUNTO (lugar). Campos soportados: "
+            "nombre, ciudad, barrio, direccion, ubicacion_maps, "
+            "fecha_activacion (ISO YYYY-MM-DD), envio_fotos_inventario "
+            "(bool), envio_videos_conjunto (bool), "
+            "envio_inventario_inmueble (bool), notas."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "codigo": {"type": "string", "description": "Código del conjunto."},
+                "campos": {
+                    "type": "object",
+                    "properties": {
+                        "nombre": {"type": "string"},
+                        "ciudad": {"type": "string"},
+                        "barrio": {"type": "string"},
+                        "direccion": {"type": "string"},
                         "ubicacion_maps": {"type": "string"},
-                        "fecha_envio_qr": {"type": "string"},
-                        "fecha_activacion_qr": {"type": "string"},
+                        "fecha_activacion": {"type": "string"},
                         "envio_fotos_inventario": {"type": "boolean"},
                         "envio_videos_conjunto": {"type": "boolean"},
                         "envio_inventario_inmueble": {"type": "boolean"},
@@ -204,7 +229,21 @@ _TOOLS = [
                     },
                 },
             },
-            "required": ["telefono", "campos"],
+            "required": ["codigo", "campos"],
+        },
+    },
+    {
+        "name": "ficha_conjunto",
+        "description": (
+            "Devuelve toda la info de un conjunto por código (nombre, "
+            "ciudad, barrio, dirección, maps, fecha activación, flags de "
+            "envío, notas) + la lista de agentes que tienen asignado ese "
+            "código."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"codigo": {"type": "string"}},
+            "required": ["codigo"],
         },
     },
     {
@@ -244,13 +283,21 @@ _TOOLS = [
     },
 ]
 
+# Campos de la AGENTE (persona). Los flags de envío de fotos/videos y
+# ubicación/dirección/fecha_activacion ahora viven en el CONJUNTO
+# (conjuntos_visitante), no en la agente.
 _CAMPOS_METADATA = {
     "cedula",
-    "ciudad", "direccion_agente", "ubicacion_maps",
-    "fecha_envio_qr", "fecha_activacion_qr",
-    "envio_fotos_inventario", "envio_videos_conjunto",
-    "envio_inventario_inmueble",
+    "ciudad",
+    "direccion_agente",
     "notas",
+}
+
+# Campos del CONJUNTO (lugar) que puede editar Del Mar.
+_CAMPOS_CONJUNTO = {
+    "nombre", "ciudad", "barrio", "direccion", "ubicacion_maps",
+    "fecha_activacion", "envio_fotos_inventario",
+    "envio_videos_conjunto", "envio_inventario_inmueble", "notas",
 }
 
 _ESTADOS_VALIDOS = {
@@ -355,9 +402,13 @@ def _t_ficha_agente(args):
         ).fetchone()
         if not row:
             return {"error": "no_encontrada", "telefono": tel}
-        # Trae codigos + dirección de cada conjunto para la ficha completa.
+        # Trae códigos + todos los campos del conjunto + fecha_envio (de la
+        # asignación) para que la ficha muestre todo lo del conjunto.
         conjuntos = conn.execute(
-            "SELECT cv.codigo, cv.nombre, cv.ciudad, cv.direccion "
+            "SELECT cv.codigo, cv.nombre, cv.ciudad, cv.barrio, "
+            "       cv.direccion, cv.ubicacion_maps, cv.fecha_activacion, "
+            "       cv.envio_fotos_inventario, cv.envio_videos_conjunto, "
+            "       cv.envio_inventario_inmueble, cv.notas, ac.asignado_at "
             "  FROM petra_agente_conjuntos ac "
             "  JOIN conjuntos_visitante cv ON cv.id = ac.conjunto_id "
             " WHERE ac.contacto_id = %s ORDER BY cv.codigo", (row[0],)
@@ -370,16 +421,19 @@ def _t_ficha_agente(args):
         "cedula": meta.get("cedula", ""),
         "ciudad": meta.get("ciudad", ""),
         "direccion_agente": meta.get("direccion_agente", ""),
-        "ubicacion_maps": meta.get("ubicacion_maps", ""),
-        "fecha_envio_qr": meta.get("fecha_envio_qr", ""),
-        "fecha_activacion_qr": meta.get("fecha_activacion_qr", ""),
-        "envio_fotos_inventario": bool(meta.get("envio_fotos_inventario", False)),
-        "envio_videos_conjunto": bool(meta.get("envio_videos_conjunto", False)),
-        "envio_inventario_inmueble": bool(meta.get("envio_inventario_inmueble", False)),
         "notas": meta.get("notas", ""),
         "conjuntos": [
-            {"codigo": c[0], "nombre": c[1], "ciudad": c[2] or "",
-             "direccion": c[3] or ""}
+            {
+                "codigo": c[0], "nombre": c[1], "ciudad": c[2] or "",
+                "barrio": c[3] or "", "direccion": c[4] or "",
+                "ubicacion_maps": c[5] or "",
+                "fecha_activacion": c[6].isoformat() if c[6] else "",
+                "envio_fotos_inventario": bool(c[7]),
+                "envio_videos_conjunto": bool(c[8]),
+                "envio_inventario_inmueble": bool(c[9]),
+                "notas": c[10] or "",
+                "fecha_envio_qr": c[11].isoformat() if c[11] else "",
+            }
             for c in conjuntos
         ],
         "ultima_actualizacion": row[4].isoformat() if row[4] else None,
@@ -752,6 +806,82 @@ def _t_eliminar_agente(args):
             "borrado": True}
 
 
+_CAMPOS_CONJUNTO_SQL_TIPO = {
+    "nombre": "text", "ciudad": "text", "barrio": "text",
+    "direccion": "text", "ubicacion_maps": "text",
+    "fecha_activacion": "date",
+    "envio_fotos_inventario": "bool",
+    "envio_videos_conjunto": "bool",
+    "envio_inventario_inmueble": "bool",
+    "notas": "text",
+}
+
+
+def _t_actualizar_conjunto(args):
+    cod = (args.get("codigo") or "").strip()
+    campos = args.get("campos") or {}
+    if not cod or not isinstance(campos, dict) or not campos:
+        return {"error": "falta codigo o campos"}
+    set_parts = []
+    params = []
+    for k, v in campos.items():
+        if k not in _CAMPOS_CONJUNTO:
+            return {"error": f"campo_invalido:{k}",
+                    "validos": sorted(_CAMPOS_CONJUNTO)}
+        set_parts.append(f"{k} = %s")
+        params.append(v)
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id FROM conjuntos_visitante WHERE codigo = %s", (cod,)
+        ).fetchone()
+        if not row:
+            return {"error": f"conjunto_no_encontrado:{cod}"}
+        params.append(row[0])
+        conn.execute(
+            f"UPDATE conjuntos_visitante SET {', '.join(set_parts)} "
+            f"WHERE id = %s", tuple(params))
+        conn.commit()
+    return {"ok": True, "codigo": cod, "actualizado": campos}
+
+
+def _t_ficha_conjunto(args):
+    cod = (args.get("codigo") or "").strip()
+    if not cod:
+        return {"error": "falta codigo"}
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id, codigo, nombre, ciudad, barrio, direccion, "
+            "       ubicacion_maps, fecha_activacion, envio_fotos_inventario, "
+            "       envio_videos_conjunto, envio_inventario_inmueble, notas "
+            "  FROM conjuntos_visitante WHERE codigo = %s", (cod,)
+        ).fetchone()
+        if not row:
+            return {"error": f"conjunto_no_encontrado:{cod}"}
+        # Agentes asignadas a este conjunto.
+        agts = conn.execute(
+            "SELECT c.telefono, c.nombre, ac.asignado_at "
+            "  FROM petra_agente_conjuntos ac "
+            "  JOIN petra_contactos c ON c.id = ac.contacto_id "
+            " WHERE ac.conjunto_id = %s ORDER BY ac.asignado_at ASC",
+            (row[0],)
+        ).fetchall()
+    return {
+        "codigo": row[1], "nombre": row[2],
+        "ciudad": row[3] or "", "barrio": row[4] or "",
+        "direccion": row[5] or "", "ubicacion_maps": row[6] or "",
+        "fecha_activacion": row[7].isoformat() if row[7] else "",
+        "envio_fotos_inventario": bool(row[8]),
+        "envio_videos_conjunto": bool(row[9]),
+        "envio_inventario_inmueble": bool(row[10]),
+        "notas": row[11] or "",
+        "agentes": [
+            {"telefono": a[0], "nombre": a[1],
+             "fecha_envio_qr": a[2].isoformat() if a[2] else ""}
+            for a in agts
+        ],
+    }
+
+
 _TOOL_FNS = {
     "listar_agentes": _t_listar_agentes,
     "ficha_agente": _t_ficha_agente,
@@ -761,6 +891,8 @@ _TOOL_FNS = {
     "asignar_codigo": _t_asignar_codigo,
     "quitar_codigo": _t_quitar_codigo,
     "actualizar_agente": _t_actualizar_agente,
+    "actualizar_conjunto": _t_actualizar_conjunto,
+    "ficha_conjunto": _t_ficha_conjunto,
     "agregar_media": _t_agregar_media,
     "listar_media_conjunto": _t_listar_media_conjunto,
     "cambiar_telefono_agente": _t_cambiar_telefono_agente,

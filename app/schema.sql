@@ -1770,6 +1770,16 @@ CREATE TABLE IF NOT EXISTS conjuntos_visitante (
   ciudad TEXT,
   creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Campos operativos del conjunto que llena Del Mar vía MCP cuando la
+-- agente conecta el QR en terreno.
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS barrio TEXT;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS direccion TEXT;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS ubicacion_maps TEXT;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS fecha_activacion DATE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_fotos_inventario BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_videos_conjunto BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_inventario_inmueble BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS notas TEXT;
 
 CREATE TABLE IF NOT EXISTS inmuebles_visitante (
   id SERIAL PRIMARY KEY,
