@@ -1454,11 +1454,19 @@
           '<div class="tpl-card-meta"></div>' +
           '<div class="tpl-card-btns">' +
             '<button class="mini-btn" onclick="previewMetaTemplate(' + idx + ')">👁️ Previa</button>' +
-            '<button class="mini-btn danger" onclick="deleteMetaTemplate(' + idx + ')" style="color:#dc2626;border-color:#fca5a5">🗑</button>' +
+            '<button class="mini-btn danger js-del-meta" data-idx="' + idx + '" style="color:#dc2626;border-color:#fca5a5">🗑</button>' +
           '</div>' +
         '</div>' +
       '</div>';
     }).join('');
+    // Bind trash buttons via listener (mas robusto que inline onclick)
+    grid.querySelectorAll('.js-del-meta').forEach(function(btn) {
+      btn.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        var idx = parseInt(btn.dataset.idx, 10);
+        deleteMetaTemplate(idx);
+      });
+    });
   }
 
   window.deleteMetaTemplate = function(idx) {
