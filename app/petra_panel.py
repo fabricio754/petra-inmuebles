@@ -5208,7 +5208,7 @@ def panel_v2_templates_json(tid):
                 "SELECT id, name, display, idioma, categoria, tipo, status, "
                 "       body, variables, header, botones, catalogo, "
                 "       recomendacion, rechazo_motivo, autor, "
-                "       creado_en, actualizado_en "
+                "       creado_en, actualizado_en, footer "
                 "  FROM campana_templates "
                 " WHERE id = %s",
                 (tid,))
