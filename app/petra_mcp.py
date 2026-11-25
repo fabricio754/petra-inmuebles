@@ -177,7 +177,7 @@ _TOOLS = [
         "name": "actualizar_agente",
         "description": (
             "Actualiza datos de ficha de una agente. Campos soportados: "
-            "nombre, ciudad, direccion_agente, ubicacion_maps, "
+            "nombre, cedula, ciudad, direccion_agente, ubicacion_maps, "
             "fecha_envio_qr (ISO YYYY-MM-DD), fecha_activacion_qr, "
             "envio_fotos_inventario (bool), envio_videos_conjunto (bool), "
             "envio_inventario_inmueble (bool), notas."
@@ -191,6 +191,7 @@ _TOOLS = [
                     "description": "Diccionario con los campos a actualizar.",
                     "properties": {
                         "nombre": {"type": "string"},
+                        "cedula": {"type": "string"},
                         "ciudad": {"type": "string"},
                         "direccion_agente": {"type": "string"},
                         "ubicacion_maps": {"type": "string"},
@@ -206,9 +207,45 @@ _TOOLS = [
             "required": ["telefono", "campos"],
         },
     },
+    {
+        "name": "cambiar_telefono_agente",
+        "description": (
+            "Migra el teléfono de una agente existente (ej. de un placeholder "
+            "'570000000001' al real '573001234567'). Conserva estado, códigos "
+            "asignados y toda la ficha."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "telefono_actual": {"type": "string"},
+                "telefono_nuevo": {"type": "string"},
+            },
+            "required": ["telefono_actual", "telefono_nuevo"],
+        },
+    },
+    {
+        "name": "eliminar_agente",
+        "description": (
+            "Borra la ficha de una agente permanentemente. Requiere confirm=true. "
+            "Elimina el contacto, su rol agente, códigos asignados y datos. "
+            "Usar sólo para limpiar duplicados o fichas de prueba."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "telefono": {"type": "string"},
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Debe ser true para ejecutar el borrado.",
+                },
+            },
+            "required": ["telefono", "confirm"],
+        },
+    },
 ]
 
 _CAMPOS_METADATA = {
+    "cedula",
     "ciudad", "direccion_agente", "ubicacion_maps",
     "fecha_envio_qr", "fecha_activacion_qr",
     "envio_fotos_inventario", "envio_videos_conjunto",
@@ -330,6 +367,7 @@ def _t_ficha_agente(args):
         "telefono": row[1],
         "nombre": row[2],
         "estado": meta.get("estado_agente", "pendiente"),
+        "cedula": meta.get("cedula", ""),
         "ciudad": meta.get("ciudad", ""),
         "direccion_agente": meta.get("direccion_agente", ""),
         "ubicacion_maps": meta.get("ubicacion_maps", ""),
@@ -658,6 +696,62 @@ def _t_listar_media_conjunto(args):
     return {"codigo_conjunto": cod, "count": len(out), "media": out}
 
 
+def _t_cambiar_telefono_agente(args):
+    actual = (args.get("telefono_actual") or "").strip()
+    nuevo = (args.get("telefono_nuevo") or "").strip()
+    if not actual or not nuevo:
+        return {"error": "falta telefono_actual o telefono_nuevo"}
+    if actual == nuevo:
+        return {"error": "son iguales"}
+    with _db._conexion_directa(timeout=10) as conn:
+        # Verificar que el actual exista y sea agente.
+        row = conn.execute(
+            "SELECT c.id FROM petra_contacto_roles r "
+            "  JOIN petra_contactos c ON c.id = r.contacto_id "
+            " WHERE r.rol='agente_petra' AND c.telefono = %s", (actual,)
+        ).fetchone()
+        if not row:
+            return {"error": f"agente_actual_no_encontrada:{actual}"}
+        # Verificar que el nuevo no esté en uso.
+        ya = conn.execute(
+            "SELECT id FROM petra_contactos WHERE telefono = %s", (nuevo,)
+        ).fetchone()
+        if ya:
+            return {"error": f"telefono_nuevo_ya_existe:{nuevo}",
+                    "hint": "Si querés fusionar fichas, primero eliminá o "
+                             "transferí los datos manualmente."}
+        conn.execute(
+            "UPDATE petra_contactos SET telefono = %s, updated_at = NOW() "
+            "WHERE id = %s", (nuevo, row[0]))
+        conn.commit()
+    return {"ok": True, "telefono_actual": actual, "telefono_nuevo": nuevo}
+
+
+def _t_eliminar_agente(args):
+    tel = (args.get("telefono") or "").strip()
+    confirm = bool(args.get("confirm"))
+    if not tel:
+        return {"error": "falta telefono"}
+    if not confirm:
+        return {"error": "requiere_confirm_true",
+                "mensaje": "Esta acción es irreversible. Pasá confirm=true "
+                            "para ejecutar."}
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT c.id, c.nombre FROM petra_contacto_roles r "
+            "  JOIN petra_contactos c ON c.id = r.contacto_id "
+            " WHERE r.rol='agente_petra' AND c.telefono = %s", (tel,)
+        ).fetchone()
+        if not row:
+            return {"error": f"no_encontrada:{tel}"}
+        contacto_id, nombre = row[0], row[1]
+        # Borrar el contacto cascada todo (roles, agente_conjuntos).
+        conn.execute("DELETE FROM petra_contactos WHERE id = %s", (contacto_id,))
+        conn.commit()
+    return {"ok": True, "telefono": tel, "nombre": nombre,
+            "borrado": True}
+
+
 _TOOL_FNS = {
     "listar_agentes": _t_listar_agentes,
     "ficha_agente": _t_ficha_agente,
@@ -669,6 +763,8 @@ _TOOL_FNS = {
     "actualizar_agente": _t_actualizar_agente,
     "agregar_media": _t_agregar_media,
     "listar_media_conjunto": _t_listar_media_conjunto,
+    "cambiar_telefono_agente": _t_cambiar_telefono_agente,
+    "eliminar_agente": _t_eliminar_agente,
 }
 
 
