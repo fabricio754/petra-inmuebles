@@ -9969,10 +9969,76 @@ def panel_v2_kapso():
     token = (request.args.get("token") or "").strip()
 
     base, api_key, phone_id, _version = _kapso._config()
+    waba_id = _kapso._waba_id_activo() or (os.environ.get("KAPSO_WABA_ID") or "").strip()
     cfg = {
         "ready": bool(api_key and phone_id),
         "phone_id": phone_id or "—",
-        "waba_id": (os.environ.get("KAPSO_WABA_ID") or "").strip() or "",
+        "waba_id": waba_id or "",
         "base": base or "—",
     }
-    return render_template("petra_panel_v2_kapso.html", token=token, cfg=cfg)
+
+    numeros = []
+    try:
+        with _db._conexion() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT id, phone_id, waba_id, e164, label, activo
+                             FROM petra_kapso_numeros
+                            ORDER BY activo DESC, creado_en ASC""")
+            for r in cur.fetchall():
+                numeros.append({
+                    "id": r[0], "phone_id": r[1], "waba_id": r[2],
+                    "e164": r[3], "label": r[4], "activo": bool(r[5]),
+                })
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "[kapso-panel] no pude leer numeros: %s", e)
+
+    return render_template("petra_panel_v2_kapso.html",
+                           token=token, cfg=cfg, numeros=numeros)
+
+
+@petra_panel_bp.post("/v2/kapso/numeros/agregar")
+def panel_v2_kapso_numeros_agregar():
+    from flask import jsonify
+    _check_token()
+    phone_id = (request.form.get("phone_id") or "").strip()
+    waba_id = (request.form.get("waba_id") or "").strip() or None
+    e164 = (request.form.get("e164") or "").strip() or None
+    label = (request.form.get("label") or "").strip() or None
+    if not phone_id:
+        return jsonify({"ok": False, "msg": "phone_id requerido"}), 400
+    with _db._conexion() as conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO petra_kapso_numeros (phone_id, waba_id, e164, label)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (phone_id) DO UPDATE
+                         SET waba_id = EXCLUDED.waba_id,
+                             e164    = EXCLUDED.e164,
+                             label   = EXCLUDED.label
+                       RETURNING id""",
+                    (phone_id, waba_id, e164, label))
+        nid = cur.fetchone()[0]
+        conn.commit()
+    return jsonify({"ok": True, "id": nid})
+
+
+@petra_panel_bp.post("/v2/kapso/numeros/<int:nid>/activar")
+def panel_v2_kapso_numeros_activar(nid):
+    from flask import jsonify
+    _check_token()
+    with _db._conexion() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE petra_kapso_numeros SET activo = FALSE WHERE activo")
+        cur.execute("UPDATE petra_kapso_numeros SET activo = TRUE WHERE id = %s", (nid,))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return jsonify({"ok": False, "msg": "no existe"}), 404
+        conn.commit()
+    return jsonify({"ok": True})
+
+
+@petra_panel_bp.post("/v2/kapso/numeros/<int:nid>/eliminar")
+def panel_v2_kapso_numeros_eliminar(nid):
+    from flask import jsonify
+    _check_token()
+    with _db._conexion() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM petra_kapso_numeros WHERE id = %s", (nid,))
+        conn.commit()
+    return jsonify({"ok": True})

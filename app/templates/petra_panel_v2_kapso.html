@@ -93,7 +93,7 @@
 
   <!-- Card: info del número conectado -->
   <div class="kapso-card">
-    <h3>Número conectado</h3>
+    <h3>Número activo</h3>
     {% if cfg.ready %}
       <div class="info-row">
         <span class="info-label">Estado</span>
@@ -121,7 +121,7 @@
         <span><span class="badge err">Sin configurar</span></span>
       </div>
       <div style="font-size: 13px; color: var(--text-sub); margin-top: 12px;">
-        Faltan env vars: <code>KAPSO_API_KEY</code>, <code>KAPSO_PHONE_NUMBER_ID</code>.
+        Agrega un número abajo o configura <code>KAPSO_API_KEY</code> + <code>KAPSO_PHONE_NUMBER_ID</code> en Render.
       </div>
     {% endif %}
   </div>
@@ -157,6 +157,75 @@
       <div class="result" id="result-box"></div>
     </div>
   </div>
+</div>
+
+<!-- Números registrados -->
+<div class="kapso-card" style="margin-top: 24px; max-width: 1100px;">
+  <h3>Números disponibles</h3>
+  <div style="font-size: 12.5px; color: var(--text-sub); margin-bottom: 14px;">
+    El marcado como activo es el que usa el pipeline (bienvenida, oferta, etc.).
+  </div>
+
+  {% if numeros %}
+  <table style="width:100%; border-collapse: collapse; font-size: 13px;">
+    <thead>
+      <tr style="text-align:left; color: var(--text-sub); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+        <th style="padding:6px 8px; border-bottom:1px solid var(--border)">E.164</th>
+        <th style="padding:6px 8px; border-bottom:1px solid var(--border)">Label</th>
+        <th style="padding:6px 8px; border-bottom:1px solid var(--border); font-family: ui-monospace,Menlo,monospace">Phone ID</th>
+        <th style="padding:6px 8px; border-bottom:1px solid var(--border); font-family: ui-monospace,Menlo,monospace">WABA ID</th>
+        <th style="padding:6px 8px; border-bottom:1px solid var(--border)">Estado</th>
+        <th style="padding:6px 8px; border-bottom:1px solid var(--border); text-align:right">Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for n in numeros %}
+      <tr>
+        <td style="padding:8px; border-bottom:1px solid var(--border); font-family: ui-monospace,Menlo,monospace">{{ n.e164 or '—' }}</td>
+        <td style="padding:8px; border-bottom:1px solid var(--border)">{{ n.label or '—' }}</td>
+        <td style="padding:8px; border-bottom:1px solid var(--border); font-family: ui-monospace,Menlo,monospace; font-size: 11px">{{ n.phone_id }}</td>
+        <td style="padding:8px; border-bottom:1px solid var(--border); font-family: ui-monospace,Menlo,monospace; font-size: 11px">{{ n.waba_id or '—' }}</td>
+        <td style="padding:8px; border-bottom:1px solid var(--border)">
+          {% if n.activo %}<span class="badge ok">Activo</span>{% else %}—{% endif %}
+        </td>
+        <td style="padding:8px; border-bottom:1px solid var(--border); text-align:right">
+          {% if not n.activo %}
+            <button class="send-btn" style="padding:4px 10px; font-size:12px" onclick="activarNumero({{ n.id }})">Activar</button>
+          {% endif %}
+          <button onclick="eliminarNumero({{ n.id }})" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;color:#c5221f;font-size:12px">×</button>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="font-size: 13px; color: var(--text-sub); padding: 10px 0;">
+    No hay números registrados. Agrega el primero abajo.
+  </div>
+  {% endif %}
+
+  <h3 style="margin-top: 28px;">Agregar número</h3>
+  <form onsubmit="return agregarNumero(event)">
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+      <div class="field">
+        <label>E.164 (opcional, humano)</label>
+        <input type="text" id="n-e164" placeholder="+573001301331">
+      </div>
+      <div class="field">
+        <label>Label (opcional)</label>
+        <input type="text" id="n-label" placeholder="Sofia / Ella / etc">
+      </div>
+      <div class="field">
+        <label>Phone number ID *</label>
+        <input type="text" id="n-phone" placeholder="1386371191233822" required>
+      </div>
+      <div class="field">
+        <label>WABA ID (opcional)</label>
+        <input type="text" id="n-waba" placeholder="2334705703973070">
+      </div>
+    </div>
+    <button type="submit" class="send-btn">Guardar</button>
+  </form>
 </div>
 
 <script>
@@ -198,6 +267,43 @@ function enviarTemplate(ev) {
     });
 
   return false;
+}
+
+function agregarNumero(ev) {
+  ev.preventDefault();
+  var fd = new FormData();
+  fd.append('phone_id', document.getElementById('n-phone').value.trim());
+  fd.append('waba_id', document.getElementById('n-waba').value.trim());
+  fd.append('e164', document.getElementById('n-e164').value.trim());
+  fd.append('label', document.getElementById('n-label').value.trim());
+  fetch('/panel/petra/v2/kapso/numeros/agregar?token=' + encodeURIComponent(TOKEN),
+        { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.ok) location.reload();
+      else alert('Error: ' + (j.msg || 'desconocido'));
+    });
+  return false;
+}
+
+function activarNumero(id) {
+  fetch('/panel/petra/v2/kapso/numeros/' + id + '/activar?token=' + encodeURIComponent(TOKEN),
+        { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.ok) location.reload();
+      else alert('Error: ' + (j.msg || 'desconocido'));
+    });
+}
+
+function eliminarNumero(id) {
+  if (!confirm('¿Eliminar este número de la lista?')) return;
+  fetch('/panel/petra/v2/kapso/numeros/' + id + '/eliminar?token=' + encodeURIComponent(TOKEN),
+        { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.ok) location.reload();
+    });
 }
 </script>
 {% endblock %}
