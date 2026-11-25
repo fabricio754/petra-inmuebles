@@ -126,7 +126,48 @@ _TOOLS = [
             "required": ["telefono", "codigo"],
         },
     },
+    {
+        "name": "actualizar_agente",
+        "description": (
+            "Actualiza datos de ficha de una agente. Campos soportados: "
+            "nombre, ciudad, direccion_agente, ubicacion_maps, "
+            "fecha_envio_qr (ISO YYYY-MM-DD), fecha_activacion_qr, "
+            "envio_fotos_inventario (bool), envio_videos_conjunto (bool), "
+            "envio_inventario_inmueble (bool), notas."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "telefono": {"type": "string"},
+                "campos": {
+                    "type": "object",
+                    "description": "Diccionario con los campos a actualizar.",
+                    "properties": {
+                        "nombre": {"type": "string"},
+                        "ciudad": {"type": "string"},
+                        "direccion_agente": {"type": "string"},
+                        "ubicacion_maps": {"type": "string"},
+                        "fecha_envio_qr": {"type": "string"},
+                        "fecha_activacion_qr": {"type": "string"},
+                        "envio_fotos_inventario": {"type": "boolean"},
+                        "envio_videos_conjunto": {"type": "boolean"},
+                        "envio_inventario_inmueble": {"type": "boolean"},
+                        "notas": {"type": "string"},
+                    },
+                },
+            },
+            "required": ["telefono", "campos"],
+        },
+    },
 ]
+
+_CAMPOS_METADATA = {
+    "ciudad", "direccion_agente", "ubicacion_maps",
+    "fecha_envio_qr", "fecha_activacion_qr",
+    "envio_fotos_inventario", "envio_videos_conjunto",
+    "envio_inventario_inmueble",
+    "notas",
+}
 
 _ESTADOS_VALIDOS = {
     "pendiente", "recolectando", "inscrito", "bienvenida_enviada",
@@ -230,11 +271,32 @@ def _t_ficha_agente(args):
         ).fetchone()
         if not row:
             return {"error": "no_encontrada", "telefono": tel}
-        codigos = _codigos_por_contacto(conn, [row[0]]).get(row[0], [])
+        # Trae codigos + dirección de cada conjunto para la ficha completa.
+        conjuntos = conn.execute(
+            "SELECT cv.codigo, cv.nombre, cv.ciudad, cv.direccion "
+            "  FROM petra_agente_conjuntos ac "
+            "  JOIN conjuntos_visitante cv ON cv.id = ac.conjunto_id "
+            " WHERE ac.contacto_id = %s ORDER BY cv.codigo", (row[0],)
+        ).fetchall()
+    meta = row[3] or {}
     return {
-        "telefono": row[1], "nombre": row[2],
-        "metadata": row[3] or {},
-        "codigos": codigos,
+        "telefono": row[1],
+        "nombre": row[2],
+        "estado": meta.get("estado_agente", "pendiente"),
+        "ciudad": meta.get("ciudad", ""),
+        "direccion_agente": meta.get("direccion_agente", ""),
+        "ubicacion_maps": meta.get("ubicacion_maps", ""),
+        "fecha_envio_qr": meta.get("fecha_envio_qr", ""),
+        "fecha_activacion_qr": meta.get("fecha_activacion_qr", ""),
+        "envio_fotos_inventario": bool(meta.get("envio_fotos_inventario", False)),
+        "envio_videos_conjunto": bool(meta.get("envio_videos_conjunto", False)),
+        "envio_inventario_inmueble": bool(meta.get("envio_inventario_inmueble", False)),
+        "notas": meta.get("notas", ""),
+        "conjuntos": [
+            {"codigo": c[0], "nombre": c[1], "ciudad": c[2] or "",
+             "direccion": c[3] or ""}
+            for c in conjuntos
+        ],
         "ultima_actualizacion": row[4].isoformat() if row[4] else None,
     }
 
@@ -370,6 +432,47 @@ def _t_quitar_codigo(args):
             "estaba_asignado": removed is not None}
 
 
+def _t_actualizar_agente(args):
+    tel = (args.get("telefono") or "").strip()
+    campos = args.get("campos") or {}
+    if not tel or not isinstance(campos, dict) or not campos:
+        return {"error": "falta telefono o campos"}
+    nombre = campos.get("nombre")
+    meta_patch = {}
+    for k, v in campos.items():
+        if k == "nombre":
+            continue
+        if k not in _CAMPOS_METADATA:
+            return {"error": f"campo_invalido:{k}",
+                    "validos": sorted(_CAMPOS_METADATA | {"nombre"})}
+        # Normalización mínima: strings vacíos los removemos para no ensuciar
+        if isinstance(v, str) and not v.strip():
+            v = ""
+        meta_patch[k] = v
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT c.id FROM petra_contacto_roles r "
+            "  JOIN petra_contactos c ON c.id = r.contacto_id "
+            " WHERE r.rol='agente_petra' AND c.telefono = %s", (tel,)
+        ).fetchone()
+        if not row:
+            return {"error": "no_encontrada", "telefono": tel}
+        contacto_id = row[0]
+        if nombre is not None and nombre.strip():
+            conn.execute(
+                "UPDATE petra_contactos SET nombre = %s, updated_at = NOW() "
+                "WHERE id = %s", (nombre.strip(), contacto_id))
+        if meta_patch:
+            conn.execute(
+                "UPDATE petra_contacto_roles "
+                "   SET metadata = COALESCE(metadata,'{}'::jsonb) || %s::jsonb, "
+                "       updated_at = NOW() "
+                " WHERE rol='agente_petra' AND contacto_id = %s",
+                (json.dumps(meta_patch), contacto_id))
+        conn.commit()
+    return {"ok": True, "telefono": tel, "actualizado": campos}
+
+
 _TOOL_FNS = {
     "listar_agentes": _t_listar_agentes,
     "ficha_agente": _t_ficha_agente,
@@ -378,6 +481,7 @@ _TOOL_FNS = {
     "listar_conjuntos": _t_listar_conjuntos,
     "asignar_codigo": _t_asignar_codigo,
     "quitar_codigo": _t_quitar_codigo,
+    "actualizar_agente": _t_actualizar_agente,
 }
 
 
