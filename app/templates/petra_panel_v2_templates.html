@@ -2600,7 +2600,20 @@
 
     // Footer + botones son universales ahora (válidos para cualquier tipo).
     fd.append('footer', document.getElementById('f-footer').value.trim());
-    fd.append('botones', JSON.stringify(recolectarBotones()));
+    var btns = recolectarBotones();
+    // Meta rechaza botones URL que apunten a WhatsApp (wa.me, api.whatsapp.com,
+    // chat.whatsapp.com). Validamos antes para no gastar un ciclo con Meta.
+    var reWa = /(^https?:\/\/)?(wa\.me|(api|chat)\.whatsapp\.com)(\/|$)/i;
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (b.type === 'url' && b.value && reWa.test(b.value)) {
+        flashError('Meta no permite botones con links directos a WhatsApp ' +
+                   '(wa.me/..., api.whatsapp.com/...). Usá otro link o un ' +
+                   'botón de tipo "Respuesta rápida".');
+        return;
+      }
+    }
+    fd.append('botones', JSON.stringify(btns));
 
     // Header: válido tanto para el nuevo "mensaje" como para "multimedia" legacy.
     if (tipoSeleccionado === 'mensaje' || tipoSeleccionado === 'multimedia') {
