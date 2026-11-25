@@ -4560,6 +4560,26 @@ def panel_v2_numeros_callback():
     })
 
 
+@petra_panel_bp.post("/v2/numeros/<int:nid>/renombrar")
+def panel_v2_numeros_renombrar(nid):
+    """Cambia el display_name de un número conectado."""
+    _check_token()
+    from flask import jsonify
+    nuevo = (request.form.get("display_name") or "").strip()
+    if not nuevo:
+        return jsonify({"error": "nombre vacio"}), 400
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "UPDATE waba_conectadas SET display_name = %s WHERE id = %s",
+                (nuevo, nid))
+            return jsonify({"ok": True})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] renombrar fallo")
+        return jsonify({"error": "db_error"}), 500
+
+
 @petra_panel_bp.post("/v2/numeros/<int:nid>/eliminar")
 def panel_v2_numeros_eliminar(nid):
     """Desconecta (elimina de DB) un número. No afecta Meta."""
