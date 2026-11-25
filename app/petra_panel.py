@@ -9982,6 +9982,52 @@ def kapso_test_template():
     return jsonify(resultado), (200 if resultado.get("ok") else 502)
 
 
+@petra_panel_bp.get("/v2/kapso/test-create-template")
+def panel_v2_kapso_test_create_template():
+    """Diagnostico: intenta crear una template minima en la WABA activa
+    via el proxy de Kapso. Devuelve el status y body crudo de Meta/Kapso.
+    """
+    _check_token()
+    from flask import jsonify
+    from app import petra_kapso as _kapso_mod
+    import json as _json
+    import requests as _req
+
+    k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
+    if not (k_api_key and waba_id):
+        return jsonify({"ok": False, "msg": "falta api key o waba"}), 500
+
+    payload = {
+        "name": "diag_test_coex_" + str(int(_time.time())),
+        "language": "es",
+        "category": "MARKETING",
+        "components": [{"type": "BODY", "text": "Hola, prueba diagnostico."}],
+    }
+    try:
+        r = _req.post(
+            f"{k_base}/{k_version}/{waba_id}/message_templates",
+            headers={"X-API-Key": k_api_key,
+                     "Content-Type": "application/json"},
+            data=_json.dumps(payload),
+            timeout=30,
+        )
+        try:
+            body = r.json()
+        except Exception:
+            body = r.text[:500]
+        return jsonify({
+            "waba_id": waba_id,
+            "url": f"{k_base}/{k_version}/{waba_id}/message_templates",
+            "status": r.status_code,
+            "body": body,
+            "sent_payload": payload,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "exception": str(e)}), 500
+
+
 @petra_panel_bp.get("/v2/kapso")
 def panel_v2_kapso():
     """Panel v2: página de Kapso. Muestra el estado del número conectado
