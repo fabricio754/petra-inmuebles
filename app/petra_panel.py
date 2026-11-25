@@ -3820,6 +3820,24 @@ DIFUSION_AUTORES = [
 ]
 
 
+def _templates_borrados_por_usuario(conn):
+    """Lee los nombres de templates que el usuario borró manualmente
+    desde la UI, para que el seeder no los re-cree."""
+    try:
+        row = conn.execute(
+            "SELECT valor FROM meta WHERE clave = 'templates_blacklist'"
+        ).fetchone()
+        if not row or not row[0]:
+            return set()
+        import json as _json
+        data = _json.loads(row[0])
+        if isinstance(data, list):
+            return set(data)
+    except Exception:
+        pass
+    return set()
+
+
 def _seed_templates_nuevos():
     """Upserteá los templates de PETRA_TEMPLATES que todavía no existen en
     DB (ON CONFLICT DO NOTHING). Idempotente — inserta sólo los nuevos."""
@@ -3828,8 +3846,11 @@ def _seed_templates_nuevos():
     _log = _lg.getLogger(__name__)
     try:
         with _db._conexion_directa(timeout=10) as conn:
+            blacklist = _templates_borrados_por_usuario(conn)
             insertados = 0
             for t in PETRA_TEMPLATES:
+                if t["name"] in blacklist:
+                    continue
                 tipo = t.get("tipo") or ("botones" if t.get("botones")
                                          else ("multimedia" if t.get("header") else "texto"))
                 res = conn.execute(
@@ -5843,18 +5864,30 @@ def panel_v2_templates_actualizar(tid):
 
 @petra_panel_bp.post("/v2/templates/<int:tid>/eliminar")
 def panel_v2_templates_eliminar(tid):
-    """Elimina un template local (cualquier estado). No borra en Meta."""
+    """Elimina un template local (cualquier estado). No borra en Meta.
+    Agrega el `name` a una blacklist para que el seeder no lo re-cree."""
     _check_token()
     from flask import jsonify
+    import json as _json
     try:
         with _db._conexion_directa(timeout=10) as conn:
             row = conn.execute(
-                "SELECT status FROM campana_templates WHERE id = %s",
+                "SELECT status, name FROM campana_templates WHERE id = %s",
                 (tid,),
             ).fetchone()
             if not row:
                 return jsonify({"error": "no encontrado"}), 404
+            name = row[1]
             conn.execute("DELETE FROM campana_templates WHERE id = %s", (tid,))
+            # Blacklist para evitar re-seed
+            if name:
+                bl = _templates_borrados_por_usuario(conn)
+                bl.add(name)
+                conn.execute(
+                    "INSERT INTO meta (clave, valor) VALUES ('templates_blacklist', %s) "
+                    "ON CONFLICT (clave) DO UPDATE "
+                    "   SET valor = EXCLUDED.valor, actualizado = NOW()",
+                    (_json.dumps(sorted(bl)),))
             conn.commit()
             return jsonify({"ok": True})
     except Exception:
