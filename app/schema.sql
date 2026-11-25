@@ -200,7 +200,10 @@ CREATE TABLE IF NOT EXISTS petra_conjunto_media (
   tipo TEXT NOT NULL DEFAULT 'foto_conjunto'
     CHECK (tipo IN ('foto_conjunto','foto_inmueble','foto_agente',
                     'video_conjunto','video_inmueble','video_agente',
-                    'libro_arriendos','libro_ventas','documento','otro')),
+                    'libro_arriendos','libro_ventas',
+                    'qr_instalado','zonas_comunes','frente_conjunto',
+                    'inventario',
+                    'documento','otro')),
   url TEXT NOT NULL,
   mime TEXT,
   tamano_bytes BIGINT,
@@ -214,6 +217,19 @@ CREATE INDEX IF NOT EXISTS petra_conjunto_media_conj_idx
 CREATE INDEX IF NOT EXISTS petra_conjunto_media_inm_idx
   ON petra_conjunto_media (inmueble_id)
   WHERE inmueble_id IS NOT NULL;
+
+-- Ensure CHECK constraint includes the newer tipos (idempotent).
+DO $$
+BEGIN
+  ALTER TABLE petra_conjunto_media DROP CONSTRAINT IF EXISTS petra_conjunto_media_tipo_check;
+  ALTER TABLE petra_conjunto_media ADD CONSTRAINT petra_conjunto_media_tipo_check
+    CHECK (tipo IN ('foto_conjunto','foto_inmueble','foto_agente',
+                    'video_conjunto','video_inmueble','video_agente',
+                    'libro_arriendos','libro_ventas',
+                    'qr_instalado','zonas_comunes','frente_conjunto',
+                    'inventario',
+                    'documento','otro'));
+END $$;
 
 -- Números WhatsApp conectados a Kapso que podemos usar para enviar
 -- templates. El marcado como `activo` manda sobre las env vars

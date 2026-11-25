@@ -169,10 +169,12 @@ _TOOLS = [
                 "tipo": {
                     "type": "string",
                     "description": (
-                        "Categoría: foto_conjunto | foto_inmueble | foto_agente | "
+                        "Categoría. Específicas (preferir cuando aplique): "
+                        "qr_instalado | zonas_comunes | frente_conjunto | inventario | "
+                        "libro_arriendos | libro_ventas. "
+                        "Genéricas: foto_conjunto | foto_inmueble | foto_agente | "
                         "video_conjunto | video_inmueble | video_agente | "
-                        "libro_arriendos | libro_ventas | documento | otro. "
-                        "Default: foto_conjunto."
+                        "documento | otro. Default: foto_conjunto."
                     ),
                 },
                 "codigo_inmueble": {
@@ -216,9 +218,10 @@ _TOOLS = [
                 "tipo": {
                     "type": "string",
                     "description": (
-                        "Nuevo tipo. Valores validos: foto_conjunto | foto_inmueble | "
-                        "foto_agente | video_conjunto | video_inmueble | video_agente | "
-                        "libro_arriendos | libro_ventas | documento | otro."
+                        "Nuevo tipo. Específicas: qr_instalado | zonas_comunes | "
+                        "frente_conjunto | inventario | libro_arriendos | libro_ventas. "
+                        "Genéricas: foto_conjunto | foto_inmueble | foto_agente | "
+                        "video_conjunto | video_inmueble | video_agente | documento | otro."
                     ),
                 },
                 "nota": {
@@ -876,7 +879,9 @@ def _t_listar_media_conjunto(args):
 _MEDIA_TIPOS_VALIDOS = {
     "foto_conjunto", "foto_inmueble", "foto_agente",
     "video_conjunto", "video_inmueble", "video_agente",
-    "libro_arriendos", "libro_ventas", "documento", "otro",
+    "libro_arriendos", "libro_ventas",
+    "qr_instalado", "zonas_comunes", "frente_conjunto", "inventario",
+    "documento", "otro",
 }
 
 

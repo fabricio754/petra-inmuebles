@@ -268,19 +268,53 @@
         {% if e.fecha_activacion %}{{ e.fecha_activacion.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</div>
     </div>
 
-    <div style="display:flex;gap:12px;margin-top:10px;font-size:12px;flex-wrap:wrap">
-      <span style="padding:3px 8px;border-radius:20px;background:{% if e.envio_fotos_inventario %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
-        {% if e.envio_fotos_inventario %}✅{% else %}⚪{% endif %} Fotos inventario
+    {# Agrupar media por "tipo semantico" matcheando contra los 4 flags. #}
+    {% set _media_por_flag = {'inventario': [], 'qr_instalado': [], 'zonas_comunes': [], 'frente_conjunto': [], 'otros': []} %}
+    {% for m in e.media or [] %}
+      {% if m.tipo in ('inventario', 'libro_arriendos', 'libro_ventas') %}
+        {% set _ = _media_por_flag['inventario'].append(m) %}
+      {% elif m.tipo == 'qr_instalado' %}
+        {% set _ = _media_por_flag['qr_instalado'].append(m) %}
+      {% elif m.tipo == 'zonas_comunes' %}
+        {% set _ = _media_por_flag['zonas_comunes'].append(m) %}
+      {% elif m.tipo == 'frente_conjunto' %}
+        {% set _ = _media_por_flag['frente_conjunto'].append(m) %}
+      {% else %}
+        {% set _ = _media_por_flag['otros'].append(m) %}
+      {% endif %}
+    {% endfor %}
+
+    <div class="conjunto-flags" data-cid="{{ e.id }}" style="display:flex;gap:12px;margin-top:10px;font-size:12px;flex-wrap:wrap">
+      <span data-flag="inventario"
+            class="flag-chip{% if e.envio_fotos_inventario %} flag-on{% endif %}"
+            style="padding:3px 8px;border-radius:20px;cursor:pointer;background:{% if e.envio_fotos_inventario %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
+        {% if e.envio_fotos_inventario %}✅{% else %}⚪{% endif %} Inventario
+        {% if _media_por_flag['inventario'] %} ({{ _media_por_flag['inventario']|length }}){% endif %}
       </span>
-      <span style="padding:3px 8px;border-radius:20px;background:{% if e.envio_qr_instalado %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
+      <span data-flag="qr_instalado"
+            class="flag-chip{% if e.envio_qr_instalado %} flag-on{% endif %}"
+            style="padding:3px 8px;border-radius:20px;cursor:pointer;background:{% if e.envio_qr_instalado %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
         {% if e.envio_qr_instalado %}✅{% else %}⚪{% endif %} QR instalado
+        {% if _media_por_flag['qr_instalado'] %} ({{ _media_por_flag['qr_instalado']|length }}){% endif %}
       </span>
-      <span style="padding:3px 8px;border-radius:20px;background:{% if e.envio_zonas_comunes %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
+      <span data-flag="zonas_comunes"
+            class="flag-chip{% if e.envio_zonas_comunes %} flag-on{% endif %}"
+            style="padding:3px 8px;border-radius:20px;cursor:pointer;background:{% if e.envio_zonas_comunes %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
         {% if e.envio_zonas_comunes %}✅{% else %}⚪{% endif %} Zonas comunes
+        {% if _media_por_flag['zonas_comunes'] %} ({{ _media_por_flag['zonas_comunes']|length }}){% endif %}
       </span>
-      <span style="padding:3px 8px;border-radius:20px;background:{% if e.envio_frente_conjunto %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
-        {% if e.envio_frente_conjunto %}✅{% else %}⚪{% endif %} Frente del conjunto
+      <span data-flag="frente_conjunto"
+            class="flag-chip{% if e.envio_frente_conjunto %} flag-on{% endif %}"
+            style="padding:3px 8px;border-radius:20px;cursor:pointer;background:{% if e.envio_frente_conjunto %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
+        {% if e.envio_frente_conjunto %}✅{% else %}⚪{% endif %} Frente conjunto
+        {% if _media_por_flag['frente_conjunto'] %} ({{ _media_por_flag['frente_conjunto']|length }}){% endif %}
       </span>
+      {% if _media_por_flag['otros'] %}
+      <span data-flag="otros"
+            style="padding:3px 8px;border-radius:20px;cursor:pointer;background:var(--bg);color:var(--text-sub)">
+        📎 Otros ({{ _media_por_flag['otros']|length }})
+      </span>
+      {% endif %}
     </div>
 
     {% if e.notas_conjunto %}
@@ -289,33 +323,62 @@
     </div>
     {% endif %}
 
-    {% if e.media %}
-    <div style="margin-top:12px">
-      <div style="font-size:12px;color:var(--text-sub);margin-bottom:6px">
-        📎 Media ({{ e.media|length }})
+    {# Galerías separadas por flag — ocultas por default, se muestran al clicar el chip. #}
+    {% for _flag, _items in _media_por_flag.items() %}
+      {% if _items %}
+      <div class="media-grp" data-cid="{{ e.id }}" data-flag="{{ _flag }}" hidden
+           style="margin-top:12px">
+        <div style="font-size:12px;color:var(--text-sub);margin-bottom:6px">
+          {% if _flag == 'inventario' %}📋 Inventario
+          {% elif _flag == 'qr_instalado' %}📱 QR instalado
+          {% elif _flag == 'zonas_comunes' %}🏊 Zonas comunes
+          {% elif _flag == 'frente_conjunto' %}🏢 Frente del conjunto
+          {% else %}📎 Otros
+          {% endif %}
+          ({{ _items|length }})
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          {% for m in _items %}
+            {% set _is_img = (m.mime or '').startswith('image/') %}
+            {% set _is_vid = (m.mime or '').startswith('video/') %}
+            <a href="{{ m.url }}" target="_blank"
+               title="{{ m.tipo }}{% if m.nota %} · {{ m.nota }}{% endif %}"
+               style="display:block;width:80px;height:80px;border-radius:8px;overflow:hidden;background:var(--bg);border:1px solid var(--border);text-decoration:none;color:var(--text-sub);font-size:11px;align-items:center;justify-content:center;text-align:center;position:relative">
+              {% if _is_img %}
+                <img src="{{ m.url }}" style="width:100%;height:100%;object-fit:cover">
+              {% elif _is_vid %}
+                <span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%">🎬</span>
+              {% else %}
+                <span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%">📄</span>
+              {% endif %}
+            </a>
+          {% endfor %}
+        </div>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        {% for m in e.media %}
-          {% set _is_img = (m.mime or '').startswith('image/') %}
-          {% set _is_vid = (m.mime or '').startswith('video/') %}
-          <a href="{{ m.url }}" target="_blank"
-             title="{{ m.tipo }}{% if m.nota %} · {{ m.nota }}{% endif %}"
-             style="display:block;width:80px;height:80px;border-radius:8px;overflow:hidden;background:var(--bg);border:1px solid var(--border);text-decoration:none;color:var(--text-sub);font-size:11px;display:flex;align-items:center;justify-content:center;text-align:center;position:relative">
-            {% if _is_img %}
-              <img src="{{ m.url }}" style="width:100%;height:100%;object-fit:cover">
-            {% elif _is_vid %}
-              🎬
-            {% else %}
-              📄
-            {% endif %}
-          </a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
+      {% endif %}
+    {% endfor %}
   </div>
   {% endfor %}
 </div>
+
+<script>
+  // Toggle gallery visibility when a flag chip is clicked.
+  document.querySelectorAll('.conjunto-flags').forEach(function(wrap) {
+    var cid = wrap.dataset.cid;
+    wrap.querySelectorAll('[data-flag]').forEach(function(chip) {
+      chip.addEventListener('click', function() {
+        var flag = chip.dataset.flag;
+        document.querySelectorAll('.media-grp[data-cid="' + cid + '"]').forEach(function(g) {
+          if (g.dataset.flag === flag) {
+            g.hidden = !g.hidden;
+          } else {
+            g.hidden = true;
+          }
+        });
+      });
+    });
+  });
+</script>
 {% endif %}
 
 {# ─── CHAT ─────────────────────────────────────────── #}
