@@ -134,25 +134,26 @@ def _t_listar_agentes(args):
     estado = (args.get("estado") or "").strip()
     ciudad = (args.get("ciudad") or "").strip()
     q = (args.get("q") or "").strip()
-    where = ["rol = 'agente_petra'"]
+    where = ["r.rol = 'agente_petra'"]
     params = []
     if estado:
-        where.append("metadata->>'estado_agente' = %s")
+        where.append("r.metadata->>'estado_agente' = %s")
         params.append(estado)
     if ciudad:
-        where.append("LOWER(COALESCE(metadata->>'ciudad','')) = LOWER(%s)")
+        where.append("LOWER(COALESCE(r.metadata->>'ciudad','')) = LOWER(%s)")
         params.append(ciudad)
     if q:
-        where.append("(nombre ILIKE %s OR telefono ILIKE %s)")
+        where.append("(c.nombre ILIKE %s OR c.telefono ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
     sql = (
-        "SELECT telefono, nombre, "
-        "       COALESCE(metadata->>'estado_agente','pendiente') AS estado, "
-        "       COALESCE(metadata->>'ciudad','') AS ciudad, "
-        "       actualizado_en "
-        "  FROM petra_contacto_roles "
+        "SELECT c.telefono, c.nombre, "
+        "       COALESCE(r.metadata->>'estado_agente','pendiente') AS estado, "
+        "       COALESCE(r.metadata->>'ciudad','') AS ciudad, "
+        "       r.updated_at "
+        "  FROM petra_contacto_roles r "
+        "  JOIN petra_contactos c ON c.id = r.contacto_id "
         " WHERE " + " AND ".join(where) +
-        " ORDER BY actualizado_en DESC LIMIT 100"
+        " ORDER BY r.updated_at DESC LIMIT 100"
     )
     out = []
     with _db._conexion_directa(timeout=10) as conn:
@@ -171,9 +172,10 @@ def _t_ficha_agente(args):
         return {"error": "falta telefono"}
     with _db._conexion_directa(timeout=10) as conn:
         row = conn.execute(
-            "SELECT telefono, nombre, metadata, actualizado_en "
-            "  FROM petra_contacto_roles "
-            " WHERE rol='agente_petra' AND telefono = %s", (tel,)
+            "SELECT c.telefono, c.nombre, r.metadata, r.updated_at "
+            "  FROM petra_contacto_roles r "
+            "  JOIN petra_contactos c ON c.id = r.contacto_id "
+            " WHERE r.rol='agente_petra' AND c.telefono = %s", (tel,)
         ).fetchone()
     if not row:
         return {"error": "no_encontrada", "telefono": tel}
@@ -193,12 +195,15 @@ def _t_cambiar_estado_agente(args):
         return {"error": "estado_invalido", "validos": sorted(_ESTADOS_VALIDOS)}
     with _db._conexion_directa(timeout=10) as conn:
         cur = conn.execute(
-            "UPDATE petra_contacto_roles "
-            "   SET metadata = jsonb_set(COALESCE(metadata,'{}'::jsonb), "
+            "UPDATE petra_contacto_roles r "
+            "   SET metadata = jsonb_set(COALESCE(r.metadata,'{}'::jsonb), "
             "                            '{estado_agente}', to_jsonb(%s::text)), "
-            "       actualizado_en = NOW() "
-            " WHERE rol='agente_petra' AND telefono = %s "
-            "RETURNING telefono",
+            "       updated_at = NOW() "
+            "  FROM petra_contactos c "
+            " WHERE r.contacto_id = c.id "
+            "   AND r.rol = 'agente_petra' "
+            "   AND c.telefono = %s "
+            "RETURNING c.telefono",
             (estado, tel),
         )
         found = cur.fetchone()
@@ -218,17 +223,23 @@ def _t_crear_agente(args):
     if ciudad:
         metadata["ciudad"] = ciudad
     with _db._conexion_directa(timeout=10) as conn:
+        # 1. upsert contacto
         cur = conn.execute(
-            "INSERT INTO petra_contacto_roles (telefono, rol, nombre, metadata) "
-            "VALUES (%s, 'agente_petra', %s, %s::jsonb) "
-            "ON CONFLICT (telefono, rol) DO UPDATE "
-            "   SET nombre = EXCLUDED.nombre, "
-            "       metadata = petra_contacto_roles.metadata || EXCLUDED.metadata, "
-            "       actualizado_en = NOW() "
-            "RETURNING telefono",
-            (tel, nombre, json.dumps(metadata)),
+            "INSERT INTO petra_contactos (telefono, nombre) VALUES (%s, %s) "
+            "ON CONFLICT (telefono) DO UPDATE SET nombre = EXCLUDED.nombre "
+            "RETURNING id",
+            (tel, nombre),
         )
-        cur.fetchone()
+        contacto_id = cur.fetchone()[0]
+        # 2. upsert rol agente_petra
+        conn.execute(
+            "INSERT INTO petra_contacto_roles (contacto_id, rol, metadata) "
+            "VALUES (%s, 'agente_petra', %s::jsonb) "
+            "ON CONFLICT (contacto_id, rol, edificio_id) DO UPDATE "
+            "   SET metadata = petra_contacto_roles.metadata || EXCLUDED.metadata, "
+            "       updated_at = NOW()",
+            (contacto_id, json.dumps(metadata)),
+        )
         conn.commit()
     return {"ok": True, "telefono": tel, "nombre": nombre, "estado": "pendiente"}
 
