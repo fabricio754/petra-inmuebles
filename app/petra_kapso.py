@@ -113,7 +113,79 @@ def send_template(to, template_name, language="es_ES", components=None,
               to_clean, template_name, r.status_code, message_id)
     if not ok:
         _LOG.error("[kapso] send_template fallo: %s", body)
+        # Fallback a Meta Cloud API directo si Kapso dice que no tiene
+        # configurada la WABA (p.ej. provision incompleta en Kapso).
+        if _es_kapso_no_configurado(r.status_code, body):
+            fb = _send_template_via_meta(to_clean, template_name, language,
+                                          components, phone_id)
+            if fb.get("ok"):
+                _LOG.info("[meta-fallback] send_template OK to=%s tpl=%s msg_id=%s",
+                          to_clean, template_name, fb.get("message_id"))
+            return fb
 
+    return {
+        "ok": ok,
+        "status": r.status_code,
+        "body": body,
+        "message_id": message_id,
+    }
+
+
+def _es_kapso_no_configurado(status, body):
+    if status != 404:
+        return False
+    try:
+        if isinstance(body, dict):
+            err = (body.get("error") or "")
+            if isinstance(err, str) and "configuration not found" in err.lower():
+                return True
+        if isinstance(body, str) and "configuration not found" in body.lower():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _send_template_via_meta(to_clean, template_name, language, components,
+                             phone_id):
+    """Fallback directo a Meta Cloud API cuando Kapso no tiene configurada
+    la WABA. Usa META_ACCESS_TOKEN."""
+    access_token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    if not access_token:
+        _LOG.error("[meta-fallback] falta META_ACCESS_TOKEN")
+        return {"ok": False, "status": 0, "body": "meta_falta_token"}
+    graph_version = (os.environ.get("META_GRAPH_VERSION") or "v22.0").strip()
+    url = f"https://graph.facebook.com/{graph_version}/{phone_id}/messages"
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_clean,
+        "type": "template",
+        "template": {"name": template_name, "language": {"code": language}},
+    }
+    if components:
+        payload["template"]["components"] = components
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {access_token}",
+    }
+    try:
+        r = requests.post(url, headers=headers, data=json.dumps(payload),
+                          timeout=(5, 15))
+    except requests.RequestException as e:
+        _LOG.exception("[meta-fallback] POST fallo: %s", e)
+        return {"ok": False, "status": 0, "body": f"meta_request_error:{type(e).__name__}"}
+    ok = 200 <= r.status_code < 300
+    try:
+        body = r.json()
+    except Exception:
+        body = r.text[:500]
+    message_id = None
+    if ok and isinstance(body, dict):
+        msgs = body.get("messages") or []
+        if msgs and isinstance(msgs[0], dict):
+            message_id = msgs[0].get("id")
+    if not ok:
+        _LOG.error("[meta-fallback] send_template fallo: %s", body)
     return {
         "ok": ok,
         "status": r.status_code,

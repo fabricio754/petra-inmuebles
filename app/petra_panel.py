@@ -4881,6 +4881,39 @@ _META_TEMPLATES_CACHE = {"ts": 0.0, "payload": None, "error": None}
 _META_CACHE_TTL = 300  # 5 minutos
 
 
+def _meta_fetch_templates_direct(waba_id):
+    """Fallback a Meta Graph API directo. Requiere META_ACCESS_TOKEN con
+    permiso de lectura sobre la WABA."""
+    access_token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    if not access_token:
+        return [], "falta_env:META_ACCESS_TOKEN"
+    gv = (os.environ.get("META_GRAPH_VERSION") or "v22.0").strip()
+    url = f"https://graph.facebook.com/{gv}/{waba_id}/message_templates"
+    try:
+        import requests
+        r = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"limit": 100,
+                    "fields": "id,name,status,category,language,components,"
+                              "quality_score,rejected_reason"},
+            timeout=15,
+        )
+    except Exception as e:
+        return [], f"meta_error:{type(e).__name__}"
+    if not r.ok:
+        import logging as _lg_mt
+        _lg_mt.getLogger(__name__).error(
+            "[meta-direct] fetch templates fallo status=%s body=%s",
+            r.status_code, (r.text or "")[:300])
+        return [], f"meta_http_{r.status_code}"
+    try:
+        data = r.json().get("data") or []
+    except Exception:
+        return [], "meta_json_invalido"
+    return [_normalize_meta_template(t) for t in data], None
+
+
 def _normalize_meta_template(raw):
     """Convierte una entrada del endpoint Meta /message_templates al shape
     que usa nuestro panel (similar al que viene de la tabla local, con la
@@ -5006,6 +5039,23 @@ def _meta_fetch_templates(force=False):
             _lg_mt.getLogger(__name__).error(
                 "[meta] fetch templates fallo url=%s status=%s body=%s",
                 url, r.status_code, (r.text or "")[:300])
+            # Fallback: si Kapso dice "WhatsApp configuration not found",
+            # probamos Meta Graph API directo con META_ACCESS_TOKEN.
+            try_fb = False
+            try:
+                _body_str = r.text or ""
+                if r.status_code == 404 and "configuration not found" in _body_str.lower():
+                    try_fb = True
+            except Exception:
+                pass
+            if try_fb:
+                fb_list, fb_err = _meta_fetch_templates_direct(waba_id)
+                if fb_err is None:
+                    _META_TEMPLATES_CACHE.update(
+                        {"ts": now, "payload": fb_list, "error": None})
+                    return fb_list, None
+                # Si el fallback también falló, devolvemos ese error.
+                msg = fb_err
             _META_TEMPLATES_CACHE.update({"ts": now, "payload": [], "error": msg})
             return [], msg
         data = r.json().get("data") or []
@@ -5446,10 +5496,46 @@ def panel_v2_templates_aprobar(tid):
             eb = {"raw": r.text[:500]}
         return r, eb
 
-    # 1er intento: POST directo, sin DELETE preventivo.
+    def _post_template_meta_directo():
+        """Fallback a Meta Graph API cuando Kapso dice "configuration not
+        found". Usa META_ACCESS_TOKEN."""
+        mt = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+        if not mt:
+            return None, {"error": "meta_falta_token"}
+        gv = (os.environ.get("META_GRAPH_VERSION") or "v22.0").strip()
+        try:
+            r2 = requests.post(
+                f"https://graph.facebook.com/{gv}/{waba_id}/message_templates",
+                headers={"Authorization": f"Bearer {mt}",
+                         "Content-Type": "application/json"},
+                data=_json.dumps(payload),
+                timeout=30,
+            )
+        except Exception as e:
+            return None, {"red": f"{type(e).__name__}: {e}"}
+        if r2.ok:
+            return r2, None
+        try:
+            eb2 = r2.json()
+        except Exception:
+            eb2 = {"raw": r2.text[:500]}
+        return r2, eb2
+
+    # 1er intento: POST a Kapso.
     r, err_body = _post_template()
     if r is None:
         return jsonify({"error": "red", "detalle": err_body}), 500
+    # Si Kapso dice "configuration not found", caemos a Meta Graph API.
+    if not r.ok and r.status_code == 404:
+        raw = ""
+        try:
+            raw = (r.text or "")
+        except Exception:
+            pass
+        if "configuration not found" in raw.lower():
+            r_fb, err_fb = _post_template_meta_directo()
+            if r_fb is not None:
+                r, err_body = r_fb, err_fb
 
     # Si Meta rechaza por "Content Already Exists" o
     # "Category Doesn't Match", significa que hay una copia "sombra" de
