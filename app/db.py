@@ -170,6 +170,7 @@ def _preparar(pool):
         _sembrar_propietarios_dummy_al_boot(conn)
         _corregir_precios_inmuebles_al_boot(conn)
         _desactivar_inmuebles_al_boot(conn)
+        _agentes_viejos_a_pendiente_al_boot(conn)
         # Pre-cargar cache de conjuntos para que la primera query del bot
         # sea instantánea (en vez de esperar ~100ms a DB Virginia).
         try:
@@ -298,6 +299,40 @@ def _cargar_datos_iniciales(conn):
     quedó en 0; sólo se escribe el flag `meta.datos_iniciales` arriba
     para que esta función no se vuelva a invocar."""
     return
+
+
+def _agentes_viejos_a_pendiente_al_boot(conn):
+    """One-shot: pasa todas las agentes 'legacy' (que no estén ya activas,
+    certificadas o pausadas) a estado 'pendiente' — el estado nuevo que
+    significa 'se contactaron alguna vez pero no supimos más, hay que
+    re-contactar'.
+
+    Idempotente via flag meta.agentes_migracion_pendiente_v1.
+    """
+    try:
+        ya = conn.execute(
+            "SELECT 1 FROM meta WHERE clave = 'agentes_migracion_pendiente_v1'"
+        ).fetchone()
+        if ya:
+            return
+        cur = conn.execute(
+            "UPDATE petra_contacto_roles "
+            "   SET metadata = jsonb_set(COALESCE(metadata,'{}'::jsonb), "
+            "                            '{estado_agente}', '\"pendiente\"'::jsonb) "
+            " WHERE rol = 'agente_petra' "
+            "   AND COALESCE(metadata->>'estado_agente','') NOT IN "
+            "       ('activa','certificado','pausada') "
+            "RETURNING id"
+        )
+        n = len(cur.fetchall())
+        conn.execute(
+            "INSERT INTO meta (clave, valor) "
+            "VALUES ('agentes_migracion_pendiente_v1', 'ok') "
+            "ON CONFLICT (clave) DO NOTHING"
+        )
+        log.info("[boot] agentes viejos → 'pendiente': %d filas", n)
+    except Exception:
+        log.exception("[boot] migracion agentes a pendiente fallo")
 
 
 def load_inventario():

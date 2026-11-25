@@ -235,6 +235,7 @@ def _metricas_piloto(conn):
 
 
 _ESTADOS_AGENTE_ORDEN = [
+    "pendiente",
     "recolectando", "inscrito", "bienvenida_enviada",
     "esperando_capacitacion_dia1", "en_capacitacion",
     "capacitacion_completa", "autorizacion_pendiente",
@@ -243,6 +244,7 @@ _ESTADOS_AGENTE_ORDEN = [
 ]
 
 _ESTADOS_LABEL = {
+    "pendiente": "Pendiente (re-contactar)",
     "recolectando": "Recolectando datos",
     "inscrito": "Inscrito",
     "bienvenida_enviada": "Bienvenida enviada",
