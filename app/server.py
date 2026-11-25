@@ -40,6 +40,9 @@ from app.petra_core import petra_core_bp
 app.register_blueprint(petra_core_bp)
 from app.petra_panel import petra_panel_bp
 app.register_blueprint(petra_panel_bp)
+
+from app.petra_mcp import petra_mcp_bp
+app.register_blueprint(petra_mcp_bp)
 scheduler.iniciar()
 webhook_worker.iniciar()
 
