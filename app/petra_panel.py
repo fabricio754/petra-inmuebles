@@ -6819,6 +6819,34 @@ def _build_kapso_send_components(tpl, inmueble):
                 val = conj_nombre or "ejemplo"
             params.append({"type": "text", "text": str(val)})
         comps.append({"type": "body", "parameters": params})
+
+    # Botones URL dinámicos (los que terminan en {{N}}) necesitan parameter.
+    botones = tpl.get("botones") or []
+    for idx, b in enumerate(botones):
+        btype = (b.get("type") or "").lower()
+        if btype != "url":
+            continue
+        burl = (b.get("value") or b.get("url") or "")
+        if "{{" not in burl:
+            continue  # URL estática, sin parámetro
+        # Resolver valor a partir de variable asociada (b.variable) o del inmueble.
+        conj_nombre = inmueble.get("conjunto_nombre") or ""
+        var_src = b.get("variable") or b.get("source")
+        if var_src:
+            try:
+                val = _var_value_for(inmueble, var_src, conj_nombre)
+            except Exception:
+                val = b.get("ejemplo") or ""
+        else:
+            val = b.get("ejemplo") or ""
+        if not val or str(val).strip() in ("", "—"):
+            val = inmueble.get("codigo") or inmueble.get("nro") or conj_nombre or "ejemplo"
+        comps.append({
+            "type": "button",
+            "sub_type": "url",
+            "index": str(idx),
+            "parameters": [{"type": "text", "text": str(val)}],
+        })
     return comps or None
 
 
