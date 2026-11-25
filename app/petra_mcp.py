@@ -99,6 +99,33 @@ _TOOLS = [
         "description": "Lista conjuntos con su código, nombre y ciudad.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "asignar_codigo",
+        "description": (
+            "Asigna un código de conjunto (ej. '1024') a una agente por su "
+            "teléfono. Una agente puede tener varios códigos."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "telefono": {"type": "string", "description": "Teléfono E.164 de la agente."},
+                "codigo": {"type": "string", "description": "Código del conjunto (ej. '1024')."},
+            },
+            "required": ["telefono", "codigo"],
+        },
+    },
+    {
+        "name": "quitar_codigo",
+        "description": "Quita un código de conjunto de una agente.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "telefono": {"type": "string"},
+                "codigo": {"type": "string"},
+            },
+            "required": ["telefono", "codigo"],
+        },
+    },
 ]
 
 _ESTADOS_VALIDOS = {
@@ -146,7 +173,7 @@ def _t_listar_agentes(args):
         where.append("(c.nombre ILIKE %s OR c.telefono ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
     sql = (
-        "SELECT c.telefono, c.nombre, "
+        "SELECT c.id, c.telefono, c.nombre, "
         "       COALESCE(r.metadata->>'estado_agente','pendiente') AS estado, "
         "       COALESCE(r.metadata->>'ciudad','') AS ciudad, "
         "       r.updated_at "
@@ -157,13 +184,37 @@ def _t_listar_agentes(args):
     )
     out = []
     with _db._conexion_directa(timeout=10) as conn:
-        for row in conn.execute(sql, tuple(params)).fetchall():
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        ids = [r[0] for r in rows]
+        codigos_por_contacto = _codigos_por_contacto(conn, ids) if ids else {}
+        for row in rows:
+            cid = row[0]
             out.append({
-                "telefono": row[0], "nombre": row[1],
-                "estado": row[2], "ciudad": row[3],
-                "ultima_actualizacion": row[4].isoformat() if row[4] else None,
+                "telefono": row[1], "nombre": row[2],
+                "estado": row[3], "ciudad": row[4],
+                "codigos": codigos_por_contacto.get(cid, []),
+                "ultima_actualizacion": row[5].isoformat() if row[5] else None,
             })
     return {"count": len(out), "agentes": out}
+
+
+def _codigos_por_contacto(conn, contacto_ids):
+    """Devuelve {contacto_id: [{codigo, nombre, ciudad}]}."""
+    if not contacto_ids:
+        return {}
+    rows = conn.execute(
+        "SELECT ac.contacto_id, cv.codigo, cv.nombre, cv.ciudad "
+        "  FROM petra_agente_conjuntos ac "
+        "  JOIN conjuntos_visitante cv ON cv.id = ac.conjunto_id "
+        " WHERE ac.contacto_id = ANY(%s) "
+        " ORDER BY cv.codigo ASC", (contacto_ids,)
+    ).fetchall()
+    out = {}
+    for cid, cod, nom, ciu in rows:
+        out.setdefault(cid, []).append({
+            "codigo": cod, "nombre": nom, "ciudad": ciu or "",
+        })
+    return out
 
 
 def _t_ficha_agente(args):
@@ -172,17 +223,19 @@ def _t_ficha_agente(args):
         return {"error": "falta telefono"}
     with _db._conexion_directa(timeout=10) as conn:
         row = conn.execute(
-            "SELECT c.telefono, c.nombre, r.metadata, r.updated_at "
+            "SELECT c.id, c.telefono, c.nombre, r.metadata, r.updated_at "
             "  FROM petra_contacto_roles r "
             "  JOIN petra_contactos c ON c.id = r.contacto_id "
             " WHERE r.rol='agente_petra' AND c.telefono = %s", (tel,)
         ).fetchone()
-    if not row:
-        return {"error": "no_encontrada", "telefono": tel}
+        if not row:
+            return {"error": "no_encontrada", "telefono": tel}
+        codigos = _codigos_por_contacto(conn, [row[0]]).get(row[0], [])
     return {
-        "telefono": row[0], "nombre": row[1],
-        "metadata": row[2] or {},
-        "ultima_actualizacion": row[3].isoformat() if row[3] else None,
+        "telefono": row[1], "nombre": row[2],
+        "metadata": row[3] or {},
+        "codigos": codigos,
+        "ultima_actualizacion": row[4].isoformat() if row[4] else None,
     }
 
 
@@ -260,12 +313,71 @@ def _t_listar_conjuntos(args):
     }
 
 
+def _resolver_agente_y_conjunto(conn, telefono, codigo):
+    """Devuelve (contacto_id, conjunto_id) o lanza ValueError con mensaje."""
+    row_a = conn.execute(
+        "SELECT c.id FROM petra_contacto_roles r "
+        "  JOIN petra_contactos c ON c.id = r.contacto_id "
+        " WHERE r.rol='agente_petra' AND c.telefono = %s", (telefono,)
+    ).fetchone()
+    if not row_a:
+        raise ValueError(f"agente_no_encontrada:{telefono}")
+    row_c = conn.execute(
+        "SELECT id FROM conjuntos_visitante WHERE codigo = %s", (str(codigo),)
+    ).fetchone()
+    if not row_c:
+        raise ValueError(f"conjunto_no_encontrado:{codigo}")
+    return row_a[0], row_c[0]
+
+
+def _t_asignar_codigo(args):
+    tel = (args.get("telefono") or "").strip()
+    codigo = (args.get("codigo") or "").strip()
+    if not tel or not codigo:
+        return {"error": "falta telefono o codigo"}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            contacto_id, conjunto_id = _resolver_agente_y_conjunto(conn, tel, codigo)
+            conn.execute(
+                "INSERT INTO petra_agente_conjuntos (contacto_id, conjunto_id) "
+                "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (contacto_id, conjunto_id),
+            )
+            conn.commit()
+    except ValueError as e:
+        return {"error": str(e)}
+    return {"ok": True, "telefono": tel, "codigo": codigo}
+
+
+def _t_quitar_codigo(args):
+    tel = (args.get("telefono") or "").strip()
+    codigo = (args.get("codigo") or "").strip()
+    if not tel or not codigo:
+        return {"error": "falta telefono o codigo"}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            contacto_id, conjunto_id = _resolver_agente_y_conjunto(conn, tel, codigo)
+            cur = conn.execute(
+                "DELETE FROM petra_agente_conjuntos "
+                " WHERE contacto_id = %s AND conjunto_id = %s RETURNING contacto_id",
+                (contacto_id, conjunto_id),
+            )
+            removed = cur.fetchone()
+            conn.commit()
+    except ValueError as e:
+        return {"error": str(e)}
+    return {"ok": True, "telefono": tel, "codigo": codigo,
+            "estaba_asignado": removed is not None}
+
+
 _TOOL_FNS = {
     "listar_agentes": _t_listar_agentes,
     "ficha_agente": _t_ficha_agente,
     "cambiar_estado_agente": _t_cambiar_estado_agente,
     "crear_agente": _t_crear_agente,
     "listar_conjuntos": _t_listar_conjuntos,
+    "asignar_codigo": _t_asignar_codigo,
+    "quitar_codigo": _t_quitar_codigo,
 }
 
 

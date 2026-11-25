@@ -174,6 +174,19 @@ CREATE TABLE IF NOT EXISTS petra_contactos (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Link N:N entre agentes (petra_contactos) y conjuntos (conjuntos_visitante).
+-- Una agente puede tener varios conjuntos (códigos QR).
+-- Un conjunto típicamente pertenece a una sola agente pero el schema permite
+-- varias si en el futuro hace falta.
+CREATE TABLE IF NOT EXISTS petra_agente_conjuntos (
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  conjunto_id INTEGER NOT NULL REFERENCES conjuntos_visitante(id) ON DELETE CASCADE,
+  asignado_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (contacto_id, conjunto_id)
+);
+CREATE INDEX IF NOT EXISTS petra_agente_conjuntos_conjunto_idx
+  ON petra_agente_conjuntos (conjunto_id);
+
 CREATE TABLE IF NOT EXISTS petra_contacto_roles (
   id SERIAL PRIMARY KEY,
   contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
