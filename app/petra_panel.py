@@ -6434,6 +6434,7 @@ def visitante_inmueble_editar(iid):
     token = (request.form.get("token") or "").strip()
     nro = (request.form.get("nro") or "").strip()
     operacion = (request.form.get("operacion") or "").strip()
+    tipo = (request.form.get("tipo") or "").strip().lower()
     hab = _parse_int_or_none(request.form.get("habitaciones"))
     banos = _parse_int_or_none(request.form.get("banos"))
     m2 = _parse_int_or_none(request.form.get("m2"))
@@ -6443,6 +6444,10 @@ def visitante_inmueble_editar(iid):
     if operacion not in ("arriendo", "venta"):
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
+    tipos_validos = {"apartamento", "casa", "oficina", "parqueadero",
+                     "deposito", "habitacion", "local"}
+    if tipo not in tipos_validos:
+        tipo = None  # no cambiamos si viene vacio o invalido
     if not nro:
         nro = "(sin especificar)"
     if precio is None or precio < 0:
@@ -6456,12 +6461,20 @@ def visitante_inmueble_editar(iid):
             if not row:
                 abort(404)
             cid = row[0]
-            conn.execute(
-                "UPDATE inmuebles_visitante SET nro=%s, operacion=%s, "
-                "habitaciones=%s, banos=%s, m2=%s, precio=%s, "
-                "propietario_telefono=%s WHERE id=%s",
-                (nro, operacion, hab, banos, m2, precio, tel, iid),
-            )
+            if tipo is None:
+                conn.execute(
+                    "UPDATE inmuebles_visitante SET nro=%s, operacion=%s, "
+                    "habitaciones=%s, banos=%s, m2=%s, precio=%s, "
+                    "propietario_telefono=%s WHERE id=%s",
+                    (nro, operacion, hab, banos, m2, precio, tel, iid),
+                )
+            else:
+                conn.execute(
+                    "UPDATE inmuebles_visitante SET nro=%s, operacion=%s, "
+                    "tipo=%s, habitaciones=%s, banos=%s, m2=%s, precio=%s, "
+                    "propietario_telefono=%s WHERE id=%s",
+                    (nro, operacion, tipo, hab, banos, m2, precio, tel, iid),
+                )
             conn.commit()
     except Exception:
         return redirect(request.referrer or url_for(

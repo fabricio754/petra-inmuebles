@@ -562,6 +562,7 @@
                       data-id="{{ i.id }}"
                       data-nro="{{ i.nro or '' }}"
                       data-op="{{ i.operacion or 'arriendo' }}"
+                      data-tipo="{{ i.tipo or 'apartamento' }}"
                       data-hab="{{ i.habitaciones if i.habitaciones is not none else '' }}"
                       data-banos="{{ i.banos if i.banos is not none else '' }}"
                       data-m2="{{ i.m2 if i.m2 is not none else '' }}"
@@ -666,6 +667,18 @@
         </select>
       </div>
       <div>
+        <label>Tipo *</label>
+        <select name="tipo" id="ei-tipo" required>
+          <option value="apartamento">Apartamento</option>
+          <option value="casa">Casa</option>
+          <option value="oficina">Oficina</option>
+          <option value="local">Local</option>
+          <option value="parqueadero">Parqueadero</option>
+          <option value="deposito">Depósito</option>
+          <option value="habitacion">Habitación</option>
+        </select>
+      </div>
+      <div>
         <label>Área (m²)</label>
         <input type="number" name="m2" id="ei-m2" min="0" inputmode="numeric">
       </div>
@@ -729,6 +742,7 @@ document.querySelectorAll('.editar-inm-btn').forEach(function (btn) {
     f.action = '/panel/petra/visitante/inmuebles/' + d.id + '/editar';
     document.getElementById('ei-nro').value = d.nro || '';
     document.getElementById('ei-op').value = d.op || 'arriendo';
+    document.getElementById('ei-tipo').value = d.tipo || 'apartamento';
     document.getElementById('ei-hab').value = d.hab || '';
     document.getElementById('ei-banos').value = d.banos || '';
     document.getElementById('ei-m2').value = d.m2 || '';
