@@ -1788,8 +1788,9 @@
       if (b.preset_id) last.setAttribute('data-preset-id', b.preset_id);
     });
 
-    // Según tipo
-    if (t.tipo === 'multimedia' && t.header) {
+    // Header: puede venir con tipo 'multimedia' (solo header) o 'botones'
+    // (header + botón). En ambos casos el UI unificado 'mensaje' lo muestra.
+    if (t.header && (t.tipo === 'multimedia' || t.tipo === 'botones' || t.tipo === 'texto')) {
       document.getElementById('f-header-type').value = t.header.type || 'image';
       document.getElementById('f-header-url').value = t.header.url || '';
       document.getElementById('f-header-label').value = t.header.label || '';
@@ -1884,7 +1885,10 @@
     }
     dispEl.addEventListener('input', function() {
       if (nameEl.disabled) return;  // modo edición, no tocar
-      if (nameEl.dataset.touched === '1') return;  // usuario ya lo editó
+      // Solo bloqueamos autofill si name está lleno Y es distinto del slug.
+      // Si está vacío, siempre autofill.
+      var currentName = (nameEl.value || '').trim();
+      if (currentName && nameEl.dataset.touched === '1') return;
       nameEl.value = slugify(dispEl.value);
     });
     nameEl.addEventListener('input', function() {
