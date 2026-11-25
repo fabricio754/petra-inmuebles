@@ -1465,7 +1465,7 @@
     if (!confirm('¿Borrar DEFINITIVAMENTE la plantilla "' + (t.display || t.name) + '" en Meta?\n\nEsta acción es irreversible y la plantilla ya no estará disponible para enviar.')) return;
     var fd = new FormData();
     fd.append('token', TOKEN);
-    fd.append('template_id', t.id || t.template_id || '');
+    fd.append('template_id', t.meta_id || t.id || t.template_id || '');
     fd.append('name', t.name);
     fetch('/panel/petra/v2/templates/meta/eliminar?token=' + encodeURIComponent(TOKEN),
           { method: 'POST', body: fd })
