@@ -124,7 +124,8 @@ _TOOLS = [
         "description": (
             "Corrige la fecha de envío de un código ya asignado a una agente. "
             "Útil cuando se asignaron ayer varios códigos pero algunos se "
-            "habían mandado en otra fecha."
+            "habían mandado en otra fecha. Pasá fecha_envio='' (string vacío) "
+            "para dejar el campo SIN FECHA (desconocida)."
         ),
         "inputSchema": {
             "type": "object",
@@ -133,7 +134,7 @@ _TOOLS = [
                 "codigo": {"type": "string"},
                 "fecha_envio": {
                     "type": "string",
-                    "description": "Nueva fecha (YYYY-MM-DD).",
+                    "description": "YYYY-MM-DD o '' para borrar (sin fecha).",
                 },
             },
             "required": ["telefono", "codigo", "fecha_envio"],
@@ -591,19 +592,32 @@ def _t_asignar_codigo(args):
 def _t_ajustar_fecha_envio_codigo(args):
     tel = (args.get("telefono") or "").strip()
     codigo = (args.get("codigo") or "").strip()
-    fecha = (args.get("fecha_envio") or "").strip()
-    if not tel or not codigo or not fecha:
-        return {"error": "falta telefono, codigo o fecha_envio"}
+    # Nota: NO usamos .strip() con default — un string vacío significa "borrar".
+    fecha_raw = args.get("fecha_envio")
+    if fecha_raw is None:
+        return {"error": "falta fecha_envio (usá '' para borrar)"}
+    if not tel or not codigo:
+        return {"error": "falta telefono o codigo"}
+    fecha = str(fecha_raw).strip()
     try:
         with _db._conexion_directa(timeout=10) as conn:
             contacto_id, conjunto_id = _resolver_agente_y_conjunto(conn, tel, codigo)
-            cur = conn.execute(
-                "UPDATE petra_agente_conjuntos "
-                "   SET asignado_at = %s::date "
-                " WHERE contacto_id = %s AND conjunto_id = %s "
-                "RETURNING contacto_id",
-                (fecha, contacto_id, conjunto_id),
-            )
+            if fecha == "":
+                cur = conn.execute(
+                    "UPDATE petra_agente_conjuntos "
+                    "   SET asignado_at = NULL "
+                    " WHERE contacto_id = %s AND conjunto_id = %s "
+                    "RETURNING contacto_id",
+                    (contacto_id, conjunto_id),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE petra_agente_conjuntos "
+                    "   SET asignado_at = %s::date "
+                    " WHERE contacto_id = %s AND conjunto_id = %s "
+                    "RETURNING contacto_id",
+                    (fecha, contacto_id, conjunto_id),
+                )
             found = cur.fetchone()
             conn.commit()
     except ValueError as e:
@@ -612,7 +626,8 @@ def _t_ajustar_fecha_envio_codigo(args):
         return {"error": "no_estaba_asignado",
                 "mensaje": f"{tel} no tiene asignado el código {codigo}. "
                             "Usá asignar_codigo con fecha_envio directamente."}
-    return {"ok": True, "telefono": tel, "codigo": codigo, "fecha_envio": fecha}
+    return {"ok": True, "telefono": tel, "codigo": codigo,
+            "fecha_envio": fecha or "(sin fecha)"}
 
 
 def _t_quitar_codigo(args):
