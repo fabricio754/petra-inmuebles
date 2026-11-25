@@ -5461,6 +5461,48 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
     return components, None
 
 
+@petra_panel_bp.post("/v2/templates/meta/eliminar")
+def panel_v2_templates_meta_eliminar():
+    """Borra una template ya aprobada en Meta via Kapso proxy. Irreversible."""
+    from flask import jsonify
+    from app import petra_kapso as _kapso_mod
+    import requests as _rq
+    _check_token()
+
+    template_id = (request.form.get("template_id") or "").strip()
+    name = (request.form.get("name") or "").strip()
+    if not template_id or not name:
+        return jsonify({"ok": False, "msg": "falta template_id o name"}), 400
+
+    k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
+    if not (k_api_key and waba_id):
+        return jsonify({"ok": False, "msg": "kapso_no_configurado"}), 500
+
+    url = (f"{k_base}/{k_version}/{waba_id}/message_templates"
+           f"?hsm_id={template_id}&name={name}")
+    try:
+        r = _rq.delete(url, headers={"X-API-Key": k_api_key}, timeout=15)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"red:{type(e).__name__}",
+                        "detalle": str(e)}), 502
+    try:
+        body = r.json()
+    except Exception:
+        body = r.text[:500]
+    if not r.ok:
+        return jsonify({"ok": False, "status": r.status_code,
+                        "msg": "meta_error", "detalle": body}), 502
+    # Invalidar cache de templates meta para que el próximo fetch sea fresco.
+    try:
+        _META_TEMPLATES_CACHE["ts"] = 0
+    except Exception:
+        pass
+    return jsonify({"ok": True, "template_id": template_id, "name": name,
+                    "body": body})
+
+
 @petra_panel_bp.post("/v2/templates/<int:tid>/aprobar")
 def panel_v2_templates_aprobar(tid):
     """Somete el template a Meta para aprobación.

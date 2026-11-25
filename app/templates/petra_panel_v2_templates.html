@@ -1452,10 +1452,33 @@
           '<div class="tpl-card-meta"></div>' +
           '<div class="tpl-card-btns">' +
             '<button class="mini-btn" onclick="previewMetaTemplate(' + idx + ')">👁️ Previa</button>' +
+            '<button class="mini-btn danger" onclick="deleteMetaTemplate(' + idx + ')" style="color:#dc2626;border-color:#fca5a5">🗑</button>' +
           '</div>' +
         '</div>' +
       '</div>';
     }).join('');
+  }
+
+  function deleteMetaTemplate(idx) {
+    var t = META_TEMPLATES[idx];
+    if (!t) return;
+    if (!confirm('¿Borrar DEFINITIVAMENTE la plantilla "' + (t.display || t.name) + '" en Meta?\n\nEsta acción es irreversible y la plantilla ya no estará disponible para enviar.')) return;
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('template_id', t.id || t.template_id || '');
+    fd.append('name', t.name);
+    fetch('/panel/petra/v2/templates/meta/eliminar?token=' + encodeURIComponent(TOKEN),
+          { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          alert('✅ Plantilla eliminada en Meta.');
+          location.reload();
+        } else {
+          alert('❌ ' + (d.msg || d.error || 'error'));
+        }
+      })
+      .catch(function(err) { alert('Error de red: ' + err); });
   }
 
   function renderWaitingGrid(lista, fetchedAt) {
