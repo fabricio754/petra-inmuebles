@@ -1460,8 +1460,8 @@
   }
 
   function deleteMetaTemplate(idx) {
-    var t = META_TEMPLATES[idx];
-    if (!t) return;
+    var t = META_APROBADOS[idx];
+    if (!t) { alert('No encuentro la plantilla (idx=' + idx + ')'); return; }
     if (!confirm('¿Borrar DEFINITIVAMENTE la plantilla "' + (t.display || t.name) + '" en Meta?\n\nEsta acción es irreversible y la plantilla ya no estará disponible para enviar.')) return;
     var fd = new FormData();
     fd.append('token', TOKEN);
