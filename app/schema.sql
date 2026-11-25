@@ -1794,6 +1794,9 @@ ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS fecha_activacion DATE;
 ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_fotos_inventario BOOLEAN DEFAULT FALSE;
 ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_videos_conjunto BOOLEAN DEFAULT FALSE;
 ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_inventario_inmueble BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_video_qr BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_video_zonas_comunes BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_video_frente BOOLEAN DEFAULT FALSE;
 ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS notas TEXT;
 
 CREATE TABLE IF NOT EXISTS inmuebles_visitante (

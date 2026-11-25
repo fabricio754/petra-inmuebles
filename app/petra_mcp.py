@@ -232,8 +232,11 @@ _TOOLS = [
             "Actualiza datos del CONJUNTO (lugar). Campos soportados: "
             "nombre, ciudad, barrio, direccion, ubicacion_maps, "
             "fecha_activacion (ISO YYYY-MM-DD), envio_fotos_inventario "
-            "(bool), envio_videos_conjunto (bool), "
-            "envio_inventario_inmueble (bool), notas."
+            "(bool), envio_video_qr (bool, video QR instalado), "
+            "envio_video_zonas_comunes (bool, video de zonas comunes), "
+            "envio_video_frente (bool, video del frente del conjunto), "
+            "envio_videos_conjunto (bool, legacy), "
+            "envio_inventario_inmueble (bool, legacy), notas."
         ),
         "inputSchema": {
             "type": "object",
@@ -249,6 +252,9 @@ _TOOLS = [
                         "ubicacion_maps": {"type": "string"},
                         "fecha_activacion": {"type": "string"},
                         "envio_fotos_inventario": {"type": "boolean"},
+                        "envio_video_qr": {"type": "boolean"},
+                        "envio_video_zonas_comunes": {"type": "boolean"},
+                        "envio_video_frente": {"type": "boolean"},
                         "envio_videos_conjunto": {"type": "boolean"},
                         "envio_inventario_inmueble": {"type": "boolean"},
                         "notas": {"type": "string"},
@@ -323,7 +329,9 @@ _CAMPOS_METADATA = {
 _CAMPOS_CONJUNTO = {
     "nombre", "ciudad", "barrio", "direccion", "ubicacion_maps",
     "fecha_activacion", "envio_fotos_inventario",
-    "envio_videos_conjunto", "envio_inventario_inmueble", "notas",
+    "envio_videos_conjunto", "envio_inventario_inmueble",
+    "envio_video_qr", "envio_video_zonas_comunes", "envio_video_frente",
+    "notas",
 }
 
 _ESTADOS_VALIDOS = {
@@ -434,7 +442,9 @@ def _t_ficha_agente(args):
             "SELECT cv.codigo, cv.nombre, cv.ciudad, cv.barrio, "
             "       cv.direccion, cv.ubicacion_maps, cv.fecha_activacion, "
             "       cv.envio_fotos_inventario, cv.envio_videos_conjunto, "
-            "       cv.envio_inventario_inmueble, cv.notas, ac.asignado_at "
+            "       cv.envio_inventario_inmueble, cv.notas, ac.asignado_at, "
+            "       cv.envio_video_qr, cv.envio_video_zonas_comunes, "
+            "       cv.envio_video_frente "
             "  FROM petra_agente_conjuntos ac "
             "  JOIN conjuntos_visitante cv ON cv.id = ac.conjunto_id "
             " WHERE ac.contacto_id = %s ORDER BY cv.codigo", (row[0],)
@@ -459,6 +469,9 @@ def _t_ficha_agente(args):
                 "envio_inventario_inmueble": bool(c[9]),
                 "notas": c[10] or "",
                 "fecha_envio_qr": c[11].isoformat() if c[11] else "",
+                "envio_video_qr": bool(c[12]),
+                "envio_video_zonas_comunes": bool(c[13]),
+                "envio_video_frente": bool(c[14]),
             }
             for c in conjuntos
         ],
@@ -893,6 +906,9 @@ _CAMPOS_CONJUNTO_SQL_TIPO = {
     "envio_fotos_inventario": "bool",
     "envio_videos_conjunto": "bool",
     "envio_inventario_inmueble": "bool",
+    "envio_video_qr": "bool",
+    "envio_video_zonas_comunes": "bool",
+    "envio_video_frente": "bool",
     "notas": "text",
 }
 
@@ -932,7 +948,8 @@ def _t_ficha_conjunto(args):
         row = conn.execute(
             "SELECT id, codigo, nombre, ciudad, barrio, direccion, "
             "       ubicacion_maps, fecha_activacion, envio_fotos_inventario, "
-            "       envio_videos_conjunto, envio_inventario_inmueble, notas "
+            "       envio_videos_conjunto, envio_inventario_inmueble, notas, "
+            "       envio_video_qr, envio_video_zonas_comunes, envio_video_frente "
             "  FROM conjuntos_visitante WHERE codigo = %s", (cod,)
         ).fetchone()
         if not row:
@@ -954,6 +971,9 @@ def _t_ficha_conjunto(args):
         "envio_videos_conjunto": bool(row[9]),
         "envio_inventario_inmueble": bool(row[10]),
         "notas": row[11] or "",
+        "envio_video_qr": bool(row[12]),
+        "envio_video_zonas_comunes": bool(row[13]),
+        "envio_video_frente": bool(row[14]),
         "agentes": [
             {"telefono": a[0], "nombre": a[1],
              "fecha_envio_qr": a[2].isoformat() if a[2] else ""}
