@@ -1412,9 +1412,11 @@
   // Guardamos los templates Meta aprobados para que el picker de "Previa"
   // los pueda referenciar por índice.
   var META_APROBADOS = [];
+  window.META_APROBADOS = META_APROBADOS;
 
   function renderMetaGrid(lista, fetchedAt) {
     META_APROBADOS = lista;
+    window.META_APROBADOS = lista;
     var grid = document.getElementById('meta-grid');
     grid.hidden = false;
     if (!lista.length) {
@@ -1459,9 +1461,11 @@
     }).join('');
   }
 
-  function deleteMetaTemplate(idx) {
-    var t = META_APROBADOS[idx];
-    if (!t) { alert('No encuentro la plantilla (idx=' + idx + ')'); return; }
+  window.deleteMetaTemplate = function(idx) {
+    console.log('[delete] click idx=', idx, 'size=', (window.META_APROBADOS || []).length);
+    var arr = window.META_APROBADOS || META_APROBADOS || [];
+    var t = arr[idx];
+    if (!t) { alert('No encuentro la plantilla (idx=' + idx + ' size=' + arr.length + ')'); return; }
     if (!confirm('¿Borrar DEFINITIVAMENTE la plantilla "' + (t.display || t.name) + '" en Meta?\n\nEsta acción es irreversible y la plantilla ya no estará disponible para enviar.')) return;
     var fd = new FormData();
     fd.append('token', TOKEN);
@@ -1479,7 +1483,7 @@
         }
       })
       .catch(function(err) { alert('Error de red: ' + err); });
-  }
+  };
 
   function renderWaitingGrid(lista, fetchedAt) {
     var grid = document.getElementById('waiting-grid');
