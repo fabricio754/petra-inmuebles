@@ -5843,7 +5843,7 @@ def panel_v2_templates_actualizar(tid):
 
 @petra_panel_bp.post("/v2/templates/<int:tid>/eliminar")
 def panel_v2_templates_eliminar(tid):
-    """Elimina un template (solo si está en draft)."""
+    """Elimina un template local (cualquier estado). No borra en Meta."""
     _check_token()
     from flask import jsonify
     try:
@@ -5854,9 +5854,8 @@ def panel_v2_templates_eliminar(tid):
             ).fetchone()
             if not row:
                 return jsonify({"error": "no encontrado"}), 404
-            if row[0] != "draft":
-                return jsonify({"error": "solo se pueden eliminar drafts"}), 400
             conn.execute("DELETE FROM campana_templates WHERE id = %s", (tid,))
+            conn.commit()
             return jsonify({"ok": True})
     except Exception:
         import logging as _lg
