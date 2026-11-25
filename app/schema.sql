@@ -215,6 +215,21 @@ CREATE INDEX IF NOT EXISTS petra_conjunto_media_inm_idx
   ON petra_conjunto_media (inmueble_id)
   WHERE inmueble_id IS NOT NULL;
 
+-- Números WhatsApp conectados a Kapso que podemos usar para enviar
+-- templates. El marcado como `activo` manda sobre las env vars
+-- KAPSO_PHONE_NUMBER_ID / KAPSO_WABA_ID.
+CREATE TABLE IF NOT EXISTS petra_kapso_numeros (
+  id            BIGSERIAL PRIMARY KEY,
+  phone_id      TEXT NOT NULL UNIQUE,
+  waba_id       TEXT,
+  e164          TEXT,
+  label         TEXT,
+  activo        BOOLEAN NOT NULL DEFAULT FALSE,
+  creado_en     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS petra_kapso_numeros_activo_uno
+  ON petra_kapso_numeros ((activo)) WHERE activo;
+
 CREATE TABLE IF NOT EXISTS petra_contacto_roles (
   id SERIAL PRIMARY KEY,
   contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,

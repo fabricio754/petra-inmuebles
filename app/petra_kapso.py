@@ -32,9 +32,41 @@ def _config():
     if "app.kapso.ai" in base or "/api/meta" in base:
         base = _DEFAULT_BASE_URL
     api_key = (os.environ.get("KAPSO_API_KEY") or "").strip()
-    phone_id = (os.environ.get("KAPSO_PHONE_NUMBER_ID") or "").strip()
+    # Prioridad: DB (petra_kapso_numeros activo) > env var KAPSO_PHONE_NUMBER_ID.
+    phone_id = _phone_id_activo() or (os.environ.get("KAPSO_PHONE_NUMBER_ID") or "").strip()
     version = (os.environ.get("KAPSO_GRAPH_VERSION") or _DEFAULT_GRAPH_VERSION).strip()
     return base, api_key, phone_id, version
+
+
+def _phone_id_activo():
+    """Devuelve el phone_id marcado como activo en DB, o '' si no hay."""
+    try:
+        from app import db as _db
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT phone_id FROM petra_kapso_numeros WHERE activo LIMIT 1"
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                return str(row[0]).strip()
+    except Exception as e:
+        _LOG.debug("[kapso] no pude leer phone_id activo: %s", e)
+    return ""
+
+
+def _waba_id_activo():
+    try:
+        from app import db as _db
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT waba_id FROM petra_kapso_numeros WHERE activo LIMIT 1"
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                return str(row[0]).strip()
+    except Exception:
+        pass
+    return ""
 
 
 def _is_ready():

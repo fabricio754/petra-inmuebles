@@ -164,6 +164,8 @@
       {{ n.conectado_en.strftime('%d %b %Y') if n.conectado_en else '' }}
     </div>
     <div class="num-actions">
+      <button class="mini-btn"
+              onclick="renombrarNumero({{ n.id }}, '{{ n.display_name|escape }}')">Renombrar</button>
       <button class="mini-btn danger"
               onclick="eliminarNumero({{ n.id }}, '{{ n.display_name|escape }}')">Desconectar</button>
     </div>
@@ -310,11 +312,27 @@
       });
   }
 
+  function renombrarNumero(id, actual) {
+    var nuevo = prompt('Nuevo nombre para "' + actual + '":', actual);
+    if (!nuevo || nuevo === actual) return;
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('display_name', nuevo);
+    fetch('/panel/petra/v2/numeros/' + id + '/renombrar?token=' + encodeURIComponent(TOKEN),
+          { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) window.location.reload();
+        else alert(d.error || 'error');
+      });
+  }
+
   function eliminarNumero(id, display) {
     if (!confirm('¿Desconectar "' + display + '"? No afecta Meta, solo lo quita de este panel.')) return;
     var fd = new FormData();
     fd.append('token', TOKEN);
-    fetch('/panel/petra/v2/numeros/' + id + '/eliminar', { method: 'POST', body: fd })
+    fetch('/panel/petra/v2/numeros/' + id + '/eliminar?token=' + encodeURIComponent(TOKEN),
+          { method: 'POST', body: fd })
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.ok) window.location.reload();

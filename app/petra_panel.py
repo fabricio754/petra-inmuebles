@@ -4560,6 +4560,26 @@ def panel_v2_numeros_callback():
     })
 
 
+@petra_panel_bp.post("/v2/numeros/<int:nid>/renombrar")
+def panel_v2_numeros_renombrar(nid):
+    """Cambia el display_name de un número conectado."""
+    _check_token()
+    from flask import jsonify
+    nuevo = (request.form.get("display_name") or "").strip()
+    if not nuevo:
+        return jsonify({"error": "nombre vacio"}), 400
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "UPDATE waba_conectadas SET display_name = %s WHERE id = %s",
+                (nuevo, nid))
+            return jsonify({"ok": True})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[numeros] renombrar fallo")
+        return jsonify({"error": "db_error"}), 500
+
+
 @petra_panel_bp.post("/v2/numeros/<int:nid>/eliminar")
 def panel_v2_numeros_eliminar(nid):
     """Desconecta (elimina de DB) un número. No afecta Meta."""
@@ -4591,7 +4611,8 @@ def panel_v2_numeros_kapso_sincronizar():
     _check_token()
 
     k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
-    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
     if not (k_api_key and waba_id):
         return jsonify({"error": "kapso_no_configurado"}), 500
 
@@ -5038,10 +5059,11 @@ def _meta_fetch_templates(force=False):
        (now - _META_TEMPLATES_CACHE["ts"]) < _META_CACHE_TTL:
         return _META_TEMPLATES_CACHE["payload"], _META_TEMPLATES_CACHE["error"]
 
-    # Lista desde la WABA de Kapso (+573001301331), no la del bot.
+    # Lista desde la WABA activa en DB (si hay), si no la del env.
     from app import petra_kapso as _kapso_mod
     k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
-    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
 
     if not k_api_key:
         return [], "falta_env:KAPSO_API_KEY"
@@ -5454,10 +5476,11 @@ def panel_v2_templates_aprobar(tid):
     import json as _json
     import requests
 
-    # Las aprobaciones de templates van a la WABA de Kapso (+573001301331).
+    # Las aprobaciones de templates van a la WABA activa (DB) o la del env.
     # El bot (+573001278631) no envia templates; es solo chat libre.
     k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
-    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
     # app_id solo se usaba para Resumable Upload de media directo a Meta;
     # ahora via Kapso NO hace falta si usamos header_url en vez de handle.
     app_id = (os.environ.get("META_APP_ID") or "").strip()
@@ -9959,20 +9982,241 @@ def kapso_test_template():
     return jsonify(resultado), (200 if resultado.get("ok") else 502)
 
 
+@petra_panel_bp.get("/v2/kapso/test-create-template")
+def panel_v2_kapso_test_create_template():
+    """Diagnostico: intenta crear una template minima en la WABA activa
+    via el proxy de Kapso. Devuelve el status y body crudo de Meta/Kapso.
+    """
+    _check_token()
+    from flask import jsonify
+    from app import petra_kapso as _kapso_mod
+    import json as _json
+    import requests as _req
+
+    k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
+    if not (k_api_key and waba_id):
+        return jsonify({"ok": False, "msg": "falta api key o waba"}), 500
+
+    payload = {
+        "name": "diag_test_coex_" + str(int(_time.time())),
+        "language": "es",
+        "category": "MARKETING",
+        "components": [{"type": "BODY", "text": "Hola, prueba diagnostico."}],
+    }
+    try:
+        r = _req.post(
+            f"{k_base}/{k_version}/{waba_id}/message_templates",
+            headers={"X-API-Key": k_api_key,
+                     "Content-Type": "application/json"},
+            data=_json.dumps(payload),
+            timeout=30,
+        )
+        try:
+            body = r.json()
+        except Exception:
+            body = r.text[:500]
+        return jsonify({
+            "waba_id": waba_id,
+            "url": f"{k_base}/{k_version}/{waba_id}/message_templates",
+            "status": r.status_code,
+            "body": body,
+            "sent_payload": payload,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "exception": str(e)}), 500
+
+
+def _kapso_sync_numeros_con_db():
+    """Pide a Kapso los numeros actualmente conectados y reconcilia
+    con petra_kapso_numeros: inserta los que faltan, borra los que
+    Kapso ya no tiene, y si solo queda uno lo marca activo.
+
+    Se corre al abrir /v2/kapso para que la vista nunca muestre
+    numeros fantasma.
+    """
+    from app import petra_kapso as _kapso_mod
+    import requests as _rq
+    import logging as _lg
+    log = _lg.getLogger(__name__)
+
+    base, api_key, _k_phone, version = _kapso_mod._config()
+    if not api_key:
+        return
+    # WABAs posibles: la activa en DB + la del env + las ya guardadas
+    wabas = set()
+    for w in (_kapso_mod._waba_id_activo(),
+              (os.environ.get("KAPSO_WABA_ID") or "").strip()):
+        if w:
+            wabas.add(w)
+    try:
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT waba_id FROM petra_kapso_numeros "
+                        "WHERE waba_id IS NOT NULL")
+            for (w,) in cur.fetchall():
+                if w:
+                    wabas.add(w.strip())
+    except Exception:
+        pass
+    if not wabas:
+        return
+
+    vistos = {}  # phone_id -> {waba_id, e164, label}
+    for waba in wabas:
+        url = f"{base}/{version}/{waba}/phone_numbers"
+        try:
+            r = _rq.get(url, headers={"X-API-Key": api_key}, timeout=15)
+        except Exception as e:
+            log.debug("[kapso-sync] GET %s fallo: %s", url, e)
+            continue
+        if not r.ok:
+            continue
+        for num in (r.json() or {}).get("data") or []:
+            pid = str(num.get("id") or "").strip()
+            if not pid:
+                continue
+            raw = (num.get("display_phone_number") or "").replace(" ", "")
+            e164 = ("+" + raw.lstrip("+")) if raw else None
+            vistos[pid] = {
+                "waba_id": waba,
+                "e164": e164,
+                "label": (num.get("verified_name") or e164 or "Número Kapso"),
+            }
+
+    if not vistos:
+        return  # ninguna WABA respondio bien, no toco DB
+
+    try:
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
+            # Upsert de lo que vimos
+            for pid, info in vistos.items():
+                cur.execute("""
+                    INSERT INTO petra_kapso_numeros (phone_id, waba_id, e164, label)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (phone_id) DO UPDATE
+                      SET waba_id = EXCLUDED.waba_id,
+                          e164    = COALESCE(EXCLUDED.e164, petra_kapso_numeros.e164),
+                          label   = COALESCE(EXCLUDED.label, petra_kapso_numeros.label)
+                """, (pid, info["waba_id"], info["e164"], info["label"]))
+            # Borrar los que Kapso ya no reporta
+            cur.execute("SELECT id, phone_id FROM petra_kapso_numeros")
+            for row_id, pid in cur.fetchall():
+                if pid not in vistos:
+                    cur.execute(
+                        "DELETE FROM petra_kapso_numeros WHERE id = %s",
+                        (row_id,))
+            # Si queda exactamente uno y nadie activo, actívalo
+            cur.execute(
+                "SELECT COUNT(*) FROM petra_kapso_numeros WHERE activo")
+            activos = cur.fetchone()[0] or 0
+            if activos == 0:
+                cur.execute(
+                    "SELECT COUNT(*), MIN(id) FROM petra_kapso_numeros")
+                total, first_id = cur.fetchone()
+                if total == 1 and first_id:
+                    cur.execute(
+                        "UPDATE petra_kapso_numeros SET activo = TRUE "
+                        "WHERE id = %s", (first_id,))
+            conn.commit()
+    except Exception as e:
+        log.warning("[kapso-sync] reconciliacion DB fallo: %s", e)
+
+
 @petra_panel_bp.get("/v2/kapso")
 def panel_v2_kapso():
     """Panel v2: página de Kapso. Muestra el estado del número conectado
-    al BSP y permite enviar un template manual de prueba.
+    al BSP y permite enviar un template manual de prueba. Sincroniza
+    automaticamente con Kapso al abrir la vista.
     """
     from app import petra_kapso as _kapso
     _check_token()
     token = (request.args.get("token") or "").strip()
 
+    # Auto-sync con Kapso antes de renderizar (best effort)
+    try:
+        _kapso_sync_numeros_con_db()
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "[kapso-panel] auto-sync fallo: %s", e)
+
     base, api_key, phone_id, _version = _kapso._config()
+    waba_id = _kapso._waba_id_activo() or (os.environ.get("KAPSO_WABA_ID") or "").strip()
     cfg = {
         "ready": bool(api_key and phone_id),
         "phone_id": phone_id or "—",
-        "waba_id": (os.environ.get("KAPSO_WABA_ID") or "").strip() or "",
+        "waba_id": waba_id or "",
         "base": base or "—",
     }
-    return render_template("petra_panel_v2_kapso.html", token=token, cfg=cfg)
+
+    numeros = []
+    try:
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT k.id, k.phone_id, k.waba_id,
+                       COALESCE(w.phone_e164, k.e164)      AS e164,
+                       COALESCE(w.display_name, k.label)   AS label,
+                       k.activo
+                  FROM petra_kapso_numeros k
+                  LEFT JOIN waba_conectadas w
+                         ON w.phone_number_id = k.phone_id
+                 ORDER BY k.activo DESC, k.creado_en ASC""")
+            for r in cur.fetchall():
+                numeros.append({
+                    "id": r[0], "phone_id": r[1], "waba_id": r[2],
+                    "e164": r[3], "label": r[4], "activo": bool(r[5]),
+                })
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "[kapso-panel] no pude leer numeros: %s", e)
+
+    return render_template("petra_panel_v2_kapso.html",
+                           token=token, cfg=cfg, numeros=numeros)
+
+
+@petra_panel_bp.post("/v2/kapso/numeros/agregar")
+def panel_v2_kapso_numeros_agregar():
+    from flask import jsonify
+    _check_token()
+    phone_id = (request.form.get("phone_id") or "").strip()
+    waba_id = (request.form.get("waba_id") or "").strip() or None
+    e164 = (request.form.get("e164") or "").strip() or None
+    label = (request.form.get("label") or "").strip() or None
+    if not phone_id:
+        return jsonify({"ok": False, "msg": "phone_id requerido"}), 400
+    with _db._conexion_directa() as conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO petra_kapso_numeros (phone_id, waba_id, e164, label)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (phone_id) DO UPDATE
+                         SET waba_id = EXCLUDED.waba_id,
+                             e164    = EXCLUDED.e164,
+                             label   = EXCLUDED.label
+                       RETURNING id""",
+                    (phone_id, waba_id, e164, label))
+        nid = cur.fetchone()[0]
+        conn.commit()
+    return jsonify({"ok": True, "id": nid})
+
+
+@petra_panel_bp.post("/v2/kapso/numeros/<int:nid>/activar")
+def panel_v2_kapso_numeros_activar(nid):
+    from flask import jsonify
+    _check_token()
+    with _db._conexion_directa() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE petra_kapso_numeros SET activo = FALSE WHERE activo")
+        cur.execute("UPDATE petra_kapso_numeros SET activo = TRUE WHERE id = %s", (nid,))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return jsonify({"ok": False, "msg": "no existe"}), 404
+        conn.commit()
+    return jsonify({"ok": True})
+
+
+@petra_panel_bp.post("/v2/kapso/numeros/<int:nid>/eliminar")
+def panel_v2_kapso_numeros_eliminar(nid):
+    from flask import jsonify
+    _check_token()
+    with _db._conexion_directa() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM petra_kapso_numeros WHERE id = %s", (nid,))
+        conn.commit()
+    return jsonify({"ok": True})
