@@ -4770,6 +4770,20 @@ def panel_v2_templates():
     templates = [_row_to_template(r) for r in templates_db]
     slots = _leer_slots()
 
+    # Nombres de templates ya aprobados por Meta (para ocultar borradores
+    # duplicados). Cache de 5 min; si falla, lista vacia.
+    meta_approved_names = set()
+    try:
+        meta_list, _err = _meta_fetch_templates(force=False)
+        if meta_list:
+            meta_approved_names = {
+                (t.get("name") or "").strip()
+                for t in meta_list
+                if (t.get("status") or "").upper() == "APPROVED"
+            }
+    except Exception:
+        pass
+
     return render_template(
         "petra_panel_v2_templates.html",
         token=token,
@@ -4777,6 +4791,7 @@ def panel_v2_templates():
         tipos=TEMPLATE_TIPOS,
         autores=DIFUSION_AUTORES,
         slots=slots,
+        meta_approved_names=meta_approved_names,
     )
 
 
