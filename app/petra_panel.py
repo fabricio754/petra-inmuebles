@@ -10028,14 +10028,117 @@ def panel_v2_kapso_test_create_template():
         return jsonify({"ok": False, "exception": str(e)}), 500
 
 
+def _kapso_sync_numeros_con_db():
+    """Pide a Kapso los numeros actualmente conectados y reconcilia
+    con petra_kapso_numeros: inserta los que faltan, borra los que
+    Kapso ya no tiene, y si solo queda uno lo marca activo.
+
+    Se corre al abrir /v2/kapso para que la vista nunca muestre
+    numeros fantasma.
+    """
+    from app import petra_kapso as _kapso_mod
+    import requests as _rq
+    import logging as _lg
+    log = _lg.getLogger(__name__)
+
+    base, api_key, _k_phone, version = _kapso_mod._config()
+    if not api_key:
+        return
+    # WABAs posibles: la activa en DB + la del env + las ya guardadas
+    wabas = set()
+    for w in (_kapso_mod._waba_id_activo(),
+              (os.environ.get("KAPSO_WABA_ID") or "").strip()):
+        if w:
+            wabas.add(w)
+    try:
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT waba_id FROM petra_kapso_numeros "
+                        "WHERE waba_id IS NOT NULL")
+            for (w,) in cur.fetchall():
+                if w:
+                    wabas.add(w.strip())
+    except Exception:
+        pass
+    if not wabas:
+        return
+
+    vistos = {}  # phone_id -> {waba_id, e164, label}
+    for waba in wabas:
+        url = f"{base}/{version}/{waba}/phone_numbers"
+        try:
+            r = _rq.get(url, headers={"X-API-Key": api_key}, timeout=15)
+        except Exception as e:
+            log.debug("[kapso-sync] GET %s fallo: %s", url, e)
+            continue
+        if not r.ok:
+            continue
+        for num in (r.json() or {}).get("data") or []:
+            pid = str(num.get("id") or "").strip()
+            if not pid:
+                continue
+            raw = (num.get("display_phone_number") or "").replace(" ", "")
+            e164 = ("+" + raw.lstrip("+")) if raw else None
+            vistos[pid] = {
+                "waba_id": waba,
+                "e164": e164,
+                "label": (num.get("verified_name") or e164 or "Número Kapso"),
+            }
+
+    if not vistos:
+        return  # ninguna WABA respondio bien, no toco DB
+
+    try:
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
+            # Upsert de lo que vimos
+            for pid, info in vistos.items():
+                cur.execute("""
+                    INSERT INTO petra_kapso_numeros (phone_id, waba_id, e164, label)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (phone_id) DO UPDATE
+                      SET waba_id = EXCLUDED.waba_id,
+                          e164    = COALESCE(EXCLUDED.e164, petra_kapso_numeros.e164),
+                          label   = COALESCE(EXCLUDED.label, petra_kapso_numeros.label)
+                """, (pid, info["waba_id"], info["e164"], info["label"]))
+            # Borrar los que Kapso ya no reporta
+            cur.execute("SELECT id, phone_id FROM petra_kapso_numeros")
+            for row_id, pid in cur.fetchall():
+                if pid not in vistos:
+                    cur.execute(
+                        "DELETE FROM petra_kapso_numeros WHERE id = %s",
+                        (row_id,))
+            # Si queda exactamente uno y nadie activo, actívalo
+            cur.execute(
+                "SELECT COUNT(*) FROM petra_kapso_numeros WHERE activo")
+            activos = cur.fetchone()[0] or 0
+            if activos == 0:
+                cur.execute(
+                    "SELECT COUNT(*), MIN(id) FROM petra_kapso_numeros")
+                total, first_id = cur.fetchone()
+                if total == 1 and first_id:
+                    cur.execute(
+                        "UPDATE petra_kapso_numeros SET activo = TRUE "
+                        "WHERE id = %s", (first_id,))
+            conn.commit()
+    except Exception as e:
+        log.warning("[kapso-sync] reconciliacion DB fallo: %s", e)
+
+
 @petra_panel_bp.get("/v2/kapso")
 def panel_v2_kapso():
     """Panel v2: página de Kapso. Muestra el estado del número conectado
-    al BSP y permite enviar un template manual de prueba.
+    al BSP y permite enviar un template manual de prueba. Sincroniza
+    automaticamente con Kapso al abrir la vista.
     """
     from app import petra_kapso as _kapso
     _check_token()
     token = (request.args.get("token") or "").strip()
+
+    # Auto-sync con Kapso antes de renderizar (best effort)
+    try:
+        _kapso_sync_numeros_con_db()
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "[kapso-panel] auto-sync fallo: %s", e)
 
     base, api_key, phone_id, _version = _kapso._config()
     waba_id = _kapso._waba_id_activo() or (os.environ.get("KAPSO_WABA_ID") or "").strip()
