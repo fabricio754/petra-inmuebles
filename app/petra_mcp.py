@@ -127,6 +127,53 @@ _TOOLS = [
         },
     },
     {
+        "name": "agregar_media",
+        "description": (
+            "Descarga un archivo (foto/video/PDF) desde una URL y lo guarda "
+            "asociado a un conjunto (y opcionalmente a un inmueble). Útil "
+            "cuando Del Mar/Valentina adjunta una imagen en el chat: pasá la "
+            "URL de la imagen y el código del conjunto. Los archivos quedan "
+            "en nuestro repo de media con una URL pública."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "codigo_conjunto": {"type": "string", "description": "Ej: '1024'."},
+                "url": {"type": "string", "description": "URL de donde descargar el archivo."},
+                "tipo": {
+                    "type": "string",
+                    "description": (
+                        "Categoría: foto_conjunto | foto_inmueble | foto_agente | "
+                        "video_conjunto | video_inmueble | video_agente | "
+                        "libro_arriendos | libro_ventas | documento | otro. "
+                        "Default: foto_conjunto."
+                    ),
+                },
+                "codigo_inmueble": {
+                    "type": "string",
+                    "description": "Si la media es de un inmueble específico, ej. 'P0165'.",
+                },
+                "nota": {"type": "string", "description": "Descripción corta."},
+            },
+            "required": ["codigo_conjunto", "url"],
+        },
+    },
+    {
+        "name": "listar_media_conjunto",
+        "description": "Lista todas las fotos/videos/documentos de un conjunto.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "codigo_conjunto": {"type": "string"},
+                "tipo": {
+                    "type": "string",
+                    "description": "Filtra por tipo (opcional).",
+                },
+            },
+            "required": ["codigo_conjunto"],
+        },
+    },
+    {
         "name": "actualizar_agente",
         "description": (
             "Actualiza datos de ficha de una agente. Campos soportados: "
@@ -473,6 +520,144 @@ def _t_actualizar_agente(args):
     return {"ok": True, "telefono": tel, "actualizado": campos}
 
 
+_TIPOS_MEDIA_VALIDOS = {
+    "foto_conjunto", "foto_inmueble", "foto_agente",
+    "video_conjunto", "video_inmueble", "video_agente",
+    "libro_arriendos", "libro_ventas", "documento", "otro",
+}
+
+
+def _inferir_extension(mime, source_url):
+    mime = (mime or "").lower()
+    mapa = {
+        "image/jpeg": "jpg", "image/jpg": "jpg",
+        "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+        "video/mp4": "mp4", "video/quicktime": "mov", "video/3gpp": "3gp",
+        "application/pdf": "pdf",
+    }
+    if mime in mapa:
+        return mapa[mime]
+    # Fallback por URL
+    try:
+        tail = (source_url or "").split("?")[0].rsplit(".", 1)[-1].lower()
+        if 1 <= len(tail) <= 5 and tail.isalnum():
+            return tail
+    except Exception:
+        pass
+    return "bin"
+
+
+def _t_agregar_media(args):
+    import requests as _rq
+    import uuid as _uuid
+    from app.petra_panel import _subir_media_a_github
+
+    cod_conj = (args.get("codigo_conjunto") or "").strip()
+    url = (args.get("url") or "").strip()
+    tipo = (args.get("tipo") or "foto_conjunto").strip()
+    cod_inm = (args.get("codigo_inmueble") or "").strip()
+    nota = (args.get("nota") or "").strip()
+    if not cod_conj or not url:
+        return {"error": "falta codigo_conjunto o url"}
+    if tipo not in _TIPOS_MEDIA_VALIDOS:
+        return {"error": f"tipo_invalido:{tipo}",
+                "validos": sorted(_TIPOS_MEDIA_VALIDOS)}
+
+    # 1) Resolver conjunto e inmueble en DB.
+    with _db._conexion_directa(timeout=10) as conn:
+        row_c = conn.execute(
+            "SELECT id FROM conjuntos_visitante WHERE codigo = %s",
+            (cod_conj,)).fetchone()
+        if not row_c:
+            return {"error": f"conjunto_no_encontrado:{cod_conj}"}
+        conjunto_id = row_c[0]
+        inmueble_id = None
+        if cod_inm:
+            cod_inm_num = cod_inm.lstrip("Pp")
+            try:
+                iid = int(cod_inm_num)
+                row_i = conn.execute(
+                    "SELECT id FROM inmuebles_visitante WHERE id = %s", (iid,)
+                ).fetchone()
+                if row_i:
+                    inmueble_id = row_i[0]
+            except Exception:
+                pass
+
+    # 2) Descargar.
+    try:
+        r = _rq.get(url, timeout=30)
+    except Exception as e:
+        return {"error": f"download_error:{type(e).__name__}"}
+    if not r.ok:
+        return {"error": f"download_http_{r.status_code}"}
+    content = r.content
+    mime = (r.headers.get("Content-Type") or "").split(";")[0].strip()
+    ext = _inferir_extension(mime, url)
+
+    # 3) Nombre único y carpeta por conjunto.
+    uid = _uuid.uuid4().hex
+    filename = f"{uid}.{ext}"
+    folder = f"conjuntos/{cod_conj}"
+    raw_url = _subir_media_a_github(content, filename, folder=folder)
+    if not raw_url:
+        return {"error": "upload_github_fallo"}
+
+    # 4) Guardar en DB.
+    with _db._conexion_directa(timeout=10) as conn:
+        cur = conn.execute(
+            "INSERT INTO petra_conjunto_media "
+            "  (conjunto_id, inmueble_id, tipo, url, mime, tamano_bytes, "
+            "   nota, source_url, subido_por) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (conjunto_id, inmueble_id, tipo, raw_url, mime, len(content),
+             nota or None, url[:1024], "delmar_via_mcp")
+        )
+        media_id = cur.fetchone()[0]
+        conn.commit()
+
+    return {
+        "ok": True, "id": media_id,
+        "url_guardada": raw_url,
+        "tipo": tipo,
+        "codigo_conjunto": cod_conj,
+        "codigo_inmueble": cod_inm or None,
+        "tamano_bytes": len(content),
+        "mime": mime,
+    }
+
+
+def _t_listar_media_conjunto(args):
+    cod = (args.get("codigo_conjunto") or "").strip()
+    tipo_filter = (args.get("tipo") or "").strip()
+    if not cod:
+        return {"error": "falta codigo_conjunto"}
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id FROM conjuntos_visitante WHERE codigo = %s", (cod,)
+        ).fetchone()
+        if not row:
+            return {"error": f"conjunto_no_encontrado:{cod}"}
+        where = ["conjunto_id = %s"]
+        params = [row[0]]
+        if tipo_filter:
+            where.append("tipo = %s")
+            params.append(tipo_filter)
+        rows = conn.execute(
+            "SELECT id, tipo, url, mime, tamano_bytes, nota, inmueble_id, created_at "
+            "  FROM petra_conjunto_media "
+            " WHERE " + " AND ".join(where) +
+            " ORDER BY created_at DESC LIMIT 500",
+            tuple(params)).fetchall()
+    out = [{
+        "id": r[0], "tipo": r[1], "url": r[2], "mime": r[3],
+        "tamano_bytes": r[4], "nota": r[5] or "",
+        "inmueble_id": r[6],
+        "created_at": r[7].isoformat() if r[7] else None,
+    } for r in rows]
+    return {"codigo_conjunto": cod, "count": len(out), "media": out}
+
+
 _TOOL_FNS = {
     "listar_agentes": _t_listar_agentes,
     "ficha_agente": _t_ficha_agente,
@@ -482,6 +667,8 @@ _TOOL_FNS = {
     "asignar_codigo": _t_asignar_codigo,
     "quitar_codigo": _t_quitar_codigo,
     "actualizar_agente": _t_actualizar_agente,
+    "agregar_media": _t_agregar_media,
+    "listar_media_conjunto": _t_listar_media_conjunto,
 }
 
 

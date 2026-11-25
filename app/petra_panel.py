@@ -707,7 +707,7 @@ _MEDIA_ALLOWED_EXT = {
 }
 
 
-def _subir_media_a_github(contenido_bytes, filename):
+def _subir_media_a_github(contenido_bytes, filename, folder=None):
     """Sube un archivo al repo de GitHub configurado y devuelve la URL raw
     pública. Devuelve None si falta configuración o la API falla.
 
@@ -716,6 +716,8 @@ def _subir_media_a_github(contenido_bytes, filename):
       GITHUB_MEDIA_REPO=owner/repo
       GITHUB_MEDIA_BRANCH=nombre_rama
       GITHUB_MEDIA_TOKEN=github_pat_...
+
+    Si se pasa `folder`, se usa ese en vez del env default.
     """
     import base64 as _b64
     import requests as _rq
@@ -726,7 +728,10 @@ def _subir_media_a_github(contenido_bytes, filename):
         logging.getLogger(__name__).error(
             "[media] backend=github pero falta GITHUB_MEDIA_REPO o _TOKEN")
         return None
-    folder = os.environ.get("GITHUB_MEDIA_FOLDER", "media-templates").strip("/") or "media-templates"
+    if folder:
+        folder = folder.strip("/")
+    else:
+        folder = os.environ.get("GITHUB_MEDIA_FOLDER", "media-templates").strip("/") or "media-templates"
     path = f"{folder}/{filename}"
     url_api = f"https://api.github.com/repos/{repo}/contents/{path}"
     payload = {

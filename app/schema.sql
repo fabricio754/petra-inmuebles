@@ -187,6 +187,34 @@ CREATE TABLE IF NOT EXISTS petra_agente_conjuntos (
 CREATE INDEX IF NOT EXISTS petra_agente_conjuntos_conjunto_idx
   ON petra_agente_conjuntos (conjunto_id);
 
+-- Fotos y videos asociados a un conjunto (y opcionalmente a un inmueble
+-- específico del conjunto). Se usan para actualizar QR, hacer contenido
+-- de redes, verificar inventario, etc.
+--
+-- El archivo vive en GitHub (repo petra-videos, carpeta
+-- conjuntos/<codigo>/). Guardamos la URL raw + metadata.
+CREATE TABLE IF NOT EXISTS petra_conjunto_media (
+  id BIGSERIAL PRIMARY KEY,
+  conjunto_id INTEGER NOT NULL REFERENCES conjuntos_visitante(id) ON DELETE CASCADE,
+  inmueble_id INTEGER REFERENCES inmuebles_visitante(id) ON DELETE SET NULL,
+  tipo TEXT NOT NULL DEFAULT 'foto_conjunto'
+    CHECK (tipo IN ('foto_conjunto','foto_inmueble','foto_agente',
+                    'video_conjunto','video_inmueble','video_agente',
+                    'libro_arriendos','libro_ventas','documento','otro')),
+  url TEXT NOT NULL,
+  mime TEXT,
+  tamano_bytes BIGINT,
+  nota TEXT,
+  source_url TEXT,
+  subido_por TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_conjunto_media_conj_idx
+  ON petra_conjunto_media (conjunto_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS petra_conjunto_media_inm_idx
+  ON petra_conjunto_media (inmueble_id)
+  WHERE inmueble_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS petra_contacto_roles (
   id SERIAL PRIMARY KEY,
   contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
