@@ -103,15 +103,40 @@ _TOOLS = [
         "name": "asignar_codigo",
         "description": (
             "Asigna un código de conjunto (ej. '1024') a una agente por su "
-            "teléfono. Una agente puede tener varios códigos."
+            "teléfono. Una agente puede tener varios códigos. Si no se pasa "
+            "fecha_envio, usa hoy."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "telefono": {"type": "string", "description": "Teléfono E.164 de la agente."},
                 "codigo": {"type": "string", "description": "Código del conjunto (ej. '1024')."},
+                "fecha_envio": {
+                    "type": "string",
+                    "description": "Fecha real de envío del QR (YYYY-MM-DD). Opcional.",
+                },
             },
             "required": ["telefono", "codigo"],
+        },
+    },
+    {
+        "name": "ajustar_fecha_envio_codigo",
+        "description": (
+            "Corrige la fecha de envío de un código ya asignado a una agente. "
+            "Útil cuando se asignaron ayer varios códigos pero algunos se "
+            "habían mandado en otra fecha."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "telefono": {"type": "string"},
+                "codigo": {"type": "string"},
+                "fecha_envio": {
+                    "type": "string",
+                    "description": "Nueva fecha (YYYY-MM-DD).",
+                },
+            },
+            "required": ["telefono", "codigo", "fecha_envio"],
         },
     },
     {
@@ -534,20 +559,60 @@ def _resolver_agente_y_conjunto(conn, telefono, codigo):
 def _t_asignar_codigo(args):
     tel = (args.get("telefono") or "").strip()
     codigo = (args.get("codigo") or "").strip()
+    fecha = (args.get("fecha_envio") or "").strip()
     if not tel or not codigo:
         return {"error": "falta telefono o codigo"}
     try:
         with _db._conexion_directa(timeout=10) as conn:
             contacto_id, conjunto_id = _resolver_agente_y_conjunto(conn, tel, codigo)
-            conn.execute(
-                "INSERT INTO petra_agente_conjuntos (contacto_id, conjunto_id) "
-                "VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                (contacto_id, conjunto_id),
-            )
+            if fecha:
+                # INSERT con fecha custom; si ya existía, UPDATE la fecha.
+                conn.execute(
+                    "INSERT INTO petra_agente_conjuntos "
+                    "  (contacto_id, conjunto_id, asignado_at) "
+                    "VALUES (%s, %s, %s::date) "
+                    "ON CONFLICT (contacto_id, conjunto_id) "
+                    "DO UPDATE SET asignado_at = EXCLUDED.asignado_at",
+                    (contacto_id, conjunto_id, fecha),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO petra_agente_conjuntos (contacto_id, conjunto_id) "
+                    "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (contacto_id, conjunto_id),
+                )
             conn.commit()
     except ValueError as e:
         return {"error": str(e)}
-    return {"ok": True, "telefono": tel, "codigo": codigo}
+    return {"ok": True, "telefono": tel, "codigo": codigo,
+            "fecha_envio": fecha or "hoy"}
+
+
+def _t_ajustar_fecha_envio_codigo(args):
+    tel = (args.get("telefono") or "").strip()
+    codigo = (args.get("codigo") or "").strip()
+    fecha = (args.get("fecha_envio") or "").strip()
+    if not tel or not codigo or not fecha:
+        return {"error": "falta telefono, codigo o fecha_envio"}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            contacto_id, conjunto_id = _resolver_agente_y_conjunto(conn, tel, codigo)
+            cur = conn.execute(
+                "UPDATE petra_agente_conjuntos "
+                "   SET asignado_at = %s::date "
+                " WHERE contacto_id = %s AND conjunto_id = %s "
+                "RETURNING contacto_id",
+                (fecha, contacto_id, conjunto_id),
+            )
+            found = cur.fetchone()
+            conn.commit()
+    except ValueError as e:
+        return {"error": str(e)}
+    if not found:
+        return {"error": "no_estaba_asignado",
+                "mensaje": f"{tel} no tiene asignado el código {codigo}. "
+                            "Usá asignar_codigo con fecha_envio directamente."}
+    return {"ok": True, "telefono": tel, "codigo": codigo, "fecha_envio": fecha}
 
 
 def _t_quitar_codigo(args):
@@ -889,6 +954,7 @@ _TOOL_FNS = {
     "crear_agente": _t_crear_agente,
     "listar_conjuntos": _t_listar_conjuntos,
     "asignar_codigo": _t_asignar_codigo,
+    "ajustar_fecha_envio_codigo": _t_ajustar_fecha_envio_codigo,
     "quitar_codigo": _t_quitar_codigo,
     "actualizar_agente": _t_actualizar_agente,
     "actualizar_conjunto": _t_actualizar_conjunto,
