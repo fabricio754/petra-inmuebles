@@ -931,6 +931,8 @@
           <div class="live-bubble">
             <div class="live-bubble-media" id="prev-media" hidden></div>
             <div class="live-bubble-body" id="prev-body"></div>
+            <div id="prev-footer-text" hidden
+                 style="padding:2px 10px 0;color:#667781;font-size:12px;font-style:italic"></div>
             <div class="live-bubble-footer">
               <span id="prev-time">10:00</span>
             </div>
@@ -2193,6 +2195,15 @@
     // Body con markdown (los {{1}} se dejan literales como ejemplo).
     var body = t.body || '';
     document.getElementById('prev-body').innerHTML = renderMarkdownWA(body);
+
+    // Footer
+    var footerEl = document.getElementById('prev-footer-text');
+    if (t.footer) {
+      footerEl.textContent = t.footer;
+      footerEl.hidden = false;
+    } else {
+      footerEl.hidden = true;
+    }
 
     // Hora
     var now = new Date();

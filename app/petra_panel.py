@@ -4981,10 +4981,13 @@ def _normalize_meta_template(raw):
     cards = []
     tipo = "texto"
 
+    footer = ""
     for c in components:
         ctype = (c.get("type") or "").upper()
         if ctype == "BODY":
             body = c.get("text") or ""
+        elif ctype == "FOOTER":
+            footer = c.get("text") or ""
         elif ctype == "HEADER":
             fmt = (c.get("format") or "TEXT").upper()
             if fmt == "TEXT":
@@ -5052,6 +5055,7 @@ def _normalize_meta_template(raw):
         "body": body,
         "header": header,
         "botones": buttons,
+        "footer": footer,
         "catalogo": {"cards": cards} if cards else None,
         "quality_score": (raw.get("quality_score") or {}).get("score"),
         "rejected_reason": raw.get("rejected_reason"),
