@@ -235,6 +235,7 @@ def _metricas_piloto(conn):
 
 
 _ESTADOS_AGENTE_ORDEN = [
+    "pendiente",
     "recolectando", "inscrito", "bienvenida_enviada",
     "esperando_capacitacion_dia1", "en_capacitacion",
     "capacitacion_completa", "autorizacion_pendiente",
@@ -243,6 +244,7 @@ _ESTADOS_AGENTE_ORDEN = [
 ]
 
 _ESTADOS_LABEL = {
+    "pendiente": "Pendiente (re-contactar)",
     "recolectando": "Recolectando datos",
     "inscrito": "Inscrito",
     "bienvenida_enviada": "Bienvenida enviada",
@@ -705,7 +707,7 @@ _MEDIA_ALLOWED_EXT = {
 }
 
 
-def _subir_media_a_github(contenido_bytes, filename):
+def _subir_media_a_github(contenido_bytes, filename, folder=None):
     """Sube un archivo al repo de GitHub configurado y devuelve la URL raw
     pública. Devuelve None si falta configuración o la API falla.
 
@@ -714,6 +716,8 @@ def _subir_media_a_github(contenido_bytes, filename):
       GITHUB_MEDIA_REPO=owner/repo
       GITHUB_MEDIA_BRANCH=nombre_rama
       GITHUB_MEDIA_TOKEN=github_pat_...
+
+    Si se pasa `folder`, se usa ese en vez del env default.
     """
     import base64 as _b64
     import requests as _rq
@@ -724,7 +728,10 @@ def _subir_media_a_github(contenido_bytes, filename):
         logging.getLogger(__name__).error(
             "[media] backend=github pero falta GITHUB_MEDIA_REPO o _TOKEN")
         return None
-    folder = os.environ.get("GITHUB_MEDIA_FOLDER", "media-templates").strip("/") or "media-templates"
+    if folder:
+        folder = folder.strip("/")
+    else:
+        folder = os.environ.get("GITHUB_MEDIA_FOLDER", "media-templates").strip("/") or "media-templates"
     path = f"{folder}/{filename}"
     url_api = f"https://api.github.com/repos/{repo}/contents/{path}"
     payload = {
@@ -1182,21 +1189,45 @@ def _cargar_ficha_agente(conn, cid):
     meta = agente.get("metadata") or {}
     bot_pausado = str(meta.get("bot_pausado", "")).lower() == "true"
 
-    # Edificios + inmuebles del agente (vive en conjuntos_visitante.creado_por_cid).
+    # Conjuntos de la agente — por asignación de QR (petra_agente_conjuntos)
+    # con todos los campos operativos del conjunto. Contamos inmuebles activos.
     edificios = _rows(conn,
         """SELECT cv.id, cv.codigo, cv.nombre, cv.ciudad, cv.creado_en,
+                  cv.barrio, cv.direccion, cv.ubicacion_maps,
+                  cv.fecha_activacion,
+                  cv.envio_fotos_inventario, cv.envio_videos_conjunto,
+                  cv.envio_inventario_inmueble, cv.notas AS notas_conjunto,
+                  ac.asignado_at AS fecha_envio_qr,
                   COALESCE(SUM(CASE WHEN iv.activo AND iv.operacion='arriendo'
                                     THEN 1 ELSE 0 END), 0) AS arr_activos,
                   COALESCE(SUM(CASE WHEN iv.activo AND iv.operacion='venta'
                                     THEN 1 ELSE 0 END), 0) AS ven_activos,
                   COALESCE(SUM(CASE WHEN iv.activo AND iv.gestionado_por_petra
                                     THEN 1 ELSE 0 END), 0) AS petra_gestiona
-             FROM conjuntos_visitante cv
+             FROM petra_agente_conjuntos ac
+             JOIN conjuntos_visitante cv ON cv.id = ac.conjunto_id
              LEFT JOIN inmuebles_visitante iv ON iv.conjunto_id = cv.id
-            WHERE cv.creado_por_cid = %s
-            GROUP BY cv.id
-            ORDER BY cv.creado_en DESC""",
+            WHERE ac.contacto_id = %s
+            GROUP BY cv.id, ac.asignado_at
+            ORDER BY cv.codigo ASC""",
         (cid,))
+
+    # Media por conjunto (fotos, videos, documentos) para mostrar galería.
+    if edificios:
+        cids = [e["id"] for e in edificios]
+        media_rows = _rows(conn,
+            """SELECT conjunto_id, id, tipo, url, mime, nota, created_at
+                 FROM petra_conjunto_media
+                WHERE conjunto_id = ANY(%s)
+                ORDER BY created_at DESC""", (cids,))
+        media_por_conj = {}
+        for m in media_rows:
+            media_por_conj.setdefault(m["conjunto_id"], []).append(m)
+        for e in edificios:
+            e["media"] = media_por_conj.get(e["id"], [])
+    else:
+        for e in edificios:
+            e["media"] = []
 
     # "¿Qué sigue?" — call-to-action humano del paso actual del flow.
     estado_actual = (meta.get("estado_agente") or "").strip()
@@ -3637,6 +3668,43 @@ def _difusiones_where(args):
 # de inmueble (los que vienen de inmuebles_visitante + enriquecidos).
 PETRA_TEMPLATES = [
     {
+        "name": "bienvenida_petra",
+        "display": "Bienvenida Petra",
+        "category": "MARKETING",
+        "price_usd": 0.015,
+        "status": "mocked",
+        "tipo": "botones",  # botones + header + footer
+        "header": {
+            "type": "video",
+            "url": "/static/images/propietarios/bienvenida.mp4",
+            "label": "Video bienvenida Petra (1 min)",
+        },
+        "body": (
+            "Hola 👋\n\n"
+            "El conjunto *{{1}}* instaló *Petra* para ayudar a los "
+            "propietarios a vender y arrendar más rápido.\n\n"
+            "Tu {{2}} ya está publicado en nuestro catálogo. "
+            "Si faltan datos o querés corregir algo, respondé este "
+            "mensaje.\n\n"
+            "En el video de 1 min te cuento cómo funciona 👆"
+        ),
+        "variables": [
+            {"id": "1", "label": "Conjunto", "source": "conjunto_nombre", "ejemplo": "Mitika PH"},
+            {"id": "2", "label": "Tipo inmueble", "source": "tipo", "ejemplo": "apartamento"},
+        ],
+        "footer": "Responde SALIR para quitar la publicación de tu inmueble.",
+        "botones": [
+            {
+                "type": "URL",
+                "label": "📋 Ver mi publicación",
+                "value": "https://wa.me/573001278631?text={{1}}",
+                "ejemplo": "Estoy en el edificio Mitika PH en Bogotá. Cod: 0001",
+                "source": "wa_catalogo_conjunto",
+            },
+        ],
+        "recomendacion": "Día 0 del pipeline — se envía apenas cargamos el inmueble al catálogo.",
+    },
+    {
         "name": "notificacion_publicacion_petra",
         "display": "Notificación de publicación",
         "category": "UTILITY",
@@ -3754,31 +3822,43 @@ def _seed_templates_nuevos():
     DB (ON CONFLICT DO NOTHING). Idempotente — inserta sólo los nuevos."""
     import json as _json
     import logging as _lg
+    _log = _lg.getLogger(__name__)
     try:
         with _db._conexion_directa(timeout=10) as conn:
+            insertados = 0
             for t in PETRA_TEMPLATES:
-                conn.execute(
+                tipo = t.get("tipo") or ("botones" if t.get("botones")
+                                         else ("multimedia" if t.get("header") else "texto"))
+                res = conn.execute(
                     "INSERT INTO campana_templates "
                     "  (name, display, idioma, categoria, tipo, body, variables, "
-                    "   header, botones, catalogo, recomendacion, autor, status) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s) "
+                    "   header, botones, catalogo, footer, recomendacion, "
+                    "   autor, status) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,"
+                    "        %s,%s,%s,%s) "
                     "ON CONFLICT (name) DO NOTHING",
                     (
                         t["name"], t["display"], "es",
-                        t["category"], "multimedia" if t.get("header") else "texto",
+                        t["category"], tipo,
                         t["body"],
                         _json.dumps(t.get("variables", [])),
                         _json.dumps(t.get("header")) if t.get("header") else None,
-                        _json.dumps([]),
+                        _json.dumps(t.get("botones", [])),
                         None,
+                        t.get("footer") or None,
                         t.get("recomendacion"),
                         "petra",
                         "draft",
                     ),
                 )
+                if res.rowcount:
+                    insertados += res.rowcount
+                    _log.info("[seed] insertado template: %s", t["name"])
             conn.commit()
+            if insertados:
+                _log.info("[seed] %d templates nuevos insertados.", insertados)
     except Exception:
-        _lg.getLogger(__name__).exception("[seed] upsert templates fallo")
+        _log.exception("[seed] upsert templates fallo")
 
 
 def _seed_templates_si_vacio():
@@ -3792,12 +3872,14 @@ def _seed_templates_si_vacio():
     """
     import json as _json
     import logging as _lg
+    # Primero intentamos upsert de los nuevos (idempotente) — no bloqueamos
+    # con doble-contexto de conexión.
+    _seed_templates_nuevos()
     try:
         with _db._conexion_directa(timeout=10) as conn:
             row = conn.execute("SELECT COUNT(*) FROM campana_templates").fetchone()
             count = (row[0] if row else 0) or 0
             if count > 0:
-                _seed_templates_nuevos()
                 return
             # Insertar los defaults
             for t in PETRA_TEMPLATES:
@@ -3971,7 +4053,7 @@ def _tmpl_by_name(name):
             rows = _rows(conn,
                 "SELECT id, name, display, idioma, categoria, tipo, status, "
                 "       body, variables, header, botones, catalogo, "
-                "       recomendacion "
+                "       footer, recomendacion "
                 "  FROM campana_templates WHERE name = %s LIMIT 1",
                 (name,))
             if not rows:
@@ -3987,6 +4069,9 @@ def _tmpl_by_name(name):
                 "body": r.get("body") or "",
                 "variables": r.get("variables") or [],
                 "header": r.get("header"),
+                "botones": r.get("botones") or [],
+                "footer": r.get("footer") or "",
+                "tipo": r.get("tipo") or "texto",
                 "recomendacion": r.get("recomendacion") or "",
             }
     except Exception:
@@ -4183,34 +4268,24 @@ def panel_v2_difusiones_muestra():
 # Los 4 tipos que permitimos crear (match Meta Template categories).
 TEMPLATE_TIPOS = [
     {
-        "id": "texto",
-        "display": "Texto + variables",
-        "icon": "✉️",
-        "descripcion": "Mensaje de texto simple con variables personalizables "
-                       "por destinatario (nombre, apto, etc.).",
-    },
-    {
-        "id": "multimedia",
-        "display": "Multimedia",
-        "icon": "🎬",
-        "descripcion": "Encabezado visual (imagen, video, documento PDF o "
-                       "ubicación) + cuerpo de texto con variables.",
-    },
-    {
-        "id": "botones",
-        "display": "Interactivo con botones",
-        "icon": "🔘",
-        "descripcion": "Cuerpo + hasta 2 botones de CTA (abrir URL, llamar, "
-                       "copiar código) o respuesta rápida.",
+        "id": "mensaje",
+        "display": "Mensaje estándar",
+        "icon": "💬",
+        "descripcion": "Header opcional (texto/imagen/video/PDF) + body con "
+                       "variables + footer opcional + hasta 2 botones. "
+                       "Usá sólo lo que necesites.",
     },
     {
         "id": "catalogo_carrusel",
-        "display": "Catálogo / Carrusel",
+        "display": "Carrusel",
         "icon": "🛒",
-        "descripcion": "Especial Marketing: hasta 10 tarjetas deslizables "
-                       "con productos de tu catálogo Meta Commerce.",
+        "descripcion": "Hasta 10 tarjetas deslizables con el mismo tipo de "
+                       "media y botones. Para catálogos y combos de ofertas.",
     },
 ]
+
+# Para compatibilidad, los tipos viejos se mapean al nuevo "mensaje".
+_TIPOS_LEGACY_A_MENSAJE = {"texto", "multimedia", "botones"}
 
 
 def _row_to_template(row):
@@ -4226,6 +4301,7 @@ def _row_to_template(row):
         "body": row.get("body") or "",
         "variables": row.get("variables") or [],
         "header": row.get("header"),
+        "footer": row.get("footer") or "",
         "botones": row.get("botones") or [],
         "catalogo": row.get("catalogo"),
         "recomendacion": row.get("recomendacion") or "",
@@ -4594,27 +4670,37 @@ def panel_v2_numeros_kapso_sincronizar():
 # Se siembra una sola vez (si la tabla template_slots está vacía) para
 # arrancar con los 3 templates que teníamos hardcoded.
 _SLOTS_DEFAULT = {
-    "bienvenida": "notificacion_publicacion_petra",
-    "servicio":   "ofrecer_inmobiliaria_petra",
-    "credito":    "ofrecer_credito_petra",
+    "bienvenida":      "bienvenida_anunciante",
+    "confirmar_datos": "pedir_datos_petra",
+    "servicio":        "ofrecer_inmobiliaria_petra",
+    "credito":         "ofrecer_credito_petra",
+}
+
+# Mapeo slot del pipeline (oferta_servicio/oferta_credito) → slot de la
+# tabla template_slots que maneja la UI Activados.
+_PIPELINE_TO_ACTIVADOS_SLOT = {
+    "bienvenida":      "bienvenida",
+    "confirmar_datos": "confirmar_datos",
+    "oferta_servicio": "servicio",
+    "oferta_credito":  "credito",
 }
 
 
 def _seed_slots_si_vacio():
-    """Inserta la asignación default de slots si template_slots está vacía."""
+    """Asegura que todos los slots default existan en template_slots.
+    Es idempotente: ON CONFLICT DO NOTHING no pisa el valor que el admin
+    haya elegido en Activados. Sólo agrega slots nuevos (ej. confirmar_datos)
+    que todavía no estaban en DB."""
     import logging as _lg
     try:
         with _db._conexion_directa(timeout=10) as conn:
-            row = conn.execute("SELECT COUNT(*) FROM template_slots").fetchone()
-            if ((row[0] if row else 0) or 0) > 0:
-                return
             for slot, name in _SLOTS_DEFAULT.items():
                 conn.execute(
                     "INSERT INTO template_slots (slot, template_name, actualizado_por) "
                     "VALUES (%s, %s, %s) ON CONFLICT (slot) DO NOTHING",
                     (slot, name, "petra"),
                 )
-            _lg.getLogger(__name__).info("[seed] template_slots seeded")
+            conn.commit()
     except Exception:
         _lg.getLogger(__name__).exception("[seed] template_slots fallo")
 
@@ -4649,7 +4735,7 @@ def panel_v2_templates():
             templates_db = _rows(conn,
                 "SELECT id, name, display, idioma, categoria, tipo, status, "
                 "       body, variables, header, botones, catalogo, "
-                "       recomendacion, rechazo_motivo, autor, "
+                "       footer, recomendacion, rechazo_motivo, autor, "
                 "       creado_en, actualizado_en "
                 "  FROM campana_templates "
                 " ORDER BY actualizado_en DESC")
@@ -4723,6 +4809,7 @@ def panel_v2_templates_crear():
     categoria = (request.form.get("categoria") or "MARKETING").strip().upper()
     tipo = (request.form.get("tipo") or "texto").strip().lower()
     body = (request.form.get("body") or "").strip()
+    footer = (request.form.get("footer") or "").strip()[:60]
     recomendacion = (request.form.get("recomendacion") or "").strip()
     autor = (request.form.get("autor") or "fabricio").strip().lower()
 
@@ -4730,7 +4817,10 @@ def panel_v2_templates_crear():
         return jsonify({"error": "name, display y body son requeridos"}), 400
     if categoria not in ("UTILITY", "MARKETING", "AUTHENTICATION"):
         return jsonify({"error": "categoría inválida"}), 400
-    if tipo not in {t["id"] for t in TEMPLATE_TIPOS}:
+    # Aceptamos el nuevo "mensaje" + los legacy. Si viene nuevo, lo
+    # mapeamos al enum DB correcto más abajo según qué piezas tenga.
+    _tipos_validos = {t["id"] for t in TEMPLATE_TIPOS} | _TIPOS_LEGACY_A_MENSAJE
+    if tipo not in _tipos_validos:
         return jsonify({"error": "tipo inválido"}), 400
     if autor not in {a["id"] for a in DIFUSION_AUTORES}:
         autor = "fabricio"
@@ -4768,19 +4858,31 @@ def panel_v2_templates_crear():
         except Exception:
             catalogo = None
 
+    # Si viene "mensaje" (del nuevo editor unificado), derivamos el enum
+    # DB a partir del contenido. Mantenemos compat con legacy enviados.
+    if tipo == "mensaje":
+        if botones:
+            tipo = "botones"
+        elif header:
+            tipo = "multimedia"
+        else:
+            tipo = "texto"
+
     try:
         with _db._conexion_directa(timeout=10) as conn:
             row = conn.execute(
                 "INSERT INTO campana_templates "
                 "  (name, display, idioma, categoria, tipo, body, variables, "
-                "   header, botones, catalogo, recomendacion, autor) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s) "
+                "   header, botones, catalogo, footer, recomendacion, autor) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s::jsonb,"
+                "        %s,%s,%s) "
                 "RETURNING id",
                 (name, display, idioma, categoria, tipo, body,
                  _json.dumps(variables),
                  _json.dumps(header) if header else None,
                  _json.dumps(botones),
                  _json.dumps(catalogo) if catalogo else None,
+                 footer or None,
                  recomendacion or None, autor),
             ).fetchone()
             return jsonify({"ok": True, "id": row[0]})
@@ -4808,6 +4910,39 @@ def _precio_por_categoria(categoria):
 # limit. Estructura: {"ts": float, "payload": dict}
 _META_TEMPLATES_CACHE = {"ts": 0.0, "payload": None, "error": None}
 _META_CACHE_TTL = 300  # 5 minutos
+
+
+def _meta_fetch_templates_direct(waba_id):
+    """Fallback a Meta Graph API directo. Requiere META_ACCESS_TOKEN con
+    permiso de lectura sobre la WABA."""
+    access_token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    if not access_token:
+        return [], "falta_env:META_ACCESS_TOKEN"
+    gv = (os.environ.get("META_GRAPH_VERSION") or "v22.0").strip()
+    url = f"https://graph.facebook.com/{gv}/{waba_id}/message_templates"
+    try:
+        import requests
+        r = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"limit": 100,
+                    "fields": "id,name,status,category,language,components,"
+                              "quality_score,rejected_reason"},
+            timeout=15,
+        )
+    except Exception as e:
+        return [], f"meta_error:{type(e).__name__}"
+    if not r.ok:
+        import logging as _lg_mt
+        _lg_mt.getLogger(__name__).error(
+            "[meta-direct] fetch templates fallo status=%s body=%s",
+            r.status_code, (r.text or "")[:300])
+        return [], f"meta_http_{r.status_code}"
+    try:
+        data = r.json().get("data") or []
+    except Exception:
+        return [], "meta_json_invalido"
+    return [_normalize_meta_template(t) for t in data], None
 
 
 def _normalize_meta_template(raw):
@@ -4931,6 +5066,27 @@ def _meta_fetch_templates(force=False):
             return [], "sin_permiso_waba"
         if not r.ok:
             msg = f"http_{r.status_code}"
+            import logging as _lg_mt
+            _lg_mt.getLogger(__name__).error(
+                "[meta] fetch templates fallo url=%s status=%s body=%s",
+                url, r.status_code, (r.text or "")[:300])
+            # Fallback: si Kapso dice "WhatsApp configuration not found",
+            # probamos Meta Graph API directo con META_ACCESS_TOKEN.
+            try_fb = False
+            try:
+                _body_str = r.text or ""
+                if r.status_code == 404 and "configuration not found" in _body_str.lower():
+                    try_fb = True
+            except Exception:
+                pass
+            if try_fb:
+                fb_list, fb_err = _meta_fetch_templates_direct(waba_id)
+                if fb_err is None:
+                    _META_TEMPLATES_CACHE.update(
+                        {"ts": now, "payload": fb_list, "error": None})
+                    return fb_list, None
+                # Si el fallback también falló, devolvemos ese error.
+                msg = fb_err
             _META_TEMPLATES_CACHE.update({"ts": now, "payload": [], "error": msg})
             return [], msg
         data = r.json().get("data") or []
@@ -5068,6 +5224,20 @@ def _meta_upload_media_handle(media_url, access_token, app_id):
                 ctype = ctype_server
             else:
                 ctype = "application/octet-stream"
+            # Meta Resumable Upload no acepta image/webp — convertimos a PNG.
+            if ctype == "image/webp":
+                try:
+                    from PIL import Image as _PILImage
+                    import io as _io
+                    im = _PILImage.open(_io.BytesIO(content))
+                    if im.mode not in ("RGB", "RGBA"):
+                        im = im.convert("RGBA" if "A" in im.mode else "RGB")
+                    buf = _io.BytesIO()
+                    im.save(buf, format="PNG")
+                    content = buf.getvalue()
+                    ctype = "image/png"
+                except Exception as _ce:
+                    return None, f"webp_conversion_fallo:{type(_ce).__name__}"
         else:
             # Path relativo: resolver contra el folder static de la app.
             base_dir = _osp.dirname(_osp.abspath(__file__))
@@ -5146,7 +5316,9 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
     components = []
 
     # ── Header ─────────────────────────────────────────────────────────
-    if tpl.get("tipo") == "multimedia" and tpl.get("header"):
+    # Independiente del `tipo` para permitir templates con header + body +
+    # buttons al mismo tiempo (ej. bienvenida_petra).
+    if tpl.get("header"):
         header = tpl["header"]
         htype = (header.get("type") or "image").upper()
         if htype == "LOCATION":
@@ -5155,11 +5327,23 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
             hurl = (header.get("url") or "").strip()
             if not hurl:
                 return None, "header_sin_url"
-            # Meta rechaza VIDEO/DOCUMENT con `example.header_url` — exige
-            # un handle de Resumable Upload. Para IMAGE sí acepta URL.
-            # Si tenemos access_token+app_id, para VIDEO/DOCUMENT forzamos
-            # el path de handle aunque usar_url=True.
-            forzar_handle = (htype in ("VIDEO", "DOCUMENT")
+            # Meta necesita URL absoluta HTTPS. Si viene un path local
+            # (/static/...), lo absolutizamos con el host actual.
+            if hurl.startswith("/"):
+                try:
+                    from flask import request as _req
+                    base = (_req.host_url or "").rstrip("/")
+                except Exception:
+                    base = ""
+                if not base:
+                    base = (os.environ.get("PUBLIC_BASE_URL") or
+                            "https://petra-inmuebles.onrender.com").rstrip("/")
+                hurl = base + hurl
+            # Meta rechaza header media (IMAGE/VIDEO/DOCUMENT) con
+            # `example.header_url` en varias categorías/configs — exige
+            # un handle de Resumable Upload. Si tenemos access_token+app_id,
+            # forzamos el path de handle para todo tipo de media.
+            forzar_handle = (htype in ("IMAGE", "VIDEO", "DOCUMENT")
                              and access_token and app_id)
             if usar_url and not forzar_handle:
                 components.append({
@@ -5192,25 +5376,53 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
     import re as _re_vars
     n_placeholders = len(set(_re_vars.findall(r"\{\{\s*(\d+)\s*\}\}", body_text)))
     if n_placeholders:
+        # Resolvemos ejemplos desde un inmueble real de la DB. Fallback al
+        # ejemplo estático del template, luego al label, luego "ejemplo".
+        inm_sample, conj_sample = _sample_inmueble_conjunto()
         ejemplos = []
         for v in variables[:n_placeholders]:
-            ej = (v.get("ejemplo") or v.get("label") or "ejemplo").strip() or "ejemplo"
-            ejemplos.append(ej)
+            source = (v.get("source") or "").strip()
+            val = ""
+            if source and inm_sample:
+                try:
+                    val = str(_var_value_for(
+                        inm_sample, source,
+                        (conj_sample or {}).get("nombre") or "")).strip()
+                except Exception:
+                    val = ""
+            if not val or val in ("—",):
+                val = (v.get("ejemplo") or v.get("label") or "ejemplo").strip() or "ejemplo"
+            ejemplos.append(val)
         while len(ejemplos) < n_placeholders:
             ejemplos.append("ejemplo")
         body_comp["example"] = {"body_text": [ejemplos]}
     components.append(body_comp)
 
+    # ── Footer ─────────────────────────────────────────────────────────
+    # Pie de página chiquito, hasta 60 chars. Típicamente para opt-out.
+    footer_text = (tpl.get("footer") or "").strip()
+    if footer_text:
+        components.append({"type": "FOOTER", "text": footer_text[:60]})
+
     # ── Buttons ────────────────────────────────────────────────────────
-    if tpl.get("tipo") == "botones":
-        botones = tpl.get("botones") or []
+    # Independiente del `tipo` para soportar header + body + buttons juntos.
+    botones = tpl.get("botones") or []
+    if botones:
         meta_btns = []
         for b in botones:
             btype = (b.get("type") or "url").upper()
             label = (b.get("label") or "").strip()[:25]  # Meta max 25
             value = (b.get("value") or "").strip()
             if btype == "URL":
-                meta_btns.append({"type": "URL", "text": label, "url": value})
+                btn = {"type": "URL", "text": label, "url": value}
+                # Si la URL tiene {{N}}, Meta exige `example` con una
+                # URL de ejemplo con los valores resueltos. Resolvemos
+                # desde DB según preset_id (o un fallback genérico).
+                if "{{" in value:
+                    ej_sample = _resolver_ejemplo_boton_url(b)
+                    ej_url = _re_vars.sub(r"\{\{\s*\d+\s*\}\}", ej_sample, value)
+                    btn["example"] = [ej_url]
+                meta_btns.append(btn)
             elif btype == "PHONE_NUMBER":
                 meta_btns.append({"type": "PHONE_NUMBER", "text": label,
                                   "phone_number": value})
@@ -5315,10 +5527,46 @@ def panel_v2_templates_aprobar(tid):
             eb = {"raw": r.text[:500]}
         return r, eb
 
-    # 1er intento: POST directo, sin DELETE preventivo.
+    def _post_template_meta_directo():
+        """Fallback a Meta Graph API cuando Kapso dice "configuration not
+        found". Usa META_ACCESS_TOKEN."""
+        mt = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+        if not mt:
+            return None, {"error": "meta_falta_token"}
+        gv = (os.environ.get("META_GRAPH_VERSION") or "v22.0").strip()
+        try:
+            r2 = requests.post(
+                f"https://graph.facebook.com/{gv}/{waba_id}/message_templates",
+                headers={"Authorization": f"Bearer {mt}",
+                         "Content-Type": "application/json"},
+                data=_json.dumps(payload),
+                timeout=30,
+            )
+        except Exception as e:
+            return None, {"red": f"{type(e).__name__}: {e}"}
+        if r2.ok:
+            return r2, None
+        try:
+            eb2 = r2.json()
+        except Exception:
+            eb2 = {"raw": r2.text[:500]}
+        return r2, eb2
+
+    # 1er intento: POST a Kapso.
     r, err_body = _post_template()
     if r is None:
         return jsonify({"error": "red", "detalle": err_body}), 500
+    # Si Kapso dice "configuration not found", caemos a Meta Graph API.
+    if not r.ok and r.status_code == 404:
+        raw = ""
+        try:
+            raw = (r.text or "")
+        except Exception:
+            pass
+        if "configuration not found" in raw.lower():
+            r_fb, err_fb = _post_template_meta_directo()
+            if r_fb is not None:
+                r, err_body = r_fb, err_fb
 
     # Si Meta rechaza por "Content Already Exists" o
     # "Category Doesn't Match", significa que hay una copia "sombra" de
@@ -5429,10 +5677,13 @@ def panel_v2_templates_actualizar(tid):
     import json as _json
 
     campos = {}
-    for key in ("display", "idioma", "categoria", "tipo", "body", "recomendacion"):
+    for key in ("display", "idioma", "categoria", "tipo", "body", "recomendacion", "footer"):
         val = request.form.get(key)
         if val is not None:
-            campos[key] = val.strip()
+            v = val.strip()
+            if key == "footer":
+                v = v[:60]
+            campos[key] = v
 
     for key in ("variables", "header", "botones", "catalogo"):
         raw = request.form.get(key)
@@ -5444,6 +5695,17 @@ def panel_v2_templates_actualizar(tid):
 
     if not campos:
         return jsonify({"error": "nada para actualizar"}), 400
+
+    # Si viene tipo=mensaje del editor unificado, derivamos el enum DB.
+    if campos.get("tipo") == "mensaje":
+        botones_new = campos.get("botones") or []
+        header_new = campos.get("header")
+        if botones_new:
+            campos["tipo"] = "botones"
+        elif header_new:
+            campos["tipo"] = "multimedia"
+        else:
+            campos["tipo"] = "texto"
 
     try:
         with _db._conexion_directa(timeout=10) as conn:
@@ -6268,11 +6530,26 @@ _PIPELINE_SLOT_KEYWORDS = {
 def _pipeline_tpl_get(slot):
     """Devuelve el nombre de plantilla configurado para ese slot.
     Orden:
-      1. meta.pipeline_tpl_<slot>  (elegido en UI)
-      2. env var (PETRA_TPL_*)
-      3. Auto-match: primera plantilla APPROVED cuyo nombre contenga una
+      1. template_slots (Activados tab — fuente principal).
+      2. meta.pipeline_tpl_<slot>  (legacy UI Pipeline).
+      3. env var (PETRA_TPL_*).
+      4. Auto-match: primera plantilla APPROVED cuyo nombre contenga una
          de las keywords del slot.
     """
+    # 1. Activados (template_slots) — mapear el nombre del slot pipeline
+    #    al nombre del slot en template_slots.
+    activados_slot = _PIPELINE_TO_ACTIVADOS_SLOT.get(slot)
+    if activados_slot:
+        try:
+            with _db._conexion_directa(timeout=5) as conn:
+                row = conn.execute(
+                    "SELECT template_name FROM template_slots WHERE slot = %s",
+                    (activados_slot,)).fetchone()
+                if row and row[0]:
+                    return row[0].strip()
+        except Exception:
+            pass
+    # 2. meta.pipeline_tpl_* legacy
     try:
         with _db._conexion_directa(timeout=5) as conn:
             row = conn.execute(
@@ -6303,6 +6580,110 @@ def _pipeline_tpl_get(slot):
     return ""
 
 
+def _reescribir_media_url_para_meta(url):
+    """Normaliza la URL de media para que Meta pueda descargarla:
+    - Si es un path relativo (/static/...), le antepone el host actual.
+    - Si apunta a GitHub raw, la reescribe a nuestro proxy /petra-media/*
+      para forzar el Content-Type correcto.
+    Otras URLs absolutas HTTPS se devuelven tal cual.
+    """
+    if not url:
+        return url
+
+    def _base_url():
+        base = (os.environ.get("PETRA_MEDIA_PROXY_BASE") or "").strip()
+        if base:
+            return base.rstrip("/")
+        try:
+            from flask import request as _req
+            base = (_req.host_url or "").rstrip("/")
+            if base:
+                return base
+        except Exception:
+            pass
+        return (os.environ.get("PUBLIC_BASE_URL") or
+                "https://petra-inmuebles.onrender.com").rstrip("/")
+
+    # Path relativo → absolutizar
+    if url.startswith("/"):
+        return _base_url() + url
+
+    marker = "raw.githubusercontent.com/"
+    if marker not in url:
+        return url
+    try:
+        tail = url.split(marker, 1)[1]
+        parts = tail.split("/", 3)
+        if len(parts) < 4:
+            return url
+        _owner, _repo, _branch, path = parts
+        # Prioridad: PETRA_MEDIA_PROXY_BASE (override explícito) →
+        # host actual (request) → PUBLIC_BASE_URL → default prod.
+        base = (os.environ.get("PETRA_MEDIA_PROXY_BASE") or "").strip()
+        if not base:
+            try:
+                from flask import request as _req
+                base = (_req.host_url or "").rstrip("/")
+            except Exception:
+                base = ""
+        if not base:
+            base = (os.environ.get("PUBLIC_BASE_URL") or
+                    "https://petra-inmuebles.onrender.com").rstrip("/")
+        base = base.rstrip("/")
+        return f"{base}/petra-media/{path}"
+    except Exception:
+        return url
+
+
+def _sample_inmueble_conjunto():
+    """Devuelve (inmueble_dict, conjunto_dict) de un caso real de la DB
+    para usar como ejemplo al someter templates a Meta. Devuelve (None, None)
+    si no hay datos."""
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            cols_i = ("id", "tipo", "operacion", "habitaciones", "banos",
+                      "m2", "precio", "propietario_telefono", "nro")
+            cols_c = ("id", "codigo", "nombre", "ciudad")
+            row = conn.execute(
+                "SELECT iv.id, iv.tipo, iv.operacion, iv.habitaciones, iv.banos, "
+                "       iv.m2, iv.precio, iv.propietario_telefono, iv.nro, "
+                "       cv.id AS cid, cv.codigo AS ccodigo, "
+                "       cv.nombre AS cnombre, cv.ciudad AS cciudad "
+                "  FROM inmuebles_visitante iv "
+                "  JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id "
+                " WHERE iv.activo = TRUE "
+                " ORDER BY iv.id ASC LIMIT 1").fetchone()
+            if not row:
+                return None, None
+            inm = dict(zip(cols_i, row[:9]))
+            conj = dict(zip(cols_c, row[9:]))
+            inm["conjunto_nombre"] = conj.get("nombre")
+            inm["conjunto_id"] = conj.get("id")
+            return inm, conj
+    except Exception:
+        return None, None
+
+
+def _resolver_ejemplo_boton_url(b):
+    """Devuelve el texto que reemplaza {{1}} en la URL de un botón URL.
+    Prioridad:
+      1. preset_id reconocido → genera desde DB real.
+      2. Campo 'ejemplo' estático del botón.
+      3. Fallback genérico.
+    """
+    preset = (b.get("preset_id") or "").strip()
+    if preset == "qr_conjunto":
+        _inm, conj = _sample_inmueble_conjunto()
+        if conj and conj.get("nombre"):
+            ciudad = conj.get("ciudad") or "Colombia"
+            codigo = conj.get("codigo") or "0001"
+            return f"Estoy en el edificio {conj['nombre']} en {ciudad}. Cod: {codigo}"
+    ej = (b.get("ejemplo") or "").strip()
+    if ej:
+        return ej
+    return "ejemplo"
+
+
 def _build_kapso_send_components(tpl, inmueble):
     """Arma el array `components` para enviar un template vía Kapso/Meta.
 
@@ -6316,11 +6697,15 @@ def _build_kapso_send_components(tpl, inmueble):
     htype = (header.get("type") or "").lower()
     hurl = (header.get("url") or "").strip()
     if htype in ("image", "video", "document") and hurl:
+        # Reescribir URLs de GitHub raw a nuestro proxy /petra-media/* porque
+        # GitHub devuelve application/octet-stream y Meta rechaza (131053).
+        # Nuestro proxy fuerza Content-Type por extensión.
+        rewritten = _reescribir_media_url_para_meta(hurl)
         comps.append({
             "type": "header",
             "parameters": [{
                 "type": htype,
-                htype: {"link": hurl},
+                htype: {"link": rewritten},
             }],
         })
     # Body con variables
@@ -8114,15 +8499,30 @@ def _op_label(op):
 # --- Textos de cada etapa ----------------------------------------------------
 
 def _texto_confirmar_datos(inm):
-    """Mensaje ① — Sebastián sondeando datos. Sin marca, sin mencionar admin."""
+    """Mensaje ① — Sebastián sondeando datos. Sin marca, sin mencionar admin.
+    Incluye conjunto + info conocida del inmueble (código, operación, lo que
+    ya tenemos cargado) para que el propietario confirme o complete.
+    """
     tipo = _tipo_label(inm)
     art = _articulo(tipo)
     conjunto = inm.get("conjunto_nombre") or "el conjunto"
-    return (
-        f"Hola, buen día.\n"
-        f"Quería preguntarte por {art} {tipo} que tenés en {conjunto}. "
-        f"¿Me puedes contar de cuántos metros es y qué precio tiene?"
+    op = (inm.get("operacion") or "").lower()
+    op_lbl = "arriendo" if op == "arriendo" else ("venta" if op == "venta" else "")
+    codigo = inm.get("codigo") or ""
+    partes = [f"Hola, buen día 👋"]
+    partes.append(
+        f"Te escribo por {art} {tipo} que tenés en *{conjunto}*"
+        + (f" (código {codigo})" if codigo else "") + "."
     )
+    if op_lbl:
+        partes.append(f"Lo tenemos registrado para *{op_lbl}*.")
+    partes.append(
+        "¿Me podés confirmar algunos datos para publicarlo bien?\n"
+        "• Metros cuadrados (m²)\n"
+        "• Precio" + (f" de {op_lbl}" if op_lbl else "") + "\n"
+        "• Número de habitaciones y baños"
+    )
+    return "\n\n".join(partes)
 
 
 def _texto_bienvenida(inm):

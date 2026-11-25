@@ -174,6 +174,47 @@ CREATE TABLE IF NOT EXISTS petra_contactos (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Link N:N entre agentes (petra_contactos) y conjuntos (conjuntos_visitante).
+-- Una agente puede tener varios conjuntos (códigos QR).
+-- Un conjunto típicamente pertenece a una sola agente pero el schema permite
+-- varias si en el futuro hace falta.
+CREATE TABLE IF NOT EXISTS petra_agente_conjuntos (
+  contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
+  conjunto_id INTEGER NOT NULL REFERENCES conjuntos_visitante(id) ON DELETE CASCADE,
+  asignado_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (contacto_id, conjunto_id)
+);
+CREATE INDEX IF NOT EXISTS petra_agente_conjuntos_conjunto_idx
+  ON petra_agente_conjuntos (conjunto_id);
+
+-- Fotos y videos asociados a un conjunto (y opcionalmente a un inmueble
+-- específico del conjunto). Se usan para actualizar QR, hacer contenido
+-- de redes, verificar inventario, etc.
+--
+-- El archivo vive en GitHub (repo petra-videos, carpeta
+-- conjuntos/<codigo>/). Guardamos la URL raw + metadata.
+CREATE TABLE IF NOT EXISTS petra_conjunto_media (
+  id BIGSERIAL PRIMARY KEY,
+  conjunto_id INTEGER NOT NULL REFERENCES conjuntos_visitante(id) ON DELETE CASCADE,
+  inmueble_id INTEGER REFERENCES inmuebles_visitante(id) ON DELETE SET NULL,
+  tipo TEXT NOT NULL DEFAULT 'foto_conjunto'
+    CHECK (tipo IN ('foto_conjunto','foto_inmueble','foto_agente',
+                    'video_conjunto','video_inmueble','video_agente',
+                    'libro_arriendos','libro_ventas','documento','otro')),
+  url TEXT NOT NULL,
+  mime TEXT,
+  tamano_bytes BIGINT,
+  nota TEXT,
+  source_url TEXT,
+  subido_por TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS petra_conjunto_media_conj_idx
+  ON petra_conjunto_media (conjunto_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS petra_conjunto_media_inm_idx
+  ON petra_conjunto_media (inmueble_id)
+  WHERE inmueble_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS petra_contacto_roles (
   id SERIAL PRIMARY KEY,
   contacto_id INTEGER NOT NULL REFERENCES petra_contactos(id) ON DELETE CASCADE,
@@ -1729,6 +1770,16 @@ CREATE TABLE IF NOT EXISTS conjuntos_visitante (
   ciudad TEXT,
   creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Campos operativos del conjunto que llena Del Mar vía MCP cuando la
+-- agente conecta el QR en terreno.
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS barrio TEXT;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS direccion TEXT;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS ubicacion_maps TEXT;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS fecha_activacion DATE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_fotos_inventario BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_videos_conjunto BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_inventario_inmueble BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS notas TEXT;
 
 CREATE TABLE IF NOT EXISTS inmuebles_visitante (
   id SERIAL PRIMARY KEY,
@@ -2372,6 +2423,9 @@ CREATE TABLE IF NOT EXISTS campana_templates (
 );
 CREATE INDEX IF NOT EXISTS campana_templates_status_idx
   ON campana_templates(status, actualizado_en DESC);
+-- Footer de template (opcional, hasta 60 chars). Separado del body para
+-- cumplir con el patrón canónico de Meta (texto chiquito en pie de página).
+ALTER TABLE campana_templates ADD COLUMN IF NOT EXISTS footer TEXT;
 
 
 -- ============================================================================

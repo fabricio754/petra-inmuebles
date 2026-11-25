@@ -449,6 +449,11 @@
 
   /* Botones editor (for 'botones' type) */
   .btn-list { display: flex; flex-direction: column; gap: 8px; }
+  .url-preset-btn {
+    background: var(--bg); border: 1px solid var(--border); padding: 6px 10px;
+    border-radius: 6px; cursor: pointer; font-size: 14px; position: relative;
+  }
+  .url-preset-btn:hover { background: var(--accent); color: #fff; }
   .btn-row {
     display: grid; grid-template-columns: 140px 1fr 1fr auto;
     gap: 8px; padding: 10px; background: var(--bg);
@@ -720,9 +725,10 @@
 
 {# Templates "activados": los que Petra dispara automáticamente.
    Lookup slot → template_name viene de DB (template_slots). #}
-{% set t_bien = templates | selectattr('name', 'equalto', slots.get('bienvenida', '')) | first | default(none) %}
-{% set t_serv = templates | selectattr('name', 'equalto', slots.get('servicio', ''))    | first | default(none) %}
-{% set t_cred = templates | selectattr('name', 'equalto', slots.get('credito', ''))     | first | default(none) %}
+{% set t_bien = templates | selectattr('name', 'equalto', slots.get('bienvenida', ''))      | first | default(none) %}
+{% set t_conf = templates | selectattr('name', 'equalto', slots.get('confirmar_datos', '')) | first | default(none) %}
+{% set t_serv = templates | selectattr('name', 'equalto', slots.get('servicio', ''))        | first | default(none) %}
+{% set t_cred = templates | selectattr('name', 'equalto', slots.get('credito', ''))         | first | default(none) %}
 
 <div class="tabs">
   <button class="tab active" data-tab="rejected" onclick="cambiarTab('rejected')">
@@ -738,7 +744,7 @@
     ✅ Aprobados Meta <span class="tab-count" id="tab-meta-count">(…)</span>
   </button>
   <button class="tab" data-tab="activados" onclick="cambiarTab('activados')">
-    ⚡ Activados <span class="tab-count">(3)</span>
+    ⚡ Activados <span class="tab-count">(4)</span>
   </button>
   <div class="tabs-right">
     <button class="btn-sync" id="btn-sync" onclick="sincronizarMeta(true)" hidden>
@@ -794,7 +800,45 @@
       </div>
     </div>
 
-    {# ── 2. Servicio ──────────────────────── #}
+    {# ── 2. Confirmar datos ───────────────── #}
+    <div class="activ-card">
+      <div class="activ-card-head">
+        <div class="activ-icon bienvenida">✅</div>
+        <div>
+          <h3 class="activ-title">Confirmar datos</h3>
+          <div class="activ-sub">Utility · auto</div>
+        </div>
+        <span class="activ-status" style="margin-left:auto;">
+          <span class="dot"></span>Activo
+        </span>
+      </div>
+      <div class="activ-trigger">
+        Se dispara cuando apretás <strong>"Confirmar datos"</strong> en el tab
+        Bienvenida de Inmuebles. Le pide al propietario que confirme precio,
+        m² y otros datos del inmueble.
+      </div>
+      <div class="activ-link">
+        <div class="activ-link-info">
+          <div class="activ-link-label">Template actual</div>
+          <div class="activ-link-value">
+            {% if t_conf %}{{ t_conf.display }}
+            {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="activ-actions">
+        {% if t_conf %}
+        <button class="mini-btn" onclick="verTemplate({{ t_conf.id }})">
+          Ver
+        </button>
+        {% endif %}
+        <button class="mini-btn" onclick="cambiarActivado('confirmar_datos')">
+          Cambiar
+        </button>
+      </div>
+    </div>
+
+    {# ── 3. Servicio ──────────────────────── #}
     <div class="activ-card">
       <div class="activ-card-head">
         <div class="activ-icon servicio">🏠</div>
@@ -1117,13 +1161,20 @@
             <div class="var-palette" id="var-palette"></div>
           </div>
 
-          <div class="form-pane" id="pane-botones">
-            <div class="form-field">
-              <label>Botones (hasta 2)</label>
-              <div class="btn-list" id="btn-list"></div>
-              <button type="button" class="add-var-btn" onclick="agregarBoton()"
-                      style="margin-top:8px">+ Agregar botón</button>
-            </div>
+          <div class="form-field">
+            <label>Footer (opcional)</label>
+            <input type="text" id="f-footer" maxlength="60"
+                   placeholder="ej. Responde SALIR para darte de baja."
+                   oninput="renderLivePreview()">
+            <div class="form-help">Texto chiquito al pie, máximo 60 caracteres. Útil para opt-out.</div>
+          </div>
+
+          <div class="form-field" id="pane-botones">
+            <label>Botones (hasta 2, opcional)</label>
+            <div class="btn-list" id="btn-list"></div>
+            <button type="button" class="add-var-btn" onclick="agregarBoton()"
+                    style="margin-top:8px">+ Agregar botón</button>
+            <div class="form-help">Clickeá <strong>💡</strong> para insertar patrones comunes (link al QR del conjunto, etc.). Los valores de ejemplo se autogeneran desde tu DB al enviar a Meta.</div>
           </div>
 
           <div class="form-pane" id="pane-catalogo">
@@ -1197,6 +1248,8 @@
               <div class="live-bubble" id="live-bubble">
                 <div class="live-bubble-media" id="live-media" hidden></div>
                 <div class="live-bubble-body" id="live-body"></div>
+                <div class="live-bubble-footer-text" id="live-footer" hidden
+                     style="color:#999;font-size:12px;margin-top:4px"></div>
                 <div class="live-bubble-footer">
                   <span id="live-time">10:00</span>
                 </div>
@@ -1556,9 +1609,10 @@
 
   // ----- Activados · Cambiar template (picker) -----------------------------
   var ACTIV_NOMBRE = {
-    bienvenida: 'Bienvenida',
-    servicio:   'Servicio',
-    credito:    'Crédito'
+    bienvenida:      'Bienvenida',
+    confirmar_datos: 'Confirmar datos',
+    servicio:        'Servicio',
+    credito:         'Crédito'
   };
 
   function cambiarActivado(slot) {
@@ -1666,8 +1720,10 @@
         document.getElementById('modal-nuevo').classList.add('open');
         volverAPaso1();  // reset base (deja editandoId en null)
         editandoId = id;  // marcamos edición DESPUÉS del reset
-        // Simular selección de tipo para mostrar el panel adecuado
-        elegirTipo(t.tipo);
+        // Mapeo de los tipos legacy al nuevo "mensaje" unificado.
+        var tipoUI = (t.tipo === 'texto' || t.tipo === 'multimedia' ||
+                       t.tipo === 'botones') ? 'mensaje' : t.tipo;
+        elegirTipo(tipoUI);
         setTimeout(function() { poblarForm(t); }, 200);
       });
   }
@@ -1682,9 +1738,21 @@
     document.getElementById('f-body').value = t.body || '';
     document.getElementById('f-autor').value = t.autor || 'fabricio';
     document.getElementById('f-reco').value = t.recomendacion || '';
+    document.getElementById('f-footer').value = t.footer || '';
 
     // Variables (hidrata state desde DB)
     cargarVariables(t.variables || []);
+
+    // Botones (universales — se pueden editar en cualquier tipo de template).
+    document.getElementById('btn-list').innerHTML = '';
+    (t.botones || []).forEach(function(b) {
+      agregarBoton();
+      var last = document.querySelector('#btn-list .btn-row:last-child');
+      last.querySelector('[data-k="type"]').value = b.type || 'url';
+      last.querySelector('[data-k="label"]').value = b.label || '';
+      last.querySelector('[data-k="value"]').value = b.value || '';
+      if (b.preset_id) last.setAttribute('data-preset-id', b.preset_id);
+    });
 
     // Según tipo
     if (t.tipo === 'multimedia' && t.header) {
@@ -1699,16 +1767,7 @@
                             t.header.label || t.header.url.split('/').pop());
       }
     }
-    if (t.tipo === 'botones') {
-      document.getElementById('btn-list').innerHTML = '';
-      (t.botones || []).forEach(function(b) {
-        agregarBoton();
-        var last = document.querySelector('#btn-list .btn-row:last-child');
-        last.querySelector('[data-k="type"]').value = b.type || 'url';
-        last.querySelector('[data-k="label"]').value = b.label || '';
-        last.querySelector('[data-k="value"]').value = b.value || '';
-      });
-    }
+    // Botones ya cargados arriba (universal).
     if (t.tipo === 'catalogo_carrusel' && t.catalogo) {
       document.getElementById('f-catalog-id').value = t.catalogo.catalog_id || '';
       document.getElementById('f-catalog-parent').value = t.catalogo.body_parent || '';
@@ -1780,10 +1839,11 @@
     // Pequeño delay visual
     setTimeout(function() {
       var titulos = {
-        texto: 'Nuevo template · Texto + variables',
-        multimedia: 'Nuevo template · Multimedia',
-        botones: 'Nuevo template · Interactivo con botones',
-        catalogo_carrusel: 'Nuevo template · Catálogo / Carrusel',
+        mensaje: 'Nuevo template · Mensaje',
+        texto: 'Nuevo template · Mensaje',
+        multimedia: 'Nuevo template · Mensaje',
+        botones: 'Nuevo template · Mensaje',
+        catalogo_carrusel: 'Nuevo template · Carrusel',
       };
       document.getElementById('modal-title').textContent = titulos[tipo] || 'Nuevo template';
       document.getElementById('paso-tipo').hidden = true;
@@ -1793,9 +1853,9 @@
 
       // Mostrar panel específico
       document.querySelectorAll('.form-pane').forEach(function(p) { p.classList.remove('active'); });
-      if (tipo === 'multimedia') document.getElementById('pane-multimedia').classList.add('active');
-      if (tipo === 'botones') {
-        document.getElementById('pane-botones').classList.add('active');
+      // En "mensaje" (nuevo unificado) y "multimedia" (legacy) → header visible.
+      if (tipo === 'mensaje' || tipo === 'multimedia') {
+        document.getElementById('pane-multimedia').classList.add('active');
       }
       if (tipo === 'catalogo_carrusel') {
         document.getElementById('pane-catalogo').classList.add('active');
@@ -2011,16 +2071,64 @@
     var row = document.createElement('div');
     row.className = 'btn-row';
     row.innerHTML =
-      '<select data-k="type">' +
+      '<select data-k="type" onchange="renderLivePreview()">' +
       '<option value="url">Abrir URL</option>' +
       '<option value="phone_number">Llamar</option>' +
       '<option value="copy_code">Copiar código</option>' +
       '<option value="quick_reply">Respuesta rápida</option>' +
       '</select>' +
-      '<input type="text" placeholder="Texto del botón" data-k="label">' +
-      '<input type="text" placeholder="URL / número / código / payload" data-k="value">' +
-      '<button type="button" class="del-btn" onclick="this.closest(\'.btn-row\').remove()">×</button>';
+      '<input type="text" placeholder="Texto del botón" data-k="label" oninput="renderLivePreview()">' +
+      '<input type="text" placeholder="URL / número / código / payload" data-k="value" oninput="renderLivePreview()">' +
+      '<button type="button" class="url-preset-btn" title="Insertar patrón de URL" ' +
+      '    onclick="abrirPresetsURL(this)">💡</button>' +
+      '<button type="button" class="del-btn" onclick="this.closest(\'.btn-row\').remove();renderLivePreview()">×</button>';
     list.appendChild(row);
+  }
+
+  // Patrones de URL comunes — se autogenera el example desde DB en backend.
+  var URL_PRESETS = [
+    {
+      id: 'qr_conjunto',
+      label: '📋 Link al QR del conjunto',
+      url: 'https://wa.me/573001278631?text={{1}}',
+      descripcion: 'Abre Petra Bot con el nombre del conjunto prellenado (como el QR impreso).',
+    },
+  ];
+
+  function abrirPresetsURL(btn) {
+    // Cierra cualquier popup abierto
+    document.querySelectorAll('.url-preset-popup').forEach(function(p){ p.remove(); });
+    var row = btn.closest('.btn-row');
+    var pop = document.createElement('div');
+    pop.className = 'url-preset-popup';
+    pop.style.cssText = 'position:absolute;z-index:10;background:var(--panel);' +
+      'border:1px solid var(--border);border-radius:10px;padding:8px;' +
+      'box-shadow:0 8px 24px rgba(0,0,0,.15);margin-top:4px';
+    URL_PRESETS.forEach(function(p){
+      var item = document.createElement('div');
+      item.style.cssText = 'padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px';
+      item.onmouseenter = function(){ item.style.background = 'var(--bg)'; };
+      item.onmouseleave = function(){ item.style.background = ''; };
+      item.innerHTML = '<strong>' + p.label + '</strong><br>' +
+                       '<span style="color:var(--text-sub);font-size:12px">' + p.descripcion + '</span>';
+      item.onclick = function(){
+        row.querySelector('[data-k="value"]').value = p.url;
+        row.setAttribute('data-preset-id', p.id);
+        pop.remove();
+        renderLivePreview();
+      };
+      pop.appendChild(item);
+    });
+    btn.parentNode.appendChild(pop);
+    // Cierra al clickear fuera
+    setTimeout(function(){
+      document.addEventListener('click', function cerrar(e){
+        if (!pop.contains(e.target) && e.target !== btn) {
+          pop.remove();
+          document.removeEventListener('click', cerrar);
+        }
+      });
+    }, 0);
   }
 
   function recolectarBotones() {
@@ -2030,6 +2138,8 @@
       row.querySelectorAll('select, input').forEach(function(el) {
         b[el.dataset.k] = el.value.trim();
       });
+      var pid = row.getAttribute('data-preset-id');
+      if (pid) b.preset_id = pid;
       if (b.label) btns.push(b);
     });
     return btns;
@@ -2141,47 +2251,51 @@
       String(now.getHours()).padStart(2, '0') + ':' +
       String(now.getMinutes()).padStart(2, '0');
 
-    // Header (solo multimedia)
+    // Header (mensaje o multimedia legacy)
     var media = document.getElementById('live-media');
     media.hidden = true; media.className = 'live-bubble-media';
     media.innerHTML = '';
-    if (tipoSeleccionado === 'multimedia') {
+    if (tipoSeleccionado === 'mensaje' || tipoSeleccionado === 'multimedia') {
       var htype = document.getElementById('f-header-type').value;
       var hurl = (document.getElementById('f-header-url').value || '').trim();
-      media.hidden = false;
-      if (htype === 'image') {
-        media.innerHTML = hurl
-          ? '<img src="' + escapeHtml(hurl) + '" onerror="this.parentNode.innerHTML=\'🖼️\'" alt="">'
-          : '🖼️';
-      } else if (htype === 'video') {
-        media.innerHTML = hurl
-          ? '<video src="' + escapeHtml(hurl) + '" muted></video>'
-          : '🎬';
-      } else if (htype === 'document') {
-        media.className = 'live-bubble-media doc';
-        var label = document.getElementById('f-header-label').value || 'documento.pdf';
-        media.innerHTML = '📄 <span>' + escapeHtml(label) + '</span>';
-      } else if (htype === 'location') {
-        media.innerHTML = '📍';
+      if (hurl) {
+        media.hidden = false;
+        if (htype === 'image') {
+          media.innerHTML = '<img src="' + escapeHtml(hurl) + '" onerror="this.parentNode.innerHTML=\'🖼️\'" alt="">';
+        } else if (htype === 'video') {
+          media.innerHTML = '<video src="' + escapeHtml(hurl) + '" muted></video>';
+        } else if (htype === 'document') {
+          media.className = 'live-bubble-media doc';
+          var label = document.getElementById('f-header-label').value || 'documento.pdf';
+          media.innerHTML = '📄 <span>' + escapeHtml(label) + '</span>';
+        } else if (htype === 'location') {
+          media.innerHTML = '📍';
+        }
       }
     }
 
-    // Botones (solo tipo botones)
+    // Footer (universal)
+    var footEl = document.getElementById('live-footer');
+    var footTxt = (document.getElementById('f-footer').value || '').trim();
+    if (footEl) {
+      footEl.hidden = !footTxt;
+      footEl.textContent = footTxt;
+    }
+
+    // Botones (universal — cualquier tipo puede tenerlos)
     var btnsBox = document.getElementById('live-btns');
     btnsBox.innerHTML = ''; btnsBox.hidden = true;
-    if (tipoSeleccionado === 'botones') {
-      var btns = recolectarBotones();
-      if (btns.length) {
-        btnsBox.hidden = false;
-        var icons = { url: '🔗', phone_number: '📞', copy_code: '📋', quick_reply: '↩️' };
-        btns.forEach(function(b) {
-          var ic = icons[b.type] || '';
-          var row = document.createElement('div');
-          row.className = 'live-bubble-btn';
-          row.textContent = (ic ? ic + '  ' : '') + (b.label || 'botón');
-          btnsBox.appendChild(row);
-        });
-      }
+    var btns = recolectarBotones();
+    if (btns.length) {
+      btnsBox.hidden = false;
+      var icons = { url: '🔗', phone_number: '📞', copy_code: '📋', quick_reply: '↩️' };
+      btns.forEach(function(b) {
+        var ic = icons[b.type] || '';
+        var row = document.createElement('div');
+        row.className = 'live-bubble-btn';
+        row.textContent = (ic ? ic + '  ' : '') + (b.label || 'botón');
+        btnsBox.appendChild(row);
+      });
     }
   }
 
@@ -2398,7 +2512,12 @@
     fd.append('recomendacion', document.getElementById('f-reco').value.trim());
     fd.append('variables', JSON.stringify(recolectarVariables()));
 
-    if (tipoSeleccionado === 'multimedia') {
+    // Footer + botones son universales ahora (válidos para cualquier tipo).
+    fd.append('footer', document.getElementById('f-footer').value.trim());
+    fd.append('botones', JSON.stringify(recolectarBotones()));
+
+    // Header: válido tanto para el nuevo "mensaje" como para "multimedia" legacy.
+    if (tipoSeleccionado === 'mensaje' || tipoSeleccionado === 'multimedia') {
       var url = document.getElementById('f-header-url').value.trim();
       if (url) {
         fd.append('header', JSON.stringify({
@@ -2407,9 +2526,6 @@
           label: document.getElementById('f-header-label').value.trim()
         }));
       }
-    }
-    if (tipoSeleccionado === 'botones') {
-      fd.append('botones', JSON.stringify(recolectarBotones()));
     }
     if (tipoSeleccionado === 'catalogo_carrusel') {
       // Validar que tenga al menos 1 card

@@ -40,6 +40,9 @@ from app.petra_core import petra_core_bp
 app.register_blueprint(petra_core_bp)
 from app.petra_panel import petra_panel_bp
 app.register_blueprint(petra_panel_bp)
+
+from app.petra_mcp import petra_mcp_bp
+app.register_blueprint(petra_mcp_bp)
 scheduler.iniciar()
 webhook_worker.iniciar()
 
@@ -47,6 +50,47 @@ webhook_worker.iniciar()
 @app.get("/")
 def health():
     return {"status": "ok", "service": "petra-inmuebles-webhook"}
+
+
+@app.get("/petra-media/<path:fname>")
+def petra_media_proxy(fname):
+    """Proxy público que sirve archivos de media (video/image/doc) desde
+    GitHub raw con el Content-Type correcto. Meta rechaza el header media
+    de templates cuando el server fuente responde `application/octet-stream`
+    (como hace GitHub raw con binarios), con error 131053 'Media upload
+    error'. Nuestro proxy resuelve el ctype por extensión y lo fuerza.
+    """
+    import os
+    import requests
+    from flask import Response, abort
+    repo = (os.environ.get("PETRA_MEDIA_GITHUB_REPO")
+            or "fabricio754/petra-videos").strip()
+    branch = (os.environ.get("PETRA_MEDIA_GITHUB_BRANCH")
+              or "videos").strip()
+    # Solo admitimos paths sin esquema ni ..
+    if ".." in fname or "://" in fname:
+        abort(400)
+    raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{fname}"
+    try:
+        r = requests.get(raw_url, timeout=30)
+    except Exception:
+        abort(502)
+    if not r.ok:
+        abort(r.status_code)
+    ext = fname.rsplit("?", 1)[0].rsplit(".", 1)[-1].lower()
+    ctype = {
+        "mp4": "video/mp4", "mov": "video/quicktime", "3gp": "video/3gpp",
+        "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "png": "image/png", "webp": "image/webp",
+        "pdf": "application/pdf",
+    }.get(ext, "application/octet-stream")
+    headers = {
+        "Content-Type": ctype,
+        "Content-Length": str(len(r.content)),
+        "Cache-Control": "public, max-age=3600",
+        "Access-Control-Allow-Origin": "*",
+    }
+    return Response(r.content, status=200, headers=headers)
 
 
 @app.route("/webhook/kapso", methods=["GET", "POST"])
