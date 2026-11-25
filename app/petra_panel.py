@@ -5818,6 +5818,7 @@ def panel_v2_templates_actualizar(tid):
                 f"UPDATE campana_templates SET {', '.join(set_clauses)} WHERE id = %s",
                 tuple(params),
             )
+            conn.commit()
             return jsonify({"ok": True, "reset_a_draft": reset_status})
     except Exception:
         import logging as _lg
