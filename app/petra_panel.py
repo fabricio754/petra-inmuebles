@@ -4611,7 +4611,8 @@ def panel_v2_numeros_kapso_sincronizar():
     _check_token()
 
     k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
-    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
     if not (k_api_key and waba_id):
         return jsonify({"error": "kapso_no_configurado"}), 500
 
@@ -5058,10 +5059,11 @@ def _meta_fetch_templates(force=False):
        (now - _META_TEMPLATES_CACHE["ts"]) < _META_CACHE_TTL:
         return _META_TEMPLATES_CACHE["payload"], _META_TEMPLATES_CACHE["error"]
 
-    # Lista desde la WABA de Kapso (+573001301331), no la del bot.
+    # Lista desde la WABA activa en DB (si hay), si no la del env.
     from app import petra_kapso as _kapso_mod
     k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
-    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
 
     if not k_api_key:
         return [], "falta_env:KAPSO_API_KEY"
@@ -5474,10 +5476,11 @@ def panel_v2_templates_aprobar(tid):
     import json as _json
     import requests
 
-    # Las aprobaciones de templates van a la WABA de Kapso (+573001301331).
+    # Las aprobaciones de templates van a la WABA activa (DB) o la del env.
     # El bot (+573001278631) no envia templates; es solo chat libre.
     k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
-    waba_id = (os.environ.get("KAPSO_WABA_ID") or "").strip()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
     # app_id solo se usaba para Resumable Upload de media directo a Meta;
     # ahora via Kapso NO hace falta si usamos header_url en vez de handle.
     app_id = (os.environ.get("META_APP_ID") or "").strip()
