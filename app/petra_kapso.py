@@ -42,7 +42,7 @@ def _phone_id_activo():
     """Devuelve el phone_id marcado como activo en DB, o '' si no hay."""
     try:
         from app import db as _db
-        with _db._conexion() as conn, conn.cursor() as cur:
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT phone_id FROM petra_kapso_numeros WHERE activo LIMIT 1"
             )
@@ -57,7 +57,7 @@ def _phone_id_activo():
 def _waba_id_activo():
     try:
         from app import db as _db
-        with _db._conexion() as conn, conn.cursor() as cur:
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT waba_id FROM petra_kapso_numeros WHERE activo LIMIT 1"
             )

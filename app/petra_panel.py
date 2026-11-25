@@ -9979,7 +9979,7 @@ def panel_v2_kapso():
 
     numeros = []
     try:
-        with _db._conexion() as conn, conn.cursor() as cur:
+        with _db._conexion_directa() as conn, conn.cursor() as cur:
             cur.execute("""SELECT id, phone_id, waba_id, e164, label, activo
                              FROM petra_kapso_numeros
                             ORDER BY activo DESC, creado_en ASC""")
@@ -10006,7 +10006,7 @@ def panel_v2_kapso_numeros_agregar():
     label = (request.form.get("label") or "").strip() or None
     if not phone_id:
         return jsonify({"ok": False, "msg": "phone_id requerido"}), 400
-    with _db._conexion() as conn, conn.cursor() as cur:
+    with _db._conexion_directa() as conn, conn.cursor() as cur:
         cur.execute("""INSERT INTO petra_kapso_numeros (phone_id, waba_id, e164, label)
                        VALUES (%s, %s, %s, %s)
                        ON CONFLICT (phone_id) DO UPDATE
@@ -10024,7 +10024,7 @@ def panel_v2_kapso_numeros_agregar():
 def panel_v2_kapso_numeros_activar(nid):
     from flask import jsonify
     _check_token()
-    with _db._conexion() as conn, conn.cursor() as cur:
+    with _db._conexion_directa() as conn, conn.cursor() as cur:
         cur.execute("UPDATE petra_kapso_numeros SET activo = FALSE WHERE activo")
         cur.execute("UPDATE petra_kapso_numeros SET activo = TRUE WHERE id = %s", (nid,))
         if cur.rowcount == 0:
@@ -10038,7 +10038,7 @@ def panel_v2_kapso_numeros_activar(nid):
 def panel_v2_kapso_numeros_eliminar(nid):
     from flask import jsonify
     _check_token()
-    with _db._conexion() as conn, conn.cursor() as cur:
+    with _db._conexion_directa() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM petra_kapso_numeros WHERE id = %s", (nid,))
         conn.commit()
     return jsonify({"ok": True})
