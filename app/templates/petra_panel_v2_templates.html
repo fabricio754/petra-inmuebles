@@ -1001,11 +1001,11 @@
         <div class="tpl-card-btns">
           <button class="mini-btn"
                   onclick="editarTemplate({{ t.id }})">Editar</button>
-          {% if t.status == 'draft' %}
+          {% if t.status in ('draft', 'pendiente') %}
           <button class="mini-btn approve"
                   id="btn-aprobar-{{ t.id }}"
                   onclick="aprobarTemplate({{ t.id }}, '{{ t.display|escape }}')">
-            ✅ Aprobar
+            ✅ {% if t.status == 'pendiente' %}Reenviar{% else %}Aprobar{% endif %}
           </button>
           <button class="mini-btn danger"
                   onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
