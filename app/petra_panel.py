@@ -1197,8 +1197,8 @@ def _cargar_ficha_agente(conn, cid):
                   cv.fecha_activacion,
                   cv.envio_fotos_inventario, cv.envio_videos_conjunto,
                   cv.envio_inventario_inmueble,
-                  cv.envio_video_qr, cv.envio_video_zonas_comunes,
-                  cv.envio_video_frente,
+                  cv.envio_qr_instalado, cv.envio_zonas_comunes,
+                  cv.envio_frente_conjunto,
                   cv.notas AS notas_conjunto,
                   ac.asignado_at AS fecha_envio_qr,
                   COALESCE(SUM(CASE WHEN iv.activo AND iv.operacion='arriendo'

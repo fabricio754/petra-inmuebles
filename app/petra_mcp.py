@@ -186,7 +186,7 @@ _TOOLS = [
     },
     {
         "name": "listar_media_conjunto",
-        "description": "Lista todas las fotos/videos/documentos de un conjunto.",
+        "description": "Lista todas las fotos/videos/documentos de un conjunto. Cada item trae su `id` que podés usar para cambiar el tipo con actualizar_media_tipo.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -197,6 +197,36 @@ _TOOLS = [
                 },
             },
             "required": ["codigo_conjunto"],
+        },
+    },
+    {
+        "name": "actualizar_media_tipo",
+        "description": (
+            "Cambia el campo `tipo` de una media ya subida. Útil cuando Del Mar "
+            "ve que una foto se categorizó mal (ej. estaba como foto_conjunto y en "
+            "realidad es foto del QR instalado)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "media_id": {
+                    "type": "integer",
+                    "description": "ID de la media (lo devuelve listar_media_conjunto en el campo `id`).",
+                },
+                "tipo": {
+                    "type": "string",
+                    "description": (
+                        "Nuevo tipo. Valores validos: foto_conjunto | foto_inmueble | "
+                        "foto_agente | video_conjunto | video_inmueble | video_agente | "
+                        "libro_arriendos | libro_ventas | documento | otro."
+                    ),
+                },
+                "nota": {
+                    "type": "string",
+                    "description": "Opcional: reemplaza la nota existente.",
+                },
+            },
+            "required": ["media_id", "tipo"],
         },
     },
     {
@@ -232,9 +262,9 @@ _TOOLS = [
             "Actualiza datos del CONJUNTO (lugar). Campos soportados: "
             "nombre, ciudad, barrio, direccion, ubicacion_maps, "
             "fecha_activacion (ISO YYYY-MM-DD), envio_fotos_inventario "
-            "(bool), envio_video_qr (bool, video QR instalado), "
-            "envio_video_zonas_comunes (bool, video de zonas comunes), "
-            "envio_video_frente (bool, video del frente del conjunto), "
+            "(bool), envio_qr_instalado (bool, foto o video del QR ya instalado), "
+            "envio_zonas_comunes (bool, foto o video de zonas comunes), "
+            "envio_frente_conjunto (bool, foto o video del frente del conjunto), "
             "envio_videos_conjunto (bool, legacy), "
             "envio_inventario_inmueble (bool, legacy), notas."
         ),
@@ -252,9 +282,9 @@ _TOOLS = [
                         "ubicacion_maps": {"type": "string"},
                         "fecha_activacion": {"type": "string"},
                         "envio_fotos_inventario": {"type": "boolean"},
-                        "envio_video_qr": {"type": "boolean"},
-                        "envio_video_zonas_comunes": {"type": "boolean"},
-                        "envio_video_frente": {"type": "boolean"},
+                        "envio_qr_instalado": {"type": "boolean"},
+                        "envio_zonas_comunes": {"type": "boolean"},
+                        "envio_frente_conjunto": {"type": "boolean"},
                         "envio_videos_conjunto": {"type": "boolean"},
                         "envio_inventario_inmueble": {"type": "boolean"},
                         "notas": {"type": "string"},
@@ -330,7 +360,7 @@ _CAMPOS_CONJUNTO = {
     "nombre", "ciudad", "barrio", "direccion", "ubicacion_maps",
     "fecha_activacion", "envio_fotos_inventario",
     "envio_videos_conjunto", "envio_inventario_inmueble",
-    "envio_video_qr", "envio_video_zonas_comunes", "envio_video_frente",
+    "envio_qr_instalado", "envio_zonas_comunes", "envio_frente_conjunto",
     "notas",
 }
 
@@ -443,8 +473,8 @@ def _t_ficha_agente(args):
             "       cv.direccion, cv.ubicacion_maps, cv.fecha_activacion, "
             "       cv.envio_fotos_inventario, cv.envio_videos_conjunto, "
             "       cv.envio_inventario_inmueble, cv.notas, ac.asignado_at, "
-            "       cv.envio_video_qr, cv.envio_video_zonas_comunes, "
-            "       cv.envio_video_frente "
+            "       cv.envio_qr_instalado, cv.envio_zonas_comunes, "
+            "       cv.envio_frente_conjunto "
             "  FROM petra_agente_conjuntos ac "
             "  JOIN conjuntos_visitante cv ON cv.id = ac.conjunto_id "
             " WHERE ac.contacto_id = %s ORDER BY cv.codigo", (row[0],)
@@ -469,9 +499,9 @@ def _t_ficha_agente(args):
                 "envio_inventario_inmueble": bool(c[9]),
                 "notas": c[10] or "",
                 "fecha_envio_qr": c[11].isoformat() if c[11] else "",
-                "envio_video_qr": bool(c[12]),
-                "envio_video_zonas_comunes": bool(c[13]),
-                "envio_video_frente": bool(c[14]),
+                "envio_qr_instalado": bool(c[12]),
+                "envio_zonas_comunes": bool(c[13]),
+                "envio_frente_conjunto": bool(c[14]),
             }
             for c in conjuntos
         ],
@@ -843,6 +873,43 @@ def _t_listar_media_conjunto(args):
     return {"codigo_conjunto": cod, "count": len(out), "media": out}
 
 
+_MEDIA_TIPOS_VALIDOS = {
+    "foto_conjunto", "foto_inmueble", "foto_agente",
+    "video_conjunto", "video_inmueble", "video_agente",
+    "libro_arriendos", "libro_ventas", "documento", "otro",
+}
+
+
+def _t_actualizar_media_tipo(args):
+    try:
+        mid = int(args.get("media_id") or 0)
+    except (TypeError, ValueError):
+        return {"error": "media_id invalido"}
+    tipo = (args.get("tipo") or "").strip()
+    nota = args.get("nota")
+    if not mid:
+        return {"error": "falta media_id"}
+    if tipo not in _MEDIA_TIPOS_VALIDOS:
+        return {"error": f"tipo_invalido:{tipo}",
+                "validos": sorted(_MEDIA_TIPOS_VALIDOS)}
+    with _db._conexion_directa(timeout=10) as conn:
+        row = conn.execute(
+            "SELECT id FROM petra_conjunto_media WHERE id = %s", (mid,)
+        ).fetchone()
+        if not row:
+            return {"error": f"media_no_encontrada:{mid}"}
+        if nota is not None:
+            conn.execute(
+                "UPDATE petra_conjunto_media SET tipo = %s, nota = %s WHERE id = %s",
+                (tipo, nota, mid))
+        else:
+            conn.execute(
+                "UPDATE petra_conjunto_media SET tipo = %s WHERE id = %s",
+                (tipo, mid))
+        conn.commit()
+    return {"ok": True, "media_id": mid, "tipo": tipo}
+
+
 def _t_cambiar_telefono_agente(args):
     actual = (args.get("telefono_actual") or "").strip()
     nuevo = (args.get("telefono_nuevo") or "").strip()
@@ -906,9 +973,9 @@ _CAMPOS_CONJUNTO_SQL_TIPO = {
     "envio_fotos_inventario": "bool",
     "envio_videos_conjunto": "bool",
     "envio_inventario_inmueble": "bool",
-    "envio_video_qr": "bool",
-    "envio_video_zonas_comunes": "bool",
-    "envio_video_frente": "bool",
+    "envio_qr_instalado": "bool",
+    "envio_zonas_comunes": "bool",
+    "envio_frente_conjunto": "bool",
     "notas": "text",
 }
 
@@ -949,7 +1016,7 @@ def _t_ficha_conjunto(args):
             "SELECT id, codigo, nombre, ciudad, barrio, direccion, "
             "       ubicacion_maps, fecha_activacion, envio_fotos_inventario, "
             "       envio_videos_conjunto, envio_inventario_inmueble, notas, "
-            "       envio_video_qr, envio_video_zonas_comunes, envio_video_frente "
+            "       envio_qr_instalado, envio_zonas_comunes, envio_frente_conjunto "
             "  FROM conjuntos_visitante WHERE codigo = %s", (cod,)
         ).fetchone()
         if not row:
@@ -971,9 +1038,9 @@ def _t_ficha_conjunto(args):
         "envio_videos_conjunto": bool(row[9]),
         "envio_inventario_inmueble": bool(row[10]),
         "notas": row[11] or "",
-        "envio_video_qr": bool(row[12]),
-        "envio_video_zonas_comunes": bool(row[13]),
-        "envio_video_frente": bool(row[14]),
+        "envio_qr_instalado": bool(row[12]),
+        "envio_zonas_comunes": bool(row[13]),
+        "envio_frente_conjunto": bool(row[14]),
         "agentes": [
             {"telefono": a[0], "nombre": a[1],
              "fecha_envio_qr": a[2].isoformat() if a[2] else ""}
@@ -996,6 +1063,7 @@ _TOOL_FNS = {
     "ficha_conjunto": _t_ficha_conjunto,
     "agregar_media": _t_agregar_media,
     "listar_media_conjunto": _t_listar_media_conjunto,
+    "actualizar_media_tipo": _t_actualizar_media_tipo,
     "cambiar_telefono_agente": _t_cambiar_telefono_agente,
     "eliminar_agente": _t_eliminar_agente,
 }
