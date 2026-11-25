@@ -2207,12 +2207,24 @@
     if (t.header && t.tipo === 'multimedia') {
       media.hidden = false;
       var htype = (t.header.type || 'image').toLowerCase();
-      if (htype === 'image') media.innerHTML = '🖼️';
-      else if (htype === 'video') media.innerHTML = '🎬';
-      else if (htype === 'document') {
+      var hurl = t.header.url || '';
+      if (htype === 'image' && hurl) {
+        media.innerHTML = '<img src="' + hurl + '" style="max-width:100%;max-height:260px;display:block;object-fit:cover" alt="">';
+      } else if (htype === 'image') {
+        media.innerHTML = '🖼️';
+      } else if (htype === 'video' && hurl) {
+        media.innerHTML = '<video src="' + hurl + '" controls style="max-width:100%;max-height:260px;display:block"></video>';
+      } else if (htype === 'video') {
+        media.innerHTML = '🎬';
+      } else if (htype === 'document') {
         media.className = 'live-bubble-media doc';
-        media.innerHTML = '📄 <span>documento.pdf</span>';
-      } else if (htype === 'location') media.innerHTML = '📍';
+        var name = hurl ? hurl.split('?')[0].split('/').pop() : 'documento.pdf';
+        media.innerHTML = hurl
+          ? '📄 <a href="' + hurl + '" target="_blank">' + name + '</a>'
+          : '📄 <span>documento.pdf</span>';
+      } else if (htype === 'location') {
+        media.innerHTML = '📍';
+      }
     }
 
     // Botones

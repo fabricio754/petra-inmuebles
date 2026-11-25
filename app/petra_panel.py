@@ -4990,9 +4990,17 @@ def _normalize_meta_template(raw):
             if fmt == "TEXT":
                 pass  # headers de solo texto no los contamos como multimedia
             else:
+                # Meta guarda la URL del archivo de muestra en example.header_handle
+                ex = c.get("example") or {}
+                handle = ex.get("header_handle") or []
+                sample_url = ""
+                if isinstance(handle, list) and handle:
+                    sample_url = str(handle[0])
+                elif isinstance(handle, str):
+                    sample_url = handle
                 header = {
                     "type": fmt.lower(),  # image / video / document / location
-                    "url": "",  # Meta solo guarda el template, no la URL fija
+                    "url": sample_url,
                     "label": f"{fmt} (ejemplo en template)",
                 }
                 tipo = "multimedia"
