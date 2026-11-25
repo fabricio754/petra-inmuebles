@@ -10000,9 +10000,15 @@ def panel_v2_kapso():
     numeros = []
     try:
         with _db._conexion_directa() as conn, conn.cursor() as cur:
-            cur.execute("""SELECT id, phone_id, waba_id, e164, label, activo
-                             FROM petra_kapso_numeros
-                            ORDER BY activo DESC, creado_en ASC""")
+            cur.execute("""
+                SELECT k.id, k.phone_id, k.waba_id,
+                       COALESCE(w.phone_e164, k.e164)      AS e164,
+                       COALESCE(w.display_name, k.label)   AS label,
+                       k.activo
+                  FROM petra_kapso_numeros k
+                  LEFT JOIN waba_conectadas w
+                         ON w.phone_number_id = k.phone_id
+                 ORDER BY k.activo DESC, k.creado_en ASC""")
             for r in cur.fetchall():
                 numeros.append({
                     "id": r[0], "phone_id": r[1], "waba_id": r[2],
