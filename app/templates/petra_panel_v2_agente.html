@@ -214,7 +214,10 @@
   {# ─── DATOS DE CONTACTO ──────────────────────────────── #}
   <div class="card">
     <h3>Datos</h3>
+    <div class="row"><span class="k">Teléfono</span><span class="v" style="font-family:ui-monospace,Menlo,monospace">{{ agente.telefono or '—' }}</span></div>
+    <div class="row"><span class="k">Cédula</span><span class="v">{{ meta.cedula or '—' }}</span></div>
     <div class="row"><span class="k">Ciudad</span><span class="v">{{ meta.ciudad or '—' }}</span></div>
+    <div class="row"><span class="k">Dirección</span><span class="v">{{ meta.direccion_agente or '—' }}</span></div>
     <div class="row"><span class="k">Origen</span><span class="v">{{ meta.origen or '—' }}</span></div>
     <div class="row"><span class="k">Inscrita desde</span><span class="v">{% if meta.inscrito_at %}{{ meta.inscrito_at[:10] }}{% else %}—{% endif %}</span></div>
     <div class="row"><span class="k">Videos vistos</span><span class="v">{{ videos_vistos }}/14</span></div>
@@ -224,23 +227,89 @@
         {% if bot_pausado %}⏸ Pausado{% else %}▶️ Activo{% endif %}
       </span>
     </div>
+    {% if meta.notas %}
+    <div class="row" style="flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="k">Notas</span>
+      <span class="v" style="white-space:pre-wrap">{{ meta.notas }}</span>
+    </div>
+    {% endif %}
   </div>
 </div>
 
-{# ─── EDIFICIOS ──────────────────────────────────────── #}
+{# ─── CONJUNTOS (QR asignados) ─────────────────────── #}
 {% if edificios %}
 <div class="card" style="margin-bottom:16px">
-  <h3>🏢 Edificios ({{ edificios|length }})</h3>
+  <h3>🏢 Conjuntos ({{ edificios|length }})</h3>
   {% for e in edificios %}
-  <div class="edificio-item">
-    <div>
-      <div class="nm">{{ e.nombre }}</div>
-      <div class="cod">cod {{ e.codigo }} · {{ e.ciudad or '—' }}</div>
+  <div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;background:var(--panel)">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      <div>
+        <div style="font-weight:600;font-size:15px">{{ e.nombre or '— sin nombre —' }}</div>
+        <div style="color:var(--text-sub);font-size:12px">
+          código <strong>{{ e.codigo }}</strong>
+          {% if e.ciudad %} · {{ e.ciudad }}{% endif %}
+          {% if e.barrio %} · {{ e.barrio }}{% endif %}
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-sub);text-align:right">
+        Arr {{ e.arr_activos }} · Ven {{ e.ven_activos }}
+        {% if e.petra_gestiona %} · 💜 {{ e.petra_gestiona }}{% endif %}
+      </div>
     </div>
-    <div class="nums">
-      Arr {{ e.arr_activos }} · Ven {{ e.ven_activos }}
-      {% if e.petra_gestiona %} · 💜 {{ e.petra_gestiona }}{% endif %}
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 16px;font-size:12.5px">
+      <div><span style="color:var(--text-sub)">Dirección:</span>
+        {{ e.direccion or '—' }}</div>
+      <div><span style="color:var(--text-sub)">Maps:</span>
+        {% if e.ubicacion_maps %}<a href="{{ e.ubicacion_maps }}" target="_blank">abrir ↗</a>{% else %}—{% endif %}</div>
+      <div><span style="color:var(--text-sub)">Envío QR:</span>
+        {% if e.fecha_envio_qr %}{{ e.fecha_envio_qr.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</div>
+      <div><span style="color:var(--text-sub)">Activación QR:</span>
+        {% if e.fecha_activacion %}{{ e.fecha_activacion.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</div>
     </div>
+
+    <div style="display:flex;gap:12px;margin-top:10px;font-size:12px;flex-wrap:wrap">
+      <span style="padding:3px 8px;border-radius:20px;background:{% if e.envio_fotos_inventario %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
+        {% if e.envio_fotos_inventario %}✅{% else %}⚪{% endif %} Fotos inventario
+      </span>
+      <span style="padding:3px 8px;border-radius:20px;background:{% if e.envio_videos_conjunto %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
+        {% if e.envio_videos_conjunto %}✅{% else %}⚪{% endif %} Videos conjunto
+      </span>
+      <span style="padding:3px 8px;border-radius:20px;background:{% if e.envio_inventario_inmueble %}#dcfce7;color:#166534{% else %}var(--bg);color:var(--text-sub){% endif %}">
+        {% if e.envio_inventario_inmueble %}✅{% else %}⚪{% endif %} Inventario inmueble
+      </span>
+    </div>
+
+    {% if e.notas_conjunto %}
+    <div style="margin-top:8px;padding:8px 10px;background:var(--bg);border-radius:8px;font-size:12px;white-space:pre-wrap">
+      <span style="color:var(--text-sub)">Notas:</span> {{ e.notas_conjunto }}
+    </div>
+    {% endif %}
+
+    {% if e.media %}
+    <div style="margin-top:12px">
+      <div style="font-size:12px;color:var(--text-sub);margin-bottom:6px">
+        📎 Media ({{ e.media|length }})
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        {% for m in e.media %}
+          {% set _is_img = (m.mime or '').startswith('image/') %}
+          {% set _is_vid = (m.mime or '').startswith('video/') %}
+          <a href="{{ m.url }}" target="_blank"
+             title="{{ m.tipo }}{% if m.nota %} · {{ m.nota }}{% endif %}"
+             style="display:block;width:80px;height:80px;border-radius:8px;overflow:hidden;background:var(--bg);border:1px solid var(--border);text-decoration:none;color:var(--text-sub);font-size:11px;display:flex;align-items:center;justify-content:center;text-align:center;position:relative">
+            {% if _is_img %}
+              <img src="{{ m.url }}" style="width:100%;height:100%;object-fit:cover">
+            {% elif _is_vid %}
+              🎬
+            {% else %}
+              📄
+            {% endif %}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

@@ -1189,21 +1189,45 @@ def _cargar_ficha_agente(conn, cid):
     meta = agente.get("metadata") or {}
     bot_pausado = str(meta.get("bot_pausado", "")).lower() == "true"
 
-    # Edificios + inmuebles del agente (vive en conjuntos_visitante.creado_por_cid).
+    # Conjuntos de la agente — por asignación de QR (petra_agente_conjuntos)
+    # con todos los campos operativos del conjunto. Contamos inmuebles activos.
     edificios = _rows(conn,
         """SELECT cv.id, cv.codigo, cv.nombre, cv.ciudad, cv.creado_en,
+                  cv.barrio, cv.direccion, cv.ubicacion_maps,
+                  cv.fecha_activacion,
+                  cv.envio_fotos_inventario, cv.envio_videos_conjunto,
+                  cv.envio_inventario_inmueble, cv.notas AS notas_conjunto,
+                  ac.asignado_at AS fecha_envio_qr,
                   COALESCE(SUM(CASE WHEN iv.activo AND iv.operacion='arriendo'
                                     THEN 1 ELSE 0 END), 0) AS arr_activos,
                   COALESCE(SUM(CASE WHEN iv.activo AND iv.operacion='venta'
                                     THEN 1 ELSE 0 END), 0) AS ven_activos,
                   COALESCE(SUM(CASE WHEN iv.activo AND iv.gestionado_por_petra
                                     THEN 1 ELSE 0 END), 0) AS petra_gestiona
-             FROM conjuntos_visitante cv
+             FROM petra_agente_conjuntos ac
+             JOIN conjuntos_visitante cv ON cv.id = ac.conjunto_id
              LEFT JOIN inmuebles_visitante iv ON iv.conjunto_id = cv.id
-            WHERE cv.creado_por_cid = %s
-            GROUP BY cv.id
-            ORDER BY cv.creado_en DESC""",
+            WHERE ac.contacto_id = %s
+            GROUP BY cv.id, ac.asignado_at
+            ORDER BY cv.codigo ASC""",
         (cid,))
+
+    # Media por conjunto (fotos, videos, documentos) para mostrar galería.
+    if edificios:
+        cids = [e["id"] for e in edificios]
+        media_rows = _rows(conn,
+            """SELECT conjunto_id, id, tipo, url, mime, nota, created_at
+                 FROM petra_conjunto_media
+                WHERE conjunto_id = ANY(%s)
+                ORDER BY created_at DESC""", (cids,))
+        media_por_conj = {}
+        for m in media_rows:
+            media_por_conj.setdefault(m["conjunto_id"], []).append(m)
+        for e in edificios:
+            e["media"] = media_por_conj.get(e["id"], [])
+    else:
+        for e in edificios:
+            e["media"] = []
 
     # "¿Qué sigue?" — call-to-action humano del paso actual del flow.
     estado_actual = (meta.get("estado_agente") or "").strip()
