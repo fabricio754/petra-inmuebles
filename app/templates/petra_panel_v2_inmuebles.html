@@ -489,6 +489,7 @@
           {% if _action %}<th style="width:28px"></th>{% endif %}
           <th>Código</th><th>Estado</th><th>Op</th><th>Tipo</th><th>m²</th>
           <th>Precio</th><th>Teléfono</th>
+          <th>Bienvenida</th>
           <th>{% if _action %}Acción{% else %}Etapa{% endif %}</th>
           <th>Acciones</th>
         </tr>
@@ -517,6 +518,30 @@
             {% if i.celular_valido %}{{ i.propietario_telefono }}
             {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
+          </td>
+          {# Estado de la bienvenida (last) con tooltip de timestamps. #}
+          <td style="font-size:12px">
+            {% set _bv_lbl = {
+              'enviado':    ('📤 Enviado',    '#6b7280'),
+              'sent':       ('📤 Enviado',    '#6b7280'),
+              'delivered':  ('📬 Entregado',  '#2563eb'),
+              'read':       ('👁 Leído',      '#7c3aed'),
+              'clickeado':  ('✅ Clickeó',    '#047a3f'),
+              'fallido':    ('❌ Falló',      '#b91c1c'),
+            } %}
+            {% if i.bienv_estado %}
+              {% set _lbl, _color = _bv_lbl.get(i.bienv_estado, (i.bienv_estado, '#6b7280')) %}
+              <span style="color: {{ _color }}; font-weight: 600"
+                    title="{% if i.bienv_sent_at %}Enviado: {{ i.bienv_sent_at.strftime('%d/%m %H:%M') }}
+{% endif %}{% if i.bienv_delivered_at %}Entregado: {{ i.bienv_delivered_at.strftime('%d/%m %H:%M') }}
+{% endif %}{% if i.bienv_read_at %}Leído: {{ i.bienv_read_at.strftime('%d/%m %H:%M') }}
+{% endif %}{% if i.bienv_clicked_at %}Click: {{ i.bienv_clicked_at.strftime('%d/%m %H:%M') }}
+{% endif %}{% if i.bienv_error %}Error: {{ i.bienv_error }}{% endif %}">
+                {{ _lbl }}
+              </span>
+            {% else %}
+              <span style="color:var(--muted)">—</span>
+            {% endif %}
           </td>
           {# Etapa del inmueble — calculada automáticamente. #}
           <td>

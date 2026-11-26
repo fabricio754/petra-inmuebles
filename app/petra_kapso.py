@@ -293,6 +293,82 @@ def send_cta_url(to, body, display_text, url, header=None, footer=None,
             "body": body_resp, "message_id": message_id}
 
 
+def _marcar_estado_bienvenida(wamid, estado_meta, error_text=None):
+    """Actualiza el estado de una bienvenida tracked en
+    petra_bienvenidas_enviadas cuando llega un status event de Meta/Kapso.
+
+    Mapeo: sent/delivered/read → ese mismo nombre. failed → fallido.
+    Solo pisa estado si el nuevo es "más avanzado" (por prioridad), para
+    que un 'delivered' tardío no sobreescriba un 'read' ya marcado.
+    """
+    if not wamid or not estado_meta:
+        return
+    prio = {"enviado": 0, "sent": 1, "delivered": 2, "read": 3,
+            "clickeado": 4, "fallido": 5}
+    mapping = {"sent": "sent", "delivered": "delivered",
+               "read": "read", "failed": "fallido"}
+    nuevo = mapping.get(estado_meta.lower())
+    if not nuevo:
+        return
+    col_ts = {"sent": "sent_at", "delivered": "delivered_at",
+              "read": "read_at", "fallido": "failed_at"}[nuevo]
+    from app import db as _db
+    with _db._conexion_directa(timeout=5) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT estado FROM petra_bienvenidas_enviadas WHERE wamid = %s",
+            (wamid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return
+        actual = row[0] or "enviado"
+        # No pisar si el nuevo tiene menor prioridad.
+        if prio.get(nuevo, -1) < prio.get(actual, -1):
+            # Pero sí actualizar el timestamp del nuevo si estaba vacío.
+            cur.execute(
+                f"UPDATE petra_bienvenidas_enviadas "
+                f"   SET {col_ts} = COALESCE({col_ts}, NOW()) "
+                f" WHERE wamid = %s",
+                (wamid,),
+            )
+        else:
+            if nuevo == "fallido":
+                cur.execute(
+                    "UPDATE petra_bienvenidas_enviadas "
+                    "   SET estado = %s, failed_at = COALESCE(failed_at, NOW()), "
+                    "       error_detalle = %s "
+                    " WHERE wamid = %s",
+                    (nuevo, (error_text or "")[:500], wamid),
+                )
+            else:
+                cur.execute(
+                    f"UPDATE petra_bienvenidas_enviadas "
+                    f"   SET estado = %s, {col_ts} = COALESCE({col_ts}, NOW()) "
+                    f" WHERE wamid = %s",
+                    (nuevo, wamid),
+                )
+        conn.commit()
+
+
+def _marcar_bienvenida_clickeada(wamid):
+    """Marca estado='clickeado' en petra_bienvenidas_enviadas para ese wamid."""
+    if not wamid:
+        return
+    from app import db as _db
+    try:
+        with _db._conexion_directa(timeout=5) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE petra_bienvenidas_enviadas "
+                "   SET estado = 'clickeado', "
+                "       clicked_at = COALESCE(clicked_at, NOW()) "
+                " WHERE wamid = %s",
+                (wamid,),
+            )
+            conn.commit()
+    except Exception as e:
+        _LOG.warning("[kapso] marcar_bienvenida_clickeada fallo: %s", e)
+
+
 def _responder_ver_publicacion(telefono, context_wamid):
     """Handler del click en el botón 'Ver mi publicación' del template de
     bienvenida. Busca el conjunto/inmueble asociado al wamid del template
@@ -416,6 +492,12 @@ def procesar_webhook(payload):
                         cambios.append(f"{estado}@{target_id[:16]}")
                     except Exception as e:
                         log.warning("[kapso] actualizar_estado_entrega fallo: %s", e)
+                    # Sincronizar estado en petra_bienvenidas_enviadas (si es
+                    # una bienvenida tracked, el UPDATE la actualiza; si no, no-op).
+                    try:
+                        _marcar_estado_bienvenida(target_id, estado, error_text)
+                    except Exception as e:
+                        log.warning("[kapso] marcar_estado_bienvenida fallo: %s", e)
             return {"ok": True, "accion": "status_update", "cambios": cambios}
 
         # --- Caso 1 o 3: mensaje nuevo (IN u OUT sin status previo) ---
@@ -484,6 +566,13 @@ def procesar_webhook(payload):
                 if boton_label == "Ver mi publicación":
                     log.info("[kapso] click 'Ver mi publicación' tel=%s ctx=%s",
                              telefono, context_wamid)
+                    # Marcar clickeado en la tabla de tracking (para que la
+                    # columna de estado en el panel lo muestre).
+                    if context_wamid:
+                        try:
+                            _marcar_bienvenida_clickeada(context_wamid)
+                        except Exception:
+                            log.exception("[kapso] marcar clickeada fallo")
                     # Background: libera el webhook (200 OK a Kapso al
                     # instante) y el POST del CTA corre en paralelo. Ahorra
                     # ~1s de latencia percibida.

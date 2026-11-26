@@ -1849,6 +1849,25 @@ CREATE TABLE IF NOT EXISTS petra_bienvenidas_enviadas (
 );
 CREATE INDEX IF NOT EXISTS idx_bienv_enviadas_tel
   ON petra_bienvenidas_enviadas (telefono, enviado_en DESC);
+-- Tracking del estado del mensaje: Meta nos manda sent → delivered → read.
+-- Cuando el propietario toca el botón de la plantilla marcamos 'clickeado'.
+-- Si falla, 'fallido' con el error asociado.
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'enviado';
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS clicked_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS failed_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS error_detalle TEXT;
+CREATE INDEX IF NOT EXISTS idx_bienv_enviadas_inmueble
+  ON petra_bienvenidas_enviadas (inmueble_id, enviado_en DESC);
 
 -- Seed inicial: Arrayanes (Bogota) con cod 1001 y Prados 1 (Zipaquira) con cod 2530
 INSERT INTO conjuntos_visitante (codigo, nombre, ciudad)

@@ -3488,6 +3488,36 @@ def panel_v2_inmuebles():
                         " ORDER BY activo DESC, creado_en DESC"
                     )
                     inmuebles = _rows(conn, sql, tuple(params))
+                    # Batch: estado más reciente de la bienvenida por inmueble.
+                    _iids = [i["id"] for i in inmuebles]
+                    _estado_por_iid = {}
+                    if _iids:
+                        try:
+                            rows_bv = _rows(conn,
+                                "SELECT DISTINCT ON (inmueble_id) "
+                                "       inmueble_id, estado, enviado_en, "
+                                "       sent_at, delivered_at, read_at, "
+                                "       clicked_at, failed_at, error_detalle "
+                                "  FROM petra_bienvenidas_enviadas "
+                                " WHERE inmueble_id = ANY(%s) "
+                                " ORDER BY inmueble_id, enviado_en DESC",
+                                (_iids,))
+                            for r in rows_bv:
+                                _estado_por_iid[r["inmueble_id"]] = r
+                        except Exception:
+                            pass
+                    for i in inmuebles:
+                        _bv = _estado_por_iid.get(i["id"])
+                        if _bv:
+                            i["bienv_estado"] = _bv.get("estado") or "enviado"
+                            i["bienv_sent_at"] = _bv.get("sent_at")
+                            i["bienv_delivered_at"] = _bv.get("delivered_at")
+                            i["bienv_read_at"] = _bv.get("read_at")
+                            i["bienv_clicked_at"] = _bv.get("clicked_at")
+                            i["bienv_failed_at"] = _bv.get("failed_at")
+                            i["bienv_error"] = _bv.get("error_detalle")
+                        else:
+                            i["bienv_estado"] = None
                     for i in inmuebles:
                         i["precio_fmt"] = _fmt_precio_cop(i.get("precio"))
                         i["codigo"] = f"P{i['id']:04d}"
