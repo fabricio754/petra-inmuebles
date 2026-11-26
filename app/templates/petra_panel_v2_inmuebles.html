@@ -127,6 +127,33 @@
   .etapa-chip.etapa-proceso_credito  { background: #fce7f3; color: #9d174d; }
   .etapa-chip.etapa-no_publicar      { background: #fee2e2; color: #991b1b; }
   .etapa-chip.etapa-no_contactar     { background: #f3f4f6; color: #4b5563; }
+  /* Tooltip instantáneo custom (reemplaza al title nativo, que tiene delay). */
+  .bv-tip { position: relative; cursor: help; }
+  .bv-tip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px); left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937; color: #fff;
+    padding: 6px 10px; border-radius: 6px;
+    font-size: 11.5px; font-weight: 500;
+    white-space: nowrap; pointer-events: none;
+    opacity: 0; visibility: hidden;
+    transition: opacity .05s;
+    z-index: 9999;
+    box-shadow: 0 4px 12px rgba(0,0,0,.18);
+  }
+  .bv-tip::before {
+    content: ""; position: absolute;
+    bottom: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: #1f2937;
+    opacity: 0; visibility: hidden;
+    pointer-events: none;
+    z-index: 9999;
+  }
+  .bv-tip:hover::after, .bv-tip:hover::before {
+    opacity: 1; visibility: visible;
+  }
   .btn-ok-datos {
     background: #16a34a; color: #fff; border: 0; padding: 6px 12px;
     border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;
@@ -557,8 +584,8 @@
               {% if i.bienv_read_at %}{% set _ = _tt_parts.append('Leído ' ~ i.bienv_read_at.strftime('%d/%m %H:%M')) %}{% endif %}
               {% if i.bienv_clicked_at %}{% set _ = _tt_parts.append('Click ' ~ i.bienv_clicked_at.strftime('%d/%m %H:%M')) %}{% endif %}
               {% if i.bienv_error %}{% set _ = _tt_parts.append('Error: ' ~ i.bienv_error) %}{% endif %}
-              <span style="color: {{ _color }}; font-weight: 600; cursor: help"
-                    title="{{ _tt_parts | join(' · ') }}">
+              <span class="bv-tip" style="color: {{ _color }}; font-weight: 600"
+                    data-tooltip="{{ _tt_parts | join(' · ') }}">
                 {{ _lbl }}
               </span>
             {% else %}
