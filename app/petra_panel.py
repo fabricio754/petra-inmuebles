@@ -7159,12 +7159,17 @@ def v2_inmuebles_enviar_etapa():
     if len(ids_con_tel) <= UMBRAL_BACKGROUND:
         import time as _time
         with _db._conexion_directa(timeout=60) as conn:
+            # autocommit: cada INSERT/UPDATE se publica al instante. Fix de
+            # race condition: los status events (sent/delivered) de Kapso
+            # llegan mientras el batch todavía corre, y necesitan ver la
+            # fila de petra_bienvenidas_enviadas YA commitada para marcar
+            # el estado. Sin esto, solo el último envío quedaba sincronizado.
+            conn.autocommit = True
             for i, iid in enumerate(ids_con_tel):
                 if i > 0:
                     _time.sleep(DELAY_ENTRE_ENVIOS_S)
                 exito, res = _enviar_uno(iid, conn)
                 (ok if exito else fallos).append(res)
-            conn.commit()
         return jsonify({
             "slot": slot, "template": tpl_name,
             "ok": ok, "fallos": fallos, "sin_telefono": sin_tel,
@@ -7176,6 +7181,9 @@ def v2_inmuebles_enviar_etapa():
         import time as _time
         try:
             with _db._conexion_directa(timeout=60) as conn:
+                # autocommit: ver comentario arriba — los status events de
+                # Kapso llegan en vivo mientras el batch corre.
+                conn.autocommit = True
                 for i, iid in enumerate(iids_para_enviar):
                     if i > 0:
                         _time.sleep(DELAY_ENTRE_ENVIOS_S)
@@ -7184,7 +7192,6 @@ def v2_inmuebles_enviar_etapa():
                     except Exception:
                         _lg.getLogger(__name__).exception(
                             "[enviar-etapa bg] fallo envío iid=%s", iid)
-                conn.commit()
         except Exception:
             _lg.getLogger(__name__).exception(
                 "[enviar-etapa bg] batch fallo")
