@@ -83,3 +83,32 @@ def redirigir_a_staging(telefono, payload):
             log.exception("[staging-router] POST a staging fallo")
     threading.Thread(target=_enviar, daemon=True).start()
     return True
+
+
+def redirigir_a_staging_kapso(telefono, payload):
+    """Variante para el webhook de Kapso. Forwardea a <PETRA_STAGING_URL
+    base>/webhook/kapso si el teléfono está en la whitelist.
+
+    PETRA_STAGING_URL suele ser '.../webhook' (Meta). Derivamos el endpoint
+    de Kapso cambiando el sufijo. Si la env var ya termina en /webhook/kapso
+    la respetamos.
+    """
+    staging_url = (os.environ.get("PETRA_STAGING_URL") or "").strip()
+    if not staging_url:
+        return False
+    if not esta_en_whitelist(telefono):
+        return False
+    # Normalizar la URL: queremos /webhook/kapso al final.
+    url = staging_url.rstrip("/")
+    if url.endswith("/webhook"):
+        url = url + "/kapso"
+    elif not url.endswith("/webhook/kapso"):
+        # Fallback: si el env var apunta a la raíz, agregamos la ruta.
+        url = url + "/webhook/kapso"
+    def _enviar():
+        try:
+            requests.post(url, json=payload, timeout=(2, 5))
+        except Exception:
+            log.exception("[staging-router-kapso] POST a staging fallo")
+    threading.Thread(target=_enviar, daemon=True).start()
+    return True
