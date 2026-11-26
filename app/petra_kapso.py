@@ -351,17 +351,9 @@ def _marcar_estado_bienvenida(wamid, estado_meta, error_text=None):
 
 
 def _marcar_bienvenida_clickeada(wamid):
-    """Marca estado='clickeado' en petra_bienvenidas_enviadas para ese wamid.
-
-    Idempotente: devuelve True solo si ESTA llamada hizo el cambio (el UPDATE
-    pegó porque antes no estaba 'clickeado'). Usado para evitar que dos
-    servidores (staging + prod) suscritos al mismo webhook de Kapso manden
-    duplicados: el primero que corra gana el UPDATE, el segundo recibe False
-    y no dispara el CTA.
-    """
+    """Marca estado='clickeado' en petra_bienvenidas_enviadas para ese wamid."""
     if not wamid:
-        # Sin wamid no podemos deduplicar, procesamos igual.
-        return True
+        return
     from app import db as _db
     try:
         with _db._conexion_directa(timeout=5) as conn, conn.cursor() as cur:
@@ -369,17 +361,12 @@ def _marcar_bienvenida_clickeada(wamid):
                 "UPDATE petra_bienvenidas_enviadas "
                 "   SET estado = 'clickeado', "
                 "       clicked_at = COALESCE(clicked_at, NOW()) "
-                " WHERE wamid = %s AND estado <> 'clickeado' "
-                " RETURNING id",
+                " WHERE wamid = %s",
                 (wamid,),
             )
-            cambio = cur.fetchone() is not None
             conn.commit()
-            return cambio
     except Exception as e:
         _LOG.warning("[kapso] marcar_bienvenida_clickeada fallo: %s", e)
-        # Ante error, dejamos pasar (mejor duplicar que perder).
-        return True
 
 
 def _responder_ver_publicacion(telefono, context_wamid):
@@ -579,19 +566,17 @@ def procesar_webhook(payload):
                 if boton_label == "Ver mi publicación":
                     log.info("[kapso] click 'Ver mi publicación' tel=%s ctx=%s",
                              telefono, context_wamid)
-                    # Idempotencia cross-servidor: si staging y prod están
-                    # ambos suscritos, el primero que gana el UPDATE manda
-                    # el CTA. El otro ve que ya está clickeado y no duplica.
-                    gano = _marcar_bienvenida_clickeada(context_wamid)
-                    if not gano:
-                        log.info("[kapso] click ya procesado por otro servidor, "
-                                 "no duplicamos. wamid=%s", context_wamid)
-                    else:
-                        _th.Thread(
-                            target=_responder_ver_publicacion,
-                            args=(telefono, context_wamid),
-                            daemon=True,
-                        ).start()
+                    try:
+                        _marcar_bienvenida_clickeada(context_wamid)
+                    except Exception:
+                        log.exception("[kapso] marcar clickeada fallo")
+                    # Background: libera el webhook (200 OK a Kapso al
+                    # instante) y el POST del CTA corre en paralelo.
+                    _th.Thread(
+                        target=_responder_ver_publicacion,
+                        args=(telefono, context_wamid),
+                        daemon=True,
+                    ).start()
             except Exception as e:
                 log.exception("[kapso] handler ver_publicacion fallo: %s", e)
 
