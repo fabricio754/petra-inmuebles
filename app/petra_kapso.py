@@ -227,6 +227,143 @@ def _send_template_via_meta(to_clean, template_name, language, components,
 
 
 # ============================================================================
+# Envío de mensajes interactivos (CTA URL) via Kapso.
+# ============================================================================
+
+def send_cta_url(to, body, display_text, url, header=None, footer=None,
+                 phone_number_id_override=None):
+    """Envía un mensaje interactivo con UN botón Call-to-Action que abre una
+    URL externa (ej. wa.me del bot principal). Kapso proxea el formato de
+    Meta Cloud API tal cual.
+
+    display_text ≤ 20 chars oficialmente. url ≤ 2000 chars.
+    """
+    base, api_key, phone_id, version = _config()
+    if not (base and api_key):
+        _LOG.error("[kapso] falta KAPSO_API_KEY o KAPSO_BASE_URL")
+        return {"ok": False, "status": 0, "body": "config_faltante"}
+    phone_id = phone_number_id_override or phone_id
+    if not phone_id:
+        return {"ok": False, "status": 0, "body": "phone_id_faltante"}
+
+    to_clean = str(to).strip().lstrip("+")
+    inter = {
+        "type": "cta_url",
+        "body": {"text": str(body)[:1024]},
+        "action": {
+            "name": "cta_url",
+            "parameters": {
+                "display_text": str(display_text)[:30],
+                "url": str(url)[:2000],
+            },
+        },
+    }
+    if header:
+        inter["header"] = {"type": "text", "text": str(header)[:60]}
+    if footer:
+        inter["footer"] = {"text": str(footer)[:60]}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_clean,
+        "type": "interactive",
+        "interactive": inter,
+    }
+    headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+    url_api = _url(phone_id, version)
+    try:
+        r = requests.post(url_api, headers=headers,
+                          data=json.dumps(payload), timeout=(5, 15))
+    except requests.RequestException as e:
+        _LOG.exception("[kapso] send_cta_url POST fallo: %s", e)
+        return {"ok": False, "status": 0, "body": f"request_error:{type(e).__name__}"}
+    ok = 200 <= r.status_code < 300
+    try:
+        body_resp = r.json()
+    except Exception:
+        body_resp = r.text[:500]
+    message_id = None
+    if ok and isinstance(body_resp, dict):
+        msgs = body_resp.get("messages") or []
+        if msgs and isinstance(msgs[0], dict):
+            message_id = msgs[0].get("id")
+    if not ok:
+        _LOG.error("[kapso] send_cta_url fallo to=%s status=%s body=%s",
+                   to_clean, r.status_code, body_resp)
+    return {"ok": ok, "status": r.status_code,
+            "body": body_resp, "message_id": message_id}
+
+
+def _responder_ver_publicacion(telefono, context_wamid):
+    """Handler del click en el botón 'Ver mi publicación' del template de
+    bienvenida. Busca el conjunto/inmueble asociado al wamid del template
+    original y responde con un CTA que lleva a wa.me del bot principal
+    con mensaje precargado.
+    """
+    from app import db as _db
+    import urllib.parse as _up
+
+    PETRA_BOT_PHONE = (os.environ.get("PETRA_BOT_WA_PHONE") or "573001278631").strip()
+
+    # 1) Lookup por wamid (si vino en el context)
+    conjunto = None
+    try:
+        with _db._conexion_directa(timeout=5) as conn, conn.cursor() as cur:
+            if context_wamid:
+                cur.execute(
+                    "SELECT c.codigo, c.nombre, c.ciudad "
+                    "  FROM petra_bienvenidas_enviadas b "
+                    "  JOIN conjuntos_visitante c ON c.id = b.conjunto_id "
+                    " WHERE b.wamid = %s LIMIT 1",
+                    (context_wamid,),
+                )
+                row = cur.fetchone()
+                if row:
+                    conjunto = {"codigo": row[0], "nombre": row[1], "ciudad": row[2]}
+            # 2) Fallback: inmueble más reciente del propietario
+            if not conjunto:
+                cur.execute(
+                    "SELECT c.codigo, c.nombre, c.ciudad "
+                    "  FROM inmuebles_visitante i "
+                    "  JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                    " WHERE regexp_replace(i.propietario_telefono,'[^0-9]','','g') = %s "
+                    "   AND i.activo = TRUE "
+                    " ORDER BY i.creado_en DESC LIMIT 1",
+                    (''.join(ch for ch in (telefono or '') if ch.isdigit()),),
+                )
+                row = cur.fetchone()
+                if row:
+                    conjunto = {"codigo": row[0], "nombre": row[1], "ciudad": row[2]}
+    except Exception as e:
+        _LOG.exception("[kapso] lookup bienvenida fallo: %s", e)
+        return {"ok": False, "motivo": "lookup_fallo"}
+
+    if not conjunto:
+        _LOG.info("[kapso] no encontre inmueble para tel=%s wamid=%s",
+                  telefono, context_wamid)
+        return {"ok": False, "motivo": "sin_inmueble"}
+
+    texto_precargado = (
+        f"Estoy en el edificio {conjunto['nombre']} en "
+        f"{conjunto.get('ciudad') or 'Colombia'}. Cod: {conjunto['codigo']}"
+    )
+    link = (f"https://wa.me/{PETRA_BOT_PHONE}?"
+            f"text={_up.quote(texto_precargado)}")
+    body = (
+        f"📸 Tu publicación de {conjunto['nombre']}\n"
+        "está lista para que la veas.\n\n"
+        "Recuerda que en nuestro asistente podrás:\n\n"
+        f"👀  Explorar arriendos y ventas de {conjunto['nombre']}\n"
+        "📋  Publicar otro inmueble"
+    )
+    return send_cta_url(
+        to=telefono,
+        body=body,
+        display_text="🏠 Ver mi publicación",
+        url=link,
+    )
+
+
+# ============================================================================
 # Webhook handler: mapea eventos de Kapso al schema interno de mensajes.
 # ============================================================================
 
@@ -304,10 +441,36 @@ def procesar_webhook(payload):
             try:
                 _db.log_mensaje(telefono, "IN", f"kapso_{tipo}", resumen[:4000],
                                 payload=payload, wa_msg_id=wa_msg_id)
-                return {"ok": True, "accion": "insert_in", "wa_msg_id": wa_msg_id}
             except Exception as e:
                 log.exception("[kapso] log_mensaje IN fallo: %s", e)
-                return {"ok": False, "accion": "insert_in_fallo", "error": str(e)}
+
+            # Handler del click en el botón "Ver mi publicación" del template
+            # de bienvenida. Puede venir como type=button (quick reply de
+            # template) o como interactive button_reply.
+            try:
+                boton_label = ""
+                context_wamid = None
+                # Formato Meta/Kapso: message.button.text
+                btn = msg.get("button") or {}
+                if btn:
+                    boton_label = (btn.get("text") or btn.get("payload") or "").strip()
+                # Formato interactive button_reply
+                inter = msg.get("interactive") or {}
+                if inter.get("type") == "button_reply":
+                    br = inter.get("button_reply") or {}
+                    boton_label = (br.get("title") or br.get("id") or "").strip()
+                # context.id = wamid del template original (si vino)
+                ctx = msg.get("context") or kapso_meta.get("context") or {}
+                context_wamid = ctx.get("id") or ctx.get("message_id")
+
+                if boton_label == "Ver mi publicación":
+                    log.info("[kapso] click 'Ver mi publicación' tel=%s ctx=%s",
+                             telefono, context_wamid)
+                    _responder_ver_publicacion(telefono, context_wamid)
+            except Exception as e:
+                log.exception("[kapso] handler ver_publicacion fallo: %s", e)
+
+            return {"ok": True, "accion": "insert_in", "wa_msg_id": wa_msg_id}
 
         return {"ok": True, "accion": "no_op", "motivo": "evento_sin_direction_ni_status"}
 

@@ -5998,7 +5998,8 @@ def panel_v2_difusiones_confirmar():
         with _db._conexion_directa(timeout=15) as conn:
             rows = _rows(conn,
                 "SELECT i.id, i.tipo, i.nro, i.operacion, "
-                "       i.propietario_telefono, c.nombre AS conjunto "
+                "       i.propietario_telefono, i.conjunto_id, "
+                "       c.nombre AS conjunto "
                 "  FROM inmuebles_visitante i "
                 "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
                 " WHERE " + where_sql +
@@ -6020,6 +6021,7 @@ def panel_v2_difusiones_confirmar():
                     body_params.append({"type": "text", "text": str(val)})
                 destinatarios.append({
                     "inmueble_id": r.get("id"),
+                    "conjunto_id": r.get("conjunto_id"),
                     "telefono": tel_digits,
                     "mensaje": mensaje,
                     "body_params": body_params,
@@ -6084,6 +6086,25 @@ def panel_v2_difusiones_confirmar():
                 except Exception as e:
                     _lg.getLogger(__name__).warning(
                         "[difusion] log_mensaje fallo para %s: %s", tel, e)
+                # Tracking para integridad del click en botón: cuando el
+                # propietario toque "Ver mi publicación", el webhook mira el
+                # context.id (= wamid) para saber qué conjunto/inmueble usar.
+                wamid = resultado.get("message_id")
+                if wamid:
+                    try:
+                        with _db._conexion_directa(timeout=5) as _c2:
+                            _c2.execute(
+                                "INSERT INTO petra_bienvenidas_enviadas "
+                                "  (wamid, telefono, conjunto_id, inmueble_id, template_name) "
+                                "VALUES (%s, %s, %s, %s, %s) "
+                                "ON CONFLICT (wamid) DO NOTHING",
+                                (wamid, tel, d.get("conjunto_id"),
+                                 d.get("inmueble_id"), tmpl["name"]),
+                            )
+                            _c2.commit()
+                    except Exception as e:
+                        _lg.getLogger(__name__).warning(
+                            "[difusion] tracking bienvenida fallo wamid=%s: %s", wamid, e)
             else:
                 envio["fallos"] += 1
                 if len(envio["errores"]) < 10:

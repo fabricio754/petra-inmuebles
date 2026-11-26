@@ -1834,6 +1834,22 @@ CREATE TABLE IF NOT EXISTS inmuebles_visitante (
 CREATE INDEX IF NOT EXISTS idx_inmuebles_visitante_conjunto_activo
   ON inmuebles_visitante(conjunto_id, activo, operacion);
 
+-- Tracking de bienvenidas enviadas a propietarios para mantener integridad del
+-- contexto. Cuando el propietario toca el botón "Ver mi publicación", el
+-- webhook lee el context.id (wamid del template original) y busca aquí qué
+-- conjunto/inmueble era para armar el link wa.me correcto.
+CREATE TABLE IF NOT EXISTS petra_bienvenidas_enviadas (
+  id SERIAL PRIMARY KEY,
+  wamid TEXT UNIQUE NOT NULL,
+  telefono TEXT NOT NULL,
+  conjunto_id INT REFERENCES conjuntos_visitante(id) ON DELETE SET NULL,
+  inmueble_id INT REFERENCES inmuebles_visitante(id) ON DELETE SET NULL,
+  template_name TEXT NOT NULL,
+  enviado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_bienv_enviadas_tel
+  ON petra_bienvenidas_enviadas (telefono, enviado_en DESC);
+
 -- Seed inicial: Arrayanes (Bogota) con cod 1001 y Prados 1 (Zipaquira) con cod 2530
 INSERT INTO conjuntos_visitante (codigo, nombre, ciudad)
   VALUES ('1001', 'Conjunto Arrayanes', 'Bogota')
