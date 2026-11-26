@@ -74,6 +74,29 @@ def _is_ready():
     return bool(base and api_key and phone_id)
 
 
+def _normalizar_e164(raw):
+    """Normaliza un teléfono a formato E.164 sin '+' (p.ej. 573001234567).
+
+    - Si vienen 10 dígitos empezando en 3 → prepende '57' (Colombia celular).
+    - Si ya viene con prefijo país (12-15 dígitos) → se queda así.
+    - Si es más corto o inválido → None (caller debe fallar explícito).
+
+    Meta/Kapso requiere E.164 con código país. Un número de 10 dígitos como
+    '3227057375' sin prefijo se acepta en el POST pero Meta lo marca como
+    'Message undeliverable' (error 131026).
+    """
+    if not raw:
+        return None
+    dig = "".join(c for c in str(raw) if c.isdigit())
+    if not dig:
+        return None
+    if len(dig) == 10 and dig.startswith("3"):
+        return "57" + dig
+    if 11 <= len(dig) <= 15:
+        return dig
+    return None
+
+
 def _url(phone_id, version):
     base, _, _, _ = _config()
     # Kapso proxea la Graph API de Meta: {base}/{version}/{phone_id}/messages
@@ -106,7 +129,10 @@ def send_template(to, template_name, language="es_ES", components=None,
         _LOG.error("[kapso] falta KAPSO_PHONE_NUMBER_ID")
         return {"ok": False, "status": 0, "body": "phone_id_faltante"}
 
-    to_clean = str(to).strip().lstrip("+")
+    to_clean = _normalizar_e164(to)
+    if not to_clean:
+        _LOG.error("[kapso] send_template: telefono invalido to=%r", to)
+        return {"ok": False, "status": 0, "body": "telefono_invalido"}
     payload = {
         "messaging_product": "whatsapp",
         "to": to_clean,
@@ -246,7 +272,10 @@ def send_cta_url(to, body, display_text, url, header=None, footer=None,
     if not phone_id:
         return {"ok": False, "status": 0, "body": "phone_id_faltante"}
 
-    to_clean = str(to).strip().lstrip("+")
+    to_clean = _normalizar_e164(to)
+    if not to_clean:
+        _LOG.error("[kapso] send_cta_url: telefono invalido to=%r", to)
+        return {"ok": False, "status": 0, "body": "telefono_invalido"}
     inter = {
         "type": "cta_url",
         "body": {"text": str(body)[:1024]},
