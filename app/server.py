@@ -122,6 +122,28 @@ def webhook_kapso():
     except Exception:
         log.info("[kapso webhook] body=<unparseable>")
 
+    # STAGING ROUTER (mismo patrón que /webhook de Meta):
+    # Si el remitente está en petra_staging_whitelist y PETRA_STAGING_URL
+    # está configurado, forwardeamos a staging y NO procesamos en prod.
+    # Permite probar con un número real sin afectar a propietarios reales.
+    try:
+        msg = (payload or {}).get("message") or {}
+        kapso_meta = msg.get("kapso") or {}
+        direction = (kapso_meta.get("direction") or "").lower()
+        phone = None
+        if direction == "inbound":
+            phone = msg.get("from") or kapso_meta.get("from") or ""
+            if not phone:
+                conv = (payload or {}).get("conversation") or {}
+                phone = conv.get("phone_number") or conv.get("business_scoped_user_id") or ""
+        if phone:
+            from app.staging_router import redirigir_a_staging_kapso
+            if redirigir_a_staging_kapso(phone, payload):
+                log.info("[kapso webhook] fwd a STAGING tel=%s (whitelist)", phone)
+                return {"status": "forwarded-to-staging"}, 200
+    except Exception:
+        log.exception("[kapso webhook] staging-router fallo, sigo en prod")
+
     # Mapear el evento al schema interno de mensajes (INSERT o UPDATE
     # segun corresponda). No bloquea el ack a Kapso: cualquier error se
     # loguea y devolvemos 200 igual.
