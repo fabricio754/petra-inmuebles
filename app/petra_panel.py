@@ -7040,6 +7040,7 @@ def v2_inmuebles_enviar_etapa():
     # (header media + body variables).
     tpl_local = _tmpl_by_name(tpl_name) or {}
 
+    # Resolver datos de todos los inmuebles de una vez (una query).
     with _db._conexion_directa(timeout=20) as conn:
         rows = conn.execute(
             "SELECT iv.id, iv.propietario_telefono, iv.tipo, iv.operacion, "
@@ -7049,53 +7050,105 @@ def v2_inmuebles_enviar_etapa():
             "  FROM inmuebles_visitante iv "
             "  LEFT JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id "
             " WHERE iv.id = ANY(%s)", (ids,)).fetchall()
-        inmueble_por_id = {}
-        cols = ("id","propietario_telefono","tipo","operacion",
-                "habitaciones","banos","m2","precio",
-                "conjunto_id","conjunto_nombre")
-        for r in rows:
-            inmueble_por_id[r[0]] = dict(zip(cols, r))
-        for iid in ids:
-            inm = inmueble_por_id.get(iid) or {}
-            tel = (inm.get("propietario_telefono") or "").strip()
-            if not tel:
-                sin_tel.append(iid)
-                continue
-            comps = _build_kapso_send_components(tpl_local, inm)
-            r = _k.send_template(tel, tpl_name, language=lang, components=comps)
-            if r.get("ok"):
-                conn.execute(
-                    f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
-                    f" WHERE id = %s", (iid,))
-                ok.append({"id": iid, "message_id": r.get("message_id")})
-                # Tracking para integridad del botón "Ver mi publicación":
-                # el handler del webhook mira el context.id (= wamid) en la
-                # tabla petra_bienvenidas_enviadas para saber qué conjunto
-                # mandarle al propietario cuando toque el botón.
-                wamid = r.get("message_id")
-                if wamid:
-                    try:
-                        conn.execute(
-                            "INSERT INTO petra_bienvenidas_enviadas "
-                            "  (wamid, telefono, conjunto_id, inmueble_id, template_name) "
-                            "VALUES (%s, %s, %s, %s, %s) "
-                            "ON CONFLICT (wamid) DO NOTHING",
-                            (wamid, tel, inm.get("conjunto_id"),
-                             iid, tpl_name),
-                        )
-                    except Exception as e:
-                        _lg.getLogger(__name__).warning(
-                            "[enviar-etapa] tracking bienvenida fallo wamid=%s: %s",
-                            wamid, e)
-            else:
-                fallos.append({"id": iid, "status": r.get("status"),
-                               "body": str(r.get("body"))[:300]})
-        conn.commit()
+    cols = ("id","propietario_telefono","tipo","operacion",
+            "habitaciones","banos","m2","precio",
+            "conjunto_id","conjunto_nombre")
+    inmueble_por_id = {r[0]: dict(zip(cols, r)) for r in rows}
 
+    # Pre-chequeo de ids sin teléfono (sin gastar envíos).
+    ids_con_tel = []
+    for iid in ids:
+        inm = inmueble_por_id.get(iid) or {}
+        tel = (inm.get("propietario_telefono") or "").strip()
+        if not tel:
+            sin_tel.append(iid)
+        else:
+            ids_con_tel.append(iid)
+
+    # Separación entre envíos para no saturar Kapso/Meta.
+    DELAY_ENTRE_ENVIOS_S = 2
+    # Umbral para disparar en background: por encima de este número, el user
+    # no espera; los envíos salen en segundo plano con el espaciado.
+    UMBRAL_BACKGROUND = 5
+
+    def _enviar_uno(iid, conn):
+        """Envía 1 bienvenida y actualiza DB. Devuelve (ok, result_dict)."""
+        inm = inmueble_por_id.get(iid) or {}
+        tel = (inm.get("propietario_telefono") or "").strip()
+        comps = _build_kapso_send_components(tpl_local, inm)
+        r = _k.send_template(tel, tpl_name, language=lang, components=comps)
+        if not r.get("ok"):
+            return False, {"id": iid, "status": r.get("status"),
+                           "body": str(r.get("body"))[:300]}
+        conn.execute(
+            f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
+            f" WHERE id = %s", (iid,))
+        wamid = r.get("message_id")
+        if wamid:
+            try:
+                conn.execute(
+                    "INSERT INTO petra_bienvenidas_enviadas "
+                    "  (wamid, telefono, conjunto_id, inmueble_id, template_name) "
+                    "VALUES (%s, %s, %s, %s, %s) "
+                    "ON CONFLICT (wamid) DO NOTHING",
+                    (wamid, tel, inm.get("conjunto_id"), iid, tpl_name),
+                )
+            except Exception as e:
+                _lg.getLogger(__name__).warning(
+                    "[enviar-etapa] tracking bienvenida fallo wamid=%s: %s",
+                    wamid, e)
+        return True, {"id": iid, "message_id": wamid}
+
+    # Caso ≤N: sync, user espera. Envío con delay entre cada uno.
+    if len(ids_con_tel) <= UMBRAL_BACKGROUND:
+        import time as _time
+        with _db._conexion_directa(timeout=60) as conn:
+            for i, iid in enumerate(ids_con_tel):
+                if i > 0:
+                    _time.sleep(DELAY_ENTRE_ENVIOS_S)
+                exito, res = _enviar_uno(iid, conn)
+                (ok if exito else fallos).append(res)
+            conn.commit()
+        return jsonify({
+            "slot": slot, "template": tpl_name,
+            "ok": ok, "fallos": fallos, "sin_telefono": sin_tel,
+            "total": len(ids), "encolado": False,
+        })
+
+    # Caso >N: background. Respondemos inmediato; envíos salen en orden.
+    def _enviar_batch_bg(iids_para_enviar):
+        import time as _time
+        try:
+            with _db._conexion_directa(timeout=60) as conn:
+                for i, iid in enumerate(iids_para_enviar):
+                    if i > 0:
+                        _time.sleep(DELAY_ENTRE_ENVIOS_S)
+                    try:
+                        _enviar_uno(iid, conn)
+                    except Exception:
+                        _lg.getLogger(__name__).exception(
+                            "[enviar-etapa bg] fallo envío iid=%s", iid)
+                conn.commit()
+        except Exception:
+            _lg.getLogger(__name__).exception(
+                "[enviar-etapa bg] batch fallo")
+
+    import threading as _th
+    _th.Thread(target=_enviar_batch_bg,
+               args=(list(ids_con_tel),),
+               daemon=True).start()
+    minutos = round(len(ids_con_tel) * DELAY_ENTRE_ENVIOS_S / 60, 1)
     return jsonify({
         "slot": slot, "template": tpl_name,
-        "ok": ok, "fallos": fallos, "sin_telefono": sin_tel,
+        "ok": [], "fallos": [], "sin_telefono": sin_tel,
         "total": len(ids),
+        "encolado": True,
+        "encolados": len(ids_con_tel),
+        "delay_segundos": DELAY_ENTRE_ENVIOS_S,
+        "tiempo_estimado_min": minutos,
+        "mensaje": (f"{len(ids_con_tel)} bienvenidas encoladas, saliendo "
+                    f"cada {DELAY_ENTRE_ENVIOS_S}s "
+                    f"(~{minutos} min total)."),
     })
 
 

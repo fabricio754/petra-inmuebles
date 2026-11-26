@@ -910,8 +910,13 @@ function petraDeshacer(ev, quien, formId, label) {
       var nOk = (j.ok||[]).length;
       var nFail = (j.fallos||[]).length;
       var nSinTel = (j.sin_telefono||[]).length;
-      // Avisar sólo si hubo problemas; si todo OK, avanzar silenciosamente.
-      if (nFail > 0 || nSinTel > 0) {
+      // Caso encolado (>5 inmuebles): no tenemos resultados individuales.
+      if (j.encolado) {
+        var msg = '📬 ' + (j.mensaje || (j.encolados + ' encoladas.'));
+        if (nSinTel > 0) msg += '\n📵 Sin teléfono: ' + nSinTel;
+        alert(msg);
+      } else if (nFail > 0 || nSinTel > 0) {
+        // Avisar sólo si hubo problemas; si todo OK, avanzar silenciosamente.
         var msg = '✅ OK: ' + nOk +
                   '\n❌ Fallos: ' + nFail +
                   '\n📵 Sin teléfono: ' + nSinTel;
