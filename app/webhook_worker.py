@@ -298,10 +298,57 @@ def spool_delete(ruta):
         log.exception("[WebhookQueue] spool_delete fallo ruta=%s", ruta)
 
 
+def _wamid_entrante(payload):
+    """Extrae el wamid del mensaje entrante en un payload de webhook Meta.
+    Devuelve None si no tiene mensajes."""
+    try:
+        entry = (payload or {}).get("entry") or []
+        if not entry:
+            return None
+        changes = entry[0].get("changes") or []
+        if not changes:
+            return None
+        messages = (changes[0].get("value") or {}).get("messages") or []
+        if not messages:
+            return None
+        return messages[0].get("id")
+    except Exception:
+        return None
+
+
+def _ya_procesado(wamid):
+    """True si ya existe un IN en `mensajes` con este wa_msg_id, o si hay
+    un OUT posterior al IN (señal de que el bot ya respondió).
+
+    Si el IN está registrado, significa que el handler avanzó más allá del
+    primer log — aceptable asumir que respondió. Evita duplicar en el
+    drain-on-start cuando el proceso se reinicia a mitad de camino.
+    """
+    if not wamid:
+        return False
+    try:
+        with db._pool_conexion(timeout=2) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM mensajes WHERE wa_msg_id = %s LIMIT 1",
+                (wamid,),
+            )
+            return cur.fetchone() is not None
+    except Exception:
+        # Si no pudimos chequear, mejor no reprocesar para evitar duplicados.
+        # El costo es perder un mensaje en el caso borde donde el servidor
+        # crasheó ANTES de loguear el IN. Preferimos ese caso al duplicado.
+        return True
+
+
 def drain_and_process_spool():
     """Al arrancar: procesa inline todos los archivos del spool que quedaron
     de una corrida anterior (el proceso se murió entre spool_atomic y
     spool_delete). Recupera mensajes que no se alcanzaron a responder.
+
+    Dedup por wa_msg_id: antes de reprocesar un payload, verifica si ya hay
+    un IN en `mensajes` con ese id. Si sí → el handler ya avanzó al menos
+    hasta loguear el IN, asumimos que respondió. Esto evita el double-fire
+    cuando hay un deploy y un payload en vuelo queda en el spool.
 
     Lee del subdirectorio DEDICADO (_spool_inline_dir). NO toca los
     archivos del spool viejo, de los cuales se encarga _drenar_spool().
@@ -315,6 +362,7 @@ def drain_and_process_spool():
     log.info("[WebhookQueue] drain-on-start: recuperando %d mensaje(s) del spool.",
              len(archivos))
     ok = 0
+    skipped = 0
     for ruta in archivos:
         try:
             with open(ruta, "r", encoding="utf-8") as f:
@@ -326,14 +374,25 @@ def drain_and_process_spool():
             except Exception:
                 pass
             continue
+        wamid = _wamid_entrante(payload)
+        if wamid and _ya_procesado(wamid):
+            log.info("[WebhookQueue] drain-on-start: skip %s (wamid=%s ya procesado)",
+                     os.path.basename(ruta), wamid)
+            try:
+                os.remove(ruta)
+            except Exception:
+                pass
+            skipped += 1
+            continue
         try:
             _invocar_logica(payload)
             os.remove(ruta)
             ok += 1
         except Exception:
             log.exception("[WebhookQueue] drain-on-start: fallo procesando %s (se deja para reintento)", ruta)
-    if ok:
-        log.info("[WebhookQueue] drain-on-start: %d mensaje(s) recuperados OK.", ok)
+    if ok or skipped:
+        log.info("[WebhookQueue] drain-on-start: %d recuperados, %d skip (ya procesados).",
+                 ok, skipped)
     return ok
 
 
