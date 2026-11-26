@@ -634,6 +634,17 @@ def _procesar_webhook_petra(payload):
                 conn.commit()
         except Exception:
             log.exception("[petra] guardar username fallo tel=%s", phone)
+    if nombre:
+        try:
+            with db._conexion_directa(timeout=5) as conn:
+                conn.execute(
+                    "UPDATE petra_contactos SET nombre=%s, updated_at=NOW() "
+                    "WHERE telefono=%s AND (nombre IS NULL OR nombre='')",
+                    (nombre, phone),
+                )
+                conn.commit()
+        except Exception:
+            log.exception("[petra] guardar nombre fallo tel=%s", phone)
 
     texto = ""
     button_id = None

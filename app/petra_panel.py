@@ -3518,6 +3518,26 @@ def panel_v2_inmuebles():
                             i["bienv_error"] = _bv.get("error_detalle")
                         else:
                             i["bienv_estado"] = None
+                    # Batch: nombre / username del propietario desde
+                    # petra_contactos. Se llena solo cuando el propietario
+                    # responde a Ella y WhatsApp manda su profile.name.
+                    _tels = sorted({
+                        _normalizar_celular_co(i.get("propietario_telefono"))
+                        for i in inmuebles
+                        if _normalizar_celular_co(i.get("propietario_telefono"))
+                    })
+                    _contacto_por_tel = {}
+                    if _tels:
+                        try:
+                            rows_c = _rows(conn,
+                                "SELECT telefono, nombre, username "
+                                "  FROM petra_contactos "
+                                " WHERE telefono = ANY(%s)",
+                                (_tels,))
+                            for r in rows_c:
+                                _contacto_por_tel[r["telefono"]] = r
+                        except Exception:
+                            pass
                     for i in inmuebles:
                         i["precio_fmt"] = _fmt_precio_cop(i.get("precio"))
                         i["codigo"] = f"P{i['id']:04d}"
@@ -3527,6 +3547,9 @@ def panel_v2_inmuebles():
                         cel = _normalizar_celular_co(i.get("propietario_telefono"))
                         i["celular_e164"] = cel
                         i["celular_valido"] = bool(cel)
+                        _c = _contacto_por_tel.get(cel) if cel else None
+                        i["nombre_contacto"] = (_c or {}).get("nombre") or ""
+                        i["username_contacto"] = (_c or {}).get("username") or ""
                         # Pre-computar wa.me URLs + imágenes para los botones
                         # del embudo (lift del v1).
                         try:
