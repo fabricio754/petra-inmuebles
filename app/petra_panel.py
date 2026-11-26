@@ -4774,6 +4774,17 @@ def panel_v2_templates():
     _seed_templates_si_vacio()
     _seed_slots_si_vacio()
 
+    # Sincronizar el status local con lo que Meta dice. Esto corrige los
+    # casos donde un template quedó en 'pendiente' local pero Meta ya lo
+    # aprobó/rechazó. Cache de 5 min vía _meta_fetch_templates(force=False).
+    try:
+        _sync_status_templates_desde_meta()
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).warning(
+            "[panel_v2] sync status desde Meta fallo (no crítico)",
+            exc_info=True)
+
     templates_db = []
     try:
         with _db._conexion_directa(timeout=10) as conn:
@@ -4814,6 +4825,68 @@ def panel_v2_templates():
         slots=slots,
         meta_approved_names=meta_approved_names,
     )
+
+
+def _sync_status_templates_desde_meta():
+    """Lee la lista de templates de Meta (via _meta_fetch_templates, cache
+    5min) y actualiza el status local en campana_templates para que
+    aparezcan como aprobado/rechazado en el panel sin pedírselo al user.
+
+    Mapea:
+      APPROVED → aprobado
+      REJECTED → rechazado
+      PENDING  → pendiente
+    """
+    meta_list, _err = _meta_fetch_templates(force=False)
+    if not meta_list:
+        return
+    meta_by_name = {}
+    for t in meta_list:
+        name = (t.get("name") or "").strip()
+        st = (t.get("status") or "").upper()
+        if not name or not st:
+            continue
+        # Nos quedamos con el status más "avanzado" si hay varios idiomas.
+        # Prioridad: APPROVED > REJECTED > PENDING.
+        prev = meta_by_name.get(name)
+        if prev is None or _prio_status(st) > _prio_status(prev):
+            meta_by_name[name] = st
+    if not meta_by_name:
+        return
+    mapping = {"APPROVED": "aprobado", "REJECTED": "rechazado",
+               "PENDING": "pendiente"}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT name, status FROM campana_templates "
+                " WHERE name = ANY(%s)",
+                (list(meta_by_name.keys()),))
+            cambios = 0
+            for r in rows:
+                nm = r.get("name") or ""
+                st_local = (r.get("status") or "").lower()
+                st_meta = mapping.get(meta_by_name.get(nm, ""))
+                if st_meta and st_local != st_meta:
+                    conn.execute(
+                        "UPDATE campana_templates "
+                        "   SET status = %s, actualizado_en = NOW() "
+                        " WHERE name = %s AND status IS DISTINCT FROM %s",
+                        (st_meta, nm, st_meta),
+                    )
+                    cambios += 1
+            if cambios:
+                conn.commit()
+                import logging as _lg
+                _lg.getLogger(__name__).info(
+                    "[sync_meta] actualizados %d templates", cambios)
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[sync_meta] fallo UPDATE")
+
+
+def _prio_status(st):
+    return {"APPROVED": 3, "REJECTED": 2, "PENDING": 1}.get(
+        (st or "").upper(), 0)
 
 
 @petra_panel_bp.post("/v2/activados/<slot>")
