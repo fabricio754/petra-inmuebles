@@ -483,6 +483,26 @@
               data-label="{{ _action[1] }}">{{ _action[1] }} a seleccionados</button>
     </div>
     {% endif %}
+    {# Funnel de conversión de bienvenidas para la vista actual. #}
+    {% if bienv_funnel and bienv_funnel.enviados > 0 %}
+      {% set _n = bienv_funnel.enviados %}
+      {% set _pct_d = (bienv_funnel.entregados * 100 // _n) if _n else 0 %}
+      {% set _pct_r = (bienv_funnel.leidos * 100 // _n) if _n else 0 %}
+      {% set _pct_c = (bienv_funnel.clicks * 100 // _n) if _n else 0 %}
+      <div class="bienv-funnel" style="margin: 10px 0 14px; padding: 10px 14px;
+                  background: var(--card, #fff); border: 1px solid var(--border, #e2ddd1);
+                  border-radius: 10px; display: flex; gap: 18px; flex-wrap: wrap;
+                  align-items: center; font-size: 13px">
+        <span style="font-weight: 600; color: var(--muted, #6b6a66); letter-spacing: .02em; text-transform: uppercase; font-size: 11px">Conversión bienvenidas</span>
+        <span>📤 <b>{{ bienv_funnel.enviados }}</b> enviados</span>
+        <span style="color:#2563eb">📬 <b>{{ bienv_funnel.entregados }}</b> entregados <span style="color:var(--muted,#6b6a66)">({{ _pct_d }}%)</span></span>
+        <span style="color:#7c3aed">👁 <b>{{ bienv_funnel.leidos }}</b> leídos <span style="color:var(--muted,#6b6a66)">({{ _pct_r }}%)</span></span>
+        <span style="color:#047a3f">✅ <b>{{ bienv_funnel.clicks }}</b> clicks <span style="color:var(--muted,#6b6a66)">({{ _pct_c }}%)</span></span>
+        {% if bienv_funnel.fallos %}
+        <span style="color:#b91c1c">❌ <b>{{ bienv_funnel.fallos }}</b> fallos</span>
+        {% endif %}
+      </div>
+    {% endif %}
     <table class="table-x">
       <thead>
         <tr>

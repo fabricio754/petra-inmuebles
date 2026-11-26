@@ -3616,6 +3616,31 @@ def panel_v2_inmuebles():
         import logging as _lg
         _lg.getLogger(__name__).exception("[panel_v2] inmuebles query fallo")
 
+    # Funnel de conversión de bienvenidas sobre los inmuebles visibles.
+    # Un inmueble con una bienvenida enviada cuenta como "enviado".
+    # delivered/read/clickeado también cuentan los anteriores (son acumulativos
+    # porque un click implica delivered + read previos en el funnel).
+    bienv_funnel = {"enviados": 0, "entregados": 0, "leidos": 0,
+                    "clicks": 0, "fallos": 0}
+    try:
+        for _i in (inmuebles or []):
+            _st = _i.get("bienv_estado")
+            if not _st:
+                continue
+            bienv_funnel["enviados"] += 1
+            if _st == "fallido":
+                bienv_funnel["fallos"] += 1
+                continue
+            # Progreso acumulativo: si llegó a read, también está entregado.
+            if _i.get("bienv_delivered_at") or _st in ("delivered","read","clickeado"):
+                bienv_funnel["entregados"] += 1
+            if _i.get("bienv_read_at") or _st in ("read","clickeado"):
+                bienv_funnel["leidos"] += 1
+            if _st == "clickeado":
+                bienv_funnel["clicks"] += 1
+    except Exception:
+        pass
+
     return render_template(
         "petra_panel_v2_inmuebles.html",
         token=token, conjuntos=conjuntos, conjunto=conjunto,
@@ -3623,6 +3648,7 @@ def panel_v2_inmuebles():
         op_filtro=op_filtro, estado_filtro=estado_filtro,
         tipo_filtro=tipo_filtro, etapa_filtro=etapa_filtro,
         cont=cont, cont_v2=cont_v2,
+        bienv_funnel=bienv_funnel,
     )
 
 
