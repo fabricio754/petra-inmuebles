@@ -98,6 +98,13 @@ def iniciar():
     _scheduler.add_job(_drenar_log_mensaje_spool, "interval", minutes=10,
                        id="log_mensaje_spool_drain",
                        max_instances=1, coalesce=True)
+    # Reconciliador de bienvenidas: sincroniza el funnel del panel con el
+    # estado real de los mensajes (red de seguridad si el webhook pierde
+    # algún status event). Idempotente, barato (1 UPDATE sin filas si está
+    # todo bien).
+    _scheduler.add_job(_reconciliar_bienvenidas, "interval", minutes=1,
+                       id="reconciliar_bienvenidas",
+                       max_instances=1, coalesce=True)
     # Sprint 8 — control de calidad del inventario (Flujo 9) cada 6h
     _scheduler.add_job(_petra_control_calidad, "interval", hours=6,
                        id="petra_control_calidad",
@@ -263,6 +270,67 @@ def _drenar_log_mensaje_spool_background():
             log.info("[LogMensajeSpool] Drenaje inicial: %d fila(s) recuperadas.", total)
     except Exception:
         log.exception("[LogMensajeSpool] Error en drenaje inicial.")
+
+
+def _reconciliar_bienvenidas():
+    """Red de seguridad para el funnel de bienvenidas.
+
+    petra_bienvenidas_enviadas se actualiza en tiempo real via webhook de
+    Kapso (_marcar_estado_bienvenida), pero si algún status event se
+    pierde (deploy, crash temporal, race con autocommit), la fila queda
+    con un estado desactualizado.
+
+    Esta función sincroniza desde `mensajes` (fuente de verdad del
+    estado de entrega) a `petra_bienvenidas_enviadas`. Idempotente: si ya
+    está todo bien, no hace nada.
+
+    Reglas:
+    - Nunca pisa 'clickeado' ni 'fallido' (más específicos que la ruta
+      de delivered/read de Meta).
+    - Prioridad: read > delivered > sent > enviado.
+    """
+    from app import db
+    try:
+        with db._conexion() as conn:
+            r = conn.execute(
+                """
+                UPDATE petra_bienvenidas_enviadas be
+                SET
+                  estado = CASE
+                    WHEN be.estado IN ('clickeado','fallido') THEN be.estado
+                    WHEN m.estado_entrega = 'read'      THEN 'read'
+                    WHEN m.estado_entrega = 'delivered' THEN 'delivered'
+                    WHEN m.estado_entrega = 'sent'      THEN 'sent'
+                    ELSE be.estado
+                  END,
+                  sent_at = COALESCE(be.sent_at, m.estado_entrega_at),
+                  delivered_at = CASE
+                    WHEN m.estado_entrega IN ('delivered','read')
+                      THEN COALESCE(be.delivered_at, m.estado_entrega_at)
+                    ELSE be.delivered_at
+                  END,
+                  read_at = CASE
+                    WHEN m.estado_entrega = 'read'
+                      THEN COALESCE(be.read_at, m.estado_entrega_at)
+                    ELSE be.read_at
+                  END
+                FROM mensajes m
+                WHERE be.wamid = m.wa_msg_id
+                  AND m.direccion = 'OUT'
+                  AND m.tipo LIKE 'kapso_template%'
+                  AND be.enviado_en > NOW() - INTERVAL '7 days'
+                  AND (
+                    (m.estado_entrega = 'read' AND be.estado NOT IN ('read','clickeado','fallido')) OR
+                    (m.estado_entrega = 'delivered' AND be.estado NOT IN ('delivered','read','clickeado','fallido')) OR
+                    (m.estado_entrega = 'sent' AND be.estado NOT IN ('sent','delivered','read','clickeado','fallido'))
+                  )
+                """
+            )
+            cambios = r.rowcount if r else 0
+        if cambios:
+            log.info("[reconciliar_bienvenidas] %d filas sincronizadas", cambios)
+    except Exception:
+        log.exception("[reconciliar_bienvenidas] fallo")
 
 
 def _webhook_queue_health():
