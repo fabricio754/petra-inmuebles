@@ -200,7 +200,10 @@ CREATE TABLE IF NOT EXISTS petra_conjunto_media (
   tipo TEXT NOT NULL DEFAULT 'foto_conjunto'
     CHECK (tipo IN ('foto_conjunto','foto_inmueble','foto_agente',
                     'video_conjunto','video_inmueble','video_agente',
-                    'libro_arriendos','libro_ventas','documento','otro')),
+                    'libro_arriendos','libro_ventas',
+                    'qr_instalado','zonas_comunes','frente_conjunto',
+                    'inventario',
+                    'documento','otro')),
   url TEXT NOT NULL,
   mime TEXT,
   tamano_bytes BIGINT,
@@ -214,6 +217,19 @@ CREATE INDEX IF NOT EXISTS petra_conjunto_media_conj_idx
 CREATE INDEX IF NOT EXISTS petra_conjunto_media_inm_idx
   ON petra_conjunto_media (inmueble_id)
   WHERE inmueble_id IS NOT NULL;
+
+-- Ensure CHECK constraint includes the newer tipos (idempotent).
+DO $$
+BEGIN
+  ALTER TABLE petra_conjunto_media DROP CONSTRAINT IF EXISTS petra_conjunto_media_tipo_check;
+  ALTER TABLE petra_conjunto_media ADD CONSTRAINT petra_conjunto_media_tipo_check
+    CHECK (tipo IN ('foto_conjunto','foto_inmueble','foto_agente',
+                    'video_conjunto','video_inmueble','video_agente',
+                    'libro_arriendos','libro_ventas',
+                    'qr_instalado','zonas_comunes','frente_conjunto',
+                    'inventario',
+                    'documento','otro'));
+END $$;
 
 -- Números WhatsApp conectados a Kapso que podemos usar para enviar
 -- templates. El marcado como `activo` manda sobre las env vars
@@ -1794,6 +1810,9 @@ ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS fecha_activacion DATE;
 ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_fotos_inventario BOOLEAN DEFAULT FALSE;
 ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_videos_conjunto BOOLEAN DEFAULT FALSE;
 ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_inventario_inmueble BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_qr_instalado BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_zonas_comunes BOOLEAN DEFAULT FALSE;
+ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS envio_frente_conjunto BOOLEAN DEFAULT FALSE;
 ALTER TABLE conjuntos_visitante ADD COLUMN IF NOT EXISTS notas TEXT;
 
 CREATE TABLE IF NOT EXISTS inmuebles_visitante (
@@ -1814,6 +1833,41 @@ CREATE TABLE IF NOT EXISTS inmuebles_visitante (
 
 CREATE INDEX IF NOT EXISTS idx_inmuebles_visitante_conjunto_activo
   ON inmuebles_visitante(conjunto_id, activo, operacion);
+
+-- Tracking de bienvenidas enviadas a propietarios para mantener integridad del
+-- contexto. Cuando el propietario toca el botón "Ver mi publicación", el
+-- webhook lee el context.id (wamid del template original) y busca aquí qué
+-- conjunto/inmueble era para armar el link wa.me correcto.
+CREATE TABLE IF NOT EXISTS petra_bienvenidas_enviadas (
+  id SERIAL PRIMARY KEY,
+  wamid TEXT UNIQUE NOT NULL,
+  telefono TEXT NOT NULL,
+  conjunto_id INT REFERENCES conjuntos_visitante(id) ON DELETE SET NULL,
+  inmueble_id INT REFERENCES inmuebles_visitante(id) ON DELETE SET NULL,
+  template_name TEXT NOT NULL,
+  enviado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_bienv_enviadas_tel
+  ON petra_bienvenidas_enviadas (telefono, enviado_en DESC);
+-- Tracking del estado del mensaje: Meta nos manda sent → delivered → read.
+-- Cuando el propietario toca el botón de la plantilla marcamos 'clickeado'.
+-- Si falla, 'fallido' con el error asociado.
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'enviado';
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS clicked_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS failed_at TIMESTAMPTZ;
+ALTER TABLE petra_bienvenidas_enviadas
+  ADD COLUMN IF NOT EXISTS error_detalle TEXT;
+CREATE INDEX IF NOT EXISTS idx_bienv_enviadas_inmueble
+  ON petra_bienvenidas_enviadas (inmueble_id, enviado_en DESC);
 
 -- Seed inicial: Arrayanes (Bogota) con cod 1001 y Prados 1 (Zipaquira) con cod 2530
 INSERT INTO conjuntos_visitante (codigo, nombre, ciudad)

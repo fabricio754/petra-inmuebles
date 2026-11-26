@@ -127,6 +127,33 @@
   .etapa-chip.etapa-proceso_credito  { background: #fce7f3; color: #9d174d; }
   .etapa-chip.etapa-no_publicar      { background: #fee2e2; color: #991b1b; }
   .etapa-chip.etapa-no_contactar     { background: #f3f4f6; color: #4b5563; }
+  /* Tooltip instantáneo custom (reemplaza al title nativo, que tiene delay). */
+  .bv-tip { position: relative; cursor: help; }
+  .bv-tip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px); left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937; color: #fff;
+    padding: 6px 10px; border-radius: 6px;
+    font-size: 11.5px; font-weight: 500;
+    white-space: nowrap; pointer-events: none;
+    opacity: 0; visibility: hidden;
+    transition: opacity .05s;
+    z-index: 9999;
+    box-shadow: 0 4px 12px rgba(0,0,0,.18);
+  }
+  .bv-tip::before {
+    content: ""; position: absolute;
+    bottom: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: #1f2937;
+    opacity: 0; visibility: hidden;
+    pointer-events: none;
+    z-index: 9999;
+  }
+  .bv-tip:hover::after, .bv-tip:hover::before {
+    opacity: 1; visibility: visible;
+  }
   .btn-ok-datos {
     background: #16a34a; color: #fff; border: 0; padding: 6px 12px;
     border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;
@@ -483,12 +510,33 @@
               data-label="{{ _action[1] }}">{{ _action[1] }} a seleccionados</button>
     </div>
     {% endif %}
+    {# Funnel de conversión de bienvenidas para la vista actual. #}
+    {% if bienv_funnel and bienv_funnel.enviados > 0 %}
+      {% set _n = bienv_funnel.enviados %}
+      {% set _pct_d = (bienv_funnel.entregados * 100 // _n) if _n else 0 %}
+      {% set _pct_r = (bienv_funnel.leidos * 100 // _n) if _n else 0 %}
+      {% set _pct_c = (bienv_funnel.clicks * 100 // _n) if _n else 0 %}
+      <div class="bienv-funnel" style="margin: 10px 0 14px; padding: 10px 14px;
+                  background: var(--card, #fff); border: 1px solid var(--border, #e2ddd1);
+                  border-radius: 10px; display: flex; gap: 18px; flex-wrap: wrap;
+                  align-items: center; font-size: 13px">
+        <span style="font-weight: 600; color: var(--muted, #6b6a66); letter-spacing: .02em; text-transform: uppercase; font-size: 11px">Conversión bienvenidas</span>
+        <span>📤 <b>{{ bienv_funnel.enviados }}</b> enviados</span>
+        <span style="color:#2563eb">📬 <b>{{ bienv_funnel.entregados }}</b> entregados <span style="color:var(--muted,#6b6a66)">({{ _pct_d }}%)</span></span>
+        <span style="color:#7c3aed">👁 <b>{{ bienv_funnel.leidos }}</b> leídos <span style="color:var(--muted,#6b6a66)">({{ _pct_r }}%)</span></span>
+        <span style="color:#047a3f">✅ <b>{{ bienv_funnel.clicks }}</b> clicks <span style="color:var(--muted,#6b6a66)">({{ _pct_c }}%)</span></span>
+        {% if bienv_funnel.fallos %}
+        <span style="color:#b91c1c">❌ <b>{{ bienv_funnel.fallos }}</b> fallos</span>
+        {% endif %}
+      </div>
+    {% endif %}
     <table class="table-x">
       <thead>
         <tr>
           {% if _action %}<th style="width:28px"></th>{% endif %}
           <th>Código</th><th>Estado</th><th>Op</th><th>Tipo</th><th>m²</th>
           <th>Precio</th><th>Teléfono</th>
+          <th>Bienvenida</th>
           <th>{% if _action %}Acción{% else %}Etapa{% endif %}</th>
           <th>Acciones</th>
         </tr>
@@ -517,6 +565,32 @@
             {% if i.celular_valido %}{{ i.propietario_telefono }}
             {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
+          </td>
+          {# Estado de la bienvenida (last) con tooltip de timestamps. #}
+          <td style="font-size:12px">
+            {% set _bv_lbl = {
+              'enviado':    ('📤 Enviado',    '#6b7280'),
+              'sent':       ('📤 Enviado',    '#6b7280'),
+              'delivered':  ('📬 Entregado',  '#2563eb'),
+              'read':       ('👁 Leído',      '#7c3aed'),
+              'clickeado':  ('✅ Clickeó',    '#047a3f'),
+              'fallido':    ('❌ Falló',      '#b91c1c'),
+            } %}
+            {% if i.bienv_estado %}
+              {% set _lbl, _color = _bv_lbl.get(i.bienv_estado, (i.bienv_estado, '#6b7280')) %}
+              {% set _tt_parts = [] %}
+              {% if i.bienv_sent_at %}{% set _ = _tt_parts.append('Enviado ' ~ i.bienv_sent_at.strftime('%d/%m %H:%M')) %}{% endif %}
+              {% if i.bienv_delivered_at %}{% set _ = _tt_parts.append('Entregado ' ~ i.bienv_delivered_at.strftime('%d/%m %H:%M')) %}{% endif %}
+              {% if i.bienv_read_at %}{% set _ = _tt_parts.append('Leído ' ~ i.bienv_read_at.strftime('%d/%m %H:%M')) %}{% endif %}
+              {% if i.bienv_clicked_at %}{% set _ = _tt_parts.append('Click ' ~ i.bienv_clicked_at.strftime('%d/%m %H:%M')) %}{% endif %}
+              {% if i.bienv_error %}{% set _ = _tt_parts.append('Error: ' ~ i.bienv_error) %}{% endif %}
+              <span class="bv-tip" style="color: {{ _color }}; font-weight: 600"
+                    data-tooltip="{{ _tt_parts | join(' · ') }}">
+                {{ _lbl }}
+              </span>
+            {% else %}
+              <span style="color:var(--muted)">—</span>
+            {% endif %}
           </td>
           {# Etapa del inmueble — calculada automáticamente. #}
           <td>
@@ -562,6 +636,7 @@
                       data-id="{{ i.id }}"
                       data-nro="{{ i.nro or '' }}"
                       data-op="{{ i.operacion or 'arriendo' }}"
+                      data-tipo="{{ i.tipo or 'apartamento' }}"
                       data-hab="{{ i.habitaciones if i.habitaciones is not none else '' }}"
                       data-banos="{{ i.banos if i.banos is not none else '' }}"
                       data-m2="{{ i.m2 if i.m2 is not none else '' }}"
@@ -666,6 +741,18 @@
         </select>
       </div>
       <div>
+        <label>Tipo *</label>
+        <select name="tipo" id="ei-tipo" required>
+          <option value="apartamento">Apartamento</option>
+          <option value="casa">Casa</option>
+          <option value="oficina">Oficina</option>
+          <option value="local">Local</option>
+          <option value="parqueadero">Parqueadero</option>
+          <option value="deposito">Depósito</option>
+          <option value="habitacion">Habitación</option>
+        </select>
+      </div>
+      <div>
         <label>Área (m²)</label>
         <input type="number" name="m2" id="ei-m2" min="0" inputmode="numeric">
       </div>
@@ -729,6 +816,7 @@ document.querySelectorAll('.editar-inm-btn').forEach(function (btn) {
     f.action = '/panel/petra/visitante/inmuebles/' + d.id + '/editar';
     document.getElementById('ei-nro').value = d.nro || '';
     document.getElementById('ei-op').value = d.op || 'arriendo';
+    document.getElementById('ei-tipo').value = d.tipo || 'apartamento';
     document.getElementById('ei-hab').value = d.hab || '';
     document.getElementById('ei-banos').value = d.banos || '';
     document.getElementById('ei-m2').value = d.m2 || '';
@@ -896,8 +984,13 @@ function petraDeshacer(ev, quien, formId, label) {
       var nOk = (j.ok||[]).length;
       var nFail = (j.fallos||[]).length;
       var nSinTel = (j.sin_telefono||[]).length;
-      // Avisar sólo si hubo problemas; si todo OK, avanzar silenciosamente.
-      if (nFail > 0 || nSinTel > 0) {
+      // Caso encolado (>5 inmuebles): no tenemos resultados individuales.
+      if (j.encolado) {
+        var msg = '📬 ' + (j.mensaje || (j.encolados + ' encoladas.'));
+        if (nSinTel > 0) msg += '\n📵 Sin teléfono: ' + nSinTel;
+        alert(msg);
+      } else if (nFail > 0 || nSinTel > 0) {
+        // Avisar sólo si hubo problemas; si todo OK, avanzar silenciosamente.
         var msg = '✅ OK: ' + nOk +
                   '\n❌ Fallos: ' + nFail +
                   '\n📵 Sin teléfono: ' + nSinTel;

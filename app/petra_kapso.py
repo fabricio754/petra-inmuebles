@@ -227,6 +227,220 @@ def _send_template_via_meta(to_clean, template_name, language, components,
 
 
 # ============================================================================
+# Envío de mensajes interactivos (CTA URL) via Kapso.
+# ============================================================================
+
+def send_cta_url(to, body, display_text, url, header=None, footer=None,
+                 phone_number_id_override=None):
+    """Envía un mensaje interactivo con UN botón Call-to-Action que abre una
+    URL externa (ej. wa.me del bot principal). Kapso proxea el formato de
+    Meta Cloud API tal cual.
+
+    display_text ≤ 20 chars oficialmente. url ≤ 2000 chars.
+    """
+    base, api_key, phone_id, version = _config()
+    if not (base and api_key):
+        _LOG.error("[kapso] falta KAPSO_API_KEY o KAPSO_BASE_URL")
+        return {"ok": False, "status": 0, "body": "config_faltante"}
+    phone_id = phone_number_id_override or phone_id
+    if not phone_id:
+        return {"ok": False, "status": 0, "body": "phone_id_faltante"}
+
+    to_clean = str(to).strip().lstrip("+")
+    inter = {
+        "type": "cta_url",
+        "body": {"text": str(body)[:1024]},
+        "action": {
+            "name": "cta_url",
+            "parameters": {
+                "display_text": str(display_text)[:30],
+                "url": str(url)[:2000],
+            },
+        },
+    }
+    if header:
+        inter["header"] = {"type": "text", "text": str(header)[:60]}
+    if footer:
+        inter["footer"] = {"text": str(footer)[:60]}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_clean,
+        "type": "interactive",
+        "interactive": inter,
+    }
+    headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+    url_api = _url(phone_id, version)
+    try:
+        r = requests.post(url_api, headers=headers,
+                          data=json.dumps(payload), timeout=(5, 15))
+    except requests.RequestException as e:
+        _LOG.exception("[kapso] send_cta_url POST fallo: %s", e)
+        return {"ok": False, "status": 0, "body": f"request_error:{type(e).__name__}"}
+    ok = 200 <= r.status_code < 300
+    try:
+        body_resp = r.json()
+    except Exception:
+        body_resp = r.text[:500]
+    message_id = None
+    if ok and isinstance(body_resp, dict):
+        msgs = body_resp.get("messages") or []
+        if msgs and isinstance(msgs[0], dict):
+            message_id = msgs[0].get("id")
+    if not ok:
+        _LOG.error("[kapso] send_cta_url fallo to=%s status=%s body=%s",
+                   to_clean, r.status_code, body_resp)
+    return {"ok": ok, "status": r.status_code,
+            "body": body_resp, "message_id": message_id}
+
+
+def _marcar_estado_bienvenida(wamid, estado_meta, error_text=None):
+    """Actualiza el estado de una bienvenida tracked en
+    petra_bienvenidas_enviadas cuando llega un status event de Meta/Kapso.
+
+    Mapeo: sent/delivered/read → ese mismo nombre. failed → fallido.
+    Solo pisa estado si el nuevo es "más avanzado" (por prioridad), para
+    que un 'delivered' tardío no sobreescriba un 'read' ya marcado.
+    """
+    if not wamid or not estado_meta:
+        return
+    prio = {"enviado": 0, "sent": 1, "delivered": 2, "read": 3,
+            "clickeado": 4, "fallido": 5}
+    mapping = {"sent": "sent", "delivered": "delivered",
+               "read": "read", "failed": "fallido"}
+    nuevo = mapping.get(estado_meta.lower())
+    if not nuevo:
+        return
+    col_ts = {"sent": "sent_at", "delivered": "delivered_at",
+              "read": "read_at", "fallido": "failed_at"}[nuevo]
+    from app import db as _db
+    with _db._conexion_directa(timeout=5) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT estado FROM petra_bienvenidas_enviadas WHERE wamid = %s",
+            (wamid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return
+        actual = row[0] or "enviado"
+        # No pisar si el nuevo tiene menor prioridad.
+        if prio.get(nuevo, -1) < prio.get(actual, -1):
+            # Pero sí actualizar el timestamp del nuevo si estaba vacío.
+            cur.execute(
+                f"UPDATE petra_bienvenidas_enviadas "
+                f"   SET {col_ts} = COALESCE({col_ts}, NOW()) "
+                f" WHERE wamid = %s",
+                (wamid,),
+            )
+        else:
+            if nuevo == "fallido":
+                cur.execute(
+                    "UPDATE petra_bienvenidas_enviadas "
+                    "   SET estado = %s, failed_at = COALESCE(failed_at, NOW()), "
+                    "       error_detalle = %s "
+                    " WHERE wamid = %s",
+                    (nuevo, (error_text or "")[:500], wamid),
+                )
+            else:
+                cur.execute(
+                    f"UPDATE petra_bienvenidas_enviadas "
+                    f"   SET estado = %s, {col_ts} = COALESCE({col_ts}, NOW()) "
+                    f" WHERE wamid = %s",
+                    (nuevo, wamid),
+                )
+        conn.commit()
+
+
+def _marcar_bienvenida_clickeada(wamid):
+    """Marca estado='clickeado' en petra_bienvenidas_enviadas para ese wamid."""
+    if not wamid:
+        return
+    from app import db as _db
+    try:
+        with _db._conexion_directa(timeout=5) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE petra_bienvenidas_enviadas "
+                "   SET estado = 'clickeado', "
+                "       clicked_at = COALESCE(clicked_at, NOW()) "
+                " WHERE wamid = %s",
+                (wamid,),
+            )
+            conn.commit()
+    except Exception as e:
+        _LOG.warning("[kapso] marcar_bienvenida_clickeada fallo: %s", e)
+
+
+def _responder_ver_publicacion(telefono, context_wamid):
+    """Handler del click en el botón 'Ver mi publicación' del template de
+    bienvenida. Busca el conjunto/inmueble asociado al wamid del template
+    original y responde con un CTA que lleva a wa.me del bot principal
+    con mensaje precargado.
+    """
+    from app import db as _db
+    import urllib.parse as _up
+
+    PETRA_BOT_PHONE = (os.environ.get("PETRA_BOT_WA_PHONE") or "573001278631").strip()
+
+    # 1) Lookup por wamid (si vino en el context)
+    conjunto = None
+    try:
+        with _db._conexion_directa(timeout=5) as conn, conn.cursor() as cur:
+            if context_wamid:
+                cur.execute(
+                    "SELECT c.codigo, c.nombre, c.ciudad "
+                    "  FROM petra_bienvenidas_enviadas b "
+                    "  JOIN conjuntos_visitante c ON c.id = b.conjunto_id "
+                    " WHERE b.wamid = %s LIMIT 1",
+                    (context_wamid,),
+                )
+                row = cur.fetchone()
+                if row:
+                    conjunto = {"codigo": row[0], "nombre": row[1], "ciudad": row[2]}
+            # 2) Fallback: inmueble más reciente del propietario.
+            # No filtramos por activo porque el propietario puede tener
+            # inmuebles pausados pero igual querer ver su publicación.
+            if not conjunto:
+                cur.execute(
+                    "SELECT c.codigo, c.nombre, c.ciudad "
+                    "  FROM inmuebles_visitante i "
+                    "  JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
+                    " WHERE regexp_replace(i.propietario_telefono,'[^0-9]','','g') = %s "
+                    " ORDER BY i.creado_en DESC LIMIT 1",
+                    (''.join(ch for ch in (telefono or '') if ch.isdigit()),),
+                )
+                row = cur.fetchone()
+                if row:
+                    conjunto = {"codigo": row[0], "nombre": row[1], "ciudad": row[2]}
+    except Exception as e:
+        _LOG.exception("[kapso] lookup bienvenida fallo: %s", e)
+        return {"ok": False, "motivo": "lookup_fallo"}
+
+    if not conjunto:
+        _LOG.info("[kapso] no encontre inmueble para tel=%s wamid=%s",
+                  telefono, context_wamid)
+        return {"ok": False, "motivo": "sin_inmueble"}
+
+    texto_precargado = (
+        f"Estoy en el edificio {conjunto['nombre']} en "
+        f"{conjunto.get('ciudad') or 'Colombia'}. Cod: {conjunto['codigo']}"
+    )
+    link = (f"https://wa.me/{PETRA_BOT_PHONE}?"
+            f"text={_up.quote(texto_precargado)}")
+    body = (
+        f"📸 Tu publicación de {conjunto['nombre']}\n"
+        "está lista para que la veas.\n\n"
+        "Recuerda que en nuestro asistente podrás:\n\n"
+        f"👀  Explorar arriendos y ventas de {conjunto['nombre']}\n"
+        "📋  Publicar otro inmueble"
+    )
+    return send_cta_url(
+        to=telefono,
+        body=body,
+        display_text="🏠 Ver mi publicación",
+        url=link,
+    )
+
+
+# ============================================================================
 # Webhook handler: mapea eventos de Kapso al schema interno de mensajes.
 # ============================================================================
 
@@ -278,6 +492,12 @@ def procesar_webhook(payload):
                         cambios.append(f"{estado}@{target_id[:16]}")
                     except Exception as e:
                         log.warning("[kapso] actualizar_estado_entrega fallo: %s", e)
+                    # Sincronizar estado en petra_bienvenidas_enviadas (si es
+                    # una bienvenida tracked, el UPDATE la actualiza; si no, no-op).
+                    try:
+                        _marcar_estado_bienvenida(target_id, estado, error_text)
+                    except Exception as e:
+                        log.warning("[kapso] marcar_estado_bienvenida fallo: %s", e)
             return {"ok": True, "accion": "status_update", "cambios": cambios}
 
         # --- Caso 1 o 3: mensaje nuevo (IN u OUT sin status previo) ---
@@ -301,13 +521,70 @@ def procesar_webhook(payload):
                 # Fallback: tomar del conversation
                 conv = (payload or {}).get("conversation") or {}
                 telefono = conv.get("phone_number") or conv.get("business_scoped_user_id") or ""
+            # log_mensaje async: no bloqueamos el webhook con el write a DB.
+            import threading as _th
+            def _log_in_bg(_tel, _tipo, _resumen, _payload, _wamid):
+                try:
+                    _db.log_mensaje(_tel, "IN", f"kapso_{_tipo}",
+                                     _resumen[:4000],
+                                     payload=_payload, wa_msg_id=_wamid)
+                except Exception as e:
+                    log.exception("[kapso] log_mensaje IN fallo: %s", e)
+            _th.Thread(target=_log_in_bg,
+                       args=(telefono, tipo, resumen, payload, wa_msg_id),
+                       daemon=True).start()
+
+            # Handler del click en el botón "Ver mi publicación" del template
+            # de bienvenida. Kapso lo entrega de 3 formas según el tipo de
+            # cliente:
+            #   1. type=button con button.{text,payload}     (templates)
+            #   2. type=interactive con button_reply         (interactivos)
+            #   3. type=text con body="<label>" + context.id (algunos clientes
+            #      rebajan el botón a texto). El context.id apuntando al
+            #      wamid del template es la señal de que fue un click, no
+            #      un mensaje libre.
             try:
-                _db.log_mensaje(telefono, "IN", f"kapso_{tipo}", resumen[:4000],
-                                payload=payload, wa_msg_id=wa_msg_id)
-                return {"ok": True, "accion": "insert_in", "wa_msg_id": wa_msg_id}
+                boton_label = ""
+                context_wamid = None
+                ctx = msg.get("context") or kapso_meta.get("context") or {}
+                if isinstance(ctx, dict):
+                    context_wamid = ctx.get("id") or ctx.get("message_id")
+                # 1. type=button (template quick reply)
+                btn = msg.get("button") or {}
+                if btn:
+                    boton_label = (btn.get("text") or btn.get("payload") or "").strip()
+                # 2. type=interactive button_reply
+                inter = msg.get("interactive") or {}
+                if inter.get("type") == "button_reply":
+                    br = inter.get("button_reply") or {}
+                    boton_label = (br.get("title") or br.get("id") or "").strip()
+                # 3. type=text con context: cliente que degradó el botón.
+                if not boton_label and context_wamid:
+                    txt = (msg.get("text") or {}).get("body") or ""
+                    boton_label = txt.strip()
+
+                if boton_label == "Ver mi publicación":
+                    log.info("[kapso] click 'Ver mi publicación' tel=%s ctx=%s",
+                             telefono, context_wamid)
+                    # Marcar clickeado en la tabla de tracking (para que la
+                    # columna de estado en el panel lo muestre).
+                    if context_wamid:
+                        try:
+                            _marcar_bienvenida_clickeada(context_wamid)
+                        except Exception:
+                            log.exception("[kapso] marcar clickeada fallo")
+                    # Background: libera el webhook (200 OK a Kapso al
+                    # instante) y el POST del CTA corre en paralelo. Ahorra
+                    # ~1s de latencia percibida.
+                    _th.Thread(
+                        target=_responder_ver_publicacion,
+                        args=(telefono, context_wamid),
+                        daemon=True,
+                    ).start()
             except Exception as e:
-                log.exception("[kapso] log_mensaje IN fallo: %s", e)
-                return {"ok": False, "accion": "insert_in_fallo", "error": str(e)}
+                log.exception("[kapso] handler ver_publicacion fallo: %s", e)
+
+            return {"ok": True, "accion": "insert_in", "wa_msg_id": wa_msg_id}
 
         return {"ok": True, "accion": "no_op", "motivo": "evento_sin_direction_ni_status"}
 

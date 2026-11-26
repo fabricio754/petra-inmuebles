@@ -1196,7 +1196,10 @@ def _cargar_ficha_agente(conn, cid):
                   cv.barrio, cv.direccion, cv.ubicacion_maps,
                   cv.fecha_activacion,
                   cv.envio_fotos_inventario, cv.envio_videos_conjunto,
-                  cv.envio_inventario_inmueble, cv.notas AS notas_conjunto,
+                  cv.envio_inventario_inmueble,
+                  cv.envio_qr_instalado, cv.envio_zonas_comunes,
+                  cv.envio_frente_conjunto,
+                  cv.notas AS notas_conjunto,
                   ac.asignado_at AS fecha_envio_qr,
                   COALESCE(SUM(CASE WHEN iv.activo AND iv.operacion='arriendo'
                                     THEN 1 ELSE 0 END), 0) AS arr_activos,
@@ -3485,6 +3488,36 @@ def panel_v2_inmuebles():
                         " ORDER BY activo DESC, creado_en DESC"
                     )
                     inmuebles = _rows(conn, sql, tuple(params))
+                    # Batch: estado más reciente de la bienvenida por inmueble.
+                    _iids = [i["id"] for i in inmuebles]
+                    _estado_por_iid = {}
+                    if _iids:
+                        try:
+                            rows_bv = _rows(conn,
+                                "SELECT DISTINCT ON (inmueble_id) "
+                                "       inmueble_id, estado, enviado_en, "
+                                "       sent_at, delivered_at, read_at, "
+                                "       clicked_at, failed_at, error_detalle "
+                                "  FROM petra_bienvenidas_enviadas "
+                                " WHERE inmueble_id = ANY(%s) "
+                                " ORDER BY inmueble_id, enviado_en DESC",
+                                (_iids,))
+                            for r in rows_bv:
+                                _estado_por_iid[r["inmueble_id"]] = r
+                        except Exception:
+                            pass
+                    for i in inmuebles:
+                        _bv = _estado_por_iid.get(i["id"])
+                        if _bv:
+                            i["bienv_estado"] = _bv.get("estado") or "enviado"
+                            i["bienv_sent_at"] = _bv.get("sent_at")
+                            i["bienv_delivered_at"] = _bv.get("delivered_at")
+                            i["bienv_read_at"] = _bv.get("read_at")
+                            i["bienv_clicked_at"] = _bv.get("clicked_at")
+                            i["bienv_failed_at"] = _bv.get("failed_at")
+                            i["bienv_error"] = _bv.get("error_detalle")
+                        else:
+                            i["bienv_estado"] = None
                     for i in inmuebles:
                         i["precio_fmt"] = _fmt_precio_cop(i.get("precio"))
                         i["codigo"] = f"P{i['id']:04d}"
@@ -3583,6 +3616,31 @@ def panel_v2_inmuebles():
         import logging as _lg
         _lg.getLogger(__name__).exception("[panel_v2] inmuebles query fallo")
 
+    # Funnel de conversión de bienvenidas sobre los inmuebles visibles.
+    # Un inmueble con una bienvenida enviada cuenta como "enviado".
+    # delivered/read/clickeado también cuentan los anteriores (son acumulativos
+    # porque un click implica delivered + read previos en el funnel).
+    bienv_funnel = {"enviados": 0, "entregados": 0, "leidos": 0,
+                    "clicks": 0, "fallos": 0}
+    try:
+        for _i in (inmuebles or []):
+            _st = _i.get("bienv_estado")
+            if not _st:
+                continue
+            bienv_funnel["enviados"] += 1
+            if _st == "fallido":
+                bienv_funnel["fallos"] += 1
+                continue
+            # Progreso acumulativo: si llegó a read, también está entregado.
+            if _i.get("bienv_delivered_at") or _st in ("delivered","read","clickeado"):
+                bienv_funnel["entregados"] += 1
+            if _i.get("bienv_read_at") or _st in ("read","clickeado"):
+                bienv_funnel["leidos"] += 1
+            if _st == "clickeado":
+                bienv_funnel["clicks"] += 1
+    except Exception:
+        pass
+
     return render_template(
         "petra_panel_v2_inmuebles.html",
         token=token, conjuntos=conjuntos, conjunto=conjunto,
@@ -3590,6 +3648,7 @@ def panel_v2_inmuebles():
         op_filtro=op_filtro, estado_filtro=estado_filtro,
         tipo_filtro=tipo_filtro, etapa_filtro=etapa_filtro,
         cont=cont, cont_v2=cont_v2,
+        bienv_funnel=bienv_funnel,
     )
 
 
@@ -3817,6 +3876,24 @@ DIFUSION_AUTORES = [
 ]
 
 
+def _templates_borrados_por_usuario(conn):
+    """Lee los nombres de templates que el usuario borró manualmente
+    desde la UI, para que el seeder no los re-cree."""
+    try:
+        row = conn.execute(
+            "SELECT valor FROM meta WHERE clave = 'templates_blacklist'"
+        ).fetchone()
+        if not row or not row[0]:
+            return set()
+        import json as _json
+        data = _json.loads(row[0])
+        if isinstance(data, list):
+            return set(data)
+    except Exception:
+        pass
+    return set()
+
+
 def _seed_templates_nuevos():
     """Upserteá los templates de PETRA_TEMPLATES que todavía no existen en
     DB (ON CONFLICT DO NOTHING). Idempotente — inserta sólo los nuevos."""
@@ -3825,8 +3902,11 @@ def _seed_templates_nuevos():
     _log = _lg.getLogger(__name__)
     try:
         with _db._conexion_directa(timeout=10) as conn:
+            blacklist = _templates_borrados_por_usuario(conn)
             insertados = 0
             for t in PETRA_TEMPLATES:
+                if t["name"] in blacklist:
+                    continue
                 tipo = t.get("tipo") or ("botones" if t.get("botones")
                                          else ("multimedia" if t.get("header") else "texto"))
                 res = conn.execute(
@@ -4750,6 +4830,17 @@ def panel_v2_templates():
     _seed_templates_si_vacio()
     _seed_slots_si_vacio()
 
+    # Sincronizar el status local con lo que Meta dice. Esto corrige los
+    # casos donde un template quedó en 'pendiente' local pero Meta ya lo
+    # aprobó/rechazó. Cache de 5 min vía _meta_fetch_templates(force=False).
+    try:
+        _sync_status_templates_desde_meta()
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).warning(
+            "[panel_v2] sync status desde Meta fallo (no crítico)",
+            exc_info=True)
+
     templates_db = []
     try:
         with _db._conexion_directa(timeout=10) as conn:
@@ -4767,6 +4858,20 @@ def panel_v2_templates():
     templates = [_row_to_template(r) for r in templates_db]
     slots = _leer_slots()
 
+    # Nombres de templates ya aprobados por Meta (para ocultar borradores
+    # duplicados). Cache de 5 min; si falla, lista vacia.
+    meta_approved_names = set()
+    try:
+        meta_list, _err = _meta_fetch_templates(force=False)
+        if meta_list:
+            meta_approved_names = {
+                (t.get("name") or "").strip()
+                for t in meta_list
+                if (t.get("status") or "").upper() == "APPROVED"
+            }
+    except Exception:
+        pass
+
     return render_template(
         "petra_panel_v2_templates.html",
         token=token,
@@ -4774,7 +4879,70 @@ def panel_v2_templates():
         tipos=TEMPLATE_TIPOS,
         autores=DIFUSION_AUTORES,
         slots=slots,
+        meta_approved_names=meta_approved_names,
     )
+
+
+def _sync_status_templates_desde_meta():
+    """Lee la lista de templates de Meta (via _meta_fetch_templates, cache
+    5min) y actualiza el status local en campana_templates para que
+    aparezcan como aprobado/rechazado en el panel sin pedírselo al user.
+
+    Mapea:
+      APPROVED → aprobado
+      REJECTED → rechazado
+      PENDING  → pendiente
+    """
+    meta_list, _err = _meta_fetch_templates(force=False)
+    if not meta_list:
+        return
+    meta_by_name = {}
+    for t in meta_list:
+        name = (t.get("name") or "").strip()
+        st = (t.get("status") or "").upper()
+        if not name or not st:
+            continue
+        # Nos quedamos con el status más "avanzado" si hay varios idiomas.
+        # Prioridad: APPROVED > REJECTED > PENDING.
+        prev = meta_by_name.get(name)
+        if prev is None or _prio_status(st) > _prio_status(prev):
+            meta_by_name[name] = st
+    if not meta_by_name:
+        return
+    mapping = {"APPROVED": "aprobado", "REJECTED": "rechazado",
+               "PENDING": "pendiente"}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            rows = _rows(conn,
+                "SELECT name, status FROM campana_templates "
+                " WHERE name = ANY(%s)",
+                (list(meta_by_name.keys()),))
+            cambios = 0
+            for r in rows:
+                nm = r.get("name") or ""
+                st_local = (r.get("status") or "").lower()
+                st_meta = mapping.get(meta_by_name.get(nm, ""))
+                if st_meta and st_local != st_meta:
+                    conn.execute(
+                        "UPDATE campana_templates "
+                        "   SET status = %s, actualizado_en = NOW() "
+                        " WHERE name = %s AND status IS DISTINCT FROM %s",
+                        (st_meta, nm, st_meta),
+                    )
+                    cambios += 1
+            if cambios:
+                conn.commit()
+                import logging as _lg
+                _lg.getLogger(__name__).info(
+                    "[sync_meta] actualizados %d templates", cambios)
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[sync_meta] fallo UPDATE")
+
+
+def _prio_status(st):
+    return {"APPROVED": 3, "REJECTED": 2, "PENDING": 1}.get(
+        (st or "").upper(), 0)
 
 
 @petra_panel_bp.post("/v2/activados/<slot>")
@@ -4978,18 +5146,29 @@ def _normalize_meta_template(raw):
     cards = []
     tipo = "texto"
 
+    footer = ""
     for c in components:
         ctype = (c.get("type") or "").upper()
         if ctype == "BODY":
             body = c.get("text") or ""
+        elif ctype == "FOOTER":
+            footer = c.get("text") or ""
         elif ctype == "HEADER":
             fmt = (c.get("format") or "TEXT").upper()
             if fmt == "TEXT":
                 pass  # headers de solo texto no los contamos como multimedia
             else:
+                # Meta guarda la URL del archivo de muestra en example.header_handle
+                ex = c.get("example") or {}
+                handle = ex.get("header_handle") or []
+                sample_url = ""
+                if isinstance(handle, list) and handle:
+                    sample_url = str(handle[0])
+                elif isinstance(handle, str):
+                    sample_url = handle
                 header = {
                     "type": fmt.lower(),  # image / video / document / location
-                    "url": "",  # Meta solo guarda el template, no la URL fija
+                    "url": sample_url,
                     "label": f"{fmt} (ejemplo en template)",
                 }
                 tipo = "multimedia"
@@ -5041,6 +5220,7 @@ def _normalize_meta_template(raw):
         "body": body,
         "header": header,
         "botones": buttons,
+        "footer": footer,
         "catalogo": {"cards": cards} if cards else None,
         "quality_score": (raw.get("quality_score") or {}).get("score"),
         "rejected_reason": raw.get("rejected_reason"),
@@ -5193,7 +5373,7 @@ def panel_v2_templates_json(tid):
                 "SELECT id, name, display, idioma, categoria, tipo, status, "
                 "       body, variables, header, botones, catalogo, "
                 "       recomendacion, rechazo_motivo, autor, "
-                "       creado_en, actualizado_en "
+                "       creado_en, actualizado_en, footer "
                 "  FROM campana_templates "
                 " WHERE id = %s",
                 (tid,))
@@ -5456,6 +5636,48 @@ def _construir_meta_components(tpl, access_token, app_id, usar_url=False):
             components.append({"type": "BUTTONS", "buttons": meta_btns})
 
     return components, None
+
+
+@petra_panel_bp.post("/v2/templates/meta/eliminar")
+def panel_v2_templates_meta_eliminar():
+    """Borra una template ya aprobada en Meta via Kapso proxy. Irreversible."""
+    from flask import jsonify
+    from app import petra_kapso as _kapso_mod
+    import requests as _rq
+    _check_token()
+
+    template_id = (request.form.get("template_id") or "").strip()
+    name = (request.form.get("name") or "").strip()
+    if not template_id or not name:
+        return jsonify({"ok": False, "msg": "falta template_id o name"}), 400
+
+    k_base, k_api_key, _k_phone, k_version = _kapso_mod._config()
+    waba_id = (_kapso_mod._waba_id_activo()
+               or (os.environ.get("KAPSO_WABA_ID") or "").strip())
+    if not (k_api_key and waba_id):
+        return jsonify({"ok": False, "msg": "kapso_no_configurado"}), 500
+
+    url = (f"{k_base}/{k_version}/{waba_id}/message_templates"
+           f"?hsm_id={template_id}&name={name}")
+    try:
+        r = _rq.delete(url, headers={"X-API-Key": k_api_key}, timeout=15)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"red:{type(e).__name__}",
+                        "detalle": str(e)}), 502
+    try:
+        body = r.json()
+    except Exception:
+        body = r.text[:500]
+    if not r.ok:
+        return jsonify({"ok": False, "status": r.status_code,
+                        "msg": "meta_error", "detalle": body}), 502
+    # Invalidar cache de templates meta para que el próximo fetch sea fresco.
+    try:
+        _META_TEMPLATES_CACHE["ts"] = 0
+    except Exception:
+        pass
+    return jsonify({"ok": True, "template_id": template_id, "name": name,
+                    "body": body})
 
 
 @petra_panel_bp.post("/v2/templates/<int:tid>/aprobar")
@@ -5761,6 +5983,7 @@ def panel_v2_templates_actualizar(tid):
                 f"UPDATE campana_templates SET {', '.join(set_clauses)} WHERE id = %s",
                 tuple(params),
             )
+            conn.commit()
             return jsonify({"ok": True, "reset_a_draft": reset_status})
     except Exception:
         import logging as _lg
@@ -5770,20 +5993,31 @@ def panel_v2_templates_actualizar(tid):
 
 @petra_panel_bp.post("/v2/templates/<int:tid>/eliminar")
 def panel_v2_templates_eliminar(tid):
-    """Elimina un template (solo si está en draft)."""
+    """Elimina un template local (cualquier estado). No borra en Meta.
+    Agrega el `name` a una blacklist para que el seeder no lo re-cree."""
     _check_token()
     from flask import jsonify
+    import json as _json
     try:
         with _db._conexion_directa(timeout=10) as conn:
             row = conn.execute(
-                "SELECT status FROM campana_templates WHERE id = %s",
+                "SELECT status, name FROM campana_templates WHERE id = %s",
                 (tid,),
             ).fetchone()
             if not row:
                 return jsonify({"error": "no encontrado"}), 404
-            if row[0] != "draft":
-                return jsonify({"error": "solo se pueden eliminar drafts"}), 400
+            name = row[1]
             conn.execute("DELETE FROM campana_templates WHERE id = %s", (tid,))
+            # Blacklist para evitar re-seed
+            if name:
+                bl = _templates_borrados_por_usuario(conn)
+                bl.add(name)
+                conn.execute(
+                    "INSERT INTO meta (clave, valor) VALUES ('templates_blacklist', %s) "
+                    "ON CONFLICT (clave) DO UPDATE "
+                    "   SET valor = EXCLUDED.valor, actualizado = NOW()",
+                    (_json.dumps(sorted(bl)),))
+            conn.commit()
             return jsonify({"ok": True})
     except Exception:
         import logging as _lg
@@ -5893,7 +6127,8 @@ def panel_v2_difusiones_confirmar():
         with _db._conexion_directa(timeout=15) as conn:
             rows = _rows(conn,
                 "SELECT i.id, i.tipo, i.nro, i.operacion, "
-                "       i.propietario_telefono, c.nombre AS conjunto "
+                "       i.propietario_telefono, i.conjunto_id, "
+                "       c.nombre AS conjunto "
                 "  FROM inmuebles_visitante i "
                 "  LEFT JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
                 " WHERE " + where_sql +
@@ -5915,6 +6150,7 @@ def panel_v2_difusiones_confirmar():
                     body_params.append({"type": "text", "text": str(val)})
                 destinatarios.append({
                     "inmueble_id": r.get("id"),
+                    "conjunto_id": r.get("conjunto_id"),
                     "telefono": tel_digits,
                     "mensaje": mensaje,
                     "body_params": body_params,
@@ -5979,6 +6215,25 @@ def panel_v2_difusiones_confirmar():
                 except Exception as e:
                     _lg.getLogger(__name__).warning(
                         "[difusion] log_mensaje fallo para %s: %s", tel, e)
+                # Tracking para integridad del click en botón: cuando el
+                # propietario toque "Ver mi publicación", el webhook mira el
+                # context.id (= wamid) para saber qué conjunto/inmueble usar.
+                wamid = resultado.get("message_id")
+                if wamid:
+                    try:
+                        with _db._conexion_directa(timeout=5) as _c2:
+                            _c2.execute(
+                                "INSERT INTO petra_bienvenidas_enviadas "
+                                "  (wamid, telefono, conjunto_id, inmueble_id, template_name) "
+                                "VALUES (%s, %s, %s, %s, %s) "
+                                "ON CONFLICT (wamid) DO NOTHING",
+                                (wamid, tel, d.get("conjunto_id"),
+                                 d.get("inmueble_id"), tmpl["name"]),
+                            )
+                            _c2.commit()
+                    except Exception as e:
+                        _lg.getLogger(__name__).warning(
+                            "[difusion] tracking bienvenida fallo wamid=%s: %s", wamid, e)
             else:
                 envio["fallos"] += 1
                 if len(envio["errores"]) < 10:
@@ -6434,6 +6689,7 @@ def visitante_inmueble_editar(iid):
     token = (request.form.get("token") or "").strip()
     nro = (request.form.get("nro") or "").strip()
     operacion = (request.form.get("operacion") or "").strip()
+    tipo = (request.form.get("tipo") or "").strip().lower()
     hab = _parse_int_or_none(request.form.get("habitaciones"))
     banos = _parse_int_or_none(request.form.get("banos"))
     m2 = _parse_int_or_none(request.form.get("m2"))
@@ -6443,6 +6699,10 @@ def visitante_inmueble_editar(iid):
     if operacion not in ("arriendo", "venta"):
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
+    tipos_validos = {"apartamento", "casa", "oficina", "parqueadero",
+                     "deposito", "habitacion", "local"}
+    if tipo not in tipos_validos:
+        tipo = None  # no cambiamos si viene vacio o invalido
     if not nro:
         nro = "(sin especificar)"
     if precio is None or precio < 0:
@@ -6456,12 +6716,20 @@ def visitante_inmueble_editar(iid):
             if not row:
                 abort(404)
             cid = row[0]
-            conn.execute(
-                "UPDATE inmuebles_visitante SET nro=%s, operacion=%s, "
-                "habitaciones=%s, banos=%s, m2=%s, precio=%s, "
-                "propietario_telefono=%s WHERE id=%s",
-                (nro, operacion, hab, banos, m2, precio, tel, iid),
-            )
+            if tipo is None:
+                conn.execute(
+                    "UPDATE inmuebles_visitante SET nro=%s, operacion=%s, "
+                    "habitaciones=%s, banos=%s, m2=%s, precio=%s, "
+                    "propietario_telefono=%s WHERE id=%s",
+                    (nro, operacion, hab, banos, m2, precio, tel, iid),
+                )
+            else:
+                conn.execute(
+                    "UPDATE inmuebles_visitante SET nro=%s, operacion=%s, "
+                    "tipo=%s, habitaciones=%s, banos=%s, m2=%s, precio=%s, "
+                    "propietario_telefono=%s WHERE id=%s",
+                    (nro, operacion, tipo, hab, banos, m2, precio, tel, iid),
+                )
             conn.commit()
     except Exception:
         return redirect(request.referrer or url_for(
@@ -6828,41 +7096,115 @@ def v2_inmuebles_enviar_etapa():
     # (header media + body variables).
     tpl_local = _tmpl_by_name(tpl_name) or {}
 
+    # Resolver datos de todos los inmuebles de una vez (una query).
     with _db._conexion_directa(timeout=20) as conn:
         rows = conn.execute(
             "SELECT iv.id, iv.propietario_telefono, iv.tipo, iv.operacion, "
             "       iv.habitaciones, iv.banos, iv.m2, iv.precio, "
+            "       iv.conjunto_id, "
             "       cv.nombre AS conjunto_nombre "
             "  FROM inmuebles_visitante iv "
             "  LEFT JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id "
             " WHERE iv.id = ANY(%s)", (ids,)).fetchall()
-        inmueble_por_id = {}
-        cols = ("id","propietario_telefono","tipo","operacion",
-                "habitaciones","banos","m2","precio","conjunto_nombre")
-        for r in rows:
-            inmueble_por_id[r[0]] = dict(zip(cols, r))
-        for iid in ids:
-            inm = inmueble_por_id.get(iid) or {}
-            tel = (inm.get("propietario_telefono") or "").strip()
-            if not tel:
-                sin_tel.append(iid)
-                continue
-            comps = _build_kapso_send_components(tpl_local, inm)
-            r = _k.send_template(tel, tpl_name, language=lang, components=comps)
-            if r.get("ok"):
-                conn.execute(
-                    f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
-                    f" WHERE id = %s", (iid,))
-                ok.append({"id": iid, "message_id": r.get("message_id")})
-            else:
-                fallos.append({"id": iid, "status": r.get("status"),
-                               "body": str(r.get("body"))[:300]})
-        conn.commit()
+    cols = ("id","propietario_telefono","tipo","operacion",
+            "habitaciones","banos","m2","precio",
+            "conjunto_id","conjunto_nombre")
+    inmueble_por_id = {r[0]: dict(zip(cols, r)) for r in rows}
 
+    # Pre-chequeo de ids sin teléfono (sin gastar envíos).
+    ids_con_tel = []
+    for iid in ids:
+        inm = inmueble_por_id.get(iid) or {}
+        tel = (inm.get("propietario_telefono") or "").strip()
+        if not tel:
+            sin_tel.append(iid)
+        else:
+            ids_con_tel.append(iid)
+
+    # Separación entre envíos para no saturar Kapso/Meta.
+    DELAY_ENTRE_ENVIOS_S = 2
+    # Umbral para disparar en background: por encima de este número, el user
+    # no espera; los envíos salen en segundo plano con el espaciado.
+    UMBRAL_BACKGROUND = 5
+
+    def _enviar_uno(iid, conn):
+        """Envía 1 bienvenida y actualiza DB. Devuelve (ok, result_dict)."""
+        inm = inmueble_por_id.get(iid) or {}
+        tel = (inm.get("propietario_telefono") or "").strip()
+        comps = _build_kapso_send_components(tpl_local, inm)
+        r = _k.send_template(tel, tpl_name, language=lang, components=comps)
+        if not r.get("ok"):
+            return False, {"id": iid, "status": r.get("status"),
+                           "body": str(r.get("body"))[:300]}
+        conn.execute(
+            f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
+            f" WHERE id = %s", (iid,))
+        wamid = r.get("message_id")
+        if wamid:
+            try:
+                conn.execute(
+                    "INSERT INTO petra_bienvenidas_enviadas "
+                    "  (wamid, telefono, conjunto_id, inmueble_id, template_name) "
+                    "VALUES (%s, %s, %s, %s, %s) "
+                    "ON CONFLICT (wamid) DO NOTHING",
+                    (wamid, tel, inm.get("conjunto_id"), iid, tpl_name),
+                )
+            except Exception as e:
+                _lg.getLogger(__name__).warning(
+                    "[enviar-etapa] tracking bienvenida fallo wamid=%s: %s",
+                    wamid, e)
+        return True, {"id": iid, "message_id": wamid}
+
+    # Caso ≤N: sync, user espera. Envío con delay entre cada uno.
+    if len(ids_con_tel) <= UMBRAL_BACKGROUND:
+        import time as _time
+        with _db._conexion_directa(timeout=60) as conn:
+            for i, iid in enumerate(ids_con_tel):
+                if i > 0:
+                    _time.sleep(DELAY_ENTRE_ENVIOS_S)
+                exito, res = _enviar_uno(iid, conn)
+                (ok if exito else fallos).append(res)
+            conn.commit()
+        return jsonify({
+            "slot": slot, "template": tpl_name,
+            "ok": ok, "fallos": fallos, "sin_telefono": sin_tel,
+            "total": len(ids), "encolado": False,
+        })
+
+    # Caso >N: background. Respondemos inmediato; envíos salen en orden.
+    def _enviar_batch_bg(iids_para_enviar):
+        import time as _time
+        try:
+            with _db._conexion_directa(timeout=60) as conn:
+                for i, iid in enumerate(iids_para_enviar):
+                    if i > 0:
+                        _time.sleep(DELAY_ENTRE_ENVIOS_S)
+                    try:
+                        _enviar_uno(iid, conn)
+                    except Exception:
+                        _lg.getLogger(__name__).exception(
+                            "[enviar-etapa bg] fallo envío iid=%s", iid)
+                conn.commit()
+        except Exception:
+            _lg.getLogger(__name__).exception(
+                "[enviar-etapa bg] batch fallo")
+
+    import threading as _th
+    _th.Thread(target=_enviar_batch_bg,
+               args=(list(ids_con_tel),),
+               daemon=True).start()
+    minutos = round(len(ids_con_tel) * DELAY_ENTRE_ENVIOS_S / 60, 1)
     return jsonify({
         "slot": slot, "template": tpl_name,
-        "ok": ok, "fallos": fallos, "sin_telefono": sin_tel,
+        "ok": [], "fallos": [], "sin_telefono": sin_tel,
         "total": len(ids),
+        "encolado": True,
+        "encolados": len(ids_con_tel),
+        "delay_segundos": DELAY_ENTRE_ENVIOS_S,
+        "tiempo_estimado_min": minutos,
+        "mensaje": (f"{len(ids_con_tel)} bienvenidas encoladas, saliendo "
+                    f"cada {DELAY_ENTRE_ENVIOS_S}s "
+                    f"(~{minutos} min total)."),
     })
 
 

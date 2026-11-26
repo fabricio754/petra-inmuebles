@@ -735,7 +735,7 @@
     🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
   </button>
   <button class="tab" data-tab="borradores" onclick="cambiarTab('borradores')">
-    📋 Borradores <span class="tab-count">({{ templates|length }})</span>
+    📋 Borradores <span class="tab-count">({{ (templates|rejectattr('name', 'in', meta_approved_names)|list)|length }})</span>
   </button>
   <button class="tab" data-tab="waiting" onclick="cambiarTab('waiting')">
     ⏳ Esperando aprobación <span class="tab-count" id="tab-waiting-count">(…)</span>
@@ -931,6 +931,8 @@
           <div class="live-bubble">
             <div class="live-bubble-media" id="prev-media" hidden></div>
             <div class="live-bubble-body" id="prev-body"></div>
+            <div id="prev-footer-text" hidden
+                 style="padding:2px 10px 0;color:#667781;font-size:12px;font-style:italic"></div>
             <div class="live-bubble-footer">
               <span id="prev-time">10:00</span>
             </div>
@@ -969,9 +971,10 @@
 
 {# ─── Tab Borradores ───────────────────────────────────────── #}
 <div class="tab-pane" data-pane="borradores">
-  {% if templates %}
+  {% set borradores = templates|rejectattr('name', 'in', meta_approved_names)|list %}
+  {% if borradores %}
   <div class="tpls-grid">
-    {% for t in templates %}
+    {% for t in borradores %}
     <div class="tpl-card" data-cat="{{ t.categoria|lower }}">
       <div class="tpl-card-head">
         <div class="tpl-card-icon">
@@ -999,11 +1002,11 @@
         <div class="tpl-card-btns">
           <button class="mini-btn"
                   onclick="editarTemplate({{ t.id }})">Editar</button>
-          {% if t.status == 'draft' %}
+          {% if t.status in ('draft', 'pendiente') %}
           <button class="mini-btn approve"
                   id="btn-aprobar-{{ t.id }}"
                   onclick="aprobarTemplate({{ t.id }}, '{{ t.display|escape }}')">
-            ✅ Aprobar
+            ✅ {% if t.status == 'pendiente' %}Reenviar{% else %}Aprobar{% endif %}
           </button>
           <button class="mini-btn danger"
                   onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
@@ -1232,11 +1235,7 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="form-field">
-              <label>Recomendación de uso (opcional)</label>
-              <input type="text" id="f-reco"
-                     placeholder="ej. Primer contacto propietarios">
-            </div>
+            <input type="hidden" id="f-reco" value="">
           </div>
         </div>
 
@@ -1412,9 +1411,11 @@
   // Guardamos los templates Meta aprobados para que el picker de "Previa"
   // los pueda referenciar por índice.
   var META_APROBADOS = [];
+  window.META_APROBADOS = META_APROBADOS;
 
   function renderMetaGrid(lista, fetchedAt) {
     META_APROBADOS = lista;
+    window.META_APROBADOS = lista;
     var grid = document.getElementById('meta-grid');
     grid.hidden = false;
     if (!lista.length) {
@@ -1452,11 +1453,44 @@
           '<div class="tpl-card-meta"></div>' +
           '<div class="tpl-card-btns">' +
             '<button class="mini-btn" onclick="previewMetaTemplate(' + idx + ')">👁️ Previa</button>' +
+            '<button class="mini-btn danger js-del-meta" data-idx="' + idx + '" style="color:#dc2626;border-color:#fca5a5">🗑</button>' +
           '</div>' +
         '</div>' +
       '</div>';
     }).join('');
+    // Bind trash buttons via listener (mas robusto que inline onclick)
+    grid.querySelectorAll('.js-del-meta').forEach(function(btn) {
+      btn.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        var idx = parseInt(btn.dataset.idx, 10);
+        deleteMetaTemplate(idx);
+      });
+    });
   }
+
+  window.deleteMetaTemplate = function(idx) {
+    console.log('[delete] click idx=', idx, 'size=', (window.META_APROBADOS || []).length);
+    var arr = window.META_APROBADOS || META_APROBADOS || [];
+    var t = arr[idx];
+    if (!t) { alert('No encuentro la plantilla (idx=' + idx + ' size=' + arr.length + ')'); return; }
+    if (!confirm('¿Borrar DEFINITIVAMENTE la plantilla "' + (t.display || t.name) + '" en Meta?\n\nEsta acción es irreversible y la plantilla ya no estará disponible para enviar.')) return;
+    var fd = new FormData();
+    fd.append('token', TOKEN);
+    fd.append('template_id', t.meta_id || t.id || t.template_id || '');
+    fd.append('name', t.name);
+    fetch('/panel/petra/v2/templates/meta/eliminar?token=' + encodeURIComponent(TOKEN),
+          { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          alert('✅ Plantilla eliminada en Meta.');
+          location.reload();
+        } else {
+          alert('❌ ' + (d.msg || d.error || 'error'));
+        }
+      })
+      .catch(function(err) { alert('Error de red: ' + err); });
+  };
 
   function renderWaitingGrid(lista, fetchedAt) {
     var grid = document.getElementById('waiting-grid');
@@ -1754,8 +1788,9 @@
       if (b.preset_id) last.setAttribute('data-preset-id', b.preset_id);
     });
 
-    // Según tipo
-    if (t.tipo === 'multimedia' && t.header) {
+    // Header: puede venir con tipo 'multimedia' (solo header) o 'botones'
+    // (header + botón). En ambos casos el UI unificado 'mensaje' lo muestra.
+    if (t.header && (t.tipo === 'multimedia' || t.tipo === 'botones' || t.tipo === 'texto')) {
       document.getElementById('f-header-type').value = t.header.type || 'image';
       document.getElementById('f-header-url').value = t.header.url || '';
       document.getElementById('f-header-label').value = t.header.label || '';
@@ -1816,6 +1851,9 @@
      'f-catalog-id','f-catalog-parent','f-reco'].forEach(function(id) {
       var el = document.getElementById(id); if (el) el.value = '';
     });
+    // Reset flag "usuario edito nombre" para el auto-slug.
+    var _n = document.getElementById('f-name');
+    if (_n) delete _n.dataset.touched;
     // Reset del preview + botón del header multimedia
     var hpBox = document.getElementById('header-preview');
     if (hpBox) { hpBox.hidden = true; hpBox.innerHTML = ''; hpBox.className = ''; }
@@ -1830,6 +1868,33 @@
     var cEd = document.getElementById('cards-editor');
     if (cEd) renderCardsEditor();
   }
+
+  // Auto-generar nombre interno (snake_case) desde el nombre visible,
+  // solo mientras el usuario no haya tocado manualmente el nombre interno.
+  (function() {
+    var dispEl = document.getElementById('f-display');
+    var nameEl = document.getElementById('f-name');
+    if (!dispEl || !nameEl) return;
+    function slugify(s) {
+      return (s || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')  // sin acentos
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 60);
+    }
+    dispEl.addEventListener('input', function() {
+      if (nameEl.disabled) return;  // modo edición, no tocar
+      // Solo bloqueamos autofill si name está lleno Y es distinto del slug.
+      // Si está vacío, siempre autofill.
+      var currentName = (nameEl.value || '').trim();
+      if (currentName && nameEl.dataset.touched === '1') return;
+      nameEl.value = slugify(dispEl.value);
+    });
+    nameEl.addEventListener('input', function() {
+      nameEl.dataset.touched = '1';
+    });
+  })();
 
   function elegirTipo(tipo) {
     tipoSeleccionado = tipo;
@@ -2159,6 +2224,15 @@
     var body = t.body || '';
     document.getElementById('prev-body').innerHTML = renderMarkdownWA(body);
 
+    // Footer
+    var footerEl = document.getElementById('prev-footer-text');
+    if (t.footer) {
+      footerEl.textContent = t.footer;
+      footerEl.hidden = false;
+    } else {
+      footerEl.hidden = true;
+    }
+
     // Hora
     var now = new Date();
     document.getElementById('prev-time').textContent =
@@ -2172,12 +2246,24 @@
     if (t.header && t.tipo === 'multimedia') {
       media.hidden = false;
       var htype = (t.header.type || 'image').toLowerCase();
-      if (htype === 'image') media.innerHTML = '🖼️';
-      else if (htype === 'video') media.innerHTML = '🎬';
-      else if (htype === 'document') {
+      var hurl = t.header.url || '';
+      if (htype === 'image' && hurl) {
+        media.innerHTML = '<img src="' + hurl + '" style="max-width:100%;max-height:260px;display:block;object-fit:cover" alt="">';
+      } else if (htype === 'image') {
+        media.innerHTML = '🖼️';
+      } else if (htype === 'video' && hurl) {
+        media.innerHTML = '<video src="' + hurl + '" controls style="max-width:100%;max-height:260px;display:block"></video>';
+      } else if (htype === 'video') {
+        media.innerHTML = '🎬';
+      } else if (htype === 'document') {
         media.className = 'live-bubble-media doc';
-        media.innerHTML = '📄 <span>documento.pdf</span>';
-      } else if (htype === 'location') media.innerHTML = '📍';
+        var name = hurl ? hurl.split('?')[0].split('/').pop() : 'documento.pdf';
+        media.innerHTML = hurl
+          ? '📄 <a href="' + hurl + '" target="_blank">' + name + '</a>'
+          : '📄 <span>documento.pdf</span>';
+      } else if (htype === 'location') {
+        media.innerHTML = '📍';
+      }
     }
 
     // Botones
@@ -2514,7 +2600,20 @@
 
     // Footer + botones son universales ahora (válidos para cualquier tipo).
     fd.append('footer', document.getElementById('f-footer').value.trim());
-    fd.append('botones', JSON.stringify(recolectarBotones()));
+    var btns = recolectarBotones();
+    // Meta rechaza botones URL que apunten a WhatsApp (wa.me, api.whatsapp.com,
+    // chat.whatsapp.com). Validamos antes para no gastar un ciclo con Meta.
+    var reWa = /(^https?:\/\/)?(wa\.me|(api|chat)\.whatsapp\.com)(\/|$)/i;
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (b.type === 'url' && b.value && reWa.test(b.value)) {
+        flashError('Meta no permite botones con links directos a WhatsApp ' +
+                   '(wa.me/..., api.whatsapp.com/...). Usá otro link o un ' +
+                   'botón de tipo "Respuesta rápida".');
+        return;
+      }
+    }
+    fd.append('botones', JSON.stringify(btns));
 
     // Header: válido tanto para el nuevo "mensaje" como para "multimedia" legacy.
     if (tipoSeleccionado === 'mensaje' || tipoSeleccionado === 'multimedia') {
