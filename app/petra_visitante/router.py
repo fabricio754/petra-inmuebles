@@ -1255,6 +1255,27 @@ def _subtitulo_inm_flow(inm, operacion):
     return " · ".join(partes)[:80]
 
 
+def _ofuscar_telefono(tel):
+    """Devuelve 'XXX···YYYY' con los primeros 3 + últimos 4 dígitos del
+    teléfono, ocultando los del medio. El dueño reconoce el suyo sin
+    exponer el número completo al resto de visitantes.
+
+    Normaliza E.164: si empieza con '57' y tiene 12+ dígitos, le quita el
+    prefijo país antes de ofuscar.
+
+    Devuelve None si no hay teléfono o es demasiado corto (≤6 dígitos)
+    para evitar que el item parezca tener un tel válido cuando no.
+    """
+    if not tel:
+        return None
+    dig = "".join(c for c in str(tel) if c.isdigit())
+    if dig.startswith("57") and len(dig) >= 12:
+        dig = dig[2:]
+    if len(dig) < 7:
+        return None
+    return f"{dig[:3]}···{dig[-4:]}"
+
+
 def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
     """Envía el mensaje con botón que abre el WhatsApp Flow multi-select."""
     inmuebles = _listar_inmuebles(conn, conjunto["id"], operacion,
@@ -1309,7 +1330,16 @@ def _mostrar_flow_inmuebles(conn, telefono, conjunto, meta, operacion):
             partes_title.append(nro_corto)
         if sub:
             partes_title.append(sub)
-        title_full = " · ".join(partes_title)
+        title_base = " · ".join(partes_title)
+        # Teléfono ofuscado al final: solo si cabe en el límite de 50 chars.
+        # Permite al dueño reconocer su publicación sin exponer teléfonos
+        # completos al resto de visitantes.
+        tel_ofuscado = _ofuscar_telefono(inm.get("propietario_telefono"))
+        if tel_ofuscado:
+            con_tel = f"{title_base} · {tel_ofuscado}"
+            title_full = con_tel if len(con_tel) <= 50 else title_base
+        else:
+            title_full = title_base
         items.append({
             "id": str(inm["id"]),
             # Meta oficialmente limita item title del CheckboxGroup a 30
