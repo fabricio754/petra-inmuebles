@@ -531,12 +531,14 @@
             } %}
             {% if i.bienv_estado %}
               {% set _lbl, _color = _bv_lbl.get(i.bienv_estado, (i.bienv_estado, '#6b7280')) %}
-              <span style="color: {{ _color }}; font-weight: 600"
-                    title="{% if i.bienv_sent_at %}Enviado: {{ i.bienv_sent_at.strftime('%d/%m %H:%M') }}
-{% endif %}{% if i.bienv_delivered_at %}Entregado: {{ i.bienv_delivered_at.strftime('%d/%m %H:%M') }}
-{% endif %}{% if i.bienv_read_at %}Leído: {{ i.bienv_read_at.strftime('%d/%m %H:%M') }}
-{% endif %}{% if i.bienv_clicked_at %}Click: {{ i.bienv_clicked_at.strftime('%d/%m %H:%M') }}
-{% endif %}{% if i.bienv_error %}Error: {{ i.bienv_error }}{% endif %}">
+              {% set _tt_parts = [] %}
+              {% if i.bienv_sent_at %}{% set _ = _tt_parts.append('Enviado ' ~ i.bienv_sent_at.strftime('%d/%m %H:%M')) %}{% endif %}
+              {% if i.bienv_delivered_at %}{% set _ = _tt_parts.append('Entregado ' ~ i.bienv_delivered_at.strftime('%d/%m %H:%M')) %}{% endif %}
+              {% if i.bienv_read_at %}{% set _ = _tt_parts.append('Leído ' ~ i.bienv_read_at.strftime('%d/%m %H:%M')) %}{% endif %}
+              {% if i.bienv_clicked_at %}{% set _ = _tt_parts.append('Click ' ~ i.bienv_clicked_at.strftime('%d/%m %H:%M')) %}{% endif %}
+              {% if i.bienv_error %}{% set _ = _tt_parts.append('Error: ' ~ i.bienv_error) %}{% endif %}
+              <span style="color: {{ _color }}; font-weight: 600; cursor: help"
+                    title="{{ _tt_parts | join(' · ') }}">
                 {{ _lbl }}
               </span>
             {% else %}
