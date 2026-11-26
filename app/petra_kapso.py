@@ -446,23 +446,33 @@ def procesar_webhook(payload):
                 log.exception("[kapso] log_mensaje IN fallo: %s", e)
 
             # Handler del click en el botón "Ver mi publicación" del template
-            # de bienvenida. Puede venir como type=button (quick reply de
-            # template) o como interactive button_reply.
+            # de bienvenida. Kapso lo entrega de 3 formas según el tipo de
+            # cliente:
+            #   1. type=button con button.{text,payload}     (templates)
+            #   2. type=interactive con button_reply         (interactivos)
+            #   3. type=text con body="<label>" + context.id (algunos clientes
+            #      rebajan el botón a texto). El context.id apuntando al
+            #      wamid del template es la señal de que fue un click, no
+            #      un mensaje libre.
             try:
                 boton_label = ""
                 context_wamid = None
-                # Formato Meta/Kapso: message.button.text
+                ctx = msg.get("context") or kapso_meta.get("context") or {}
+                if isinstance(ctx, dict):
+                    context_wamid = ctx.get("id") or ctx.get("message_id")
+                # 1. type=button (template quick reply)
                 btn = msg.get("button") or {}
                 if btn:
                     boton_label = (btn.get("text") or btn.get("payload") or "").strip()
-                # Formato interactive button_reply
+                # 2. type=interactive button_reply
                 inter = msg.get("interactive") or {}
                 if inter.get("type") == "button_reply":
                     br = inter.get("button_reply") or {}
                     boton_label = (br.get("title") or br.get("id") or "").strip()
-                # context.id = wamid del template original (si vino)
-                ctx = msg.get("context") or kapso_meta.get("context") or {}
-                context_wamid = ctx.get("id") or ctx.get("message_id")
+                # 3. type=text con context: cliente que degradó el botón.
+                if not boton_label and context_wamid:
+                    txt = (msg.get("text") or {}).get("body") or ""
+                    boton_label = txt.strip()
 
                 if boton_label == "Ver mi publicación":
                     log.info("[kapso] click 'Ver mi publicación' tel=%s ctx=%s",
