@@ -272,6 +272,124 @@ def _drenar_log_mensaje_spool_background():
         log.exception("[LogMensajeSpool] Error en drenaje inicial.")
 
 
+def _reconciliar_bienvenidas_desde_kapso():
+    """Red de seguridad final: Kapso siempre tiene la verdad del estado
+    (sent/delivered/read/failed). Bajamos TODAS las bienvenidas recientes
+    y aplicamos el estado real de Kapso a nuestra DB.
+
+    No se limita a 'enviado': incluso 'delivered' puede avanzar a 'read'.
+    _marcar_estado_bienvenida tiene lógica monotónica: nunca baja de nivel
+    (no pisa clickeado ni fallido). Idempotente: si ya está todo bien,
+    no toca nada.
+
+    Usa list_whatsapp_messages (paginación, 100 por página) en vez de
+    get_whatsapp_message por wamid. Mucho más eficiente.
+    """
+    import os as _os
+    api_key = (_os.environ.get("KAPSO_API_KEY") or "").strip()
+    if not api_key:
+        return
+    platform_base = (_os.environ.get("KAPSO_PLATFORM_URL")
+                     or "https://api.kapso.ai/platform/v1").rstrip("/")
+
+    from app import db
+    # 1) Recolectar los wamids que nos interesan (bienvenidas recientes
+    #    cuyo estado podría avanzar: todo menos clickeado y fallido).
+    try:
+        with db._conexion_directa(timeout=5) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT wamid FROM petra_bienvenidas_enviadas
+                WHERE wamid IS NOT NULL
+                  AND enviado_en > NOW() - INTERVAL '7 days'
+                  AND estado NOT IN ('clickeado','fallido')
+                """
+            )
+            wamids_nuestros = {r[0] for r in cur.fetchall() if r[0]}
+    except Exception:
+        log.exception("[reconciliar_kapso] query local fallo")
+        return
+
+    if not wamids_nuestros:
+        return
+
+    # 2) Traer de Kapso todos los templates outbound de los últimos 7 días
+    #    paginando. Kapso devuelve newest-first; paramos cuando ya cubrimos
+    #    todos los wamids que necesitamos o nos quedamos sin páginas.
+    import requests
+    from datetime import datetime, timedelta, timezone
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    kstatus_por_wamid = {}
+    err_por_wamid = {}
+    cursor = None
+    paginas = 0
+    MAX_PAGINAS = 30
+    while paginas < MAX_PAGINAS:
+        paginas += 1
+        params = {
+            "direction": "outbound",
+            "message_type": "template",
+            "since": since,
+            "limit": 100,
+        }
+        if cursor:
+            params["after"] = cursor
+        try:
+            r = requests.get(
+                f"{platform_base}/whatsapp/messages",
+                headers={"X-API-Key": api_key},
+                params=params,
+                timeout=15,
+            )
+            if r.status_code != 200:
+                log.warning("[reconciliar_kapso] list %s %s", r.status_code, r.text[:200])
+                break
+            body = r.json() or {}
+        except Exception:
+            log.exception("[reconciliar_kapso] list fallo")
+            break
+        for m in body.get("data") or []:
+            wamid = m.get("id")
+            if not wamid or wamid not in wamids_nuestros:
+                continue
+            kstatus = (m.get("kapso") or {}).get("status")
+            if kstatus in ("sent", "delivered", "read", "failed"):
+                kstatus_por_wamid[wamid] = kstatus
+                if kstatus == "failed":
+                    for s in (m.get("kapso") or {}).get("statuses") or []:
+                        if s.get("status") == "failed" and s.get("errors"):
+                            e = s["errors"][0] or {}
+                            err_por_wamid[wamid] = (
+                                f"{e.get('code')}: "
+                                f"{e.get('title') or e.get('message') or ''}"
+                            )[:500]
+                            break
+        # Si ya cubrimos todos los wamids que nos importaban, cortamos.
+        if wamids_nuestros.issubset(kstatus_por_wamid.keys()):
+            break
+        cursor = (body.get("paging") or {}).get("next")
+        if not cursor:
+            break
+
+    if not kstatus_por_wamid:
+        return
+
+    # 3) Aplicar. _marcar_estado_bienvenida es monotónica (no baja).
+    from app.petra_kapso import _marcar_estado_bienvenida
+    cambios = 0
+    for wamid, kstatus in kstatus_por_wamid.items():
+        try:
+            _marcar_estado_bienvenida(wamid, kstatus, err_por_wamid.get(wamid))
+            cambios += 1
+        except Exception:
+            log.exception("[reconciliar_kapso] marcar fallo wamid=%s", wamid)
+
+    log.info("[reconciliar_kapso] revisadas=%d escaneadas_kapso=%d paginas=%d",
+             len(wamids_nuestros), len(kstatus_por_wamid), paginas)
+
+
 def _reconciliar_bienvenidas():
     """Red de seguridad para el funnel de bienvenidas.
 
@@ -280,9 +398,10 @@ def _reconciliar_bienvenidas():
     pierde (deploy, crash temporal, race con autocommit), la fila queda
     con un estado desactualizado.
 
-    Esta función sincroniza desde `mensajes` (fuente de verdad del
-    estado de entrega) a `petra_bienvenidas_enviadas`. Idempotente: si ya
-    está todo bien, no hace nada.
+    Esta función corre dos pasos:
+    1. Sincronizar desde `mensajes` local (barato, sin API calls).
+    2. Consultar Kapso Platform API para huérfanos > 2 min
+       (_reconciliar_bienvenidas_desde_kapso).
 
     Reglas:
     - Nunca pisa 'clickeado' ni 'fallido' (más específicos que la ruta
@@ -331,6 +450,12 @@ def _reconciliar_bienvenidas():
             log.info("[reconciliar_bienvenidas] %d filas sincronizadas", cambios)
     except Exception:
         log.exception("[reconciliar_bienvenidas] fallo")
+
+    # Paso 2: para los que siguen en 'enviado' >2 min, preguntar a Kapso.
+    try:
+        _reconciliar_bienvenidas_desde_kapso()
+    except Exception:
+        log.exception("[reconciliar_bienvenidas] paso kapso fallo")
 
 
 def _webhook_queue_health():
