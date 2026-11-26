@@ -565,6 +565,11 @@
             {% if i.celular_valido %}{{ i.propietario_telefono }}
             {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
+            {% if i.nombre_contacto %}
+              <div style="font-family:system-ui,sans-serif;font-size:11px;color:var(--muted);margin-top:2px">{{ i.nombre_contacto }}{% if i.username_contacto %} · @{{ i.username_contacto }}{% endif %}</div>
+            {% elif i.username_contacto %}
+              <div style="font-family:system-ui,sans-serif;font-size:11px;color:var(--muted);margin-top:2px">@{{ i.username_contacto }}</div>
+            {% endif %}
           </td>
           {# Estado de la bienvenida (last) con tooltip de timestamps. #}
           <td style="font-size:12px">
