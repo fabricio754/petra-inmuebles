@@ -439,11 +439,18 @@ def procesar_webhook(payload):
                 # Fallback: tomar del conversation
                 conv = (payload or {}).get("conversation") or {}
                 telefono = conv.get("phone_number") or conv.get("business_scoped_user_id") or ""
-            try:
-                _db.log_mensaje(telefono, "IN", f"kapso_{tipo}", resumen[:4000],
-                                payload=payload, wa_msg_id=wa_msg_id)
-            except Exception as e:
-                log.exception("[kapso] log_mensaje IN fallo: %s", e)
+            # log_mensaje async: no bloqueamos el webhook con el write a DB.
+            import threading as _th
+            def _log_in_bg(_tel, _tipo, _resumen, _payload, _wamid):
+                try:
+                    _db.log_mensaje(_tel, "IN", f"kapso_{_tipo}",
+                                     _resumen[:4000],
+                                     payload=_payload, wa_msg_id=_wamid)
+                except Exception as e:
+                    log.exception("[kapso] log_mensaje IN fallo: %s", e)
+            _th.Thread(target=_log_in_bg,
+                       args=(telefono, tipo, resumen, payload, wa_msg_id),
+                       daemon=True).start()
 
             # Handler del click en el botón "Ver mi publicación" del template
             # de bienvenida. Kapso lo entrega de 3 formas según el tipo de
@@ -477,7 +484,14 @@ def procesar_webhook(payload):
                 if boton_label == "Ver mi publicación":
                     log.info("[kapso] click 'Ver mi publicación' tel=%s ctx=%s",
                              telefono, context_wamid)
-                    _responder_ver_publicacion(telefono, context_wamid)
+                    # Background: libera el webhook (200 OK a Kapso al
+                    # instante) y el POST del CTA corre en paralelo. Ahorra
+                    # ~1s de latencia percibida.
+                    _th.Thread(
+                        target=_responder_ver_publicacion,
+                        args=(telefono, context_wamid),
+                        daemon=True,
+                    ).start()
             except Exception as e:
                 log.exception("[kapso] handler ver_publicacion fallo: %s", e)
 
