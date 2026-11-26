@@ -102,7 +102,7 @@ def iniciar():
     # estado real de los mensajes (red de seguridad si el webhook pierde
     # algún status event). Idempotente, barato (1 UPDATE sin filas si está
     # todo bien).
-    _scheduler.add_job(_reconciliar_bienvenidas, "interval", minutes=5,
+    _scheduler.add_job(_reconciliar_bienvenidas, "interval", minutes=1,
                        id="reconciliar_bienvenidas",
                        max_instances=1, coalesce=True)
     # Sprint 8 — control de calidad del inventario (Flujo 9) cada 6h
