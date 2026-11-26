@@ -7044,13 +7044,15 @@ def v2_inmuebles_enviar_etapa():
         rows = conn.execute(
             "SELECT iv.id, iv.propietario_telefono, iv.tipo, iv.operacion, "
             "       iv.habitaciones, iv.banos, iv.m2, iv.precio, "
+            "       iv.conjunto_id, "
             "       cv.nombre AS conjunto_nombre "
             "  FROM inmuebles_visitante iv "
             "  LEFT JOIN conjuntos_visitante cv ON cv.id = iv.conjunto_id "
             " WHERE iv.id = ANY(%s)", (ids,)).fetchall()
         inmueble_por_id = {}
         cols = ("id","propietario_telefono","tipo","operacion",
-                "habitaciones","banos","m2","precio","conjunto_nombre")
+                "habitaciones","banos","m2","precio",
+                "conjunto_id","conjunto_nombre")
         for r in rows:
             inmueble_por_id[r[0]] = dict(zip(cols, r))
         for iid in ids:
@@ -7066,6 +7068,25 @@ def v2_inmuebles_enviar_etapa():
                     f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
                     f" WHERE id = %s", (iid,))
                 ok.append({"id": iid, "message_id": r.get("message_id")})
+                # Tracking para integridad del botón "Ver mi publicación":
+                # el handler del webhook mira el context.id (= wamid) en la
+                # tabla petra_bienvenidas_enviadas para saber qué conjunto
+                # mandarle al propietario cuando toque el botón.
+                wamid = r.get("message_id")
+                if wamid:
+                    try:
+                        conn.execute(
+                            "INSERT INTO petra_bienvenidas_enviadas "
+                            "  (wamid, telefono, conjunto_id, inmueble_id, template_name) "
+                            "VALUES (%s, %s, %s, %s, %s) "
+                            "ON CONFLICT (wamid) DO NOTHING",
+                            (wamid, tel, inm.get("conjunto_id"),
+                             iid, tpl_name),
+                        )
+                    except Exception as e:
+                        _lg.getLogger(__name__).warning(
+                            "[enviar-etapa] tracking bienvenida fallo wamid=%s: %s",
+                            wamid, e)
             else:
                 fallos.append({"id": iid, "status": r.get("status"),
                                "body": str(r.get("body"))[:300]})

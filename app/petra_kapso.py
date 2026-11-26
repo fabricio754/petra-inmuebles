@@ -319,14 +319,15 @@ def _responder_ver_publicacion(telefono, context_wamid):
                 row = cur.fetchone()
                 if row:
                     conjunto = {"codigo": row[0], "nombre": row[1], "ciudad": row[2]}
-            # 2) Fallback: inmueble más reciente del propietario
+            # 2) Fallback: inmueble más reciente del propietario.
+            # No filtramos por activo porque el propietario puede tener
+            # inmuebles pausados pero igual querer ver su publicación.
             if not conjunto:
                 cur.execute(
                     "SELECT c.codigo, c.nombre, c.ciudad "
                     "  FROM inmuebles_visitante i "
                     "  JOIN conjuntos_visitante c ON c.id = i.conjunto_id "
                     " WHERE regexp_replace(i.propietario_telefono,'[^0-9]','','g') = %s "
-                    "   AND i.activo = TRUE "
                     " ORDER BY i.creado_en DESC LIMIT 1",
                     (''.join(ch for ch in (telefono or '') if ch.isdigit()),),
                 )
