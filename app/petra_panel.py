@@ -8067,7 +8067,7 @@ def panel_v2_conjuntos():
             "  FROM conjuntos_visitante c "
             "  LEFT JOIN inmuebles_visitante i ON i.conjunto_id = c.id "
             " GROUP BY c.id "
-            " ORDER BY c.creado_en DESC")
+            " ORDER BY c.codigo NULLS LAST, c.id")
     activos = [c for c in conjuntos if (c.get("act") or 0) > 0]
     return render_template(
         "petra_panel_v2_conjuntos.html",
