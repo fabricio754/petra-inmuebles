@@ -8376,6 +8376,118 @@ def panel_v2_observabilidad():
     )
 
 
+@petra_panel_bp.get("/v2/activos")
+def panel_v2_activos():
+    """v2: Oferta → Activos. Vista operativa por conjunto con cohortes
+    temporales (cuántos inmuebles llevan N días en cada etapa)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    def _bucketize(rows, ts_key):
+        """Agrupa rows por días desde ts_key. Retorna lista [{d, n}]
+        ordenada por días DESC (más viejos primero)."""
+        from collections import Counter
+        now = _dt.datetime.now(tz=_dt.timezone.utc)
+        c = Counter()
+        for r in rows:
+            ts = r.get(ts_key)
+            if not ts:
+                continue
+            try:
+                d = (now - ts).days
+                if d < 0:
+                    d = 0
+            except Exception:
+                continue
+            c[d] += 1
+        return [{"d": d, "n": n} for d, n in sorted(c.items(), reverse=True)]
+
+    with _db._conexion_directa(timeout=12) as conn:
+        try:
+            _bv_slot = _leer_slots().get("bienvenida") or ""
+        except Exception:
+            _bv_slot = ""
+        conjuntos = _rows(conn,
+            "SELECT id, codigo, nombre, ciudad "
+            "  FROM conjuntos_visitante "
+            " ORDER BY codigo NULLS LAST, id")
+        inmuebles = _rows(conn,
+            "SELECT id, conjunto_id, activo, propietario_telefono, creado_en, "
+            "       bienvenida_at, datos_confirmado_at, "
+            "       ofrecer_petra_at, mandato_at "
+            "  FROM inmuebles_visitante")
+        bv_rows = []
+        if _bv_slot:
+            try:
+                bv_rows = _rows(conn,
+                    "SELECT DISTINCT ON (inmueble_id) "
+                    "       inmueble_id, estado, sent_at, failed_at "
+                    "  FROM petra_bienvenidas_enviadas "
+                    " WHERE template_name = %s "
+                    " ORDER BY inmueble_id, enviado_en DESC",
+                    (_bv_slot,))
+            except Exception:
+                bv_rows = []
+        bv_por_iid = {r["inmueble_id"]: r for r in bv_rows}
+
+    tot_activos = 0
+    tot_pausados = 0
+    salida = []
+    for c in conjuntos:
+        cid = c["id"]
+        inms = [i for i in inmuebles if i.get("conjunto_id") == cid]
+        activos = [i for i in inms if i.get("activo")]
+        pausados = [i for i in inms if not i.get("activo")]
+        if not activos and not pausados:
+            continue
+
+        datos_ok = 0
+        for i in activos:
+            if _normalizar_celular_co(i.get("propietario_telefono")):
+                datos_ok += 1
+
+        bienv_fallos = 0
+        bienv_sent_ts = []
+        for i in activos:
+            bv = bv_por_iid.get(i["id"])
+            if bv:
+                if (bv.get("estado") or "") == "fallido":
+                    bienv_fallos += 1
+                elif bv.get("sent_at"):
+                    bienv_sent_ts.append({"sent_at": bv["sent_at"]})
+                elif i.get("bienvenida_at"):
+                    bienv_sent_ts.append({"sent_at": i["bienvenida_at"]})
+            elif i.get("bienvenida_at"):
+                bienv_sent_ts.append({"sent_at": i["bienvenida_at"]})
+
+        n_act = len(activos)
+        salida.append({
+            "id": cid,
+            "codigo": c.get("codigo") or "",
+            "nombre": c.get("nombre") or "",
+            "activos": n_act,
+            "pausados": len(pausados),
+            "datos_ok": datos_ok,
+            "datos_total": n_act,
+            "en_sistema": _bucketize(activos, "creado_en"),
+            "bienvenida": _bucketize(bienv_sent_ts, "sent_at"),
+            "bienvenida_fallos": bienv_fallos,
+            "confirmacion": _bucketize(activos, "datos_confirmado_at"),
+            "oferta": _bucketize(activos, "ofrecer_petra_at"),
+            "mandato": _bucketize(activos, "mandato_at"),
+        })
+        tot_activos += n_act
+        tot_pausados += len(pausados)
+
+    return render_template(
+        "petra_panel_v2_activos.html",
+        conjuntos=salida,
+        total_activos=tot_activos,
+        total_pausados=tot_pausados,
+        token=token,
+    )
+
+
 @petra_panel_bp.get("/v2/embudo")
 def panel_v2_embudo():
     """v2: Ventas → Embudo. Reutiliza _run_funnels() del v1."""

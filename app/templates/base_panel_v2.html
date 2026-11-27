@@ -174,7 +174,7 @@
   </div>
   {% set g_marketing = ['difusiones', 'templates', 'numeros', 'kapso', 'pipeline'] %}
   {% set g_bot = ['contenidos', 'faq', 'automatizaciones', 'whitelist'] %}
-  {% set g_oferta = ['conjuntos', 'catalogo', 'inmuebles', 'oferta', 'embudo', 'mandatos'] %}
+  {% set g_oferta = ['conjuntos', 'catalogo', 'inmuebles', 'oferta', 'activos', 'embudo', 'mandatos'] %}
   {% set g_demanda = ['buscadores', 'usuarios', 'demanda', 'solicitudes'] %}
   {% set g_agentes = ['agentes', 'visitas'] %}
   {% set g_salud = ['salud', 'observabilidad', 'despliegues'] %}
@@ -232,8 +232,10 @@
            href="/panel/petra/v2/inmuebles?token={{ token }}">🏠 Inmuebles por conjunto</a>
         <a class="{% if block == 'oferta' %}active{% endif %}"
            href="/panel/petra/v2/oferta?token={{ token }}">💼 Propietarios</a>
+        <a class="{% if block == 'activos' %}active{% endif %}"
+           href="/panel/petra/v2/activos?token={{ token }}">📊 Activos</a>
         <a class="{% if block == 'embudo' %}active{% endif %}"
-           href="/panel/petra/v2/embudo?token={{ token }}">📊 Embudo</a>
+           href="/panel/petra/v2/embudo?token={{ token }}">📈 Embudo</a>
         <a class="{% if block == 'mandatos' %}active{% endif %}"
            href="/panel/petra/v2/mandatos?token={{ token }}">🤝 Mandatos</a>
       </div>

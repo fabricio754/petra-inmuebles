@@ -1,0 +1,221 @@
+{% extends "base_panel_v2.html" %}
+{% set block = "activos" %}
+{% block title %}Activos · Oferta · Petra{% endblock %}
+
+{% block content %}
+<style>
+  .activos-wrap { max-width: 1240px; margin: 0 auto; }
+  .activos-wrap h1 { margin: 0 0 4px; font-size: 22px; }
+  .activos-sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+
+  .activos-legend {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+  }
+  .activos-legend h3 {
+    margin: 0 0 10px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    color: var(--muted);
+  }
+  .activos-legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px;
+  }
+  .activos-legend-row {
+    display: flex; align-items: baseline; gap: 8px; font-size: 12px;
+  }
+  .activos-legend-row .name { font-weight: 600; min-width: 90px; }
+  .activos-legend-row .desc { color: var(--muted); }
+
+  .activos-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .activos-filters {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+    background: var(--bg, #f3f4f6);
+    font-size: 12px; color: var(--muted); flex-wrap: wrap;
+  }
+  .activos-filters strong { color: var(--text); }
+  .activos-pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--border);
+    font-size: 11px; color: var(--muted);
+  }
+  .activos-scroll { overflow-x: auto; }
+  .activos-table { width: 100%; border-collapse: collapse; min-width: 980px; }
+  .activos-table th, .activos-table td {
+    text-align: left; padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px; vertical-align: top;
+  }
+  .activos-table th {
+    background: var(--bg, #f3f4f6);
+    font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .4px;
+    font-weight: 700; white-space: nowrap;
+  }
+  .activos-table tr:last-child td { border-bottom: none; }
+  .activos-table tbody tr {
+    cursor: pointer; transition: background .12s;
+  }
+  .activos-table tbody tr:hover { background: rgba(124,58,237,.06); }
+
+  .activos-num {
+    color: var(--muted); font-variant-numeric: tabular-nums;
+    width: 48px; white-space: nowrap;
+  }
+  .activos-conj {
+    font-weight: 600; color: var(--accent, #7c3aed);
+    min-width: 200px;
+  }
+  .activos-big {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700; font-size: 15px;
+  }
+  .activos-big.muted { color: var(--muted); font-weight: 500; }
+  .activos-dash { color: #cbd5e1; font-size: 13px; }
+
+  .activos-buckets {
+    display: flex; flex-direction: column; gap: 2px;
+    font-variant-numeric: tabular-nums; min-width: 92px;
+  }
+  .activos-bucket-row {
+    display: flex; align-items: baseline; gap: 6px;
+    font-size: 12px; color: var(--muted);
+  }
+  .activos-bucket-row .n {
+    color: var(--text); font-weight: 600;
+    min-width: 22px; text-align: right;
+  }
+  .activos-bucket-row .age { font-size: 11px; }
+
+  .activos-state-ok   { color: #16a34a; font-weight: 600; font-size: 12px; }
+  .activos-state-warn { color: #d97706; font-weight: 600; font-size: 12px; }
+
+  .activos-fail-chip {
+    display: inline-block; margin-top: 4px;
+    padding: 2px 7px; border-radius: 999px;
+    background: #fee2e2; color: #b91c1c;
+    font-size: 11px; font-weight: 600;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .activos-table tbody tr:hover { background: rgba(167,139,250,.08); }
+    .activos-dash { color: #475569; }
+    .activos-fail-chip { background: #3f1416; color: #fca5a5; }
+  }
+</style>
+
+{% macro bucket_cell(buckets) -%}
+  {% if buckets %}
+    <div class="activos-buckets">
+      {% for b in buckets %}
+        <div class="activos-bucket-row">
+          <span class="n">{{ b.n }}</span>
+          <span class="age">
+            {% if b.d == 0 %}hoy
+            {% elif b.d == 1 %}hace 1 d
+            {% else %}hace {{ b.d }} d{% endif %}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <span class="activos-dash">—</span>
+  {% endif %}
+{%- endmacro %}
+
+{% macro datos_cell(ok, tot) -%}
+  {% if tot == 0 %}
+    <span class="activos-dash">—</span>
+  {% elif ok == tot %}
+    <span class="activos-state-ok">Completo · {{ ok }}</span>
+  {% elif ok == 0 %}
+    <span class="activos-dash">—</span>
+  {% else %}
+    <span class="activos-state-warn">Parcial · {{ ok }} de {{ tot }}</span>
+  {% endif %}
+{%- endmacro %}
+
+<div class="activos-wrap">
+  <h1>📊 Activos</h1>
+  <div class="activos-sub">Qué inmuebles hay en cada etapa y hace cuánto · click en el conjunto para abrir su listado</div>
+
+  <div class="activos-legend">
+    <h3>Cómo leer esta vista</h3>
+    <div class="activos-legend-grid">
+      <div class="activos-legend-row"><span class="name">Pausados</span><span class="desc">Fuera del flujo — no reciben mensajes.</span></div>
+      <div class="activos-legend-row"><span class="name">Activos</span><span class="desc">Inmuebles en el flujo (los únicos que cuentan).</span></div>
+      <div class="activos-legend-row"><span class="name">En sistema</span><span class="desc">Cuánto hace que están cargados en el panel.</span></div>
+      <div class="activos-legend-row"><span class="name">Etapas</span><span class="desc">Cuántos están en esa etapa y hace cuánto llegaron.</span></div>
+      <div class="activos-legend-row"><span class="name">— (gris)</span><span class="desc">Nadie ha llegado a esa etapa todavía.</span></div>
+      <div class="activos-legend-row"><span class="name">Pastilla roja</span><span class="desc">Hay bienvenidas que no pudieron entregarse.</span></div>
+    </div>
+  </div>
+
+  <div class="activos-card">
+    <div class="activos-filters">
+      <strong>{{ conjuntos|length }} conjuntos</strong>
+      <span class="activos-pill">{{ total_activos }} inmuebles activos</span>
+      <span class="activos-pill">{{ total_pausados }} pausados</span>
+    </div>
+
+    <div class="activos-scroll">
+      <table class="activos-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Conjunto</th>
+            <th>Pausados</th>
+            <th>Activos</th>
+            <th>En sistema</th>
+            <th>Datos</th>
+            <th>Bienvenida</th>
+            <th>Confirmación</th>
+            <th>Oferta servicio</th>
+            <th>Mandato</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in conjuntos %}
+          <tr onclick="window.location='/panel/petra/v2/inmuebles?cid={{ c.id }}&token={{ token }}'">
+            <td class="activos-num">{{ c.codigo or '—' }}</td>
+            <td class="activos-conj">{{ c.nombre }}</td>
+            <td class="activos-big muted">{{ c.pausados }}</td>
+            <td class="activos-big">{{ c.activos }}</td>
+            <td>{{ bucket_cell(c.en_sistema) }}</td>
+            <td>{{ datos_cell(c.datos_ok, c.datos_total) }}</td>
+            <td>
+              {{ bucket_cell(c.bienvenida) }}
+              {% if c.bienvenida_fallos %}
+                <div class="activos-fail-chip">{{ c.bienvenida_fallos }} fallidas</div>
+              {% endif %}
+            </td>
+            <td>{{ bucket_cell(c.confirmacion) }}</td>
+            <td>{{ bucket_cell(c.oferta) }}</td>
+            <td>{{ bucket_cell(c.mandato) }}</td>
+          </tr>
+          {% endfor %}
+          {% if not conjuntos %}
+          <tr>
+            <td colspan="10" style="text-align:center;color:var(--muted);padding:40px">
+              No hay conjuntos registrados.
+            </td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
