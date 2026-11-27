@@ -4915,6 +4915,9 @@ def _sync_status_templates_desde_meta():
       APPROVED → aprobado
       REJECTED → rechazado
       PENDING  → pendiente
+
+    Templates locales que estaban aprobado/pendiente/rechazado y YA NO
+    aparecen en Meta (user los borró) vuelven a 'draft'.
     """
     meta_list, _err = _meta_fetch_templates(force=False)
     if not meta_list:
@@ -4930,34 +4933,50 @@ def _sync_status_templates_desde_meta():
         prev = meta_by_name.get(name)
         if prev is None or _prio_status(st) > _prio_status(prev):
             meta_by_name[name] = st
-    if not meta_by_name:
-        return
     mapping = {"APPROVED": "aprobado", "REJECTED": "rechazado",
                "PENDING": "pendiente"}
     try:
         with _db._conexion_directa(timeout=10) as conn:
-            rows = _rows(conn,
-                "SELECT name, status FROM campana_templates "
-                " WHERE name = ANY(%s)",
-                (list(meta_by_name.keys()),))
+            # 1) Actualiza los que SÍ están en Meta.
             cambios = 0
-            for r in rows:
-                nm = r.get("name") or ""
-                st_local = (r.get("status") or "").lower()
-                st_meta = mapping.get(meta_by_name.get(nm, ""))
-                if st_meta and st_local != st_meta:
-                    conn.execute(
-                        "UPDATE campana_templates "
-                        "   SET status = %s, actualizado_en = NOW() "
-                        " WHERE name = %s AND status IS DISTINCT FROM %s",
-                        (st_meta, nm, st_meta),
-                    )
-                    cambios += 1
-            if cambios:
+            if meta_by_name:
+                rows = _rows(conn,
+                    "SELECT name, status FROM campana_templates "
+                    " WHERE name = ANY(%s)",
+                    (list(meta_by_name.keys()),))
+                for r in rows:
+                    nm = r.get("name") or ""
+                    st_local = (r.get("status") or "").lower()
+                    st_meta = mapping.get(meta_by_name.get(nm, ""))
+                    if st_meta and st_local != st_meta:
+                        conn.execute(
+                            "UPDATE campana_templates "
+                            "   SET status = %s, actualizado_en = NOW() "
+                            " WHERE name = %s AND status IS DISTINCT FROM %s",
+                            (st_meta, nm, st_meta),
+                        )
+                        cambios += 1
+
+            # 2) Resetea a 'draft' los que estaban con status "de Meta"
+            #    (aprobado/pendiente/rechazado) y ya no aparecen en la
+            #    lista de Meta — significa que el user los borró allá.
+            #    Guardia: solo si meta_list no está vacío (para no bajar
+            #    todo a draft por un error temporal de la API).
+            nombres_en_meta = list(meta_by_name.keys()) or [""]
+            r2 = conn.execute(
+                "UPDATE campana_templates "
+                "   SET status = 'draft', actualizado_en = NOW() "
+                " WHERE status IN ('aprobado','pendiente','rechazado') "
+                "   AND NOT (name = ANY(%s))",
+                (nombres_en_meta,),
+            )
+            huerfanos = r2.rowcount if r2 else 0
+            if cambios or huerfanos:
                 conn.commit()
                 import logging as _lg
                 _lg.getLogger(__name__).info(
-                    "[sync_meta] actualizados %d templates", cambios)
+                    "[sync_meta] actualizados=%d huerfanos→draft=%d",
+                    cambios, huerfanos)
     except Exception:
         import logging as _lg
         _lg.getLogger(__name__).exception("[sync_meta] fallo UPDATE")
