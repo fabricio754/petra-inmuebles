@@ -505,10 +505,13 @@
         <input type="checkbox" id="bulk-all"> Seleccionar todos
       </label>
       <span id="bulk-count" style="color:var(--text-sub);font-size:13px">0 seleccionados</span>
-      {# Para 'confirmar_datos' NO mostramos botón de envío: ese slot abre
-         wa.me desde teléfono personal, no API. El checkbox queda solo
-         para uniformidad visual con las otras etapas. #}
-      {% if _action[0] != 'confirmar_datos' %}
+      {# Botón de envío solo si:
+         - el slot NO es confirmar_datos (ese es wa.me manual).
+         - Y el slot tiene un teléfono asignado en Activados (si está
+           en "Ninguno", avanzar sin enviar sería mentira estadística:
+           el inmueble se marcaría como contactado sin haber salido
+           mensaje alguno). Admin puede asignar número en Activados. #}
+      {% if _action[0] != 'confirmar_datos' and slot_phone_map.get(_action[0]) %}
       <button type="button" id="bulk-send" class="btn-bulk" disabled
               data-slot="{{ _action[0] }}"
               data-label="{{ _action[1] }}">{{ _action[1] }} a seleccionados</button>

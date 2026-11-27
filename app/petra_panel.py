@@ -3664,6 +3664,19 @@ def panel_v2_inmuebles():
     except Exception:
         pass
 
+    # Teléfonos asignados a cada slot (para mostrar/ocultar el bulk
+    # "Enviar a seleccionados" según si el slot está en "Ninguno").
+    # Las keys son los nombres de pipeline (bienvenida/confirmar_datos/
+    # oferta_servicio/oferta_credito), no los de Activados — el template
+    # hace la check por `_action[0]`.
+    _slots_full = _leer_slots_full()
+    _ui_a_pipe = {v: k for k, v in _PIPELINE_TO_ACTIVADOS_SLOT.items()}
+    slot_phone_map = {}
+    for ui_slot, cfg in _slots_full.items():
+        pipe_name = _ui_a_pipe.get(ui_slot, ui_slot)
+        slot_phone_map[pipe_name] = bool(
+            (cfg.get("phone_number_id") or "").strip()
+        )
     return render_template(
         "petra_panel_v2_inmuebles.html",
         token=token, conjuntos=conjuntos, conjunto=conjunto,
@@ -3672,6 +3685,7 @@ def panel_v2_inmuebles():
         tipo_filtro=tipo_filtro, etapa_filtro=etapa_filtro,
         cont=cont, cont_v2=cont_v2,
         bienv_funnel=bienv_funnel,
+        slot_phone_map=slot_phone_map,
     )
 
 
@@ -7307,30 +7321,25 @@ def v2_inmuebles_enviar_etapa():
     tpl_name = _pipeline_tpl_get(slot)
 
     # Teléfono de envío por slot: viene del dropdown "Envío por" en la
-    # pestaña Activados. Si está en NULL ("Ninguno"), no se envía
-    # plantilla — solo se marca la columna *_at. Es el mecanismo canónico
-    # que reemplaza el hardcode viejo "confirmar_datos nunca envía": el
-    # admin lo controla desde la UI.
+    # pestaña Activados. Si está en NULL ("Ninguno") → rechazamos la
+    # operación. No marcamos timestamp para no mentir en el funnel: un
+    # inmueble que avanza de etapa sin que nada se haya enviado ni
+    # contactado manualmente es dato falso. El admin que quiera avanzar
+    # etapa a mano usa el botón "↩ Atrás" / editar directo.
     _slots_full = _leer_slots_full()
     _slot_ui = _PIPELINE_TO_ACTIVADOS_SLOT.get(slot, slot)
     _slot_cfg = _slots_full.get(_slot_ui) or {}
     phone_override = (_slot_cfg.get("phone_number_id") or "").strip() or None
     if not phone_override:
-        tpl_name = None
-
-    # Si no hay plantilla configurada/matcheada, cae a "sólo marcar la
-    # columna *_at" (comportamiento histórico de confirmar_datos).
+        return jsonify({"error": "slot_sin_telefono",
+                        "slot": slot,
+                        "nota": "El slot está configurado en 'Ninguno' en "
+                                "Templates → Activados. Asigná un número de "
+                                "envío antes de disparar plantillas."}), 400
     if not tpl_name:
-        with _db._conexion_directa(timeout=20) as conn:
-            conn.execute(
-                f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
-                f" WHERE id = ANY(%s) AND {col_at} IS NULL", (ids,))
-            conn.commit()
-            ok = [{"id": i} for i in ids]
-        return jsonify({"slot": slot, "template": None,
-                        "ok": ok, "fallos": [], "sin_telefono": [],
-                        "total": len(ids),
-                        "nota": "Sin plantilla configurada — sólo marcado local."})
+        return jsonify({"error": "slot_sin_template",
+                        "slot": slot,
+                        "nota": "El slot no tiene template asignado."}), 400
     # Idioma: busca el real de la plantilla en Kapso (match por nombre).
     # Fallback env PETRA_TPL_LANG, luego 'es'.
     lang = (os.environ.get("PETRA_TPL_LANG") or "").strip()
