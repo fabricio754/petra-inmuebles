@@ -320,6 +320,7 @@
             <th title="Inventario del edificio recibido">📋 Inventario</th>
             <th title="Material (fotos/videos) recibido">📸 Material</th>
             <th title="QR instalado y conectado">🏢 Conectado</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
@@ -341,10 +342,18 @@
               </button>
             </td>
             {% endfor %}
+            <td style="white-space:nowrap">
+              <a href="/panel/petra/v2/conjunto/{{ c.id }}/qr?token={{ token }}"
+                 class="qr-chip" style="text-decoration:none">QR</a>
+              <button type="button" class="qr-chip js-qr-edit"
+                      data-cid="{{ c.id }}"
+                      data-nombre="{{ c.nombre|e }}"
+                      data-ciudad="{{ c.ciudad|e }}">Editar</button>
+            </td>
           </tr>
           {% endfor %}
           {% if not qr_control %}
-          <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">
+          <tr><td colspan="10" style="text-align:center;color:var(--muted);padding:40px">
             No hay conjuntos registrados.
           </td></tr>
           {% endif %}
@@ -354,9 +363,60 @@
   </div>
 </div>
 
+<!-- Modal editar conjunto (QR control) -->
+<dialog id="dlg-qr-editar" style="border:1px solid var(--border);border-radius:16px;padding:0;background:var(--panel);color:var(--text);max-width:440px;width:94%">
+  <header style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin:0;font-size:15px">Editar conjunto</h3>
+    <button type="button" onclick="document.getElementById('dlg-qr-editar').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:8px;font-family:inherit;cursor:pointer">✕</button>
+  </header>
+  <form id="form-qr-ed" method="post" action="" style="padding:18px 20px">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label style="font-size:12px;color:var(--text-sub);display:block;margin-bottom:5px">Nombre</label>
+    <input type="text" name="nombre" id="qr-ed-nombre" required
+           style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg,#fff);color:var(--text);font-family:inherit;margin-bottom:12px">
+    <label style="font-size:12px;color:var(--text-sub);display:block;margin-bottom:5px">Ciudad</label>
+    <input type="text" name="ciudad" id="qr-ed-ciudad"
+           style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg,#fff);color:var(--text);font-family:inherit;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <button type="button" id="qr-btn-eliminar"
+              style="background:transparent;border:1px solid #fecaca;color:#b91c1c;padding:9px 14px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px">🗑 Eliminar</button>
+      <div style="display:flex;gap:10px">
+        <button type="button" onclick="document.getElementById('dlg-qr-editar').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
+        <button type="submit" style="background:var(--accent,#7c3aed);color:#fff;border:none;padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600">Guardar</button>
+      </div>
+    </div>
+  </form>
+  <form id="qr-form-eliminar" method="post" action="" style="display:none">
+    <input type="hidden" name="token" value="{{ token }}">
+  </form>
+</dialog>
+
 <script>
   document.addEventListener('DOMContentLoaded', function() {
     var token = new URLSearchParams(window.location.search).get('token') || '';
+
+    // Botones "Editar" del QR control
+    document.querySelectorAll('.js-qr-edit').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var cid = btn.dataset.cid;
+        var nombre = btn.dataset.nombre || '';
+        var ciudad = btn.dataset.ciudad || '';
+        var f = document.getElementById('form-qr-ed');
+        f.action = '/panel/petra/visitante/conjuntos/' + cid + '/editar';
+        document.getElementById('qr-ed-nombre').value = nombre;
+        document.getElementById('qr-ed-ciudad').value = ciudad;
+        var fel = document.getElementById('qr-form-eliminar');
+        fel.action = '/panel/petra/visitante/conjuntos/' + cid + '/eliminar';
+        var elim = document.getElementById('qr-btn-eliminar');
+        elim.onclick = function() {
+          if (confirm('¿Eliminar el conjunto "' + nombre + '"?\n\nSi tiene inmuebles asociados, no se podrá eliminar.')) {
+            fel.submit();
+          }
+        };
+        document.getElementById('dlg-qr-editar').showModal();
+      });
+    });
+
     document.querySelectorAll('.js-qr-toggle').forEach(function(btn) {
       btn.addEventListener('click', async function() {
         var cid = btn.dataset.cid;

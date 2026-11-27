@@ -8621,6 +8621,7 @@ def panel_v2_activos():
             "id": c["id"],
             "codigo": c.get("codigo") or "",
             "nombre": c.get("nombre") or "",
+            "ciudad": c.get("ciudad") or "",
             "impreso": bool(c.get("qr_impreso_at")),
             "bodega": bool(c.get("qr_bodega_at")),
             "asignado": bool(c.get("qr_asignado_at")),
