@@ -8415,6 +8415,7 @@ def panel_v2_activos():
             " ORDER BY codigo NULLS LAST, id")
         inmuebles = _rows(conn,
             "SELECT id, conjunto_id, activo, propietario_telefono, creado_en, "
+            "       m2, precio, "
             "       bienvenida_at, datos_confirmado_at, "
             "       ofrecer_petra_at, mandato_at "
             "  FROM inmuebles_visitante")
@@ -8467,6 +8468,7 @@ def panel_v2_activos():
         wa_bloqueo = 0
         wa_fallo_otro = 0
         wa_sin_probar = 0
+        datos_completos = 0
 
         bienv_fallos = 0
         bienv_sent_ts = []
@@ -8474,6 +8476,8 @@ def panel_v2_activos():
             tel_ok = bool(_normalizar_celular_co(i.get("propietario_telefono")))
             if tel_ok:
                 datos_fmt_ok += 1
+            if i.get("m2") and i.get("precio"):
+                datos_completos += 1
             bv = bv_por_iid.get(i["id"])
             st = _wa_status(bv)
             if st == "con_wa":
@@ -8511,6 +8515,7 @@ def panel_v2_activos():
             "wa_bloqueo": wa_bloqueo,
             "wa_fallo_otro": wa_fallo_otro,
             "wa_sin_probar": wa_sin_probar,
+            "datos_completos": datos_completos,
             "en_sistema": _bucketize(activos, "creado_en"),
             "bienvenida": _bucketize(bienv_sent_ts, "sent_at"),
             "bienvenida_fallos": bienv_fallos,

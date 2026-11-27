@@ -225,6 +225,7 @@
             <th>Pausados</th>
             <th>Activos</th>
             <th>En sistema</th>
+            <th>Teléfonos</th>
             <th>Datos</th>
             <th>Bienvenida</th>
             <th>Confirmación</th>
@@ -242,6 +243,17 @@
             <td>{{ bucket_cell(c.en_sistema) }}</td>
             <td>{{ datos_cell(c) }}</td>
             <td>
+              {% if c.activos == 0 %}
+                <span class="activos-dash">—</span>
+              {% elif c.datos_completos == c.activos %}
+                <span class="activos-state-ok">{{ c.datos_completos }} / {{ c.activos }}</span>
+              {% elif c.datos_completos == 0 %}
+                <span class="activos-dash">0 / {{ c.activos }}</span>
+              {% else %}
+                <span class="activos-state-warn">{{ c.datos_completos }} / {{ c.activos }}</span>
+              {% endif %}
+            </td>
+            <td>
               {{ bucket_cell(c.bienvenida) }}
               {% if c.bienvenida_fallos %}
                 <div class="activos-fail-chip">{{ c.bienvenida_fallos }} fallidas</div>
@@ -254,7 +266,7 @@
           {% endfor %}
           {% if not conjuntos %}
           <tr>
-            <td colspan="10" style="text-align:center;color:var(--muted);padding:40px">
+            <td colspan="11" style="text-align:center;color:var(--muted);padding:40px">
               No hay conjuntos registrados.
             </td>
           </tr>
