@@ -8641,6 +8641,69 @@ def panel_v2_activos():
     )
 
 
+@petra_panel_bp.post("/v2/conjuntos/qr-paso-bulk")
+def panel_v2_conjunto_qr_paso_bulk():
+    """Marca/desmarca un paso para TODOS los conjuntos a la vez.
+    body: paso=<slug>  mode=mark|unmark"""
+    _check_token()
+    from flask import jsonify
+    paso = (request.form.get("paso") or "").strip()
+    mode = (request.form.get("mode") or "mark").strip()
+    col_map = {
+        "impreso":    "qr_impreso_at",
+        "bodega":     "qr_bodega_at",
+        "asignado":   "qr_asignado_at",
+        "enviado":    "qr_enviado_at",
+        "inventario": "inventario_recibido_at",
+        "material":   "material_recibido_at",
+    }
+    col = col_map.get(paso)
+    if paso == "conectado":
+        try:
+            with _db._conexion_directa(timeout=15) as conn:
+                if mode == "mark":
+                    conn.execute(
+                        "UPDATE conjuntos_visitante "
+                        "   SET qr_instalado = TRUE, "
+                        "       qr_instalado_en = COALESCE(qr_instalado_en, NOW()) "
+                        " WHERE qr_instalado = FALSE")
+                else:
+                    conn.execute(
+                        "UPDATE conjuntos_visitante "
+                        "   SET qr_instalado = FALSE, qr_instalado_en = NULL "
+                        " WHERE qr_instalado = TRUE")
+                conn.commit()
+            return jsonify({"ok": True, "paso": paso, "mode": mode})
+        except Exception:
+            import logging as _lg
+            _lg.getLogger(__name__).exception("[qr_paso bulk] conectado fallo")
+            return jsonify({"error": "db_error"}), 500
+    if not col:
+        return jsonify({"error": "paso_invalido"}), 400
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            try:
+                conn.execute(
+                    f"ALTER TABLE conjuntos_visitante "
+                    f"  ADD COLUMN IF NOT EXISTS {col} TIMESTAMPTZ")
+            except Exception:
+                pass
+            if mode == "mark":
+                conn.execute(
+                    f"UPDATE conjuntos_visitante SET {col} = NOW() "
+                    f" WHERE {col} IS NULL")
+            else:
+                conn.execute(
+                    f"UPDATE conjuntos_visitante SET {col} = NULL "
+                    f" WHERE {col} IS NOT NULL")
+            conn.commit()
+        return jsonify({"ok": True, "paso": paso, "mode": mode})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[qr_paso bulk] %s fallo", paso)
+        return jsonify({"error": "db_error"}), 500
+
+
 @petra_panel_bp.post("/v2/conjuntos/<int:cid>/toggle-qr-paso")
 def panel_v2_conjunto_toggle_qr_paso(cid):
     """Togglea uno de los pasos del flujo QR del conjunto.

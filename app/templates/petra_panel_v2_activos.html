@@ -312,21 +312,35 @@
         <thead>
           <tr>
             <th>#</th>
-            <th>Conjunto</th>
-            <th title="QR físico impreso">🖨 Impreso</th>
-            <th title="QR en nuestra bodega">📦 Bodega</th>
-            <th title="QR asignado a un agente">👤 Asignado</th>
-            <th title="QR enviado al agente">📤 Enviado</th>
-            <th title="Inventario del edificio recibido">📋 Inventario</th>
-            <th title="Material (fotos/videos) recibido">📸 Material</th>
-            <th title="QR instalado y conectado">🏢 Conectado</th>
             <th>Acciones</th>
+            <th>Conjunto</th>
+            {% for paso, lbl in [('impreso','🖨 Impreso'), ('bodega','📦 Bodega'),
+                                  ('asignado','👤 Asignado'), ('enviado','📤 Enviado'),
+                                  ('inventario','📋 Inventario'), ('material','📸 Material'),
+                                  ('conectado','🏢 Conectado')] %}
+            <th>
+              <div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">
+                <span>{{ lbl }}</span>
+                <button type="button" class="qr-chip js-qr-bulk" data-paso="{{ paso }}"
+                        style="font-size:9px;padding:2px 6px"
+                        title="Marcar/desmarcar toda la columna">✓ Todos</button>
+              </div>
+            </th>
+            {% endfor %}
           </tr>
         </thead>
         <tbody>
           {% for c in qr_control %}
           <tr>
             <td class="activos-num">{{ c.codigo or '—' }}</td>
+            <td style="white-space:nowrap">
+              <a href="/panel/petra/v2/conjunto/{{ c.id }}/qr?token={{ token }}"
+                 class="qr-chip" style="text-decoration:none">QR</a>
+              <button type="button" class="qr-chip js-qr-edit"
+                      data-cid="{{ c.id }}"
+                      data-nombre="{{ c.nombre|e }}"
+                      data-ciudad="{{ c.ciudad|e }}">Editar</button>
+            </td>
             <td class="activos-conj">
               <a href="/panel/petra/v2/inmuebles?cid={{ c.id }}&token={{ token }}"
                  style="color:inherit;text-decoration:none">{{ c.nombre }}</a>
@@ -342,14 +356,6 @@
               </button>
             </td>
             {% endfor %}
-            <td style="white-space:nowrap">
-              <a href="/panel/petra/v2/conjunto/{{ c.id }}/qr?token={{ token }}"
-                 class="qr-chip" style="text-decoration:none">QR</a>
-              <button type="button" class="qr-chip js-qr-edit"
-                      data-cid="{{ c.id }}"
-                      data-nombre="{{ c.nombre|e }}"
-                      data-ciudad="{{ c.ciudad|e }}">Editar</button>
-            </td>
           </tr>
           {% endfor %}
           {% if not qr_control %}
@@ -440,6 +446,44 @@
             }
           } else {
             alert('No se pudo cambiar');
+          }
+        } catch (e) {
+          alert('Error de red');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Bulk por columna: mira cuántos están marcados; si todos → desmarca
+    // todos, si no → marca todos.
+    document.querySelectorAll('.js-qr-bulk').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        var paso = btn.dataset.paso;
+        var chips = document.querySelectorAll('.js-qr-toggle[data-paso="' + paso + '"]');
+        if (!chips.length) return;
+        var total = chips.length;
+        var marked = 0;
+        chips.forEach(function(c) { if (c.classList.contains('on')) marked++; });
+        var mode = (marked === total) ? 'unmark' : 'mark';
+        var label = (mode === 'mark') ? ('Marcar TODOS los ' + total + ' conjuntos') : ('Desmarcar TODOS los ' + total + ' conjuntos');
+        if (!confirm(label + ' en "' + paso + '"?')) return;
+        btn.disabled = true;
+        try {
+          var fd = new FormData();
+          fd.append('paso', paso);
+          fd.append('mode', mode);
+          var r = await fetch('/panel/petra/v2/conjuntos/qr-paso-bulk?token=' + encodeURIComponent(token), {
+            method: 'POST', body: fd,
+          });
+          var j = await r.json();
+          if (j.ok) {
+            chips.forEach(function(c) {
+              if (mode === 'mark') { c.classList.add('on'); c.textContent = '✓'; }
+              else { c.classList.remove('on'); c.textContent = '○'; }
+            });
+          } else {
+            alert('No se pudo cambiar en bulk: ' + (j.error || ''));
           }
         } catch (e) {
           alert('Error de red');
