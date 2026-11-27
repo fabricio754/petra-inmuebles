@@ -735,7 +735,7 @@
     🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
   </button>
   <button class="tab" data-tab="borradores" onclick="cambiarTab('borradores')">
-    📋 Borradores <span class="tab-count">({{ (templates|rejectattr('name', 'in', meta_approved_names)|list)|length }})</span>
+    📋 Borradores <span class="tab-count">({{ (templates|rejectattr('name', 'in', meta_approved_names)|rejectattr('status', 'equalto', 'pendiente')|list)|length }})</span>
   </button>
   <button class="tab" data-tab="waiting" onclick="cambiarTab('waiting')">
     ⏳ Esperando aprobación <span class="tab-count" id="tab-waiting-count">(…)</span>
@@ -971,7 +971,9 @@
 
 {# ─── Tab Borradores ───────────────────────────────────────── #}
 <div class="tab-pane" data-pane="borradores">
-  {% set borradores = templates|rejectattr('name', 'in', meta_approved_names)|list %}
+  {# Borradores = no aprobados en Meta Y no en pendiente de aprobación
+     (esos aparecen solo en el tab "Esperando aprobación"). #}
+  {% set borradores = templates|rejectattr('name', 'in', meta_approved_names)|rejectattr('status', 'equalto', 'pendiente')|list %}
   {% if borradores %}
   <div class="tpls-grid">
     {% for t in borradores %}
@@ -1002,7 +1004,10 @@
         <div class="tpl-card-btns">
           <button class="mini-btn"
                   onclick="editarTemplate({{ t.id }})">Editar</button>
-          {% if t.status in ('draft', 'pendiente') %}
+          {# En Borradores siempre se puede aprobar/eliminar: si cae
+             acá es porque el nombre no está en meta_approved_names.
+             Incluso un template con status local 'aprobado' viejo
+             (huérfano porque borraron el de Meta) necesita ambos. #}
           <button class="mini-btn approve"
                   id="btn-aprobar-{{ t.id }}"
                   onclick="aprobarTemplate({{ t.id }}, '{{ t.display|escape }}')">
@@ -1010,7 +1015,6 @@
           </button>
           <button class="mini-btn danger"
                   onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
-          {% endif %}
         </div>
       </div>
     </div>
