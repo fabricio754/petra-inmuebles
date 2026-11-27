@@ -7147,6 +7147,14 @@ def v2_inmuebles_enviar_etapa():
     ok, fallos, sin_tel = [], [], []
     tpl_name = _pipeline_tpl_get(slot)
 
+    # Safeguard: `confirmar_datos` NUNCA envía plantilla via API. Es un
+    # slot de contacto manual via wa.me desde el teléfono personal. El
+    # 2026-11-27 un bulk "Confirmar datos a seleccionados" disparó 16
+    # plantillas sin querer; forzar tpl_name=None evita que vuelva a
+    # pasar por cualquier otra vía (UI, API, script).
+    if slot == "confirmar_datos":
+        tpl_name = None
+
     # Si no hay plantilla configurada/matcheada, cae a "sólo marcar la
     # columna *_at" (comportamiento histórico de confirmar_datos).
     if not tpl_name:
