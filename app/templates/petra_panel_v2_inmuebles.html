@@ -667,6 +667,12 @@
                   {% if i.gestionado_por_petra %}✓{% else %}💜{% endif %} Petra
                 </button>
               </form>
+              {% if i.etapa_v2 in ('bienvenida','confirmar_datos','oferta_servicio','oferta_credito','proceso_venta','proceso_arriendo') %}
+              <button type="button" class="btn-like retroceder-etapa-btn"
+                      data-id="{{ i.id }}"
+                      data-etapa="{{ i.etapa_v2 }}"
+                      title="Volver a la etapa anterior">↩ Atrás</button>
+              {% endif %}
             </div>
           </td>
         </tr>
@@ -833,6 +839,41 @@ document.querySelectorAll('.editar-inm-btn').forEach(function (btn) {
       dlg.setAttribute('open', '');
     }
     setTimeout(function(){ document.getElementById('ei-m2').focus(); }, 50);
+  });
+});
+
+// Botón "↩ Atrás": vuelve el inmueble una etapa hacia atrás limpiando
+// el timestamp de la etapa actual.
+var _ETAPA_LBL = {
+  bienvenida: 'Bienvenida',
+  confirmar_datos: 'Confirmar datos',
+  oferta_servicio: 'Oferta de servicio',
+  oferta_credito: 'Oferta de crédito',
+  proceso_venta: 'Proceso de venta',
+  proceso_arriendo: 'Proceso de arriendo',
+};
+document.querySelectorAll('.retroceder-etapa-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var d = btn.dataset;
+    var lbl = _ETAPA_LBL[d.etapa] || d.etapa;
+    if (!confirm('¿Volver "' + lbl + '" a la etapa anterior?')) return;
+    btn.disabled = true;
+    var url = '/panel/petra/v2/inmuebles/' + d.id + '/retroceder-etapa'
+            + '?token=' + encodeURIComponent({{ token|tojson }});
+    fetch(url, { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.ok) {
+          location.reload();
+        } else {
+          alert('No se pudo retroceder: ' + ((data && data.error) || data.nota || 'desconocido'));
+          btn.disabled = false;
+        }
+      })
+      .catch(function () {
+        alert('Error de red');
+        btn.disabled = false;
+      });
   });
 });
 

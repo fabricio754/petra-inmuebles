@@ -7058,6 +7058,69 @@ def _pipeline_tpl_set(slot, name):
         conn.commit()
 
 
+@petra_panel_bp.post("/v2/inmuebles/<int:iid>/retroceder-etapa")
+def v2_inmuebles_retroceder_etapa(iid):
+    """Vuelve un inmueble una etapa hacia atrás en el pipeline.
+
+    Setea a NULL el timestamp de la etapa actual. Como _etapa_inmueble_v2
+    deriva el stage de los timestamps (primera match gana, de más
+    avanzada a menos), limpiar el último hace que el inmueble "caiga" a
+    la etapa anterior sin tocar nada más.
+
+    Mapeo etapa_actual → columna a limpiar:
+      proceso_venta / proceso_arriendo → mandato_at
+      oferta_credito → ofrecer_credito_at
+      oferta_servicio → ofrecer_petra_at
+      confirmar_datos → datos_confirmado_at
+      bienvenida → bienvenida_at
+      no_publicar → (no se usa, se maneja con activo)
+      nuevo → no-op
+    """
+    _check_token()
+    from flask import jsonify
+    _COL_POR_ETAPA = {
+        'proceso_venta':    'mandato_at',
+        'proceso_arriendo': 'mandato_at',
+        'oferta_credito':   'ofrecer_credito_at',
+        'oferta_servicio':  'ofrecer_petra_at',
+        'confirmar_datos':  'datos_confirmado_at',
+        'bienvenida':       'bienvenida_at',
+    }
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT id, activo, operacion, bienvenida_at, "
+                "       datos_confirmado_at, ofrecer_petra_at, "
+                "       ofrecer_credito_at, mandato_at "
+                "  FROM inmuebles_visitante WHERE id = %s", (iid,)
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "no_encontrado"}), 404
+            inm = {
+                "id": row[0], "activo": row[1], "operacion": row[2],
+                "bienvenida_at": row[3], "datos_confirmado_at": row[4],
+                "ofrecer_petra_at": row[5], "ofrecer_credito_at": row[6],
+                "mandato_at": row[7],
+            }
+            etapa = _etapa_inmueble_v2(inm)
+            col = _COL_POR_ETAPA.get(etapa)
+            if not col:
+                return jsonify({"ok": False, "etapa_actual": etapa,
+                                "nota": "sin etapa previa"}), 200
+            conn.execute(
+                f"UPDATE inmuebles_visitante SET {col} = NULL "
+                f" WHERE id = %s", (iid,))
+            conn.commit()
+            inm[col] = None
+            etapa_nueva = _etapa_inmueble_v2(inm)
+            return jsonify({"ok": True, "etapa_anterior": etapa,
+                            "etapa_nueva": etapa_nueva, "columna": col})
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[retroceder-etapa] fallo iid=%s", iid)
+        return jsonify({"error": "db error", "detalle": str(e)}), 500
+
+
 @petra_panel_bp.post("/v2/inmuebles/enviar-etapa")
 def v2_inmuebles_enviar_etapa():
     """Envía la plantilla correspondiente al slot indicado a los inmuebles
