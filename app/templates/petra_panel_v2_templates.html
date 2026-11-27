@@ -735,7 +735,7 @@
     🚫 Rechazados <span class="tab-count" id="tab-rejected-count">(…)</span>
   </button>
   <button class="tab" data-tab="borradores" onclick="cambiarTab('borradores')">
-    📋 Borradores <span class="tab-count">({{ (templates|rejectattr('name', 'in', meta_approved_names)|list)|length }})</span>
+    📋 Borradores <span class="tab-count">({{ (templates|rejectattr('name', 'in', meta_approved_names)|rejectattr('status', 'equalto', 'pendiente')|list)|length }})</span>
   </button>
   <button class="tab" data-tab="waiting" onclick="cambiarTab('waiting')">
     ⏳ Esperando aprobación <span class="tab-count" id="tab-waiting-count">(…)</span>
@@ -971,7 +971,9 @@
 
 {# ─── Tab Borradores ───────────────────────────────────────── #}
 <div class="tab-pane" data-pane="borradores">
-  {% set borradores = templates|rejectattr('name', 'in', meta_approved_names)|list %}
+  {# Borradores = no aprobados en Meta Y no en pendiente de aprobación
+     (esos aparecen solo en el tab "Esperando aprobación"). #}
+  {% set borradores = templates|rejectattr('name', 'in', meta_approved_names)|rejectattr('status', 'equalto', 'pendiente')|list %}
   {% if borradores %}
   <div class="tpls-grid">
     {% for t in borradores %}
