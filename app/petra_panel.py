@@ -8537,8 +8537,9 @@ def panel_v2_activos():
 
 @petra_panel_bp.get("/v2/salud-bot")
 def panel_v2_salud_bot():
-    """v2: Bot → Salud. Trae el health check de Kapso para cada
-    número conectado del proyecto."""
+    """v2: Bot → Salud. Para cada número conectado del proyecto trae
+    toda la info disponible de Kapso: detalles, health, funding (pago)
+    y uso del día."""
     _check_token()
     token = (request.args.get("token") or "").strip()
     import requests as _rq
@@ -8546,65 +8547,135 @@ def panel_v2_salud_bot():
     platform = (os.environ.get("KAPSO_PLATFORM_URL")
                 or "https://api.kapso.ai/platform/v1").rstrip("/")
 
+    def _get(path, timeout=10):
+        try:
+            r = _rq.get(f"{platform}{path}",
+                        headers={"X-API-Key": api_key}, timeout=timeout)
+            return r
+        except Exception as e:
+            class _E:
+                status_code = 0
+                text = f"{type(e).__name__}: {e}"
+                def json(self): return {}
+            return _E()
+
     numeros = []
     error = ""
     if not api_key:
         error = "Falta KAPSO_API_KEY en variables de entorno."
     else:
-        try:
-            r = _rq.get(f"{platform}/whatsapp/phone_numbers",
-                        headers={"X-API-Key": api_key}, timeout=10)
-            if r.status_code == 200:
-                for n in (r.json() or {}).get("data") or []:
-                    pid = str(n.get("phone_number_id") or n.get("id") or "")
-                    if not pid:
-                        continue
-                    item = {
-                        "id": pid,
-                        "display": n.get("display_phone_number") or "",
-                        "nombre": n.get("verified_name") or n.get("name") or "",
-                        "status": "unknown",
-                        "timestamp": None,
-                        "checks": {},
-                        "quality": "",
-                        "throughput": "",
-                        "connection": "",
-                        "can_send": "",
-                        "limited_reasons": [],
-                        "webhook_ok": None,
-                        "error": "",
-                    }
+        r = _get("/whatsapp/phone_numbers")
+        if r.status_code != 200:
+            error = f"Kapso respondió {r.status_code}"
+        else:
+            for n in (r.json() or {}).get("data") or []:
+                pid = str(n.get("phone_number_id") or n.get("id") or "")
+                if not pid:
+                    continue
+                item = {
+                    "id": pid,
+                    "display": n.get("display_phone_number") or "",
+                    "nombre": n.get("verified_name") or n.get("name") or "",
+                    # Health
+                    "status": "unknown", "timestamp": None,
+                    "quality": "", "throughput": "", "connection": "",
+                    "can_send": "", "limited_reasons": [],
+                    "webhook_ok": None, "webhook_verified": None,
+                    "error": "",
+                    # Detalles
+                    "waba_id": "", "kind": "",
+                    "name_status": "", "code_verification": "",
+                    "messaging_limit": "", "calls_enabled": None,
+                    "is_official": None, "inbound_enabled": None,
+                    "pin_enabled": None,
+                    # Funding
+                    "funding_status": "", "funding_reason": "",
+                    "funding_currency": "", "paid_paused": None,
+                    "paid_pause_reasons": [],
+                    "funding_last_check": "",
+                    # Uso últimos 30 días
+                    "usage_total_usd": None,
+                    "usage_msgs": None, "usage_calls_usd": None,
+                    "usage_err": "",
+                }
+
+                # 1. Health (ya existente)
+                hr = _get(f"/whatsapp/phone_numbers/{pid}/health", timeout=15)
+                if hr.status_code == 200:
+                    h = hr.json() or {}
+                    item["status"] = h.get("status") or "unknown"
+                    item["timestamp"] = h.get("timestamp") or ""
+                    chks = h.get("checks") or {}
+                    pna = (chks.get("phone_number_access") or {}).get("details") or {}
+                    item["quality"] = pna.get("quality_rating") or ""
+                    item["throughput"] = pna.get("throughput_tier") or ""
+                    item["connection"] = pna.get("status") or ""
+                    mh = (chks.get("messaging_health") or {})
+                    item["can_send"] = (mh.get("details") or {}).get("can_send_message") or mh.get("overall_status") or ""
+                    for ent in (mh.get("details") or {}).get("entities") or []:
+                        for info in ent.get("additional_info") or []:
+                            item["limited_reasons"].append(
+                                f"{ent.get('entity_type','?')}: {info}")
+                    wh = (chks.get("webhook_subscription") or {})
+                    item["webhook_ok"] = bool((wh.get("details") or {}).get("subscribed"))
+                    wv = (chks.get("webhook_verified") or {})
+                    item["webhook_verified"] = bool(wv.get("passed"))
+                else:
+                    item["error"] = f"health HTTP {hr.status_code}"
+
+                # 2. Detalles del número
+                dr = _get(f"/whatsapp/phone_numbers/{pid}", timeout=10)
+                if dr.status_code == 200:
+                    d = (dr.json() or {}).get("data") or {}
+                    item["waba_id"] = str(d.get("business_account_id") or "")
+                    item["kind"] = d.get("kind") or ""
+                    item["name_status"] = d.get("name_status") or ""
+                    item["code_verification"] = d.get("code_verification_status") or ""
+                    item["messaging_limit"] = str(d.get("whatsapp_business_manager_messaging_limit") or "")
+                    item["calls_enabled"] = d.get("calls_enabled")
+                    item["is_official"] = d.get("is_official_business_account")
+                    item["inbound_enabled"] = d.get("inbound_processing_enabled")
+                    item["pin_enabled"] = d.get("is_pin_enabled")
+
+                # 3. Funding (pago) — requiere waba_id
+                if item["waba_id"]:
+                    fr = _get(f"/whatsapp/accounts/{item['waba_id']}/funding",
+                              timeout=10)
+                    if fr.status_code == 200:
+                        f = (fr.json() or {}).get("data") or {}
+                        item["funding_status"] = f.get("status") or ""
+                        item["funding_reason"] = f.get("reason") or ""
+                        item["funding_currency"] = f.get("currency") or ""
+                        item["funding_last_check"] = f.get("last_checked_at") or ""
+                        pm = f.get("paid_messages") or {}
+                        item["paid_paused"] = pm.get("paused")
+                        item["paid_pause_reasons"] = pm.get("reasons") or []
+
+                    # 4. Uso últimos 30 días
                     try:
-                        hr = _rq.get(
-                            f"{platform}/whatsapp/phone_numbers/{pid}/health",
-                            headers={"X-API-Key": api_key}, timeout=15)
-                        if hr.status_code == 200:
-                            h = hr.json() or {}
-                            item["status"] = h.get("status") or "unknown"
-                            item["timestamp"] = h.get("timestamp") or ""
-                            chks = h.get("checks") or {}
-                            item["checks"] = chks
-                            pna = (chks.get("phone_number_access") or {}).get("details") or {}
-                            item["quality"] = pna.get("quality_rating") or ""
-                            item["throughput"] = pna.get("throughput_tier") or ""
-                            item["connection"] = pna.get("status") or ""
-                            mh = (chks.get("messaging_health") or {})
-                            item["can_send"] = (mh.get("details") or {}).get("can_send_message") or mh.get("overall_status") or ""
-                            for ent in (mh.get("details") or {}).get("entities") or []:
-                                for info in ent.get("additional_info") or []:
-                                    item["limited_reasons"].append(
-                                        f"{ent.get('entity_type','?')}: {info}")
-                            wh = (chks.get("webhook_subscription") or {})
-                            item["webhook_ok"] = bool((wh.get("details") or {}).get("subscribed"))
+                        end = _dt.datetime.now(tz=_dt.timezone.utc)
+                        start = end - _dt.timedelta(days=30)
+                        ur = _get(
+                            f"/whatsapp/accounts/{item['waba_id']}/usage"
+                            f"?start_time={start.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+                            f"&end_time={end.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+                            timeout=10)
+                        if ur.status_code == 200:
+                            u = (ur.json() or {}).get("data") or {}
+                            tot = (u.get("totals") or {}).get("customer_charge_micro_usd") or 0
+                            item["usage_total_usd"] = round(tot / 1_000_000.0, 2)
+                            for br in u.get("breakdown") or []:
+                                if br.get("usage_kind") == "messaging":
+                                    item["usage_msgs"] = br.get("billable_messages")
+                                elif br.get("usage_kind") == "calling":
+                                    cc = br.get("customer_charge_micro_usd") or 0
+                                    item["usage_calls_usd"] = round(cc / 1_000_000.0, 2)
                         else:
-                            item["error"] = f"HTTP {hr.status_code}"
+                            item["usage_err"] = f"HTTP {ur.status_code}"
                     except Exception as e:
-                        item["error"] = f"{type(e).__name__}: {e}"
-                    numeros.append(item)
-            else:
-                error = f"Kapso respondió {r.status_code}"
-        except Exception as e:
-            error = f"{type(e).__name__}: {e}"
+                        item["usage_err"] = f"{type(e).__name__}: {e}"
+
+                numeros.append(item)
 
     return render_template(
         "petra_panel_v2_salud_bot.html",

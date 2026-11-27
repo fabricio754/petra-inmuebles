@@ -54,6 +54,14 @@
   .sb-chip-b { color: #2563eb; }
   .sb-chip-m { color: var(--muted); }
 
+  .sb-section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+    color: var(--muted); font-weight: 700;
+    margin: 18px 0 8px;
+    padding-top: 10px; border-top: 1px dashed var(--border);
+  }
+  .sb-section-title:first-of-type { padding-top: 0; border-top: none; margin-top: 4px; }
+
   .sb-reasons {
     margin-top: 12px; padding: 10px 12px;
     border-left: 3px solid #d97706;
@@ -129,65 +137,209 @@
 
       {% if n.error %}
         <div class="sb-alert">⚠ Error consultando Kapso: {{ n.error }}</div>
-      {% else %}
-        <div class="sb-grid">
-          <div class="sb-metric">
-            <div class="k">Calidad del número</div>
-            <div class="v">
-              {% if n.quality == 'GREEN' %}<span class="sb-chip-g">🟢 Alta</span>
-              {% elif n.quality == 'YELLOW' %}<span class="sb-chip-y">🟡 Media</span>
-              {% elif n.quality == 'RED' %}<span class="sb-chip-r">🔴 Baja</span>
-              {% else %}<span class="sb-chip-m">—</span>{% endif %}
-            </div>
-          </div>
-          <div class="sb-metric">
-            <div class="k">Límite plantillas/día</div>
-            <div class="v">
-              {% if n.throughput %}{{ n.throughput | replace('TIER_', '') }}
-              {% else %}<span class="sb-chip-m">—</span>{% endif %}
-            </div>
-          </div>
-          <div class="sb-metric">
-            <div class="k">Conexión Meta</div>
-            <div class="v">
-              {% if n.connection == 'CONNECTED' %}<span class="sb-chip-g">✓ Conectado</span>
-              {% elif n.connection == 'DISCONNECTED' %}<span class="sb-chip-r">✗ Desconectado</span>
-              {% else %}<span class="sb-chip-m">{{ n.connection or '—' }}</span>{% endif %}
-            </div>
-          </div>
-          <div class="sb-metric">
-            <div class="k">Puede enviar</div>
-            <div class="v">
-              {% if n.can_send == 'AVAILABLE' %}<span class="sb-chip-g">✓ Sí</span>
-              {% elif n.can_send == 'LIMITED' %}<span class="sb-chip-y">⚠ Limitado</span>
-              {% elif n.can_send == 'BLOCKED' %}<span class="sb-chip-r">✗ Bloqueado</span>
-              {% else %}<span class="sb-chip-m">{{ n.can_send or '—' }}</span>{% endif %}
-            </div>
-          </div>
-          <div class="sb-metric">
-            <div class="k">Webhook</div>
-            <div class="v">
-              {% if n.webhook_ok %}<span class="sb-chip-g">✓ Suscrito</span>
-              {% elif n.webhook_ok == False %}<span class="sb-chip-r">✗ No suscrito</span>
-              {% else %}<span class="sb-chip-m">—</span>{% endif %}
-            </div>
+      {% endif %}
+
+      <div class="sb-section-title">Estado Meta</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Calidad del número</div>
+          <div class="v">
+            {% if n.quality == 'GREEN' %}<span class="sb-chip-g">🟢 Alta</span>
+            {% elif n.quality == 'YELLOW' %}<span class="sb-chip-y">🟡 Media</span>
+            {% elif n.quality == 'RED' %}<span class="sb-chip-r">🔴 Baja</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
           </div>
         </div>
-
-        {% if n.limited_reasons %}
-          <div class="sb-reasons">
-            <b>Razones de la limitación:</b>
-            <ul>
-              {% for r in n.limited_reasons %}<li>{{ r }}</li>{% endfor %}
-            </ul>
+        <div class="sb-metric">
+          <div class="k">Límite plantillas/día</div>
+          <div class="v">
+            {% if n.throughput %}{{ n.throughput | replace('TIER_', '') }}
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+            {% if n.messaging_limit %}
+              <div style="font-size:11px;color:var(--muted);font-weight:400">
+                tope: {{ n.messaging_limit }}
+              </div>
+            {% endif %}
           </div>
-        {% endif %}
+        </div>
+        <div class="sb-metric">
+          <div class="k">Conexión Meta</div>
+          <div class="v">
+            {% if n.connection == 'CONNECTED' %}<span class="sb-chip-g">✓ Conectado</span>
+            {% elif n.connection == 'DISCONNECTED' %}<span class="sb-chip-r">✗ Desconectado</span>
+            {% else %}<span class="sb-chip-m">{{ n.connection or '—' }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Puede enviar</div>
+          <div class="v">
+            {% if n.can_send == 'AVAILABLE' %}<span class="sb-chip-g">✓ Sí</span>
+            {% elif n.can_send == 'LIMITED' %}<span class="sb-chip-y">⚠ Limitado</span>
+            {% elif n.can_send == 'BLOCKED' %}<span class="sb-chip-r">✗ Bloqueado</span>
+            {% else %}<span class="sb-chip-m">{{ n.can_send or '—' }}</span>{% endif %}
+          </div>
+        </div>
+      </div>
 
-        <div class="sb-footer">
-          <span>Última verificación: {{ n.timestamp or 'desconocida' }}</span>
-          <span>Phone ID: <code>{{ n.id }}</code></span>
+      {% if n.limited_reasons %}
+        <div class="sb-reasons">
+          <b>Razones de la limitación:</b>
+          <ul>
+            {% for r in n.limited_reasons %}<li>{{ r }}</li>{% endfor %}
+          </ul>
         </div>
       {% endif %}
+
+      <div class="sb-section-title">Detalles del número</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Tipo</div>
+          <div class="v">
+            {% if n.kind == 'production' %}<span class="sb-chip-g">Producción</span>
+            {% elif n.kind == 'sandbox' %}<span class="sb-chip-y">Sandbox</span>
+            {% else %}<span class="sb-chip-m">{{ n.kind or '—' }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Display name</div>
+          <div class="v">
+            {% if n.name_status == 'APPROVED' %}<span class="sb-chip-g">✓ Aprobado</span>
+            {% elif n.name_status == 'PENDING' %}<span class="sb-chip-y">⏳ Pendiente</span>
+            {% elif n.name_status == 'REJECTED' %}<span class="sb-chip-r">✗ Rechazado</span>
+            {% else %}<span class="sb-chip-m">{{ n.name_status or '—' }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Verificación código</div>
+          <div class="v">
+            {% if n.code_verification == 'COMPLETED' %}<span class="sb-chip-g">✓ Completa</span>
+            {% elif n.code_verification %}<span class="sb-chip-y">{{ n.code_verification }}</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Cuenta oficial</div>
+          <div class="v">
+            {% if n.is_official %}<span class="sb-chip-g">✓ Verificada</span>
+            {% elif n.is_official == False %}<span class="sb-chip-m">No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Mensajes entrantes</div>
+          <div class="v">
+            {% if n.inbound_enabled %}<span class="sb-chip-g">✓ Activos</span>
+            {% elif n.inbound_enabled == False %}<span class="sb-chip-r">✗ Desactivados</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Llamadas</div>
+          <div class="v">
+            {% if n.calls_enabled %}<span class="sb-chip-b">✓ Habilitadas</span>
+            {% elif n.calls_enabled == False %}<span class="sb-chip-m">Desactivadas</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section-title">Pago (funding)</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Estado</div>
+          <div class="v">
+            {% if n.funding_status == 'funded' %}<span class="sb-chip-g">✓ Fondeado</span>
+            {% elif n.funding_status == 'not_funded' %}<span class="sb-chip-y">⚠ No fondeado</span>
+            {% elif n.funding_status %}<span class="sb-chip-m">{{ n.funding_status }}</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Envíos pagos pausados</div>
+          <div class="v">
+            {% if n.paid_paused %}<span class="sb-chip-r">⚠ Sí</span>
+            {% elif n.paid_paused == False %}<span class="sb-chip-g">✓ No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Moneda</div>
+          <div class="v">{{ n.funding_currency or '—' }}</div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Razón</div>
+          <div class="v" style="font-size:12px">{{ n.funding_reason or '—' }}</div>
+        </div>
+      </div>
+
+      {% if n.paid_pause_reasons %}
+        <div class="sb-reasons">
+          <b>Razones de la pausa de pagos:</b>
+          <ul>
+            {% for r in n.paid_pause_reasons %}<li>{{ r }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      <div class="sb-section-title">Uso últimos 30 días</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Gasto total</div>
+          <div class="v">
+            {% if n.usage_total_usd is not none %}
+              USD {{ "%.2f"|format(n.usage_total_usd) }}
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Mensajes facturables</div>
+          <div class="v">
+            {% if n.usage_msgs is not none %}{{ n.usage_msgs }}
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Gasto llamadas</div>
+          <div class="v">
+            {% if n.usage_calls_usd is not none %}
+              USD {{ "%.2f"|format(n.usage_calls_usd) }}
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section-title">Integración</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Webhook suscrito</div>
+          <div class="v">
+            {% if n.webhook_ok %}<span class="sb-chip-g">✓ Sí</span>
+            {% elif n.webhook_ok == False %}<span class="sb-chip-r">✗ No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Webhook verificado</div>
+          <div class="v">
+            {% if n.webhook_verified %}<span class="sb-chip-g">✓ Sí</span>
+            {% elif n.webhook_verified == False %}<span class="sb-chip-r">✗ No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">PIN habilitado</div>
+          <div class="v">
+            {% if n.pin_enabled %}<span class="sb-chip-g">✓ Sí</span>
+            {% elif n.pin_enabled == False %}<span class="sb-chip-m">No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-footer">
+        <span>Última verificación: {{ n.timestamp or 'desconocida' }}</span>
+        <span>Phone ID: <code>{{ n.id }}</code>{% if n.waba_id %} · WABA: <code>{{ n.waba_id }}</code>{% endif %}</span>
+      </div>
     </div>
   {% endfor %}
 </div>
