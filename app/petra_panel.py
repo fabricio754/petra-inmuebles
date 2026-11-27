@@ -6976,6 +6976,37 @@ def visitante_inmueble_editar(iid):
     return _inmueble_back(cid, token, "editado")
 
 
+@petra_panel_bp.post("/v2/inmuebles/eliminar-bulk")
+def panel_v2_inmuebles_eliminar_bulk():
+    """Elimina varios inmuebles por ID. Body: ids=1,2,3 o form[ids][]."""
+    _check_token()
+    from flask import jsonify
+    raw = (request.form.get("ids") or "").strip()
+    ids = []
+    if raw:
+        for p in raw.split(","):
+            p = p.strip()
+            if p.isdigit():
+                ids.append(int(p))
+    else:
+        for v in request.form.getlist("ids[]"):
+            if str(v).isdigit():
+                ids.append(int(v))
+    if not ids:
+        return jsonify({"ok": False, "error": "sin_ids"}), 400
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            cur = conn.execute(
+                "DELETE FROM inmuebles_visitante WHERE id = ANY(%s)", (ids,))
+            n = cur.rowcount if hasattr(cur, "rowcount") else len(ids)
+            conn.commit()
+        return jsonify({"ok": True, "eliminados": n})
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[inmuebles bulk eliminar] fallo")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/eliminar")
 def visitante_inmueble_eliminar(iid):
     """Elimina DEFINITIVAMENTE un inmueble (DELETE, no toggle).
