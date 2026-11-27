@@ -250,6 +250,22 @@
     display: flex; gap: 6px; justify-content: flex-end;
     margin-top: auto; padding-top: 4px;
   }
+  /* Dropdown "Teléfono de envío" en Activados */
+  .activ-phone {
+    padding: 10px 12px; background: var(--bg); border-radius: 8px;
+    margin-top: 6px;
+  }
+  .activ-phone .activ-link-label { margin-bottom: 4px; }
+  .activ-phone-select {
+    width: 100%; padding: 6px 8px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--panel);
+    color: var(--text); font-size: 13px; cursor: pointer;
+  }
+  .activ-phone-select:focus { outline: none; border-color: var(--accent); }
+  .activ-phone-fixed {
+    font-size: 12.5px; color: var(--text-sub); font-style: italic;
+    padding: 4px 0;
+  }
 
   /* Modal */
   .modal-backdrop {
@@ -788,6 +804,12 @@
           </div>
         </div>
       </div>
+      <div class="activ-phone">
+        <div class="activ-link-label">📱 Envío por</div>
+        <select class="activ-phone-select" data-slot="bienvenida">
+          <option value="">— cargando —</option>
+        </select>
+      </div>
       <div class="activ-actions">
         {% if t_bien %}
         <button class="mini-btn" onclick="verTemplate({{ t_bien.id }})">
@@ -824,6 +846,12 @@
             {% if t_conf %}{{ t_conf.display }}
             {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
           </div>
+        </div>
+      </div>
+      <div class="activ-phone">
+        <div class="activ-link-label">📱 Envío</div>
+        <div class="activ-phone-fixed">
+          Manual via wa.me — no se envía via API
         </div>
       </div>
       <div class="activ-actions">
@@ -864,6 +892,12 @@
           </div>
         </div>
       </div>
+      <div class="activ-phone">
+        <div class="activ-link-label">📱 Envío por</div>
+        <select class="activ-phone-select" data-slot="servicio">
+          <option value="">— cargando —</option>
+        </select>
+      </div>
       <div class="activ-actions">
         {% if t_serv %}
         <button class="mini-btn" onclick="verTemplate({{ t_serv.id }})">
@@ -901,6 +935,12 @@
             {% else %}<span class="activ-link-none">no asignado</span>{% endif %}
           </div>
         </div>
+      </div>
+      <div class="activ-phone">
+        <div class="activ-link-label">📱 Envío por</div>
+        <select class="activ-phone-select" data-slot="credito">
+          <option value="">— cargando —</option>
+        </select>
       </div>
       <div class="activ-actions">
         {% if t_cred %}
@@ -1642,6 +1682,54 @@
     servicio:        'Servicio',
     credito:         'Crédito'
   };
+
+  // ----- Activados · Teléfono de envío por slot ----------------------------
+  // Carga los números de Kapso + la asignación actual y pobla los selects
+  // de cada tarjeta (bienvenida, servicio, credito). Confirmar datos no
+  // tiene select: muestra un label fijo "Manual via wa.me".
+  function cargarTelefonosActivados() {
+    var selects = document.querySelectorAll('.activ-phone-select');
+    if (!selects.length) return;
+    var url = '/panel/petra/v2/activados/telefonos?token=' + encodeURIComponent(TOKEN);
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var numeros = d.numeros || [];
+        var slots = d.slots || {};
+        selects.forEach(function(sel) {
+          var slot = sel.getAttribute('data-slot');
+          var cur = slots[slot] || '';
+          sel.innerHTML = '';
+          numeros.forEach(function(n) {
+            var o = document.createElement('option');
+            o.value = n.id;
+            var lbl = n.display_phone_number || n.id;
+            if (n.nombre) lbl = n.nombre + ' (' + lbl + ')';
+            o.textContent = lbl;
+            if (n.id === cur) o.selected = true;
+            sel.appendChild(o);
+          });
+          var nada = document.createElement('option');
+          nada.value = '';
+          nada.textContent = '— Ninguno (no enviar) —';
+          if (!cur) nada.selected = true;
+          sel.appendChild(nada);
+          sel.addEventListener('change', function() {
+            var body = new FormData();
+            body.append('phone_number_id', sel.value);
+            fetch('/panel/petra/v2/activados/' + slot + '/telefono?token='
+                  + encodeURIComponent(TOKEN),
+                  { method: 'POST', body: body });
+          });
+        });
+      })
+      .catch(function(_e) {
+        selects.forEach(function(sel) {
+          sel.innerHTML = '<option value="">(error cargando números)</option>';
+        });
+      });
+  }
+  document.addEventListener('DOMContentLoaded', cargarTelefonosActivados);
 
   function cambiarActivado(slot) {
     slotEnEdicion = slot;

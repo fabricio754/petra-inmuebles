@@ -499,21 +499,23 @@
          'oferta_servicio':  ('oferta_credito',  '💳 Enviar oferta crédito',  false),
        } %}
     {% set _action = _slot_map.get(etapa_filtro) %}
-    {# No bulk para 'confirmar_datos': ese slot abre wa.me desde teléfono
-       personal, no se envía via API. Un bulk de wa.me no tiene sentido y
-       un bulk via API dispararía plantillas del bot a todos los
-       propietarios seleccionados sin que la persona que apreta "Confirmar
-       datos" lo espere (de hecho era el bug que mandó 16 templates sin
-       querer el 2026-11-27). #}
-    {% if _action and _action[0] != 'confirmar_datos' %}
+    {% if _action %}
     <div class="bulk-bar">
       <label class="bulk-check">
         <input type="checkbox" id="bulk-all"> Seleccionar todos
       </label>
       <span id="bulk-count" style="color:var(--text-sub);font-size:13px">0 seleccionados</span>
+      {# Botón de envío solo si:
+         - el slot NO es confirmar_datos (ese es wa.me manual).
+         - Y el slot tiene un teléfono asignado en Activados (si está
+           en "Ninguno", avanzar sin enviar sería mentira estadística:
+           el inmueble se marcaría como contactado sin haber salido
+           mensaje alguno). Admin puede asignar número en Activados. #}
+      {% if _action[0] != 'confirmar_datos' and slot_phone_map.get(_action[0]) %}
       <button type="button" id="bulk-send" class="btn-bulk" disabled
               data-slot="{{ _action[0] }}"
               data-label="{{ _action[1] }}">{{ _action[1] }} a seleccionados</button>
+      {% endif %}
     </div>
     {% endif %}
     {# Funnel de conversión de bienvenidas para la vista actual. #}
@@ -568,7 +570,10 @@
           <td>{{ i.m2 if i.m2 is not none else '—' }}</td>
           <td>{{ i.precio_fmt }}</td>
           <td style="font-family:ui-monospace,Menlo,monospace;font-size:12px">
-            {% if i.celular_valido %}{{ i.propietario_telefono }}
+            {% if i.celular_valido %}
+              <a href="{{ url_for('petra_panel.visitante_usuario_detalle', telefono=i.celular_e164) }}?token={{ token }}"
+                 style="color:var(--accent);text-decoration:none"
+                 title="Ver ficha de este contacto">{{ i.propietario_telefono }}</a>
             {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
             {% if i.nombre_contacto %}
@@ -996,14 +1001,18 @@ function petraDeshacer(ev, quien, formId, label) {
   var bulkAll = document.getElementById('bulk-all');
   var bulkBtn = document.getElementById('bulk-send');
   var bulkCnt = document.getElementById('bulk-count');
-  if (!bulkBtn) return;
+  // El bulkBtn puede no existir (ej. slot=confirmar_datos o slot en
+  // "Ninguno"). Igual queremos que el checkbox "Seleccionar todos"
+  // marque todas las filas y actualice el contador — es una funcionalidad
+  // visual útil, independiente del botón de envío.
+  if (!bulkAll && !bulkBtn) return;
   var checks = Array.prototype.slice.call(
     document.querySelectorAll('.row-check:not([disabled])'));
 
   function refresh(){
     var n = checks.filter(function(c){ return c.checked; }).length;
-    bulkCnt.textContent = n + ' seleccionados';
-    bulkBtn.disabled = (n === 0);
+    if (bulkCnt) bulkCnt.textContent = n + ' seleccionados';
+    if (bulkBtn) bulkBtn.disabled = (n === 0);
   }
   if (bulkAll) {
     bulkAll.addEventListener('change', function(){
@@ -1012,6 +1021,7 @@ function petraDeshacer(ev, quien, formId, label) {
     });
   }
   checks.forEach(function(c){ c.addEventListener('change', refresh); });
+  if (!bulkBtn) return;  // sin botón, no hay enviarIds que configurar
 
   function enviarIds(slot, label, ids){
     if (!ids.length) return;

@@ -3664,6 +3664,19 @@ def panel_v2_inmuebles():
     except Exception:
         pass
 
+    # Teléfonos asignados a cada slot (para mostrar/ocultar el bulk
+    # "Enviar a seleccionados" según si el slot está en "Ninguno").
+    # Las keys son los nombres de pipeline (bienvenida/confirmar_datos/
+    # oferta_servicio/oferta_credito), no los de Activados — el template
+    # hace la check por `_action[0]`.
+    _slots_full = _leer_slots_full()
+    _ui_a_pipe = {v: k for k, v in _PIPELINE_TO_ACTIVADOS_SLOT.items()}
+    slot_phone_map = {}
+    for ui_slot, cfg in _slots_full.items():
+        pipe_name = _ui_a_pipe.get(ui_slot, ui_slot)
+        slot_phone_map[pipe_name] = bool(
+            (cfg.get("phone_number_id") or "").strip()
+        )
     return render_template(
         "petra_panel_v2_inmuebles.html",
         token=token, conjuntos=conjuntos, conjunto=conjunto,
@@ -3672,6 +3685,7 @@ def panel_v2_inmuebles():
         tipo_filtro=tipo_filtro, etapa_filtro=etapa_filtro,
         cont=cont, cont_v2=cont_v2,
         bienv_funnel=bienv_funnel,
+        slot_phone_map=slot_phone_map,
     )
 
 
@@ -4814,16 +4828,50 @@ def _seed_slots_si_vacio():
     """Asegura que todos los slots default existan en template_slots.
     Es idempotente: ON CONFLICT DO NOTHING no pisa el valor que el admin
     haya elegido en Activados. Sólo agrega slots nuevos (ej. confirmar_datos)
-    que todavía no estaban en DB."""
+    que todavía no estaban en DB.
+
+    También asegura que exista la columna phone_number_id (teléfono desde
+    el cual se envía cada slot — null = no se envía via API). Default
+    `confirmar_datos`=NULL; el resto queda null también y el admin asigna
+    desde la UI (o se auto-rellena desde KAPSO_PHONE_NUMBER_ID la primera
+    vez que corre el seed y la columna recién nace).
+    """
     import logging as _lg
     try:
         with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "ALTER TABLE template_slots "
+                "  ADD COLUMN IF NOT EXISTS phone_number_id TEXT"
+            )
             for slot, name in _SLOTS_DEFAULT.items():
                 conn.execute(
                     "INSERT INTO template_slots (slot, template_name, actualizado_por) "
                     "VALUES (%s, %s, %s) ON CONFLICT (slot) DO NOTHING",
                     (slot, name, "petra"),
                 )
+            # Backfill: SOLO LA PRIMERA VEZ (controlada por una fila en
+            # `meta`) rellenamos los slots no-confirmar_datos con
+            # KAPSO_PHONE_NUMBER_ID, para preservar el comportamiento
+            # histórico (pipeline mandaba desde el bot). Después queda
+            # 100% a merced del admin desde la UI — si pone "Ninguno",
+            # no lo volvemos a pisar en el próximo request.
+            default_phone = (os.environ.get("KAPSO_PHONE_NUMBER_ID") or "").strip()
+            if default_phone:
+                flag = conn.execute(
+                    "SELECT valor FROM meta WHERE clave = 'tplslots_phone_backfilled'"
+                ).fetchone()
+                if not flag:
+                    conn.execute(
+                        "UPDATE template_slots SET phone_number_id = %s "
+                        " WHERE phone_number_id IS NULL "
+                        "   AND slot <> 'confirmar_datos'",
+                        (default_phone,),
+                    )
+                    conn.execute(
+                        "INSERT INTO meta (clave, valor) VALUES "
+                        "  ('tplslots_phone_backfilled', NOW()::text) "
+                        "ON CONFLICT (clave) DO NOTHING"
+                    )
             conn.commit()
     except Exception:
         _lg.getLogger(__name__).exception("[seed] template_slots fallo")
@@ -4840,6 +4888,27 @@ def _leer_slots():
     except Exception:
         import logging as _lg
         _lg.getLogger(__name__).exception("[slots] leer fallo")
+    return out
+
+
+def _leer_slots_full():
+    """Devuelve {slot: {template_name, phone_number_id}} para Activados.
+    Usado por el dropdown de "Teléfono de envío" y por el pipeline."""
+    out = {s: {"template_name": n, "phone_number_id": None}
+           for s, n in _SLOTS_DEFAULT.items()}
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            cur = conn.execute(
+                "SELECT slot, template_name, phone_number_id FROM template_slots"
+            )
+            for slot, name, phone_id in cur.fetchall():
+                out[slot] = {
+                    "template_name": name,
+                    "phone_number_id": (phone_id or None),
+                }
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[slots] leer_full fallo")
     return out
 
 
@@ -5025,6 +5094,91 @@ def panel_v2_activados_set(slot):
         return jsonify({"error": "db_error"}), 500
 
     return jsonify({"ok": True, "slot": slot, "template_name": tmpl_name})
+
+
+@petra_panel_bp.get("/v2/activados/telefonos")
+def panel_v2_activados_telefonos():
+    """Lista los números de WhatsApp conectados en Kapso + el número
+    actualmente asignado a cada slot de Activados.
+
+    Response:
+      {
+        "numeros": [{"id": "1386371191233822",
+                     "display_phone_number": "+57 300 127 8631",
+                     "nombre": "Petra Bot"}, ...],
+        "slots": {"bienvenida": "1386371191233822",
+                  "confirmar_datos": null,
+                  "servicio": "1386371191233822",
+                  "credito":  "1386371191233822"},
+      }
+    """
+    _check_token()
+    from flask import jsonify
+    import requests as _rq
+
+    # 1. Números disponibles en Kapso.
+    numeros = []
+    api_key = (os.environ.get("KAPSO_API_KEY") or "").strip()
+    platform = (os.environ.get("KAPSO_PLATFORM_URL")
+                or "https://api.kapso.ai/platform/v1").rstrip("/")
+    if api_key:
+        try:
+            r = _rq.get(f"{platform}/whatsapp/phone_numbers",
+                        headers={"X-API-Key": api_key}, timeout=10)
+            if r.status_code == 200:
+                for n in (r.json() or {}).get("data") or []:
+                    numeros.append({
+                        "id": str(n.get("phone_number_id") or n.get("id") or ""),
+                        "display_phone_number": n.get("display_phone_number") or "",
+                        "nombre": n.get("verified_name") or n.get("name") or "",
+                    })
+            else:
+                import logging as _lg
+                _lg.getLogger(__name__).warning(
+                    "[activados telefonos] Kapso %s %s", r.status_code, r.text[:200])
+        except Exception:
+            import logging as _lg
+            _lg.getLogger(__name__).exception("[activados telefonos] fetch fallo")
+
+    # 2. Asignaciones actuales por slot.
+    slots_full = _leer_slots_full()
+    slots_phone = {s: (cfg.get("phone_number_id") or None)
+                   for s, cfg in slots_full.items()}
+    return jsonify({"numeros": numeros, "slots": slots_phone})
+
+
+@petra_panel_bp.post("/v2/activados/<slot>/telefono")
+def panel_v2_activados_set_telefono(slot):
+    """Cambia el teléfono de envío asignado a un slot.
+
+    Body (form): phone_number_id = '' / 'ninguno' → NULL (no se envía).
+                 Un phone_id → guarda.
+    """
+    _check_token()
+    from flask import jsonify
+    slot = (slot or "").strip().lower()
+    if slot not in _SLOTS_DEFAULT:
+        return jsonify({"error": "slot_invalido"}), 400
+    raw = (request.form.get("phone_number_id") or "").strip()
+    phone_id = None if raw in ("", "ninguno", "none", "null") else raw
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            conn.execute(
+                "INSERT INTO template_slots "
+                "  (slot, template_name, phone_number_id, actualizado_por) "
+                "VALUES (%s, %s, %s, %s) "
+                "ON CONFLICT (slot) DO UPDATE SET "
+                "   phone_number_id = EXCLUDED.phone_number_id, "
+                "   actualizado_en = NOW(), "
+                "   actualizado_por = EXCLUDED.actualizado_por",
+                (slot, _SLOTS_DEFAULT[slot], phone_id, "fabricio"),
+            )
+            conn.commit()
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[activados telefono] set fallo")
+        return jsonify({"error": "db_error"}), 500
+    return jsonify({"ok": True, "slot": slot, "phone_number_id": phone_id})
 
 
 @petra_panel_bp.post("/v2/templates/crear")
@@ -7166,27 +7320,26 @@ def v2_inmuebles_enviar_etapa():
     ok, fallos, sin_tel = [], [], []
     tpl_name = _pipeline_tpl_get(slot)
 
-    # Safeguard: `confirmar_datos` NUNCA envía plantilla via API. Es un
-    # slot de contacto manual via wa.me desde el teléfono personal. El
-    # 2026-11-27 un bulk "Confirmar datos a seleccionados" disparó 16
-    # plantillas sin querer; forzar tpl_name=None evita que vuelva a
-    # pasar por cualquier otra vía (UI, API, script).
-    if slot == "confirmar_datos":
-        tpl_name = None
-
-    # Si no hay plantilla configurada/matcheada, cae a "sólo marcar la
-    # columna *_at" (comportamiento histórico de confirmar_datos).
+    # Teléfono de envío por slot: viene del dropdown "Envío por" en la
+    # pestaña Activados. Si está en NULL ("Ninguno") → rechazamos la
+    # operación. No marcamos timestamp para no mentir en el funnel: un
+    # inmueble que avanza de etapa sin que nada se haya enviado ni
+    # contactado manualmente es dato falso. El admin que quiera avanzar
+    # etapa a mano usa el botón "↩ Atrás" / editar directo.
+    _slots_full = _leer_slots_full()
+    _slot_ui = _PIPELINE_TO_ACTIVADOS_SLOT.get(slot, slot)
+    _slot_cfg = _slots_full.get(_slot_ui) or {}
+    phone_override = (_slot_cfg.get("phone_number_id") or "").strip() or None
+    if not phone_override:
+        return jsonify({"error": "slot_sin_telefono",
+                        "slot": slot,
+                        "nota": "El slot está configurado en 'Ninguno' en "
+                                "Templates → Activados. Asigná un número de "
+                                "envío antes de disparar plantillas."}), 400
     if not tpl_name:
-        with _db._conexion_directa(timeout=20) as conn:
-            conn.execute(
-                f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
-                f" WHERE id = ANY(%s) AND {col_at} IS NULL", (ids,))
-            conn.commit()
-            ok = [{"id": i} for i in ids]
-        return jsonify({"slot": slot, "template": None,
-                        "ok": ok, "fallos": [], "sin_telefono": [],
-                        "total": len(ids),
-                        "nota": "Sin plantilla configurada — sólo marcado local."})
+        return jsonify({"error": "slot_sin_template",
+                        "slot": slot,
+                        "nota": "El slot no tiene template asignado."}), 400
     # Idioma: busca el real de la plantilla en Kapso (match por nombre).
     # Fallback env PETRA_TPL_LANG, luego 'es'.
     lang = (os.environ.get("PETRA_TPL_LANG") or "").strip()
@@ -7244,8 +7397,31 @@ def v2_inmuebles_enviar_etapa():
         """Envía 1 bienvenida y actualiza DB. Devuelve (ok, result_dict)."""
         inm = inmueble_por_id.get(iid) or {}
         tel = (inm.get("propietario_telefono") or "").strip()
+        conj = inm.get("conjunto_id")
+        # Dedupe por (teléfono, conjunto): si ya le mandamos este slot a
+        # ese propietario en este conjunto (en OTRO inmueble suyo), no
+        # repetimos — solo marcamos el timestamp localmente para avanzar
+        # la etapa, sin gastar un envío ni spamear al propietario con el
+        # mismo mensaje por cada inmueble.
+        if conj and tel:
+            _dup = conn.execute(
+                f"SELECT id FROM inmuebles_visitante "
+                f" WHERE propietario_telefono = %s "
+                f"   AND conjunto_id = %s "
+                f"   AND id <> %s "
+                f"   AND {col_at} IS NOT NULL "
+                f" LIMIT 1",
+                (tel, conj, iid),
+            ).fetchone()
+            if _dup:
+                conn.execute(
+                    f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
+                    f" WHERE id = %s", (iid,))
+                return True, {"id": iid, "dedupe": True,
+                              "ya_enviado_a_inm": _dup[0]}
         comps = _build_kapso_send_components(tpl_local, inm)
-        r = _k.send_template(tel, tpl_name, language=lang, components=comps)
+        r = _k.send_template(tel, tpl_name, language=lang, components=comps,
+                             phone_number_id_override=phone_override)
         if not r.get("ok"):
             return False, {"id": iid, "status": r.get("status"),
                            "body": str(r.get("body"))[:300]}
@@ -8659,6 +8835,62 @@ def visitante_usuario_detalle(telefono):
                 "titulo": f"Pidió contacto por {n} inmuebles (Flow)",
                 "detalle": (f"{i.get('conjunto_nombre') or '—'} · "
                             f"estado: {i.get('estado') or 'enviado'}"),
+                "activo": True,
+            })
+        # Mensajes: OUT/IN con estado + revokes ("mensaje borrado").
+        _ICONO_MSG = {
+            "kapso_template":    "📩",
+            "kapso_text":        "💬",
+            "kapso_interactive": "🔘",
+            "kapso_image":       "🖼",
+            "kapso_video":       "🎬",
+            "kapso_audio":       "🎧",
+            "kapso_document":    "📎",
+            "kapso_location":    "📍",
+            "kapso_contacts":    "👤",
+            "kapso_sticker":     "🏷",
+            "kapso_reaction":    "❤",
+            "call_in":           "📞",
+        }
+        _ESTADO_LBL = {
+            "sent":      "✓ enviado",
+            "delivered": "✓✓ entregado",
+            "read":      "✓✓ leído",
+            "failed":    "✗ falló",
+        }
+        for m in (mensajes or []):
+            tipo = (m.get("tipo") or "").lower()
+            direc = (m.get("direccion") or "").upper()
+            fecha = m.get("fecha")
+            if not fecha:
+                continue
+            if tipo == "kapso_revoke":
+                timeline.append({
+                    "fecha": fecha,
+                    "icono": "🗑",
+                    "titulo": "Mensaje borrado (revoke)",
+                    "detalle": "Petra solicitó borrar un mensaje anterior "
+                               "('borrar para todos'). Solo surte efecto "
+                               "si el destinatario todavía no lo leyó.",
+                    "activo": True,
+                })
+                continue
+            icono = _ICONO_MSG.get(tipo, "💬")
+            if direc == "IN":
+                flecha = "←"
+            else:
+                flecha = "→"
+            est = _ESTADO_LBL.get(m.get("estado_entrega") or "") or ""
+            resumen = (m.get("resumen") or "").strip()
+            resumen_corto = resumen[:140] + ("…" if len(resumen) > 140 else "")
+            titulo = f"{flecha} {('Enviado' if direc == 'OUT' else 'Recibido')}"
+            if est:
+                titulo += f" · {est}"
+            timeline.append({
+                "fecha": fecha,
+                "icono": icono,
+                "titulo": titulo,
+                "detalle": resumen_corto or f"({tipo})",
                 "activo": True,
             })
         timeline.sort(key=lambda x: x["fecha"], reverse=True)
