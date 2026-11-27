@@ -8894,30 +8894,46 @@ def _op_label(op):
 # --- Textos de cada etapa ----------------------------------------------------
 
 def _texto_confirmar_datos(inm):
-    """Mensaje ① — Sebastián sondeando datos. Sin marca, sin mencionar admin.
-    Incluye conjunto + info conocida del inmueble (código, operación, lo que
-    ya tenemos cargado) para que el propietario confirme o complete.
+    """Texto precargado para el link wa.me del botón 'Confirmar datos'.
+
+    Lee el body del template asignado al slot `confirmar_datos` (editable
+    en el panel → Marketing → Activados) y sustituye las variables {{N}}
+    con los datos reales del inmueble. Así, cuando se cambia el template
+    del slot o se edita su body, el mensaje del wa.me se actualiza
+    automáticamente. El template NO necesita aprobación de Meta: solo se
+    usa su body como texto plano.
     """
-    tipo = _tipo_label(inm)
-    art = _articulo(tipo)
-    conjunto = inm.get("conjunto_nombre") or "el conjunto"
-    op = (inm.get("operacion") or "").lower()
-    op_lbl = "arriendo" if op == "arriendo" else ("venta" if op == "venta" else "")
-    codigo = inm.get("codigo") or ""
-    partes = [f"Hola, buen día 👋"]
-    partes.append(
-        f"Te escribo por {art} {tipo} que tenés en *{conjunto}*"
-        + (f" (código {codigo})" if codigo else "") + "."
-    )
-    if op_lbl:
-        partes.append(f"Lo tenemos registrado para *{op_lbl}*.")
-    partes.append(
-        "¿Me podés confirmar algunos datos para publicarlo bien?\n"
-        "• Metros cuadrados (m²)\n"
-        "• Precio" + (f" de {op_lbl}" if op_lbl else "") + "\n"
-        "• Número de habitaciones y baños"
-    )
-    return "\n\n".join(partes)
+    conjunto = inm.get("conjunto_nombre") or ""
+    # 1. Slot asignado (editable) → nombre del template actual.
+    tmpl_name = "pedir_datos_petra"  # default
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            row = conn.execute(
+                "SELECT template_name FROM template_slots "
+                "WHERE slot = 'confirmar_datos'"
+            ).fetchone()
+            if row and row[0]:
+                tmpl_name = row[0]
+    except Exception:
+        pass
+    # 2. Template body (prefiere DB editable; fallback a hardcoded).
+    tmpl = None
+    try:
+        with _db._conexion_directa(timeout=5) as conn:
+            rows = _rows(conn,
+                "SELECT body, variables FROM campana_templates "
+                "WHERE name = %s LIMIT 1",
+                (tmpl_name,))
+            if rows and rows[0].get("body"):
+                tmpl = {"body": rows[0]["body"],
+                        "variables": rows[0].get("variables") or []}
+    except Exception:
+        pass
+    if not tmpl:
+        tmpl = _tmpl_by_name(tmpl_name) or {}
+    body = tmpl.get("body") or ""
+    variables = tmpl.get("variables") or []
+    return _render_tmpl_body(body, variables, inm, conjunto)
 
 
 def _texto_bienvenida(inm):

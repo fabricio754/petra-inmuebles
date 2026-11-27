@@ -1624,21 +1624,11 @@
   }
 
   // ----- Activados · Ver template (read-only) ------------------------------
+  // modoVer=true; el modo Ver se aplica adentro de poblarForm al terminar,
+  // evitando la race condition del setTimeout(260ms) que había antes.
   function verTemplate(id) {
     modoVer = true;
     editarTemplate(id);
-    // Después de que poblarForm termine, activar modo Ver (solo preview).
-    setTimeout(function() {
-      var pf = document.getElementById('paso-form');
-      pf.classList.add('view-mode');
-      var mt = document.getElementById('modal-title');
-      mt.textContent = mt.textContent.replace(/^Editar/, 'Ver');
-      document.getElementById('btn-guardar').hidden = true;
-      // Igual deshabilitamos los inputs por si alguien quita la clase CSS.
-      pf.querySelectorAll('input, textarea, select').forEach(function(el) {
-        el.disabled = true;
-      });
-    }, 260);
   }
 
   // ----- Activados · Cambiar template (picker) -----------------------------
@@ -1819,6 +1809,20 @@
     renderLivePreview();
     document.getElementById('btn-guardar').textContent =
       (t.status === 'aprobado') ? 'Guardar (vuelve a draft)' : 'Guardar cambios';
+
+    // Modo Ver: se dispara acá (al final de poblar) en vez de con
+    // setTimeout, para evitar la race donde view-mode se aplicaba antes
+    // de que los inputs estuvieran renderizados.
+    if (modoVer) {
+      var pf = document.getElementById('paso-form');
+      pf.classList.add('view-mode');
+      var mt = document.getElementById('modal-title');
+      mt.textContent = mt.textContent.replace(/^Editar/, 'Ver');
+      document.getElementById('btn-guardar').hidden = true;
+      pf.querySelectorAll('input, textarea, select').forEach(function(el) {
+        el.disabled = true;
+      });
+    }
   }
 
   function cerrarModal() {
