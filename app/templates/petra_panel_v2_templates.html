@@ -1624,21 +1624,11 @@
   }
 
   // ----- Activados · Ver template (read-only) ------------------------------
+  // modoVer=true; el modo Ver se aplica adentro de poblarForm al terminar,
+  // evitando la race condition del setTimeout(260ms) que había antes.
   function verTemplate(id) {
     modoVer = true;
     editarTemplate(id);
-    // Después de que poblarForm termine, activar modo Ver (solo preview).
-    setTimeout(function() {
-      var pf = document.getElementById('paso-form');
-      pf.classList.add('view-mode');
-      var mt = document.getElementById('modal-title');
-      mt.textContent = mt.textContent.replace(/^Editar/, 'Ver');
-      document.getElementById('btn-guardar').hidden = true;
-      // Igual deshabilitamos los inputs por si alguien quita la clase CSS.
-      pf.querySelectorAll('input, textarea, select').forEach(function(el) {
-        el.disabled = true;
-      });
-    }, 260);
   }
 
   // ----- Activados · Cambiar template (picker) -----------------------------
@@ -1817,8 +1807,31 @@
     }
 
     renderLivePreview();
+    // `pedir_datos_petra` nunca se envía por API (solo se usa para el
+    // texto del wa.me del botón "Confirmar datos"), por eso editarlo no
+    // vuelve a draft: el guardado es directo.
+    const _localOnly = (t.name === 'pedir_datos_petra');
     document.getElementById('btn-guardar').textContent =
-      (t.status === 'aprobado') ? 'Guardar (vuelve a draft)' : 'Guardar cambios';
+      _localOnly ? 'Guardar cambios'
+      : (t.status === 'aprobado') ? 'Guardar (vuelve a draft)'
+      : 'Guardar cambios';
+
+    // Modo Ver: se dispara acá (al final de poblar) en vez de con
+    // setTimeout, para evitar la race donde view-mode se aplicaba antes
+    // de que los inputs estuvieran renderizados.
+    // Excepción: `pedir_datos_petra` es local-only (no se envía por API),
+    // así que "Ver" en su tarjeta abre directo en modo edición para que
+    // puedas cambiar el texto sin un paso extra.
+    if (modoVer && !_localOnly) {
+      var pf = document.getElementById('paso-form');
+      pf.classList.add('view-mode');
+      var mt = document.getElementById('modal-title');
+      mt.textContent = mt.textContent.replace(/^Editar/, 'Ver');
+      document.getElementById('btn-guardar').hidden = true;
+      pf.querySelectorAll('input, textarea, select').forEach(function(el) {
+        el.disabled = true;
+      });
+    }
   }
 
   function cerrarModal() {
