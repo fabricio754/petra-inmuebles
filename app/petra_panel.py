@@ -8815,6 +8815,62 @@ def visitante_usuario_detalle(telefono):
                             f"estado: {i.get('estado') or 'enviado'}"),
                 "activo": True,
             })
+        # Mensajes: OUT/IN con estado + revokes ("mensaje borrado").
+        _ICONO_MSG = {
+            "kapso_template":    "📩",
+            "kapso_text":        "💬",
+            "kapso_interactive": "🔘",
+            "kapso_image":       "🖼",
+            "kapso_video":       "🎬",
+            "kapso_audio":       "🎧",
+            "kapso_document":    "📎",
+            "kapso_location":    "📍",
+            "kapso_contacts":    "👤",
+            "kapso_sticker":     "🏷",
+            "kapso_reaction":    "❤",
+            "call_in":           "📞",
+        }
+        _ESTADO_LBL = {
+            "sent":      "✓ enviado",
+            "delivered": "✓✓ entregado",
+            "read":      "✓✓ leído",
+            "failed":    "✗ falló",
+        }
+        for m in (mensajes or []):
+            tipo = (m.get("tipo") or "").lower()
+            direc = (m.get("direccion") or "").upper()
+            fecha = m.get("fecha")
+            if not fecha:
+                continue
+            if tipo == "kapso_revoke":
+                timeline.append({
+                    "fecha": fecha,
+                    "icono": "🗑",
+                    "titulo": "Mensaje borrado (revoke)",
+                    "detalle": "Petra solicitó borrar un mensaje anterior "
+                               "('borrar para todos'). Solo surte efecto "
+                               "si el destinatario todavía no lo leyó.",
+                    "activo": True,
+                })
+                continue
+            icono = _ICONO_MSG.get(tipo, "💬")
+            if direc == "IN":
+                flecha = "←"
+            else:
+                flecha = "→"
+            est = _ESTADO_LBL.get(m.get("estado_entrega") or "") or ""
+            resumen = (m.get("resumen") or "").strip()
+            resumen_corto = resumen[:140] + ("…" if len(resumen) > 140 else "")
+            titulo = f"{flecha} {('Enviado' if direc == 'OUT' else 'Recibido')}"
+            if est:
+                titulo += f" · {est}"
+            timeline.append({
+                "fecha": fecha,
+                "icono": icono,
+                "titulo": titulo,
+                "detalle": resumen_corto or f"({tipo})",
+                "activo": True,
+            })
         timeline.sort(key=lambda x: x["fecha"], reverse=True)
 
     return render_template(

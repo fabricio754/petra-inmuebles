@@ -570,7 +570,10 @@
           <td>{{ i.m2 if i.m2 is not none else '—' }}</td>
           <td>{{ i.precio_fmt }}</td>
           <td style="font-family:ui-monospace,Menlo,monospace;font-size:12px">
-            {% if i.celular_valido %}{{ i.propietario_telefono }}
+            {% if i.celular_valido %}
+              <a href="{{ url_for('petra_panel.visitante_usuario_detalle', telefono=i.celular_e164) }}?token={{ token }}"
+                 style="color:var(--accent);text-decoration:none"
+                 title="Ver ficha de este contacto">{{ i.propietario_telefono }}</a>
             {% elif i.propietario_telefono %}<span style="color:var(--down)">⚠ {{ i.propietario_telefono }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
             {% if i.nombre_contacto %}
