@@ -3169,9 +3169,16 @@ def _fmt_precio_cop(valor):
 
 @petra_panel_bp.get("/v2")
 def panel_v2_home():
-    """Dashboard unificado v2 — KPIs agrupados en 6 secciones:
-    Agentes / Oferta / Demanda / Bot / Marketing / Salud del sistema.
-    Reusa _metricas_piloto() + _run_checks() + chart 14d mensajes."""
+    """Dashboard — redirige a /v2/activos (la vista operativa). El dashboard
+    anterior (KPIs) se conserva en /v2/metricas."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    return redirect(url_for("petra_panel.panel_v2_activos", token=token))
+
+
+@petra_panel_bp.get("/v2/metricas")
+def panel_v2_metricas_old():
+    """Dashboard viejo (KPIs 6 secciones). Mantenido por link directo."""
     _check_token()
     token = (request.args.get("token") or "").strip()
 
@@ -8412,10 +8419,29 @@ def panel_v2_activos():
             _bv_slot = _leer_slots().get("bienvenida") or ""
         except Exception:
             _bv_slot = ""
+        # Garantizar columnas de control QR en conjuntos_visitante.
+        for col in ("qr_impreso_at", "qr_bodega_at", "qr_asignado_at",
+                    "qr_enviado_at", "inventario_recibido_at",
+                    "material_recibido_at"):
+            try:
+                conn.execute(
+                    f"ALTER TABLE conjuntos_visitante "
+                    f"  ADD COLUMN IF NOT EXISTS {col} TIMESTAMPTZ")
+            except Exception:
+                pass
         conjuntos = _rows(conn,
-            "SELECT id, codigo, nombre, ciudad "
+            "SELECT id, codigo, nombre, ciudad, qr_instalado, qr_instalado_en, "
+            "       qr_impreso_at, qr_bodega_at, qr_asignado_at, "
+            "       qr_enviado_at, inventario_recibido_at, material_recibido_at "
             "  FROM conjuntos_visitante "
             " WHERE qr_instalado = TRUE "
+            " ORDER BY codigo NULLS LAST, id")
+        # También traer los NO activados para la sección QR control
+        conjuntos_todos = _rows(conn,
+            "SELECT id, codigo, nombre, ciudad, qr_instalado, qr_instalado_en, "
+            "       qr_impreso_at, qr_bodega_at, qr_asignado_at, "
+            "       qr_enviado_at, inventario_recibido_at, material_recibido_at "
+            "  FROM conjuntos_visitante "
             " ORDER BY codigo NULLS LAST, id")
         inmuebles = _rows(conn,
             "SELECT id, conjunto_id, activo, propietario_telefono, creado_en, "
@@ -8530,13 +8556,91 @@ def panel_v2_activos():
         tot_activos += n_act
         tot_pausados += len(pausados)
 
+    # Para la tabla de control QR, mapeo simple con las columnas nuevas.
+    qr_control = []
+    for c in conjuntos_todos:
+        qr_control.append({
+            "id": c["id"],
+            "codigo": c.get("codigo") or "",
+            "nombre": c.get("nombre") or "",
+            "impreso": bool(c.get("qr_impreso_at")),
+            "bodega": bool(c.get("qr_bodega_at")),
+            "asignado": bool(c.get("qr_asignado_at")),
+            "enviado": bool(c.get("qr_enviado_at")),
+            "inventario": bool(c.get("inventario_recibido_at")),
+            "material": bool(c.get("material_recibido_at")),
+            "conectado": bool(c.get("qr_instalado")),
+        })
+
     return render_template(
         "petra_panel_v2_activos.html",
         conjuntos=salida,
+        qr_control=qr_control,
         total_activos=tot_activos,
         total_pausados=tot_pausados,
         token=token,
     )
+
+
+@petra_panel_bp.post("/v2/conjuntos/<int:cid>/toggle-qr-paso")
+def panel_v2_conjunto_toggle_qr_paso(cid):
+    """Togglea uno de los pasos del flujo QR del conjunto.
+    body/query: paso=impreso|bodega|asignado|enviado|inventario|material|conectado
+    Devuelve {ok, paso, marcado}."""
+    _check_token()
+    from flask import jsonify, request as _req
+    paso = ((_req.form.get("paso") or _req.args.get("paso")) or "").strip()
+    col_map = {
+        "impreso":    "qr_impreso_at",
+        "bodega":     "qr_bodega_at",
+        "asignado":   "qr_asignado_at",
+        "enviado":    "qr_enviado_at",
+        "inventario": "inventario_recibido_at",
+        "material":   "material_recibido_at",
+    }
+    if paso == "conectado":
+        # Reutiliza el toggle existente del flag qr_instalado.
+        try:
+            with _db._conexion_directa(timeout=10) as conn:
+                row = conn.execute(
+                    "UPDATE conjuntos_visitante "
+                    "   SET qr_instalado = NOT qr_instalado, "
+                    "       qr_instalado_en = CASE WHEN NOT qr_instalado "
+                    "                               THEN NOW() ELSE NULL END "
+                    " WHERE id = %s RETURNING qr_instalado",
+                    (cid,)).fetchone()
+                conn.commit()
+            if not row:
+                return jsonify({"error": "not_found"}), 404
+            return jsonify({"ok": True, "paso": paso, "marcado": bool(row[0])})
+        except Exception:
+            import logging as _lg
+            _lg.getLogger(__name__).exception("[qr_paso] toggle conectado fallo")
+            return jsonify({"error": "db_error"}), 500
+    col = col_map.get(paso)
+    if not col:
+        return jsonify({"error": "paso_invalido"}), 400
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            try:
+                conn.execute(
+                    f"ALTER TABLE conjuntos_visitante "
+                    f"  ADD COLUMN IF NOT EXISTS {col} TIMESTAMPTZ")
+            except Exception:
+                pass
+            row = conn.execute(
+                f"UPDATE conjuntos_visitante "
+                f"   SET {col} = CASE WHEN {col} IS NULL THEN NOW() ELSE NULL END "
+                f" WHERE id = %s RETURNING {col}",
+                (cid,)).fetchone()
+            conn.commit()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+        return jsonify({"ok": True, "paso": paso, "marcado": row[0] is not None})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[qr_paso] toggle %s fallo", paso)
+        return jsonify({"error": "db_error"}), 500
 
 
 @petra_panel_bp.get("/v2/salud-bot")

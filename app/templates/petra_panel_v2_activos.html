@@ -139,6 +139,33 @@
     .activos-dash { color: #475569; }
     .activos-fail-chip { background: #3f1416; color: #fca5a5; }
   }
+
+  .qr-section-title {
+    margin: 32px 0 12px;
+    font-size: 16px; font-weight: 700;
+  }
+  .qr-section-sub {
+    color: var(--muted); font-size: 12px; margin-bottom: 14px;
+  }
+  .qr-chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 4px 8px; border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 11px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+    min-width: 32px;
+    transition: all .12s;
+  }
+  .qr-chip:hover { border-color: var(--accent, #7c3aed); }
+  .qr-chip.on {
+    background: #dcfce7; color: #166534; border-color: #86efac;
+  }
+  .qr-chip:disabled { cursor: wait; opacity: .5; }
+  @media (prefers-color-scheme: dark) {
+    .qr-chip.on { background: #052e1a; color: #4ade80; border-color: #166534; }
+  }
 </style>
 
 {% macro bucket_cell(buckets) -%}
@@ -206,7 +233,7 @@
 {%- endmacro %}
 
 <div class="activos-wrap">
-  <h1>📊 Activos</h1>
+  <h1>📊 Dashboard</h1>
   <div class="activos-sub">Qué inmuebles hay en cada etapa y hace cuánto · click en el conjunto para abrir su listado</div>
 
   <div class="activos-card">
@@ -275,5 +302,92 @@
       </table>
     </div>
   </div>
+
+  <div class="qr-section-title">🏷 Control de códigos QR</div>
+  <div class="qr-section-sub">Click en cada chip para marcar/desmarcar el paso.</div>
+
+  <div class="activos-card">
+    <div class="activos-scroll">
+      <table class="activos-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Conjunto</th>
+            <th title="QR físico impreso">🖨 Impreso</th>
+            <th title="QR en nuestra bodega">📦 Bodega</th>
+            <th title="QR asignado a un agente">👤 Asignado</th>
+            <th title="QR enviado al agente">📤 Enviado</th>
+            <th title="Inventario del edificio recibido">📋 Inventario</th>
+            <th title="Material (fotos/videos) recibido">📸 Material</th>
+            <th title="QR instalado y conectado">🏢 Conectado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in qr_control %}
+          <tr>
+            <td class="activos-num">{{ c.codigo or '—' }}</td>
+            <td class="activos-conj">
+              <a href="/panel/petra/v2/inmuebles?cid={{ c.id }}&token={{ token }}"
+                 style="color:inherit;text-decoration:none">{{ c.nombre }}</a>
+            </td>
+            {% for paso, val in [('impreso', c.impreso), ('bodega', c.bodega),
+                                  ('asignado', c.asignado), ('enviado', c.enviado),
+                                  ('inventario', c.inventario), ('material', c.material),
+                                  ('conectado', c.conectado)] %}
+            <td>
+              <button type="button" class="qr-chip {% if val %}on{% endif %} js-qr-toggle"
+                      data-cid="{{ c.id }}" data-paso="{{ paso }}">
+                {% if val %}✓{% else %}○{% endif %}
+              </button>
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+          {% if not qr_control %}
+          <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">
+            No hay conjuntos registrados.
+          </td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var token = new URLSearchParams(window.location.search).get('token') || '';
+    document.querySelectorAll('.js-qr-toggle').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        var cid = btn.dataset.cid;
+        var paso = btn.dataset.paso;
+        btn.disabled = true;
+        try {
+          var fd = new FormData();
+          fd.append('paso', paso);
+          var r = await fetch('/panel/petra/v2/conjuntos/' + cid + '/toggle-qr-paso?token=' + encodeURIComponent(token), {
+            method: 'POST',
+            body: fd,
+          });
+          var j = await r.json();
+          if (j.ok) {
+            if (j.marcado) {
+              btn.classList.add('on');
+              btn.textContent = '✓';
+            } else {
+              btn.classList.remove('on');
+              btn.textContent = '○';
+            }
+          } else {
+            alert('No se pudo cambiar');
+          }
+        } catch (e) {
+          alert('Error de red');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  });
+</script>
 {% endblock %}
