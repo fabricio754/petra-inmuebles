@@ -8583,11 +8583,14 @@ def panel_v2_salud_bot():
                     "webhook_ok": None, "webhook_verified": None,
                     "error": "",
                     # Detalles
-                    "waba_id": "", "kind": "",
+                    "waba_id": "", "portfolio_id": "", "kind": "",
                     "name_status": "", "code_verification": "",
                     "messaging_limit": "", "calls_enabled": None,
                     "is_official": None, "inbound_enabled": None,
-                    "pin_enabled": None,
+                    "pin_enabled": None, "is_coexistence": None,
+                    # Business verification
+                    "biz_verify_status": "", "biz_verify_name": "",
+                    "biz_verify_attempts_left": None,
                     # Funding
                     "funding_status": "", "funding_reason": "",
                     "funding_currency": "", "paid_paused": None,
@@ -8628,6 +8631,7 @@ def panel_v2_salud_bot():
                 if dr.status_code == 200:
                     d = (dr.json() or {}).get("data") or {}
                     item["waba_id"] = str(d.get("business_account_id") or "")
+                    item["portfolio_id"] = str(d.get("business_portfolio_id") or "")
                     item["kind"] = d.get("kind") or ""
                     item["name_status"] = d.get("name_status") or ""
                     item["code_verification"] = d.get("code_verification_status") or ""
@@ -8636,6 +8640,19 @@ def panel_v2_salud_bot():
                     item["is_official"] = d.get("is_official_business_account")
                     item["inbound_enabled"] = d.get("inbound_processing_enabled")
                     item["pin_enabled"] = d.get("is_pin_enabled")
+                    item["is_coexistence"] = d.get("is_coexistence")
+
+                # 2b. Business verification (del portfolio)
+                if item["portfolio_id"]:
+                    br = _get(
+                        f"/whatsapp/portfolios/{item['portfolio_id']}"
+                        f"/business_verification",
+                        timeout=10)
+                    if br.status_code == 200:
+                        b = (br.json() or {}).get("data") or {}
+                        item["biz_verify_status"] = b.get("status") or ""
+                        item["biz_verify_name"] = b.get("business_name") or ""
+                        item["biz_verify_attempts_left"] = b.get("attempts_left")
 
                 # 3. Funding (pago) — requiere waba_id
                 if item["waba_id"]:

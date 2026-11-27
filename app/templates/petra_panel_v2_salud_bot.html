@@ -206,6 +206,7 @@
             {% if n.name_status == 'APPROVED' %}<span class="sb-chip-g">✓ Aprobado</span>
             {% elif n.name_status == 'PENDING' %}<span class="sb-chip-y">⏳ Pendiente</span>
             {% elif n.name_status == 'REJECTED' %}<span class="sb-chip-r">✗ Rechazado</span>
+            {% elif n.name_status == 'NON_EXISTS' %}<span class="sb-chip-r">✗ No enviado</span>
             {% else %}<span class="sb-chip-m">{{ n.name_status or '—' }}</span>{% endif %}
           </div>
         </div>
@@ -238,6 +239,40 @@
           <div class="v">
             {% if n.calls_enabled %}<span class="sb-chip-b">✓ Habilitadas</span>
             {% elif n.calls_enabled == False %}<span class="sb-chip-m">Desactivadas</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Modo coexistence</div>
+          <div class="v">
+            {% if n.is_coexistence %}<span class="sb-chip-y">⚠ Sí (compartido)</span>
+            {% elif n.is_coexistence == False %}<span class="sb-chip-g">✓ No (dedicado)</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section-title">Verificación de negocio</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Business verification</div>
+          <div class="v">
+            {% if n.biz_verify_status == 'verified' %}<span class="sb-chip-g">✓ Verificado</span>
+            {% elif n.biz_verify_status == 'pending' %}<span class="sb-chip-y">⏳ Pendiente</span>
+            {% elif n.biz_verify_status == 'rejected' %}<span class="sb-chip-r">✗ Rechazado</span>
+            {% elif n.biz_verify_status %}<span class="sb-chip-m">{{ n.biz_verify_status }}</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Nombre del negocio</div>
+          <div class="v" style="font-size:13px">{{ n.biz_verify_name or '—' }}</div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Intentos restantes</div>
+          <div class="v">
+            {% if n.biz_verify_attempts_left is not none %}
+              {{ n.biz_verify_attempts_left }}
             {% else %}<span class="sb-chip-m">—</span>{% endif %}
           </div>
         </div>
