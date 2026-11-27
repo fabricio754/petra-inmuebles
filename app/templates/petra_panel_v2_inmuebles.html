@@ -998,14 +998,18 @@ function petraDeshacer(ev, quien, formId, label) {
   var bulkAll = document.getElementById('bulk-all');
   var bulkBtn = document.getElementById('bulk-send');
   var bulkCnt = document.getElementById('bulk-count');
-  if (!bulkBtn) return;
+  // El bulkBtn puede no existir (ej. slot=confirmar_datos o slot en
+  // "Ninguno"). Igual queremos que el checkbox "Seleccionar todos"
+  // marque todas las filas y actualice el contador — es una funcionalidad
+  // visual útil, independiente del botón de envío.
+  if (!bulkAll && !bulkBtn) return;
   var checks = Array.prototype.slice.call(
     document.querySelectorAll('.row-check:not([disabled])'));
 
   function refresh(){
     var n = checks.filter(function(c){ return c.checked; }).length;
-    bulkCnt.textContent = n + ' seleccionados';
-    bulkBtn.disabled = (n === 0);
+    if (bulkCnt) bulkCnt.textContent = n + ' seleccionados';
+    if (bulkBtn) bulkBtn.disabled = (n === 0);
   }
   if (bulkAll) {
     bulkAll.addEventListener('change', function(){
@@ -1014,6 +1018,7 @@ function petraDeshacer(ev, quien, formId, label) {
     });
   }
   checks.forEach(function(c){ c.addEventListener('change', refresh); });
+  if (!bulkBtn) return;  // sin botón, no hay enviarIds que configurar
 
   function enviarIds(slot, label, ids){
     if (!ids.length) return;
