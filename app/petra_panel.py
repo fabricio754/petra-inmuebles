@@ -5979,18 +5979,13 @@ def panel_v2_templates_actualizar(tid):
         with _db._conexion_directa(timeout=10) as conn:
             # Si estaba aprobado, bajarlo a draft (contenido cambió).
             row = conn.execute(
-                "SELECT status, name FROM campana_templates WHERE id = %s", (tid,),
+                "SELECT status FROM campana_templates WHERE id = %s", (tid,),
             ).fetchone()
             if not row:
                 return jsonify({"error": "no encontrado"}), 404
             # Un template aprobado por Meta, o rechazado, vuelve a 'draft'
             # al editarlo: hay que re-someterlo con el contenido nuevo.
-            # Excepción: `pedir_datos_petra` nunca se envía por API (solo se
-            # usa su body como texto precargado del wa.me del botón
-            # "Confirmar datos"). Editarlo no requiere re-aprobación de Meta.
-            _LOCAL_ONLY_TEMPLATES = {"pedir_datos_petra"}
-            is_local_only = (row[1] in _LOCAL_ONLY_TEMPLATES)
-            reset_status = (row[0] in ("aprobado", "rechazado")) and not is_local_only
+            reset_status = (row[0] in ("aprobado", "rechazado"))
 
             set_clauses = []
             params = []

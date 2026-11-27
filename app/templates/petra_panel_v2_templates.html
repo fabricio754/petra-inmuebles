@@ -1807,22 +1807,13 @@
     }
 
     renderLivePreview();
-    // `pedir_datos_petra` nunca se envía por API (solo se usa para el
-    // texto del wa.me del botón "Confirmar datos"), por eso editarlo no
-    // vuelve a draft: el guardado es directo.
-    const _localOnly = (t.name === 'pedir_datos_petra');
     document.getElementById('btn-guardar').textContent =
-      _localOnly ? 'Guardar cambios'
-      : (t.status === 'aprobado') ? 'Guardar (vuelve a draft)'
-      : 'Guardar cambios';
+      (t.status === 'aprobado') ? 'Guardar (vuelve a draft)' : 'Guardar cambios';
 
     // Modo Ver: se dispara acá (al final de poblar) en vez de con
     // setTimeout, para evitar la race donde view-mode se aplicaba antes
     // de que los inputs estuvieran renderizados.
-    // Excepción: `pedir_datos_petra` es local-only (no se envía por API),
-    // así que "Ver" en su tarjeta abre directo en modo edición para que
-    // puedas cambiar el texto sin un paso extra.
-    if (modoVer && !_localOnly) {
+    if (modoVer) {
       var pf = document.getElementById('paso-form');
       pf.classList.add('view-mode');
       var mt = document.getElementById('modal-title');
