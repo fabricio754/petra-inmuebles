@@ -3489,9 +3489,17 @@ def panel_v2_inmuebles():
                     )
                     inmuebles = _rows(conn, sql, tuple(params))
                     # Batch: estado más reciente de la bienvenida por inmueble.
+                    # Importante: filtrado por template_name del slot
+                    # "bienvenida" activo — así el funnel de "Conversión
+                    # bienvenidas" NO se contamina con otros templates
+                    # mandados al mismo inmueble (ej. pedir_datos_petra
+                    # del bulk de confirmar_datos). Cuando agreguemos un
+                    # funnel por slot (servicio/crédito), cada uno se
+                    # computará con su template_name.
+                    _bv_slot = _leer_slots().get("bienvenida") or ""
                     _iids = [i["id"] for i in inmuebles]
                     _estado_por_iid = {}
-                    if _iids:
+                    if _iids and _bv_slot:
                         try:
                             rows_bv = _rows(conn,
                                 "SELECT DISTINCT ON (inmueble_id) "
@@ -3500,8 +3508,9 @@ def panel_v2_inmuebles():
                                 "       clicked_at, failed_at, error_detalle "
                                 "  FROM petra_bienvenidas_enviadas "
                                 " WHERE inmueble_id = ANY(%s) "
+                                "   AND template_name = %s "
                                 " ORDER BY inmueble_id, enviado_en DESC",
-                                (_iids,))
+                                (_iids, _bv_slot))
                             for r in rows_bv:
                                 _estado_por_iid[r["inmueble_id"]] = r
                         except Exception:
