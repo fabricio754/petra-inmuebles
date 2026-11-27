@@ -7397,6 +7397,28 @@ def v2_inmuebles_enviar_etapa():
         """Envía 1 bienvenida y actualiza DB. Devuelve (ok, result_dict)."""
         inm = inmueble_por_id.get(iid) or {}
         tel = (inm.get("propietario_telefono") or "").strip()
+        conj = inm.get("conjunto_id")
+        # Dedupe por (teléfono, conjunto): si ya le mandamos este slot a
+        # ese propietario en este conjunto (en OTRO inmueble suyo), no
+        # repetimos — solo marcamos el timestamp localmente para avanzar
+        # la etapa, sin gastar un envío ni spamear al propietario con el
+        # mismo mensaje por cada inmueble.
+        if conj and tel:
+            _dup = conn.execute(
+                f"SELECT id FROM inmuebles_visitante "
+                f" WHERE propietario_telefono = %s "
+                f"   AND conjunto_id = %s "
+                f"   AND id <> %s "
+                f"   AND {col_at} IS NOT NULL "
+                f" LIMIT 1",
+                (tel, conj, iid),
+            ).fetchone()
+            if _dup:
+                conn.execute(
+                    f"UPDATE inmuebles_visitante SET {col_at} = NOW() "
+                    f" WHERE id = %s", (iid,))
+                return True, {"id": iid, "dedupe": True,
+                              "ya_enviado_a_inm": _dup[0]}
         comps = _build_kapso_send_components(tpl_local, inm)
         r = _k.send_template(tel, tpl_name, language=lang, components=comps,
                              phone_number_id_override=phone_override)

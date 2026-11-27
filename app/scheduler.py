@@ -1507,18 +1507,41 @@ def _petra_pipeline_inmuebles_avanzar():
             # Candidatos paso 1 — bienvenida
             if tpl_bv and phone_bv and enviados < batch_max:
                 rows = conn.execute(
-                    "SELECT id, propietario_telefono, conjunto "
+                    "SELECT id, propietario_telefono, conjunto_id "
                     "  FROM inmuebles_visitante "
                     " WHERE activo = TRUE "
                     "   AND propietario_telefono IS NOT NULL "
                     "   AND propietario_telefono <> '' "
                     "   AND bienvenida_at IS NULL "
-                    " ORDER BY creado DESC "
+                    " ORDER BY creado_en DESC "
                     " LIMIT %s", (batch_max - enviados,)
                 ).fetchall()
-                for inm_id, tel, _conj in rows:
+                for inm_id, tel, conj in rows:
                     if enviados >= batch_max:
                         break
+                    # Dedupe (tel, conjunto): si ya le mandamos bienvenida
+                    # a este propietario en este conjunto por otro inmueble,
+                    # solo marcamos el timestamp local y no re-enviamos.
+                    _dup = None
+                    if conj and tel:
+                        _dup = conn.execute(
+                            "SELECT id FROM inmuebles_visitante "
+                            " WHERE propietario_telefono = %s "
+                            "   AND conjunto_id = %s "
+                            "   AND id <> %s "
+                            "   AND bienvenida_at IS NOT NULL LIMIT 1",
+                            (tel, conj, inm_id)).fetchone()
+                    if _dup:
+                        conn.execute(
+                            "UPDATE inmuebles_visitante "
+                            "   SET bienvenida_at = NOW() WHERE id = %s",
+                            (inm_id,))
+                        conn.commit()
+                        enviados += 1
+                        log.info("[pipeline_inm] bienvenida dedup inm=%s "
+                                 "ya enviado a tel=%s en conjunto=%s (inm=%s)",
+                                 inm_id, tel, conj, _dup[0])
+                        continue
                     r = _k.send_template(tel, tpl_bv, language=lang,
                                          phone_number_id_override=phone_bv)
                     if r.get("ok"):
@@ -1536,7 +1559,7 @@ def _petra_pipeline_inmuebles_avanzar():
             # Candidatos paso 2 — oferta_servicio (datos confirmados >=Nd)
             if tpl_os and phone_os and enviados < batch_max:
                 rows = conn.execute(
-                    "SELECT id, propietario_telefono "
+                    "SELECT id, propietario_telefono, conjunto_id "
                     "  FROM inmuebles_visitante "
                     " WHERE activo = TRUE "
                     "   AND propietario_telefono IS NOT NULL "
@@ -1548,9 +1571,30 @@ def _petra_pipeline_inmuebles_avanzar():
                     " ORDER BY datos_confirmado_at ASC "
                     " LIMIT %s", (str(delay_dias), batch_max - enviados)
                 ).fetchall()
-                for inm_id, tel in rows:
+                for inm_id, tel, conj in rows:
                     if enviados >= batch_max:
                         break
+                    # Dedupe (tel, conjunto).
+                    _dup = None
+                    if conj and tel:
+                        _dup = conn.execute(
+                            "SELECT id FROM inmuebles_visitante "
+                            " WHERE propietario_telefono = %s "
+                            "   AND conjunto_id = %s "
+                            "   AND id <> %s "
+                            "   AND ofrecer_petra_at IS NOT NULL LIMIT 1",
+                            (tel, conj, inm_id)).fetchone()
+                    if _dup:
+                        conn.execute(
+                            "UPDATE inmuebles_visitante "
+                            "   SET ofrecer_petra_at = NOW() WHERE id = %s",
+                            (inm_id,))
+                        conn.commit()
+                        enviados += 1
+                        log.info("[pipeline_inm] oferta_servicio dedup inm=%s "
+                                 "ya enviado a tel=%s en conjunto=%s (inm=%s)",
+                                 inm_id, tel, conj, _dup[0])
+                        continue
                     r = _k.send_template(tel, tpl_os, language=lang,
                                          phone_number_id_override=phone_os)
                     if r.get("ok"):
@@ -1568,7 +1612,7 @@ def _petra_pipeline_inmuebles_avanzar():
             # Candidatos paso 3 — oferta_credito (ofrecer_petra >=Nd)
             if tpl_oc and phone_oc and enviados < batch_max:
                 rows = conn.execute(
-                    "SELECT id, propietario_telefono "
+                    "SELECT id, propietario_telefono, conjunto_id "
                     "  FROM inmuebles_visitante "
                     " WHERE activo = TRUE "
                     "   AND propietario_telefono IS NOT NULL "
@@ -1580,9 +1624,30 @@ def _petra_pipeline_inmuebles_avanzar():
                     " ORDER BY ofrecer_petra_at ASC "
                     " LIMIT %s", (str(delay_dias), batch_max - enviados)
                 ).fetchall()
-                for inm_id, tel in rows:
+                for inm_id, tel, conj in rows:
                     if enviados >= batch_max:
                         break
+                    # Dedupe (tel, conjunto).
+                    _dup = None
+                    if conj and tel:
+                        _dup = conn.execute(
+                            "SELECT id FROM inmuebles_visitante "
+                            " WHERE propietario_telefono = %s "
+                            "   AND conjunto_id = %s "
+                            "   AND id <> %s "
+                            "   AND ofrecer_credito_at IS NOT NULL LIMIT 1",
+                            (tel, conj, inm_id)).fetchone()
+                    if _dup:
+                        conn.execute(
+                            "UPDATE inmuebles_visitante "
+                            "   SET ofrecer_credito_at = NOW() WHERE id = %s",
+                            (inm_id,))
+                        conn.commit()
+                        enviados += 1
+                        log.info("[pipeline_inm] oferta_credito dedup inm=%s "
+                                 "ya enviado a tel=%s en conjunto=%s (inm=%s)",
+                                 inm_id, tel, conj, _dup[0])
+                        continue
                     r = _k.send_template(tel, tpl_oc, language=lang,
                                          phone_number_id_override=phone_oc)
                     if r.get("ok"):
