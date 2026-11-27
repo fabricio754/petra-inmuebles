@@ -1002,7 +1002,10 @@
         <div class="tpl-card-btns">
           <button class="mini-btn"
                   onclick="editarTemplate({{ t.id }})">Editar</button>
-          {% if t.status in ('draft', 'pendiente') %}
+          {# En Borradores siempre se puede aprobar/eliminar: si cae
+             acá es porque el nombre no está en meta_approved_names.
+             Incluso un template con status local 'aprobado' viejo
+             (huérfano porque borraron el de Meta) necesita ambos. #}
           <button class="mini-btn approve"
                   id="btn-aprobar-{{ t.id }}"
                   onclick="aprobarTemplate({{ t.id }}, '{{ t.display|escape }}')">
@@ -1010,7 +1013,6 @@
           </button>
           <button class="mini-btn danger"
                   onclick="eliminarTemplate({{ t.id }}, '{{ t.display|escape }}')">Eliminar</button>
-          {% endif %}
         </div>
       </div>
     </div>
