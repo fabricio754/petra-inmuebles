@@ -180,6 +180,9 @@
         <td>
           <span class="tag arr">Arr {{ c.arr_activos }}</span>
           <span class="tag ven">Ven {{ c.ven_activos }}</span>
+          {% if c.pausados and c.pausados|int > 0 %}
+            <span class="tag" style="background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1">⏸ {{ c.pausados }}</span>
+          {% endif %}
         </td>
         <td>
           <button type="button"

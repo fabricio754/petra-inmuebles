@@ -8053,6 +8053,7 @@ def panel_v2_conjuntos():
             "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='venta' "
             "                          THEN 1 ELSE 0 END), 0) AS ven_activos, "
             "       COALESCE(SUM(CASE WHEN i.activo THEN 1 ELSE 0 END), 0) AS act, "
+            "       COALESCE(SUM(CASE WHEN NOT i.activo THEN 1 ELSE 0 END), 0) AS pausados, "
             "       COALESCE(SUM(CASE WHEN i.activo AND i.datos_confirmado_at IS NOT NULL "
             "                          THEN 1 ELSE 0 END), 0) AS n_conf, "
             "       COALESCE(SUM(CASE WHEN i.activo AND i.bienvenida_at IS NOT NULL "
