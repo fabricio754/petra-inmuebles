@@ -4835,18 +4835,29 @@ def _seed_slots_si_vacio():
                     "VALUES (%s, %s, %s) ON CONFLICT (slot) DO NOTHING",
                     (slot, name, "petra"),
                 )
-            # Backfill: si un slot existente no-confirmar_datos tiene
-            # phone_number_id NULL y el env KAPSO_PHONE_NUMBER_ID está
-            # seteado, lo rellenamos una vez para preservar el
-            # comportamiento histórico (pipeline mandaba desde el bot).
+            # Backfill: SOLO LA PRIMERA VEZ (controlada por una fila en
+            # `meta`) rellenamos los slots no-confirmar_datos con
+            # KAPSO_PHONE_NUMBER_ID, para preservar el comportamiento
+            # histórico (pipeline mandaba desde el bot). Después queda
+            # 100% a merced del admin desde la UI — si pone "Ninguno",
+            # no lo volvemos a pisar en el próximo request.
             default_phone = (os.environ.get("KAPSO_PHONE_NUMBER_ID") or "").strip()
             if default_phone:
-                conn.execute(
-                    "UPDATE template_slots SET phone_number_id = %s "
-                    " WHERE phone_number_id IS NULL "
-                    "   AND slot <> 'confirmar_datos'",
-                    (default_phone,),
-                )
+                flag = conn.execute(
+                    "SELECT valor FROM meta WHERE clave = 'tplslots_phone_backfilled'"
+                ).fetchone()
+                if not flag:
+                    conn.execute(
+                        "UPDATE template_slots SET phone_number_id = %s "
+                        " WHERE phone_number_id IS NULL "
+                        "   AND slot <> 'confirmar_datos'",
+                        (default_phone,),
+                    )
+                    conn.execute(
+                        "INSERT INTO meta (clave, valor) VALUES "
+                        "  ('tplslots_phone_backfilled', NOW()::text) "
+                        "ON CONFLICT (clave) DO NOTHING"
+                    )
             conn.commit()
     except Exception:
         _lg.getLogger(__name__).exception("[seed] template_slots fallo")
