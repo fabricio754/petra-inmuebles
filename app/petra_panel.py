@@ -8385,17 +8385,21 @@ def panel_v2_activos():
     token = (request.args.get("token") or "").strip()
 
     def _bucketize(rows, ts_key):
-        """Agrupa rows por días desde ts_key. Retorna lista [{d, n}]
-        ordenada por días DESC (más viejos primero)."""
+        """Agrupa rows por días calendario en zona Bogotá (UTC-5) desde
+        ts_key hasta hoy. Retorna lista [{d, n}] ordenada DESC."""
         from collections import Counter
-        now = _dt.datetime.now(tz=_dt.timezone.utc)
+        bogota = _dt.timezone(_dt.timedelta(hours=-5))
+        hoy = _dt.datetime.now(tz=bogota).date()
         c = Counter()
         for r in rows:
             ts = r.get(ts_key)
             if not ts:
                 continue
             try:
-                d = (now - ts).days
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=_dt.timezone.utc)
+                fecha_bog = ts.astimezone(bogota).date()
+                d = (hoy - fecha_bog).days
                 if d < 0:
                     d = 0
             except Exception:
