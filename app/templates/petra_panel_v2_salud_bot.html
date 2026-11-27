@@ -1,0 +1,381 @@
+{% extends "base_panel_v2.html" %}
+{% set block = "salud-bot" %}
+{% block title %}Salud del bot · Petra{% endblock %}
+
+{% block content %}
+<style>
+  .sb-wrap { max-width: 980px; margin: 0 auto; }
+  .sb-wrap h1 { margin: 0 0 4px; font-size: 22px; }
+  .sb-sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .sb-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 20px; margin-bottom: 14px;
+  }
+  .sb-head {
+    display: flex; align-items: center; gap: 12px;
+    justify-content: space-between; flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .sb-title { font-size: 16px; font-weight: 700; }
+  .sb-tel { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .sb-status {
+    padding: 4px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .4px;
+  }
+  .sb-status.healthy  { background: #dcfce7; color: #166534; }
+  .sb-status.degraded { background: #fef3c7; color: #92400e; }
+  .sb-status.unhealthy{ background: #fee2e2; color: #991b1b; }
+  .sb-status.unknown  { background: #f1f5f9; color: #475569; }
+  @media (prefers-color-scheme: dark) {
+    .sb-status.healthy  { background: #052e1a; color: #4ade80; }
+    .sb-status.degraded { background: #3f2a05; color: #fcd34d; }
+    .sb-status.unhealthy{ background: #3f1416; color: #fca5a5; }
+    .sb-status.unknown  { background: #1e293b; color: #94a3b8; }
+  }
+
+  .sb-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+  }
+  .sb-metric {
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--bg, #f3f4f6);
+  }
+  .sb-metric .k {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .4px;
+    color: var(--muted); font-weight: 700;
+  }
+  .sb-metric .v { font-size: 14px; font-weight: 600; margin-top: 3px; }
+
+  .sb-chip-g { color: #16a34a; }
+  .sb-chip-y { color: #d97706; }
+  .sb-chip-r { color: #dc2626; }
+  .sb-chip-b { color: #2563eb; }
+  .sb-chip-m { color: var(--muted); }
+
+  .sb-section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+    color: var(--muted); font-weight: 700;
+    margin: 18px 0 8px;
+    padding-top: 10px; border-top: 1px dashed var(--border);
+  }
+  .sb-section-title:first-of-type { padding-top: 0; border-top: none; margin-top: 4px; }
+
+  .sb-reasons {
+    margin-top: 12px; padding: 10px 12px;
+    border-left: 3px solid #d97706;
+    background: #fef3c7; border-radius: 6px;
+    font-size: 12px; color: #92400e;
+  }
+  .sb-reasons b { display: block; margin-bottom: 4px; }
+  .sb-reasons ul { margin: 0; padding-left: 18px; }
+  @media (prefers-color-scheme: dark) {
+    .sb-reasons { background: #3f2a05; color: #fcd34d; border-left-color: #f59e0b; }
+  }
+
+  .sb-footer {
+    margin-top: 12px; font-size: 11px; color: var(--muted);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sb-error { color: #dc2626; font-size: 12px; }
+
+  .sb-refresh {
+    padding: 6px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel);
+    color: var(--text); cursor: pointer; font-size: 12px;
+    font-family: inherit;
+  }
+  .sb-refresh:hover { background: var(--bg); }
+
+  .sb-empty {
+    padding: 40px; text-align: center; color: var(--muted);
+  }
+  .sb-alert {
+    background: #fee2e2; color: #991b1b; padding: 12px 16px;
+    border-radius: 10px; margin-bottom: 16px; font-size: 13px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .sb-alert { background: #3f1416; color: #fca5a5; }
+  }
+</style>
+
+<div class="sb-wrap">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <h1>🩺 Salud del bot</h1>
+    <button type="button" class="sb-refresh" onclick="window.location.reload()">
+      🔄 Refrescar
+    </button>
+  </div>
+  <div class="sb-sub">Estado de cada número de WhatsApp conectado · datos vía Meta/Kapso (cache 3 min)</div>
+
+  {% if error %}
+    <div class="sb-alert">⚠ {{ error }}</div>
+  {% endif %}
+
+  {% if not numeros and not error %}
+    <div class="sb-card sb-empty">
+      No hay números conectados en Kapso.
+    </div>
+  {% endif %}
+
+  {% for n in numeros %}
+    {% set st = (n.status or 'unknown') | lower %}
+    <div class="sb-card">
+      <div class="sb-head">
+        <div>
+          <div class="sb-title">{{ n.nombre or 'Sin nombre verificado' }}</div>
+          <div class="sb-tel">{{ n.display or ('ID ' ~ n.id) }}</div>
+        </div>
+        <span class="sb-status {{ st }}">
+          {% if st == 'healthy' %}🟢 Saludable
+          {% elif st == 'degraded' %}🟡 Degradado
+          {% elif st == 'unhealthy' %}🔴 Caído
+          {% else %}❓ Desconocido{% endif %}
+        </span>
+      </div>
+
+      {% if n.error %}
+        <div class="sb-alert">⚠ Error consultando Kapso: {{ n.error }}</div>
+      {% endif %}
+
+      <div class="sb-section-title">Estado Meta</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Calidad del número</div>
+          <div class="v">
+            {% if n.quality == 'GREEN' %}<span class="sb-chip-g">🟢 Alta</span>
+            {% elif n.quality == 'YELLOW' %}<span class="sb-chip-y">🟡 Media</span>
+            {% elif n.quality == 'RED' %}<span class="sb-chip-r">🔴 Baja</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Límite plantillas/día</div>
+          <div class="v">
+            {% if n.throughput %}{{ n.throughput | replace('TIER_', '') }}
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+            {% if n.messaging_limit %}
+              <div style="font-size:11px;color:var(--muted);font-weight:400">
+                tope: {{ n.messaging_limit }}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Conexión Meta</div>
+          <div class="v">
+            {% if n.connection == 'CONNECTED' %}<span class="sb-chip-g">✓ Conectado</span>
+            {% elif n.connection == 'DISCONNECTED' %}<span class="sb-chip-r">✗ Desconectado</span>
+            {% else %}<span class="sb-chip-m">{{ n.connection or '—' }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Puede enviar</div>
+          <div class="v">
+            {% if n.can_send == 'AVAILABLE' %}<span class="sb-chip-g">✓ Sí</span>
+            {% elif n.can_send == 'LIMITED' %}<span class="sb-chip-y">⚠ Limitado</span>
+            {% elif n.can_send == 'BLOCKED' %}<span class="sb-chip-r">✗ Bloqueado</span>
+            {% else %}<span class="sb-chip-m">{{ n.can_send or '—' }}</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      {% if n.limited_reasons %}
+        <div class="sb-reasons">
+          <b>Razones de la limitación:</b>
+          <ul>
+            {% for r in n.limited_reasons %}<li>{{ r }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      <div class="sb-section-title">Detalles del número</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Tipo</div>
+          <div class="v">
+            {% if n.kind == 'production' %}<span class="sb-chip-g">Producción</span>
+            {% elif n.kind == 'sandbox' %}<span class="sb-chip-y">Sandbox</span>
+            {% else %}<span class="sb-chip-m">{{ n.kind or '—' }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Display name</div>
+          <div class="v">
+            {% if n.name_status == 'APPROVED' %}<span class="sb-chip-g">✓ Aprobado</span>
+            {% elif n.name_status == 'PENDING' %}<span class="sb-chip-y">⏳ Pendiente</span>
+            {% elif n.name_status == 'REJECTED' %}<span class="sb-chip-r">✗ Rechazado</span>
+            {% elif n.name_status == 'NON_EXISTS' %}<span class="sb-chip-r">✗ No enviado</span>
+            {% else %}<span class="sb-chip-m">{{ n.name_status or '—' }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Verificación código</div>
+          <div class="v">
+            {% if n.code_verification == 'COMPLETED' %}<span class="sb-chip-g">✓ Completa</span>
+            {% elif n.code_verification %}<span class="sb-chip-y">{{ n.code_verification }}</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Cuenta oficial</div>
+          <div class="v">
+            {% if n.is_official %}<span class="sb-chip-g">✓ Verificada</span>
+            {% elif n.is_official == False %}<span class="sb-chip-m">No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Mensajes entrantes</div>
+          <div class="v">
+            {% if n.inbound_enabled %}<span class="sb-chip-g">✓ Activos</span>
+            {% elif n.inbound_enabled == False %}<span class="sb-chip-r">✗ Desactivados</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Llamadas</div>
+          <div class="v">
+            {% if n.calls_enabled %}<span class="sb-chip-b">✓ Habilitadas</span>
+            {% elif n.calls_enabled == False %}<span class="sb-chip-m">Desactivadas</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Modo coexistence</div>
+          <div class="v">
+            {% if n.is_coexistence %}<span class="sb-chip-y">⚠ Sí (compartido)</span>
+            {% elif n.is_coexistence == False %}<span class="sb-chip-g">✓ No (dedicado)</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section-title">Verificación de negocio</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Business verification</div>
+          <div class="v">
+            {% if n.biz_verify_status == 'verified' %}<span class="sb-chip-g">✓ Verificado</span>
+            {% elif n.biz_verify_status == 'pending' %}<span class="sb-chip-y">⏳ Pendiente</span>
+            {% elif n.biz_verify_status == 'rejected' %}<span class="sb-chip-r">✗ Rechazado</span>
+            {% elif n.biz_verify_status %}<span class="sb-chip-m">{{ n.biz_verify_status }}</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Nombre del negocio</div>
+          <div class="v" style="font-size:13px">{{ n.biz_verify_name or '—' }}</div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Intentos restantes</div>
+          <div class="v">
+            {% if n.biz_verify_attempts_left is not none %}
+              {{ n.biz_verify_attempts_left }}
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section-title">Pago (funding)</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Estado</div>
+          <div class="v">
+            {% if n.funding_status == 'funded' %}<span class="sb-chip-g">✓ Fondeado</span>
+            {% elif n.funding_status == 'not_funded' %}<span class="sb-chip-y">⚠ No fondeado</span>
+            {% elif n.funding_status %}<span class="sb-chip-m">{{ n.funding_status }}</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Envíos pagos pausados</div>
+          <div class="v">
+            {% if n.paid_paused %}<span class="sb-chip-r">⚠ Sí</span>
+            {% elif n.paid_paused == False %}<span class="sb-chip-g">✓ No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Moneda</div>
+          <div class="v">{{ n.funding_currency or '—' }}</div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Razón</div>
+          <div class="v" style="font-size:12px">{{ n.funding_reason or '—' }}</div>
+        </div>
+      </div>
+
+      {% if n.paid_pause_reasons %}
+        <div class="sb-reasons">
+          <b>Razones de la pausa de pagos:</b>
+          <ul>
+            {% for r in n.paid_pause_reasons %}<li>{{ r }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      <div class="sb-section-title">Uso últimos 30 días</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Gasto total</div>
+          <div class="v">
+            {% if n.usage_total_usd is not none %}
+              USD {{ "%.2f"|format(n.usage_total_usd) }}
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Mensajes facturables</div>
+          <div class="v">
+            {% if n.usage_msgs is not none %}{{ n.usage_msgs }}
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Gasto llamadas</div>
+          <div class="v">
+            {% if n.usage_calls_usd is not none %}
+              USD {{ "%.2f"|format(n.usage_calls_usd) }}
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section-title">Integración</div>
+      <div class="sb-grid">
+        <div class="sb-metric">
+          <div class="k">Webhook suscrito</div>
+          <div class="v">
+            {% if n.webhook_ok %}<span class="sb-chip-g">✓ Sí</span>
+            {% elif n.webhook_ok == False %}<span class="sb-chip-r">✗ No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">Webhook verificado</div>
+          <div class="v">
+            {% if n.webhook_verified %}<span class="sb-chip-g">✓ Sí</span>
+            {% elif n.webhook_verified == False %}<span class="sb-chip-r">✗ No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="sb-metric">
+          <div class="k">PIN habilitado</div>
+          <div class="v">
+            {% if n.pin_enabled %}<span class="sb-chip-g">✓ Sí</span>
+            {% elif n.pin_enabled == False %}<span class="sb-chip-m">No</span>
+            {% else %}<span class="sb-chip-m">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-footer">
+        <span>Última verificación: {{ n.timestamp or 'desconocida' }}</span>
+        <span>Phone ID: <code>{{ n.id }}</code>{% if n.waba_id %} · WABA: <code>{{ n.waba_id }}</code>{% endif %}</span>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

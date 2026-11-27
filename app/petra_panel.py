@@ -3455,12 +3455,13 @@ def panel_v2_inmuebles():
                 " ORDER BY c.nombre")
             if cid:
                 row = conn.execute(
-                    "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
-                    "WHERE id=%s", (cid,),
+                    "SELECT id, codigo, nombre, ciudad, qr_instalado "
+                    "  FROM conjuntos_visitante WHERE id=%s", (cid,),
                 ).fetchone()
                 if row:
                     conjunto = {"id": row[0], "codigo": row[1],
-                                "nombre": row[2], "ciudad": row[3] or ""}
+                                "nombre": row[2], "ciudad": row[3] or "",
+                                "conectado": bool(row[4])}
                     where = ["conjunto_id=%s"]
                     params = [cid]
                     if op_filtro in ("arriendo", "venta"):
@@ -3489,9 +3490,17 @@ def panel_v2_inmuebles():
                     )
                     inmuebles = _rows(conn, sql, tuple(params))
                     # Batch: estado más reciente de la bienvenida por inmueble.
+                    # Importante: filtrado por template_name del slot
+                    # "bienvenida" activo — así el funnel de "Conversión
+                    # bienvenidas" NO se contamina con otros templates
+                    # mandados al mismo inmueble (ej. pedir_datos_petra
+                    # del bulk de confirmar_datos). Cuando agreguemos un
+                    # funnel por slot (servicio/crédito), cada uno se
+                    # computará con su template_name.
+                    _bv_slot = _leer_slots().get("bienvenida") or ""
                     _iids = [i["id"] for i in inmuebles]
                     _estado_por_iid = {}
-                    if _iids:
+                    if _iids and _bv_slot:
                         try:
                             rows_bv = _rows(conn,
                                 "SELECT DISTINCT ON (inmueble_id) "
@@ -3500,8 +3509,9 @@ def panel_v2_inmuebles():
                                 "       clicked_at, failed_at, error_detalle "
                                 "  FROM petra_bienvenidas_enviadas "
                                 " WHERE inmueble_id = ANY(%s) "
+                                "   AND template_name = %s "
                                 " ORDER BY inmueble_id, enviado_en DESC",
-                                (_iids,))
+                                (_iids, _bv_slot))
                             for r in rows_bv:
                                 _estado_por_iid[r["inmueble_id"]] = r
                         except Exception:
@@ -8364,6 +8374,329 @@ def panel_v2_observabilidad():
         total_prod=sum(r.get("total", 0) for r in prod if "etapa" in r),
         total_staging=sum(r.get("total", 0) for r in staging if "etapa" in r),
         err_prod=err_prod, err_staging=err_staging,
+    )
+
+
+@petra_panel_bp.get("/v2/activos")
+def panel_v2_activos():
+    """v2: Oferta → Activos. Vista operativa por conjunto con cohortes
+    temporales (cuántos inmuebles llevan N días en cada etapa)."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+
+    def _bucketize(rows, ts_key):
+        """Agrupa rows por días desde ts_key. Retorna lista [{d, n}]
+        ordenada por días DESC (más viejos primero)."""
+        from collections import Counter
+        now = _dt.datetime.now(tz=_dt.timezone.utc)
+        c = Counter()
+        for r in rows:
+            ts = r.get(ts_key)
+            if not ts:
+                continue
+            try:
+                d = (now - ts).days
+                if d < 0:
+                    d = 0
+            except Exception:
+                continue
+            c[d] += 1
+        return [{"d": d, "n": n} for d, n in sorted(c.items(), reverse=True)]
+
+    with _db._conexion_directa(timeout=12) as conn:
+        try:
+            _bv_slot = _leer_slots().get("bienvenida") or ""
+        except Exception:
+            _bv_slot = ""
+        conjuntos = _rows(conn,
+            "SELECT id, codigo, nombre, ciudad "
+            "  FROM conjuntos_visitante "
+            " WHERE qr_instalado = TRUE "
+            " ORDER BY codigo NULLS LAST, id")
+        inmuebles = _rows(conn,
+            "SELECT id, conjunto_id, activo, propietario_telefono, creado_en, "
+            "       m2, precio, "
+            "       bienvenida_at, datos_confirmado_at, "
+            "       ofrecer_petra_at, mandato_at "
+            "  FROM inmuebles_visitante")
+        bv_rows = []
+        if _bv_slot:
+            try:
+                bv_rows = _rows(conn,
+                    "SELECT DISTINCT ON (inmueble_id) "
+                    "       inmueble_id, estado, sent_at, failed_at, "
+                    "       error_detalle "
+                    "  FROM petra_bienvenidas_enviadas "
+                    " WHERE template_name = %s "
+                    " ORDER BY inmueble_id, enviado_en DESC",
+                    (_bv_slot,))
+            except Exception:
+                bv_rows = []
+        bv_por_iid = {r["inmueble_id"]: r for r in bv_rows}
+
+    def _wa_status(bv):
+        """Devuelve 'con_wa' | 'sin_wa' | 'bloqueo_mkt' | 'fallo_otro'
+        | None (si no hay historial). Se basa en estado + error_detalle."""
+        if not bv:
+            return None
+        estado = (bv.get("estado") or "").lower()
+        if estado in ("delivered", "read", "clickeado", "clicked"):
+            return "con_wa"
+        if estado == "fallido":
+            err = (bv.get("error_detalle") or "")
+            if "131026" in err:
+                return "sin_wa"
+            if "131049" in err:
+                return "bloqueo_mkt"
+            return "fallo_otro"
+        return None
+
+    tot_activos = 0
+    tot_pausados = 0
+    salida = []
+    for c in conjuntos:
+        cid = c["id"]
+        inms = [i for i in inmuebles if i.get("conjunto_id") == cid]
+        activos = [i for i in inms if i.get("activo")]
+        pausados = [i for i in inms if not i.get("activo")]
+        if not activos and not pausados:
+            continue
+
+        datos_fmt_ok = 0
+        wa_con = 0
+        wa_sin = 0
+        wa_bloqueo = 0
+        wa_fallo_otro = 0
+        wa_sin_probar = 0
+        datos_completos = 0
+
+        bienv_fallos = 0
+        bienv_sent_ts = []
+        for i in activos:
+            tel_ok = bool(_normalizar_celular_co(i.get("propietario_telefono")))
+            if tel_ok:
+                datos_fmt_ok += 1
+            if i.get("m2") and i.get("precio"):
+                datos_completos += 1
+            bv = bv_por_iid.get(i["id"])
+            st = _wa_status(bv)
+            if st == "con_wa":
+                wa_con += 1
+            elif st == "sin_wa":
+                wa_sin += 1
+            elif st == "bloqueo_mkt":
+                wa_bloqueo += 1
+            elif st == "fallo_otro":
+                wa_fallo_otro += 1
+            elif tel_ok:
+                wa_sin_probar += 1
+
+            if bv:
+                if (bv.get("estado") or "") == "fallido":
+                    bienv_fallos += 1
+                elif bv.get("sent_at"):
+                    bienv_sent_ts.append({"sent_at": bv["sent_at"]})
+                elif i.get("bienvenida_at"):
+                    bienv_sent_ts.append({"sent_at": i["bienvenida_at"]})
+            elif i.get("bienvenida_at"):
+                bienv_sent_ts.append({"sent_at": i["bienvenida_at"]})
+
+        n_act = len(activos)
+        salida.append({
+            "id": cid,
+            "codigo": c.get("codigo") or "",
+            "nombre": c.get("nombre") or "",
+            "activos": n_act,
+            "pausados": len(pausados),
+            "datos_fmt_ok": datos_fmt_ok,
+            "datos_total": n_act,
+            "wa_con": wa_con,
+            "wa_sin": wa_sin,
+            "wa_bloqueo": wa_bloqueo,
+            "wa_fallo_otro": wa_fallo_otro,
+            "wa_sin_probar": wa_sin_probar,
+            "datos_completos": datos_completos,
+            "en_sistema": _bucketize(activos, "creado_en"),
+            "bienvenida": _bucketize(bienv_sent_ts, "sent_at"),
+            "bienvenida_fallos": bienv_fallos,
+            "confirmacion": _bucketize(activos, "datos_confirmado_at"),
+            "oferta": _bucketize(activos, "ofrecer_petra_at"),
+            "mandato": _bucketize(activos, "mandato_at"),
+        })
+        tot_activos += n_act
+        tot_pausados += len(pausados)
+
+    return render_template(
+        "petra_panel_v2_activos.html",
+        conjuntos=salida,
+        total_activos=tot_activos,
+        total_pausados=tot_pausados,
+        token=token,
+    )
+
+
+@petra_panel_bp.get("/v2/salud-bot")
+def panel_v2_salud_bot():
+    """v2: Bot → Salud. Para cada número conectado del proyecto trae
+    toda la info disponible de Kapso: detalles, health, funding (pago)
+    y uso del día."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    import requests as _rq
+    api_key = (os.environ.get("KAPSO_API_KEY") or "").strip()
+    platform = (os.environ.get("KAPSO_PLATFORM_URL")
+                or "https://api.kapso.ai/platform/v1").rstrip("/")
+
+    def _get(path, timeout=10):
+        try:
+            r = _rq.get(f"{platform}{path}",
+                        headers={"X-API-Key": api_key}, timeout=timeout)
+            return r
+        except Exception as e:
+            class _E:
+                status_code = 0
+                text = f"{type(e).__name__}: {e}"
+                def json(self): return {}
+            return _E()
+
+    numeros = []
+    error = ""
+    if not api_key:
+        error = "Falta KAPSO_API_KEY en variables de entorno."
+    else:
+        r = _get("/whatsapp/phone_numbers")
+        if r.status_code != 200:
+            error = f"Kapso respondió {r.status_code}"
+        else:
+            for n in (r.json() or {}).get("data") or []:
+                pid = str(n.get("phone_number_id") or n.get("id") or "")
+                if not pid:
+                    continue
+                item = {
+                    "id": pid,
+                    "display": n.get("display_phone_number") or "",
+                    "nombre": n.get("verified_name") or n.get("name") or "",
+                    # Health
+                    "status": "unknown", "timestamp": None,
+                    "quality": "", "throughput": "", "connection": "",
+                    "can_send": "", "limited_reasons": [],
+                    "webhook_ok": None, "webhook_verified": None,
+                    "error": "",
+                    # Detalles
+                    "waba_id": "", "portfolio_id": "", "kind": "",
+                    "name_status": "", "code_verification": "",
+                    "messaging_limit": "", "calls_enabled": None,
+                    "is_official": None, "inbound_enabled": None,
+                    "pin_enabled": None, "is_coexistence": None,
+                    # Business verification
+                    "biz_verify_status": "", "biz_verify_name": "",
+                    "biz_verify_attempts_left": None,
+                    # Funding
+                    "funding_status": "", "funding_reason": "",
+                    "funding_currency": "", "paid_paused": None,
+                    "paid_pause_reasons": [],
+                    "funding_last_check": "",
+                    # Uso últimos 30 días
+                    "usage_total_usd": None,
+                    "usage_msgs": None, "usage_calls_usd": None,
+                    "usage_err": "",
+                }
+
+                # 1. Health (ya existente)
+                hr = _get(f"/whatsapp/phone_numbers/{pid}/health", timeout=15)
+                if hr.status_code == 200:
+                    h = hr.json() or {}
+                    item["status"] = h.get("status") or "unknown"
+                    item["timestamp"] = h.get("timestamp") or ""
+                    chks = h.get("checks") or {}
+                    pna = (chks.get("phone_number_access") or {}).get("details") or {}
+                    item["quality"] = pna.get("quality_rating") or ""
+                    item["throughput"] = pna.get("throughput_tier") or ""
+                    item["connection"] = pna.get("status") or ""
+                    mh = (chks.get("messaging_health") or {})
+                    item["can_send"] = (mh.get("details") or {}).get("can_send_message") or mh.get("overall_status") or ""
+                    for ent in (mh.get("details") or {}).get("entities") or []:
+                        for info in ent.get("additional_info") or []:
+                            item["limited_reasons"].append(
+                                f"{ent.get('entity_type','?')}: {info}")
+                    wh = (chks.get("webhook_subscription") or {})
+                    item["webhook_ok"] = bool((wh.get("details") or {}).get("subscribed"))
+                    wv = (chks.get("webhook_verified") or {})
+                    item["webhook_verified"] = bool(wv.get("passed"))
+                else:
+                    item["error"] = f"health HTTP {hr.status_code}"
+
+                # 2. Detalles del número
+                dr = _get(f"/whatsapp/phone_numbers/{pid}", timeout=10)
+                if dr.status_code == 200:
+                    d = (dr.json() or {}).get("data") or {}
+                    item["waba_id"] = str(d.get("business_account_id") or "")
+                    item["portfolio_id"] = str(d.get("business_portfolio_id") or "")
+                    item["kind"] = d.get("kind") or ""
+                    item["name_status"] = d.get("name_status") or ""
+                    item["code_verification"] = d.get("code_verification_status") or ""
+                    item["messaging_limit"] = str(d.get("whatsapp_business_manager_messaging_limit") or "")
+                    item["calls_enabled"] = d.get("calls_enabled")
+                    item["is_official"] = d.get("is_official_business_account")
+                    item["inbound_enabled"] = d.get("inbound_processing_enabled")
+                    item["pin_enabled"] = d.get("is_pin_enabled")
+                    item["is_coexistence"] = d.get("is_coexistence")
+
+                # 2b. Business verification (del portfolio)
+                if item["portfolio_id"]:
+                    br = _get(
+                        f"/whatsapp/portfolios/{item['portfolio_id']}"
+                        f"/business_verification",
+                        timeout=10)
+                    if br.status_code == 200:
+                        b = (br.json() or {}).get("data") or {}
+                        item["biz_verify_status"] = b.get("status") or ""
+                        item["biz_verify_name"] = b.get("business_name") or ""
+                        item["biz_verify_attempts_left"] = b.get("attempts_left")
+
+                # 3. Funding (pago) — requiere waba_id
+                if item["waba_id"]:
+                    fr = _get(f"/whatsapp/accounts/{item['waba_id']}/funding",
+                              timeout=10)
+                    if fr.status_code == 200:
+                        f = (fr.json() or {}).get("data") or {}
+                        item["funding_status"] = f.get("status") or ""
+                        item["funding_reason"] = f.get("reason") or ""
+                        item["funding_currency"] = f.get("currency") or ""
+                        item["funding_last_check"] = f.get("last_checked_at") or ""
+                        pm = f.get("paid_messages") or {}
+                        item["paid_paused"] = pm.get("paused")
+                        item["paid_pause_reasons"] = pm.get("reasons") or []
+
+                    # 4. Uso últimos 30 días
+                    try:
+                        end = _dt.datetime.now(tz=_dt.timezone.utc)
+                        start = end - _dt.timedelta(days=30)
+                        ur = _get(
+                            f"/whatsapp/accounts/{item['waba_id']}/usage"
+                            f"?start_time={start.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+                            f"&end_time={end.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+                            timeout=10)
+                        if ur.status_code == 200:
+                            u = (ur.json() or {}).get("data") or {}
+                            tot = (u.get("totals") or {}).get("customer_charge_micro_usd") or 0
+                            item["usage_total_usd"] = round(tot / 1_000_000.0, 2)
+                            for br in u.get("breakdown") or []:
+                                if br.get("usage_kind") == "messaging":
+                                    item["usage_msgs"] = br.get("billable_messages")
+                                elif br.get("usage_kind") == "calling":
+                                    cc = br.get("customer_charge_micro_usd") or 0
+                                    item["usage_calls_usd"] = round(cc / 1_000_000.0, 2)
+                        else:
+                            item["usage_err"] = f"HTTP {ur.status_code}"
+                    except Exception as e:
+                        item["usage_err"] = f"{type(e).__name__}: {e}"
+
+                numeros.append(item)
+
+    return render_template(
+        "petra_panel_v2_salud_bot.html",
+        numeros=numeros, error=error, token=token,
     )
 
 
