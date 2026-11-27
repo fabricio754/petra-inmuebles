@@ -173,7 +173,7 @@
     </span>
   </div>
   {% set g_marketing = ['difusiones', 'templates', 'numeros', 'kapso', 'pipeline'] %}
-  {% set g_bot = ['contenidos', 'faq', 'automatizaciones', 'whitelist'] %}
+  {% set g_bot = ['contenidos', 'faq', 'automatizaciones', 'whitelist', 'salud-bot'] %}
   {% set g_oferta = ['conjuntos', 'catalogo', 'inmuebles', 'oferta', 'activos', 'embudo', 'mandatos'] %}
   {% set g_demanda = ['buscadores', 'usuarios', 'demanda', 'solicitudes'] %}
   {% set g_agentes = ['agentes', 'visitas'] %}
@@ -215,6 +215,8 @@
            href="/panel/petra/v2/automatizaciones?token={{ token }}">⚙️ Automatizaciones</a>
         <a class="{% if block == 'whitelist' %}active{% endif %}"
            href="/panel/petra/v2/whitelist?token={{ token }}">📱 Whitelist</a>
+        <a class="{% if block == 'salud-bot' %}active{% endif %}"
+           href="/panel/petra/v2/salud-bot?token={{ token }}">🩺 Salud del bot</a>
       </div>
     </details>
 

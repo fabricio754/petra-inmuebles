@@ -1,0 +1,194 @@
+{% extends "base_panel_v2.html" %}
+{% set block = "salud-bot" %}
+{% block title %}Salud del bot · Petra{% endblock %}
+
+{% block content %}
+<style>
+  .sb-wrap { max-width: 980px; margin: 0 auto; }
+  .sb-wrap h1 { margin: 0 0 4px; font-size: 22px; }
+  .sb-sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .sb-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 20px; margin-bottom: 14px;
+  }
+  .sb-head {
+    display: flex; align-items: center; gap: 12px;
+    justify-content: space-between; flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .sb-title { font-size: 16px; font-weight: 700; }
+  .sb-tel { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .sb-status {
+    padding: 4px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .4px;
+  }
+  .sb-status.healthy  { background: #dcfce7; color: #166534; }
+  .sb-status.degraded { background: #fef3c7; color: #92400e; }
+  .sb-status.unhealthy{ background: #fee2e2; color: #991b1b; }
+  .sb-status.unknown  { background: #f1f5f9; color: #475569; }
+  @media (prefers-color-scheme: dark) {
+    .sb-status.healthy  { background: #052e1a; color: #4ade80; }
+    .sb-status.degraded { background: #3f2a05; color: #fcd34d; }
+    .sb-status.unhealthy{ background: #3f1416; color: #fca5a5; }
+    .sb-status.unknown  { background: #1e293b; color: #94a3b8; }
+  }
+
+  .sb-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+  }
+  .sb-metric {
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--bg, #f3f4f6);
+  }
+  .sb-metric .k {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .4px;
+    color: var(--muted); font-weight: 700;
+  }
+  .sb-metric .v { font-size: 14px; font-weight: 600; margin-top: 3px; }
+
+  .sb-chip-g { color: #16a34a; }
+  .sb-chip-y { color: #d97706; }
+  .sb-chip-r { color: #dc2626; }
+  .sb-chip-b { color: #2563eb; }
+  .sb-chip-m { color: var(--muted); }
+
+  .sb-reasons {
+    margin-top: 12px; padding: 10px 12px;
+    border-left: 3px solid #d97706;
+    background: #fef3c7; border-radius: 6px;
+    font-size: 12px; color: #92400e;
+  }
+  .sb-reasons b { display: block; margin-bottom: 4px; }
+  .sb-reasons ul { margin: 0; padding-left: 18px; }
+  @media (prefers-color-scheme: dark) {
+    .sb-reasons { background: #3f2a05; color: #fcd34d; border-left-color: #f59e0b; }
+  }
+
+  .sb-footer {
+    margin-top: 12px; font-size: 11px; color: var(--muted);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sb-error { color: #dc2626; font-size: 12px; }
+
+  .sb-refresh {
+    padding: 6px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel);
+    color: var(--text); cursor: pointer; font-size: 12px;
+    font-family: inherit;
+  }
+  .sb-refresh:hover { background: var(--bg); }
+
+  .sb-empty {
+    padding: 40px; text-align: center; color: var(--muted);
+  }
+  .sb-alert {
+    background: #fee2e2; color: #991b1b; padding: 12px 16px;
+    border-radius: 10px; margin-bottom: 16px; font-size: 13px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .sb-alert { background: #3f1416; color: #fca5a5; }
+  }
+</style>
+
+<div class="sb-wrap">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <h1>🩺 Salud del bot</h1>
+    <button type="button" class="sb-refresh" onclick="window.location.reload()">
+      🔄 Refrescar
+    </button>
+  </div>
+  <div class="sb-sub">Estado de cada número de WhatsApp conectado · datos vía Meta/Kapso (cache 3 min)</div>
+
+  {% if error %}
+    <div class="sb-alert">⚠ {{ error }}</div>
+  {% endif %}
+
+  {% if not numeros and not error %}
+    <div class="sb-card sb-empty">
+      No hay números conectados en Kapso.
+    </div>
+  {% endif %}
+
+  {% for n in numeros %}
+    {% set st = (n.status or 'unknown') | lower %}
+    <div class="sb-card">
+      <div class="sb-head">
+        <div>
+          <div class="sb-title">{{ n.nombre or 'Sin nombre verificado' }}</div>
+          <div class="sb-tel">{{ n.display or ('ID ' ~ n.id) }}</div>
+        </div>
+        <span class="sb-status {{ st }}">
+          {% if st == 'healthy' %}🟢 Saludable
+          {% elif st == 'degraded' %}🟡 Degradado
+          {% elif st == 'unhealthy' %}🔴 Caído
+          {% else %}❓ Desconocido{% endif %}
+        </span>
+      </div>
+
+      {% if n.error %}
+        <div class="sb-alert">⚠ Error consultando Kapso: {{ n.error }}</div>
+      {% else %}
+        <div class="sb-grid">
+          <div class="sb-metric">
+            <div class="k">Calidad del número</div>
+            <div class="v">
+              {% if n.quality == 'GREEN' %}<span class="sb-chip-g">🟢 Alta</span>
+              {% elif n.quality == 'YELLOW' %}<span class="sb-chip-y">🟡 Media</span>
+              {% elif n.quality == 'RED' %}<span class="sb-chip-r">🔴 Baja</span>
+              {% else %}<span class="sb-chip-m">—</span>{% endif %}
+            </div>
+          </div>
+          <div class="sb-metric">
+            <div class="k">Límite plantillas/día</div>
+            <div class="v">
+              {% if n.throughput %}{{ n.throughput | replace('TIER_', '') }}
+              {% else %}<span class="sb-chip-m">—</span>{% endif %}
+            </div>
+          </div>
+          <div class="sb-metric">
+            <div class="k">Conexión Meta</div>
+            <div class="v">
+              {% if n.connection == 'CONNECTED' %}<span class="sb-chip-g">✓ Conectado</span>
+              {% elif n.connection == 'DISCONNECTED' %}<span class="sb-chip-r">✗ Desconectado</span>
+              {% else %}<span class="sb-chip-m">{{ n.connection or '—' }}</span>{% endif %}
+            </div>
+          </div>
+          <div class="sb-metric">
+            <div class="k">Puede enviar</div>
+            <div class="v">
+              {% if n.can_send == 'AVAILABLE' %}<span class="sb-chip-g">✓ Sí</span>
+              {% elif n.can_send == 'LIMITED' %}<span class="sb-chip-y">⚠ Limitado</span>
+              {% elif n.can_send == 'BLOCKED' %}<span class="sb-chip-r">✗ Bloqueado</span>
+              {% else %}<span class="sb-chip-m">{{ n.can_send or '—' }}</span>{% endif %}
+            </div>
+          </div>
+          <div class="sb-metric">
+            <div class="k">Webhook</div>
+            <div class="v">
+              {% if n.webhook_ok %}<span class="sb-chip-g">✓ Suscrito</span>
+              {% elif n.webhook_ok == False %}<span class="sb-chip-r">✗ No suscrito</span>
+              {% else %}<span class="sb-chip-m">—</span>{% endif %}
+            </div>
+          </div>
+        </div>
+
+        {% if n.limited_reasons %}
+          <div class="sb-reasons">
+            <b>Razones de la limitación:</b>
+            <ul>
+              {% for r in n.limited_reasons %}<li>{{ r }}</li>{% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+
+        <div class="sb-footer">
+          <span>Última verificación: {{ n.timestamp or 'desconocida' }}</span>
+          <span>Phone ID: <code>{{ n.id }}</code></span>
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

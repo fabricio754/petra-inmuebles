@@ -8423,7 +8423,8 @@ def panel_v2_activos():
             try:
                 bv_rows = _rows(conn,
                     "SELECT DISTINCT ON (inmueble_id) "
-                    "       inmueble_id, estado, sent_at, failed_at "
+                    "       inmueble_id, estado, sent_at, failed_at, "
+                    "       error_detalle "
                     "  FROM petra_bienvenidas_enviadas "
                     " WHERE template_name = %s "
                     " ORDER BY inmueble_id, enviado_en DESC",
@@ -8431,6 +8432,23 @@ def panel_v2_activos():
             except Exception:
                 bv_rows = []
         bv_por_iid = {r["inmueble_id"]: r for r in bv_rows}
+
+    def _wa_status(bv):
+        """Devuelve 'con_wa' | 'sin_wa' | 'bloqueo_mkt' | 'fallo_otro'
+        | None (si no hay historial). Se basa en estado + error_detalle."""
+        if not bv:
+            return None
+        estado = (bv.get("estado") or "").lower()
+        if estado in ("delivered", "read", "clickeado", "clicked"):
+            return "con_wa"
+        if estado == "fallido":
+            err = (bv.get("error_detalle") or "")
+            if "131026" in err:
+                return "sin_wa"
+            if "131049" in err:
+                return "bloqueo_mkt"
+            return "fallo_otro"
+        return None
 
     tot_activos = 0
     tot_pausados = 0
@@ -8443,15 +8461,32 @@ def panel_v2_activos():
         if not activos and not pausados:
             continue
 
-        datos_ok = 0
-        for i in activos:
-            if _normalizar_celular_co(i.get("propietario_telefono")):
-                datos_ok += 1
+        datos_fmt_ok = 0
+        wa_con = 0
+        wa_sin = 0
+        wa_bloqueo = 0
+        wa_fallo_otro = 0
+        wa_sin_probar = 0
 
         bienv_fallos = 0
         bienv_sent_ts = []
         for i in activos:
+            tel_ok = bool(_normalizar_celular_co(i.get("propietario_telefono")))
+            if tel_ok:
+                datos_fmt_ok += 1
             bv = bv_por_iid.get(i["id"])
+            st = _wa_status(bv)
+            if st == "con_wa":
+                wa_con += 1
+            elif st == "sin_wa":
+                wa_sin += 1
+            elif st == "bloqueo_mkt":
+                wa_bloqueo += 1
+            elif st == "fallo_otro":
+                wa_fallo_otro += 1
+            elif tel_ok:
+                wa_sin_probar += 1
+
             if bv:
                 if (bv.get("estado") or "") == "fallido":
                     bienv_fallos += 1
@@ -8469,8 +8504,13 @@ def panel_v2_activos():
             "nombre": c.get("nombre") or "",
             "activos": n_act,
             "pausados": len(pausados),
-            "datos_ok": datos_ok,
+            "datos_fmt_ok": datos_fmt_ok,
             "datos_total": n_act,
+            "wa_con": wa_con,
+            "wa_sin": wa_sin,
+            "wa_bloqueo": wa_bloqueo,
+            "wa_fallo_otro": wa_fallo_otro,
+            "wa_sin_probar": wa_sin_probar,
             "en_sistema": _bucketize(activos, "creado_en"),
             "bienvenida": _bucketize(bienv_sent_ts, "sent_at"),
             "bienvenida_fallos": bienv_fallos,
@@ -8487,6 +8527,83 @@ def panel_v2_activos():
         total_activos=tot_activos,
         total_pausados=tot_pausados,
         token=token,
+    )
+
+
+@petra_panel_bp.get("/v2/salud-bot")
+def panel_v2_salud_bot():
+    """v2: Bot → Salud. Trae el health check de Kapso para cada
+    número conectado del proyecto."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    import requests as _rq
+    api_key = (os.environ.get("KAPSO_API_KEY") or "").strip()
+    platform = (os.environ.get("KAPSO_PLATFORM_URL")
+                or "https://api.kapso.ai/platform/v1").rstrip("/")
+
+    numeros = []
+    error = ""
+    if not api_key:
+        error = "Falta KAPSO_API_KEY en variables de entorno."
+    else:
+        try:
+            r = _rq.get(f"{platform}/whatsapp/phone_numbers",
+                        headers={"X-API-Key": api_key}, timeout=10)
+            if r.status_code == 200:
+                for n in (r.json() or {}).get("data") or []:
+                    pid = str(n.get("phone_number_id") or n.get("id") or "")
+                    if not pid:
+                        continue
+                    item = {
+                        "id": pid,
+                        "display": n.get("display_phone_number") or "",
+                        "nombre": n.get("verified_name") or n.get("name") or "",
+                        "status": "unknown",
+                        "timestamp": None,
+                        "checks": {},
+                        "quality": "",
+                        "throughput": "",
+                        "connection": "",
+                        "can_send": "",
+                        "limited_reasons": [],
+                        "webhook_ok": None,
+                        "error": "",
+                    }
+                    try:
+                        hr = _rq.get(
+                            f"{platform}/whatsapp/phone_numbers/{pid}/health",
+                            headers={"X-API-Key": api_key}, timeout=15)
+                        if hr.status_code == 200:
+                            h = hr.json() or {}
+                            item["status"] = h.get("status") or "unknown"
+                            item["timestamp"] = h.get("timestamp") or ""
+                            chks = h.get("checks") or {}
+                            item["checks"] = chks
+                            pna = (chks.get("phone_number_access") or {}).get("details") or {}
+                            item["quality"] = pna.get("quality_rating") or ""
+                            item["throughput"] = pna.get("throughput_tier") or ""
+                            item["connection"] = pna.get("status") or ""
+                            mh = (chks.get("messaging_health") or {})
+                            item["can_send"] = (mh.get("details") or {}).get("can_send_message") or mh.get("overall_status") or ""
+                            for ent in (mh.get("details") or {}).get("entities") or []:
+                                for info in ent.get("additional_info") or []:
+                                    item["limited_reasons"].append(
+                                        f"{ent.get('entity_type','?')}: {info}")
+                            wh = (chks.get("webhook_subscription") or {})
+                            item["webhook_ok"] = bool((wh.get("details") or {}).get("subscribed"))
+                        else:
+                            item["error"] = f"HTTP {hr.status_code}"
+                    except Exception as e:
+                        item["error"] = f"{type(e).__name__}: {e}"
+                    numeros.append(item)
+            else:
+                error = f"Kapso respondió {r.status_code}"
+        except Exception as e:
+            error = f"{type(e).__name__}: {e}"
+
+    return render_template(
+        "petra_panel_v2_salud_bot.html",
+        numeros=numeros, error=error, token=token,
     )
 
 
