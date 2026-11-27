@@ -499,21 +499,20 @@
          'oferta_servicio':  ('oferta_credito',  '💳 Enviar oferta crédito',  false),
        } %}
     {% set _action = _slot_map.get(etapa_filtro) %}
-    {# No bulk para 'confirmar_datos': ese slot abre wa.me desde teléfono
-       personal, no se envía via API. Un bulk de wa.me no tiene sentido y
-       un bulk via API dispararía plantillas del bot a todos los
-       propietarios seleccionados sin que la persona que apreta "Confirmar
-       datos" lo espere (de hecho era el bug que mandó 16 templates sin
-       querer el 2026-11-27). #}
-    {% if _action and _action[0] != 'confirmar_datos' %}
+    {% if _action %}
     <div class="bulk-bar">
       <label class="bulk-check">
         <input type="checkbox" id="bulk-all"> Seleccionar todos
       </label>
       <span id="bulk-count" style="color:var(--text-sub);font-size:13px">0 seleccionados</span>
+      {# Para 'confirmar_datos' NO mostramos botón de envío: ese slot abre
+         wa.me desde teléfono personal, no API. El checkbox queda solo
+         para uniformidad visual con las otras etapas. #}
+      {% if _action[0] != 'confirmar_datos' %}
       <button type="button" id="bulk-send" class="btn-bulk" disabled
               data-slot="{{ _action[0] }}"
               data-label="{{ _action[1] }}">{{ _action[1] }} a seleccionados</button>
+      {% endif %}
     </div>
     {% endif %}
     {# Funnel de conversión de bienvenidas para la vista actual. #}

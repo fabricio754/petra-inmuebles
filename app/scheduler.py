@@ -1464,6 +1464,24 @@ def _petra_pipeline_inmuebles_avanzar():
     tpl_os = _resolve_tpl("oferta_servicio", "PETRA_TPL_OFRECER_SERVICIO")
     tpl_oc = _resolve_tpl("oferta_credito",  "PETRA_TPL_OFRECER_CREDITO")
     lang    = (_os.environ.get("PETRA_TPL_LANG") or "es_CO").strip()
+
+    # Teléfono de envío por slot (dropdown "Envío por" en Activados). Si
+    # un slot tiene NULL, el pipeline NO manda esa plantilla. Es el
+    # mecanismo que el admin usa para apagar un paso del pipeline sin
+    # tocar código.
+    _slot_phone = {"bienvenida": None, "servicio": None, "credito": None}
+    try:
+        from app import db as __db
+        with __db._conexion_directa(timeout=5) as _c:
+            for _sname, _pid in _c.execute(
+                "SELECT slot, phone_number_id FROM template_slots"
+            ).fetchall():
+                _slot_phone[_sname] = (_pid or "").strip() or None
+    except Exception:
+        pass
+    phone_bv = _slot_phone.get("bienvenida")
+    phone_os = _slot_phone.get("servicio")
+    phone_oc = _slot_phone.get("credito")
     try:
         delay_dias = int(_os.environ.get("PETRA_PIPELINE_DELAY_DIAS") or "3")
     except Exception:
@@ -1487,7 +1505,7 @@ def _petra_pipeline_inmuebles_avanzar():
     try:
         with _db._conexion_directa(timeout=10) as conn:
             # Candidatos paso 1 — bienvenida
-            if tpl_bv and enviados < batch_max:
+            if tpl_bv and phone_bv and enviados < batch_max:
                 rows = conn.execute(
                     "SELECT id, propietario_telefono, conjunto "
                     "  FROM inmuebles_visitante "
@@ -1501,7 +1519,8 @@ def _petra_pipeline_inmuebles_avanzar():
                 for inm_id, tel, _conj in rows:
                     if enviados >= batch_max:
                         break
-                    r = _k.send_template(tel, tpl_bv, language=lang)
+                    r = _k.send_template(tel, tpl_bv, language=lang,
+                                         phone_number_id_override=phone_bv)
                     if r.get("ok"):
                         conn.execute(
                             "UPDATE inmuebles_visitante "
@@ -1515,7 +1534,7 @@ def _petra_pipeline_inmuebles_avanzar():
                                     inm_id, r.get("body"))
 
             # Candidatos paso 2 — oferta_servicio (datos confirmados >=Nd)
-            if tpl_os and enviados < batch_max:
+            if tpl_os and phone_os and enviados < batch_max:
                 rows = conn.execute(
                     "SELECT id, propietario_telefono "
                     "  FROM inmuebles_visitante "
@@ -1532,7 +1551,8 @@ def _petra_pipeline_inmuebles_avanzar():
                 for inm_id, tel in rows:
                     if enviados >= batch_max:
                         break
-                    r = _k.send_template(tel, tpl_os, language=lang)
+                    r = _k.send_template(tel, tpl_os, language=lang,
+                                         phone_number_id_override=phone_os)
                     if r.get("ok"):
                         conn.execute(
                             "UPDATE inmuebles_visitante "
@@ -1546,7 +1566,7 @@ def _petra_pipeline_inmuebles_avanzar():
                                     inm_id, r.get("body"))
 
             # Candidatos paso 3 — oferta_credito (ofrecer_petra >=Nd)
-            if tpl_oc and enviados < batch_max:
+            if tpl_oc and phone_oc and enviados < batch_max:
                 rows = conn.execute(
                     "SELECT id, propietario_telefono "
                     "  FROM inmuebles_visitante "
@@ -1563,7 +1583,8 @@ def _petra_pipeline_inmuebles_avanzar():
                 for inm_id, tel in rows:
                     if enviados >= batch_max:
                         break
-                    r = _k.send_template(tel, tpl_oc, language=lang)
+                    r = _k.send_template(tel, tpl_oc, language=lang,
+                                         phone_number_id_override=phone_oc)
                     if r.get("ok"):
                         conn.execute(
                             "UPDATE inmuebles_visitante "
