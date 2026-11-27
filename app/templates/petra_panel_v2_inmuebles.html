@@ -330,12 +330,71 @@
     display: flex; align-items: center; gap: 4px;
   }
   .attach a { color: var(--accent); }
+  .chip-activado {
+    display: inline-block; margin-left: 8px;
+    padding: 2px 10px; border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel); color: var(--text-sub);
+    font-size: 11px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  .chip-activado.on {
+    background: #dcfce7; color: #166534; border-color: #86efac;
+  }
+  :root[data-theme="dark"] .chip-activado.on {
+    background: #052e1a; color: #4ade80; border-color: #166534;
+  }
 </style>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var btn = document.getElementById('btn-toggle-activado');
+    if (!btn) return;
+    btn.addEventListener('click', async function() {
+      var cid = btn.dataset.cid;
+      var token = new URLSearchParams(window.location.search).get('token') || '';
+      btn.disabled = true;
+      try {
+        var r = await fetch('/panel/petra/v2/conjuntos/' + cid + '/toggle-conectado?token=' + encodeURIComponent(token), {
+          method: 'POST',
+          headers: {'X-Requested-With': 'fetch'},
+        });
+        var j = await r.json();
+        if (j.ok) {
+          if (j.qr_instalado) {
+            btn.classList.add('on');
+            btn.textContent = '✓ Activado';
+          } else {
+            btn.classList.remove('on');
+            btn.textContent = '○ Desactivado';
+          }
+        } else {
+          alert('No se pudo cambiar el estado');
+        }
+      } catch (e) {
+        alert('Error de red');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+</script>
 
 <div class="hero">
   <div>
     <h1>Inmuebles</h1>
-    <div class="sub">{% if conjunto %}{{ conjunto.nombre }} · Código {{ conjunto.codigo }}{% else %}Elegí un conjunto para ver sus inmuebles{% endif %}</div>
+    <div class="sub">
+      {% if conjunto %}
+        {{ conjunto.nombre }} · Código {{ conjunto.codigo }}
+        <button type="button" id="btn-toggle-activado"
+                data-cid="{{ conjunto.id }}"
+                class="chip-activado {% if conjunto.conectado %}on{% endif %}"
+                title="Marcar conjunto activado/desactivado">
+          {% if conjunto.conectado %}✓ Activado{% else %}○ Desactivado{% endif %}
+        </button>
+      {% else %}
+        Elegí un conjunto para ver sus inmuebles
+      {% endif %}
+    </div>
   </div>
   <div class="conj-select-wrap">
     <label class="conj-select-lbl">Conjunto</label>

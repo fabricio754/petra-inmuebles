@@ -3455,12 +3455,13 @@ def panel_v2_inmuebles():
                 " ORDER BY c.nombre")
             if cid:
                 row = conn.execute(
-                    "SELECT id, codigo, nombre, ciudad FROM conjuntos_visitante "
-                    "WHERE id=%s", (cid,),
+                    "SELECT id, codigo, nombre, ciudad, qr_instalado "
+                    "  FROM conjuntos_visitante WHERE id=%s", (cid,),
                 ).fetchone()
                 if row:
                     conjunto = {"id": row[0], "codigo": row[1],
-                                "nombre": row[2], "ciudad": row[3] or ""}
+                                "nombre": row[2], "ciudad": row[3] or "",
+                                "conectado": bool(row[4])}
                     where = ["conjunto_id=%s"]
                     params = [cid]
                     if op_filtro in ("arriendo", "venta"):
@@ -8410,6 +8411,7 @@ def panel_v2_activos():
         conjuntos = _rows(conn,
             "SELECT id, codigo, nombre, ciudad "
             "  FROM conjuntos_visitante "
+            " WHERE qr_instalado = TRUE "
             " ORDER BY codigo NULLS LAST, id")
         inmuebles = _rows(conn,
             "SELECT id, conjunto_id, activo, propietario_telefono, creado_en, "
