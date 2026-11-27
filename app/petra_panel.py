@@ -6647,6 +6647,32 @@ def _conjunto_editar_redirect(token, flash):
                             token=token, flash=flash))
 
 
+@petra_panel_bp.post("/visitante/conjuntos/<int:cid>/eliminar")
+def visitante_conjunto_eliminar(cid):
+    """Elimina un conjunto. Falla si tiene inmuebles asociados (para
+    evitar borrados accidentales)."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante WHERE conjunto_id=%s",
+                (cid,),
+            ).fetchone()[0]
+            if n and int(n) > 0:
+                return _conjunto_editar_redirect(token, "tiene_inmuebles")
+            conn.execute("DELETE FROM conjuntos_visitante WHERE id=%s", (cid,))
+            conn.commit()
+        try:
+            from app.petra_visitante.router import _conjunto_cache_bust
+            _conjunto_cache_bust()
+        except Exception:
+            pass
+    except Exception:
+        return _conjunto_editar_redirect(token, "error")
+    return _conjunto_editar_redirect(token, "eliminado")
+
+
 @petra_panel_bp.post("/v2/conjuntos/<int:cid>/toggle-conectado")
 def panel_v2_conjunto_toggle_conectado(cid):
     """Togglea el flag qr_instalado del conjunto. Marca/desmarca el chip
