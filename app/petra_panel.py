@@ -7040,6 +7040,50 @@ def _inmueble_back(cid, token, flash):
                             cid=cid, token=token, flash=flash))
 
 
+@petra_panel_bp.get("/visitante/inmuebles/<int:iid>/confirmar-y-ir")
+def visitante_inmueble_confirmar_y_ir(iid):
+    """Marca datos_confirmado_at y redirige a wa.me en un solo request.
+    El `<a target=_blank>` del botón apunta acá: el browser hace GET,
+    el server marca el timestamp y responde 302 → wa.me. Garantiza que
+    el inmueble avance de etapa antes de que WhatsApp abra.
+    """
+    _check_token()
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            row = conn.execute(
+                "SELECT id, propietario_telefono, tipo, nro, operacion, "
+                "       conjunto_id "
+                "  FROM inmuebles_visitante WHERE id = %s", (iid,)
+            ).fetchone()
+            if not row:
+                abort(404)
+            inm = {"id": row[0], "propietario_telefono": row[1],
+                   "tipo": row[2], "nro": row[3], "operacion": row[4],
+                   "conjunto_id": row[5]}
+            # Conjunto nombre (para texto wa.me).
+            cv = conn.execute(
+                "SELECT nombre FROM conjuntos_visitante WHERE id = %s",
+                (row[5],)).fetchone()
+            inm["conjunto_nombre"] = cv[0] if cv else ""
+            conn.execute(
+                "UPDATE inmuebles_visitante "
+                "   SET datos_confirmado_at = NOW() WHERE id=%s", (iid,))
+            conn.commit()
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception(
+            "[confirmar-y-ir] fallo iid=%s", iid)
+        # Igual intentamos abrir WA aunque falle el marcado.
+    try:
+        cel = _normalizar_celular_co(inm.get("propietario_telefono"))
+        wa_url = _wa_url(cel, _texto_confirmar_datos(inm)) if cel else ""
+    except Exception:
+        wa_url = ""
+    if not wa_url:
+        return redirect(request.referrer or "/")
+    return redirect(wa_url, code=302)
+
+
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/confirmar-datos")
 def visitante_inmueble_confirmar_datos(iid):
     """Marca el inmueble como 'datos confirmados' (sello manual del admin).

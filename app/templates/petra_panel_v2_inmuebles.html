@@ -691,7 +691,9 @@
                  prellenado (conjunto + inmueble). Al abrir, también marca
                  datos_confirmado_at para que el inmueble avance de etapa. #}
               {% if i.celular_valido and i.wa_confirmar %}
-                <a class="btn-send-etapa" href="{{ i.wa_confirmar }}" target="_blank"
+                <a class="btn-send-etapa"
+                   href="{{ url_for('petra_panel.visitante_inmueble_confirmar_y_ir', iid=i.id, token=token) }}"
+                   target="_blank"
                    data-iid="{{ i.id }}" data-wa-confirmar="1"
                    style="text-decoration:none;display:inline-block">
                   {{ _action[1] }}
@@ -1171,25 +1173,12 @@ function petraDeshacer(ev, quien, formId, label) {
     // Los <a> con data-wa-confirmar=1 abren WhatsApp personal y marcan
     // datos_confirmado_at en background — sin fetch al endpoint Kapso.
     if (btn.getAttribute('data-wa-confirmar') === '1') {
-      btn.addEventListener('click', function(ev){
-        // Plan: freno la apertura de wa.me, marco datos_confirmado_at en
-        // el server, y DESPUÉS abro wa.me. Garantiza que la marca queda
-        // en DB antes de perder el control por la nueva tab.
-        ev.preventDefault();
-        var iid = parseInt(btn.getAttribute('data-iid'), 10);
-        var waUrl = btn.href;
-        var url = '{{ url_for("petra_panel.visitante_inmueble_confirmar_datos", iid=0) }}'
-                    .replace('/0/', '/' + iid + '/');
-        var fd = new FormData();
-        fd.append('token', '{{ token }}');
-        btn.style.opacity = '0.6';
-        fetch(url, { method: 'POST', body: fd })
-          .catch(function(){ /* igual abrimos WA */ })
-          .finally(function(){
-            window.open(waUrl, '_blank');
-            setTimeout(function(){ window.location.reload(); }, 500);
-          });
-        return false;
+      // El href ya apunta a /confirmar-y-ir, que marca el timestamp y
+      // responde 302 → wa.me. El browser abre la nueva tab natural.
+      // Acá sólo recargamos la pestaña actual para ver el inmueble en
+      // el nuevo tab del panel.
+      btn.addEventListener('click', function(){
+        setTimeout(function(){ window.location.reload(); }, 800);
       });
       return;
     }
