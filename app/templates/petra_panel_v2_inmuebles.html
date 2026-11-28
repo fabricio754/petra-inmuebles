@@ -1173,12 +1173,25 @@ function petraDeshacer(ev, quien, formId, label) {
     // Los <a> con data-wa-confirmar=1 abren WhatsApp personal y marcan
     // datos_confirmado_at en background — sin fetch al endpoint Kapso.
     if (btn.getAttribute('data-wa-confirmar') === '1') {
-      // El href ya apunta a /confirmar-y-ir, que marca el timestamp y
-      // responde 302 → wa.me. El browser abre la nueva tab natural.
-      // Acá sólo recargamos la pestaña actual para ver el inmueble en
-      // el nuevo tab del panel.
+      // El href ya apunta a /confirmar-y-ir que marca el timestamp y
+      // 302 → wa.me. Refresh de la pestaña actual con 2 triggers para
+      // mayor confiabilidad:
+      //  1. setTimeout a 1.5s (si el user no cambia de tab).
+      //  2. visibilitychange cuando el user vuelve a la pestaña del panel.
       btn.addEventListener('click', function(){
-        setTimeout(function(){ window.location.reload(); }, 800);
+        var reloaded = false;
+        function doReload(){
+          if (reloaded) return;
+          reloaded = true;
+          window.location.href = window.location.href;
+        }
+        setTimeout(doReload, 1500);
+        document.addEventListener('visibilitychange', function onVis(){
+          if (!document.hidden) {
+            document.removeEventListener('visibilitychange', onVis);
+            doReload();
+          }
+        });
       });
       return;
     }
