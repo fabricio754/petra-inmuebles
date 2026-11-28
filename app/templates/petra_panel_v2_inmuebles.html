@@ -1173,19 +1173,19 @@ function petraDeshacer(ev, quien, formId, label) {
     if (btn.getAttribute('data-wa-confirmar') === '1') {
       btn.addEventListener('click', function(ev){
         var iid = parseInt(btn.getAttribute('data-iid'), 10);
-        // Marca datos_confirmado_at en background y después recarga la
-        // página para que el inmueble pase al tab "Confirmar datos".
-        // WA se abre en nueva tab (target=_blank) — la recarga del panel
-        // no la afecta.
-        fetch('{{ url_for("petra_panel.visitante_inmueble_confirmar_datos", iid=0) }}'.replace('/0/', '/' + iid + '/'), {
-          method: 'POST',
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          body: 'token=' + encodeURIComponent('{{ token }}'),
-          keepalive: true
-        })
-        .then(function(){ setTimeout(function(){ window.location.reload(); }, 500); })
-        .catch(function(){ setTimeout(function(){ window.location.reload(); }, 1000); });
-        // Devolver true para permitir la navegación a wa.me en la nueva tab.
+        // sendBeacon sobrevive al cambio de tab/página (diseñado para esto).
+        // El fetch() con keepalive era poco confiable en mobile+target=_blank.
+        var url = '{{ url_for("petra_panel.visitante_inmueble_confirmar_datos", iid=0) }}'
+                    .replace('/0/', '/' + iid + '/');
+        var fd = new FormData();
+        fd.append('token', '{{ token }}');
+        try {
+          navigator.sendBeacon(url, fd);
+        } catch (e) {
+          // Fallback: fetch con keepalive si sendBeacon falla.
+          fetch(url, { method: 'POST', body: fd, keepalive: true });
+        }
+        setTimeout(function(){ window.location.reload(); }, 800);
         return true;
       });
       return;
