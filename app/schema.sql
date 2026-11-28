@@ -2129,9 +2129,9 @@ ALTER TABLE conjuntos_visitante
 
 -- ============================================================================
 -- Dummy inventario para Conjunto Prados 15 (id=2155, codigo=AG2-...).
--- Como si una agente hubiera mandado la foto del libro y lo hubiéramos
--- cargado.  Idempotente: solo inserta si no existe esa combinación
--- (conjunto_id, nro, operacion).
+-- Idempotente: solo inserta si (a) la fila no existe y (b) el conjunto
+-- 2155 todavía está en la base (si fue eliminado, se saltea en vez de
+-- reventar por FK).
 -- ============================================================================
 INSERT INTO inmuebles_visitante
   (conjunto_id, tipo, nro, operacion, habitaciones, banos, m2, precio, fuente, activo)
@@ -2145,12 +2145,13 @@ SELECT * FROM (VALUES
   (2155, 'apartamento', '704', 'arriendo', 1, 1,  48,  1300000::bigint,  'petra', TRUE),
   (2155, 'apartamento', '802', 'venta',    2, 2,  70,  310000000::bigint,'petra', TRUE)
 ) AS v(conjunto_id, tipo, nro, operacion, habitaciones, banos, m2, precio, fuente, activo)
-WHERE NOT EXISTS (
-  SELECT 1 FROM inmuebles_visitante iv
-   WHERE iv.conjunto_id = v.conjunto_id
-     AND iv.nro = v.nro
-     AND iv.operacion = v.operacion
-);
+WHERE EXISTS (SELECT 1 FROM conjuntos_visitante c WHERE c.id = v.conjunto_id)
+  AND NOT EXISTS (
+    SELECT 1 FROM inmuebles_visitante iv
+     WHERE iv.conjunto_id = v.conjunto_id
+       AND iv.nro = v.nro
+       AND iv.operacion = v.operacion
+  );
 
 -- ============================================================================
 -- Dummy inventario para Condominio Monaco (id=2469, codigo=0002).
@@ -2169,12 +2170,13 @@ SELECT * FROM (VALUES
   (2469, 'apartamento', '402', 'venta',    2, 2,  72,  295000000::bigint,'petra', TRUE),
   (2469, 'apartamento', '506', 'venta',    3, 2,  90,  380000000::bigint,'petra', TRUE)
 ) AS v(conjunto_id, tipo, nro, operacion, habitaciones, banos, m2, precio, fuente, activo)
-WHERE NOT EXISTS (
-  SELECT 1 FROM inmuebles_visitante iv
-   WHERE iv.conjunto_id = v.conjunto_id
-     AND iv.nro = v.nro
-     AND iv.operacion = v.operacion
-);
+WHERE EXISTS (SELECT 1 FROM conjuntos_visitante c WHERE c.id = v.conjunto_id)
+  AND NOT EXISTS (
+    SELECT 1 FROM inmuebles_visitante iv
+     WHERE iv.conjunto_id = v.conjunto_id
+       AND iv.nro = v.nro
+       AND iv.operacion = v.operacion
+  );
 
 -- ============================================================================
 -- Reset de datos de agentes Petra para reactivación (one-shot).
