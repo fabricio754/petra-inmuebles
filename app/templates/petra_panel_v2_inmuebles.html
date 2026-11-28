@@ -1174,24 +1174,14 @@ function petraDeshacer(ev, quien, formId, label) {
     // datos_confirmado_at en background — sin fetch al endpoint Kapso.
     if (btn.getAttribute('data-wa-confirmar') === '1') {
       // El href ya apunta a /confirmar-y-ir que marca el timestamp y
-      // 302 → wa.me. Refresh de la pestaña actual con 2 triggers para
-      // mayor confiabilidad:
-      //  1. setTimeout a 1.5s (si el user no cambia de tab).
-      //  2. visibilitychange cuando el user vuelve a la pestaña del panel.
+      // 302 → wa.me. Refresh inmediato con cache-busting (URL +ts) para
+      // forzar fetch nuevo, evitando bfcache.
       btn.addEventListener('click', function(){
-        var reloaded = false;
-        function doReload(){
-          if (reloaded) return;
-          reloaded = true;
-          window.location.href = window.location.href;
-        }
-        setTimeout(doReload, 1500);
-        document.addEventListener('visibilitychange', function onVis(){
-          if (!document.hidden) {
-            document.removeEventListener('visibilitychange', onVis);
-            doReload();
-          }
-        });
+        setTimeout(function(){
+          var u = new URL(window.location.href);
+          u.searchParams.set('_r', Date.now());
+          window.location.replace(u.toString());
+        }, 400);
       });
       return;
     }
