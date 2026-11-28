@@ -1172,21 +1172,24 @@ function petraDeshacer(ev, quien, formId, label) {
     // datos_confirmado_at en background — sin fetch al endpoint Kapso.
     if (btn.getAttribute('data-wa-confirmar') === '1') {
       btn.addEventListener('click', function(ev){
+        // Plan: freno la apertura de wa.me, marco datos_confirmado_at en
+        // el server, y DESPUÉS abro wa.me. Garantiza que la marca queda
+        // en DB antes de perder el control por la nueva tab.
+        ev.preventDefault();
         var iid = parseInt(btn.getAttribute('data-iid'), 10);
-        // sendBeacon sobrevive al cambio de tab/página (diseñado para esto).
-        // El fetch() con keepalive era poco confiable en mobile+target=_blank.
+        var waUrl = btn.href;
         var url = '{{ url_for("petra_panel.visitante_inmueble_confirmar_datos", iid=0) }}'
                     .replace('/0/', '/' + iid + '/');
         var fd = new FormData();
         fd.append('token', '{{ token }}');
-        try {
-          navigator.sendBeacon(url, fd);
-        } catch (e) {
-          // Fallback: fetch con keepalive si sendBeacon falla.
-          fetch(url, { method: 'POST', body: fd, keepalive: true });
-        }
-        setTimeout(function(){ window.location.reload(); }, 800);
-        return true;
+        btn.style.opacity = '0.6';
+        fetch(url, { method: 'POST', body: fd })
+          .catch(function(){ /* igual abrimos WA */ })
+          .finally(function(){
+            window.open(waUrl, '_blank');
+            setTimeout(function(){ window.location.reload(); }, 500);
+          });
+        return false;
       });
       return;
     }
