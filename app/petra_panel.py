@@ -3169,16 +3169,9 @@ def _fmt_precio_cop(valor):
 
 @petra_panel_bp.get("/v2")
 def panel_v2_home():
-    """Dashboard — redirige a /v2/activos (la vista operativa). El dashboard
-    anterior (KPIs) se conserva en /v2/metricas."""
-    _check_token()
-    token = (request.args.get("token") or "").strip()
-    return redirect(url_for("petra_panel.panel_v2_activos", token=token))
-
-
-@petra_panel_bp.get("/v2/metricas")
-def panel_v2_metricas_old():
-    """Dashboard viejo (KPIs 6 secciones). Mantenido por link directo."""
+    """Dashboard unificado v2 — KPIs agrupados en 6 secciones.
+    (El Dashboard del navbar apunta a /v2/activos; esta URL se mantiene
+    para bookmarks viejos.)"""
     _check_token()
     token = (request.args.get("token") or "").strip()
 
