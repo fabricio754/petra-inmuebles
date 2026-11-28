@@ -3169,9 +3169,19 @@ def _fmt_precio_cop(valor):
 
 @petra_panel_bp.get("/v2")
 def panel_v2_home():
-    """Dashboard unificado v2 — KPIs agrupados en 6 secciones.
-    (El Dashboard del navbar apunta a /v2/activos; esta URL se mantiene
-    para bookmarks viejos.)"""
+    """Dashboard — redirige a /v2/activos (la vista operativa rápida).
+    Antes servía los KPIs viejos pero eran demasiado lentos (~60s).
+    Para los KPIs viejos: /v2/metricas-kpis."""
+    _check_token()
+    from urllib.parse import quote
+    token = (request.args.get("token") or "").strip()
+    return redirect(f"/panel/petra/v2/activos?token={quote(token)}")
+
+
+@petra_panel_bp.get("/v2/metricas-kpis")
+def panel_v2_metricas_kpis():
+    """Dashboard viejo (KPIs 6 secciones). Es lento (~15-60s por las
+    múltiples queries). Mantenido en una URL propia por si hace falta."""
     _check_token()
     token = (request.args.get("token") or "").strip()
 
@@ -8380,11 +8390,12 @@ def panel_v2_contenidos():
     )
 
 
-@petra_panel_bp.get("/v2/metricas")
-def panel_v2_metricas():
-    """Alias: /v2 ya unifica Dashboard + Métricas."""
-    return redirect(url_for("petra_panel.panel_v2_home",
-                            token=request.args.get("token", "")))
+@petra_panel_bp.get("/v2/metricas-alias")
+def panel_v2_metricas_alias():
+    """Alias viejo. Ahora /v2/metricas sirve el dashboard de KPIs directo."""
+    from urllib.parse import quote
+    token = (request.args.get("token") or "").strip()
+    return redirect(f"/panel/petra/v2/metricas?token={quote(token)}")
 
 
 @petra_panel_bp.get("/v2/salud")
