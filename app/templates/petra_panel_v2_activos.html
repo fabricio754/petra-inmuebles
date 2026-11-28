@@ -139,6 +139,33 @@
     .activos-dash { color: #475569; }
     .activos-fail-chip { background: #3f1416; color: #fca5a5; }
   }
+
+  .qr-section-title {
+    margin: 32px 0 12px;
+    font-size: 16px; font-weight: 700;
+  }
+  .qr-section-sub {
+    color: var(--muted); font-size: 12px; margin-bottom: 14px;
+  }
+  .qr-chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 4px 8px; border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 11px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+    min-width: 32px;
+    transition: all .12s;
+  }
+  .qr-chip:hover { border-color: var(--accent, #7c3aed); }
+  .qr-chip.on {
+    background: #dcfce7; color: #166534; border-color: #86efac;
+  }
+  .qr-chip:disabled { cursor: wait; opacity: .5; }
+  @media (prefers-color-scheme: dark) {
+    .qr-chip.on { background: #052e1a; color: #4ade80; border-color: #166534; }
+  }
 </style>
 
 {% macro bucket_cell(buckets) -%}
@@ -206,7 +233,7 @@
 {%- endmacro %}
 
 <div class="activos-wrap">
-  <h1>📊 Activos</h1>
+  <h1>📊 Dashboard</h1>
   <div class="activos-sub">Qué inmuebles hay en cada etapa y hace cuánto · click en el conjunto para abrir su listado</div>
 
   <div class="activos-card">
@@ -275,5 +302,196 @@
       </table>
     </div>
   </div>
+
+  <div class="qr-section-title">🏷 Control de códigos QR</div>
+  <div class="qr-section-sub">Click en cada chip para marcar/desmarcar el paso.</div>
+
+  <div class="activos-card">
+    <div class="activos-scroll">
+      <table class="activos-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Acciones</th>
+            <th>Conjunto</th>
+            {% for paso, lbl in [('impreso','🖨 Impreso'), ('bodega','📦 Bodega'),
+                                  ('asignado','👤 Asignado'), ('enviado','📤 Enviado'),
+                                  ('inventario','📋 Inventario'), ('material','📸 Material'),
+                                  ('conectado','🏢 Conectado')] %}
+            <th>
+              <div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">
+                <span>{{ lbl }}</span>
+                <button type="button" class="qr-chip js-qr-bulk" data-paso="{{ paso }}"
+                        style="font-size:9px;padding:2px 6px"
+                        title="Marcar/desmarcar toda la columna">✓ Todos</button>
+              </div>
+            </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in qr_control %}
+          <tr>
+            <td class="activos-num">{{ c.codigo or '—' }}</td>
+            <td style="white-space:nowrap">
+              <a href="/panel/petra/v2/conjunto/{{ c.id }}/qr?token={{ token }}"
+                 class="qr-chip" style="text-decoration:none">QR</a>
+              <button type="button" class="qr-chip js-qr-edit"
+                      data-cid="{{ c.id }}"
+                      data-nombre="{{ c.nombre|e }}"
+                      data-ciudad="{{ c.ciudad|e }}">Editar</button>
+            </td>
+            <td class="activos-conj">
+              <a href="/panel/petra/v2/inmuebles?cid={{ c.id }}&token={{ token }}"
+                 style="color:inherit;text-decoration:none">{{ c.nombre }}</a>
+            </td>
+            {% for paso, val in [('impreso', c.impreso), ('bodega', c.bodega),
+                                  ('asignado', c.asignado), ('enviado', c.enviado),
+                                  ('inventario', c.inventario), ('material', c.material),
+                                  ('conectado', c.conectado)] %}
+            <td>
+              <button type="button" class="qr-chip {% if val %}on{% endif %} js-qr-toggle"
+                      data-cid="{{ c.id }}" data-paso="{{ paso }}">
+                {% if val %}✓{% else %}○{% endif %}
+              </button>
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+          {% if not qr_control %}
+          <tr><td colspan="10" style="text-align:center;color:var(--muted);padding:40px">
+            No hay conjuntos registrados.
+          </td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
+
+<!-- Modal editar conjunto (QR control) -->
+<dialog id="dlg-qr-editar" style="border:1px solid var(--border);border-radius:16px;padding:0;background:var(--panel);color:var(--text);max-width:440px;width:94%">
+  <header style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin:0;font-size:15px">Editar conjunto</h3>
+    <button type="button" onclick="document.getElementById('dlg-qr-editar').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:8px;font-family:inherit;cursor:pointer">✕</button>
+  </header>
+  <form id="form-qr-ed" method="post" action="" style="padding:18px 20px">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label style="font-size:12px;color:var(--text-sub);display:block;margin-bottom:5px">Nombre</label>
+    <input type="text" name="nombre" id="qr-ed-nombre" required
+           style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg,#fff);color:var(--text);font-family:inherit;margin-bottom:12px">
+    <label style="font-size:12px;color:var(--text-sub);display:block;margin-bottom:5px">Ciudad</label>
+    <input type="text" name="ciudad" id="qr-ed-ciudad"
+           style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg,#fff);color:var(--text);font-family:inherit;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <button type="button" id="qr-btn-eliminar"
+              style="background:transparent;border:1px solid #fecaca;color:#b91c1c;padding:9px 14px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px">🗑 Eliminar</button>
+      <div style="display:flex;gap:10px">
+        <button type="button" onclick="document.getElementById('dlg-qr-editar').close()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
+        <button type="submit" style="background:var(--accent,#7c3aed);color:#fff;border:none;padding:9px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600">Guardar</button>
+      </div>
+    </div>
+  </form>
+  <form id="qr-form-eliminar" method="post" action="" style="display:none">
+    <input type="hidden" name="token" value="{{ token }}">
+  </form>
+</dialog>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var token = new URLSearchParams(window.location.search).get('token') || '';
+
+    // Botones "Editar" del QR control
+    document.querySelectorAll('.js-qr-edit').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var cid = btn.dataset.cid;
+        var nombre = btn.dataset.nombre || '';
+        var ciudad = btn.dataset.ciudad || '';
+        var f = document.getElementById('form-qr-ed');
+        f.action = '/panel/petra/visitante/conjuntos/' + cid + '/editar';
+        document.getElementById('qr-ed-nombre').value = nombre;
+        document.getElementById('qr-ed-ciudad').value = ciudad;
+        var fel = document.getElementById('qr-form-eliminar');
+        fel.action = '/panel/petra/visitante/conjuntos/' + cid + '/eliminar';
+        var elim = document.getElementById('qr-btn-eliminar');
+        elim.onclick = function() {
+          if (confirm('¿Eliminar el conjunto "' + nombre + '"?\n\nSi tiene inmuebles asociados, no se podrá eliminar.')) {
+            fel.submit();
+          }
+        };
+        document.getElementById('dlg-qr-editar').showModal();
+      });
+    });
+
+    document.querySelectorAll('.js-qr-toggle').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        var cid = btn.dataset.cid;
+        var paso = btn.dataset.paso;
+        btn.disabled = true;
+        try {
+          var fd = new FormData();
+          fd.append('paso', paso);
+          var r = await fetch('/panel/petra/v2/conjuntos/' + cid + '/toggle-qr-paso?token=' + encodeURIComponent(token), {
+            method: 'POST',
+            body: fd,
+          });
+          var j = await r.json();
+          if (j.ok) {
+            if (j.marcado) {
+              btn.classList.add('on');
+              btn.textContent = '✓';
+            } else {
+              btn.classList.remove('on');
+              btn.textContent = '○';
+            }
+          } else {
+            alert('No se pudo cambiar');
+          }
+        } catch (e) {
+          alert('Error de red');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Bulk por columna: mira cuántos están marcados; si todos → desmarca
+    // todos, si no → marca todos.
+    document.querySelectorAll('.js-qr-bulk').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        var paso = btn.dataset.paso;
+        var chips = document.querySelectorAll('.js-qr-toggle[data-paso="' + paso + '"]');
+        if (!chips.length) return;
+        var total = chips.length;
+        var marked = 0;
+        chips.forEach(function(c) { if (c.classList.contains('on')) marked++; });
+        var mode = (marked === total) ? 'unmark' : 'mark';
+        var label = (mode === 'mark') ? ('Marcar TODOS los ' + total + ' conjuntos') : ('Desmarcar TODOS los ' + total + ' conjuntos');
+        if (!confirm(label + ' en "' + paso + '"?')) return;
+        btn.disabled = true;
+        try {
+          var fd = new FormData();
+          fd.append('paso', paso);
+          fd.append('mode', mode);
+          var r = await fetch('/panel/petra/v2/conjuntos/qr-paso-bulk?token=' + encodeURIComponent(token), {
+            method: 'POST', body: fd,
+          });
+          var j = await r.json();
+          if (j.ok) {
+            chips.forEach(function(c) {
+              if (mode === 'mark') { c.classList.add('on'); c.textContent = '✓'; }
+              else { c.classList.remove('on'); c.textContent = '○'; }
+            });
+          } else {
+            alert('No se pudo cambiar en bulk: ' + (j.error || ''));
+          }
+        } catch (e) {
+          alert('Error de red');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  });
+</script>
 {% endblock %}

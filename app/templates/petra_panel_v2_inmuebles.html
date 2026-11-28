@@ -558,25 +558,21 @@
          'oferta_servicio':  ('oferta_credito',  '💳 Enviar oferta crédito',  false),
        } %}
     {% set _action = _slot_map.get(etapa_filtro) %}
-    {% if _action %}
     <div class="bulk-bar">
       <label class="bulk-check">
         <input type="checkbox" id="bulk-all"> Seleccionar todos
       </label>
       <span id="bulk-count" style="color:var(--text-sub);font-size:13px">0 seleccionados</span>
-      {# Botón de envío solo si:
-         - el slot NO es confirmar_datos (ese es wa.me manual).
-         - Y el slot tiene un teléfono asignado en Activados (si está
-           en "Ninguno", avanzar sin enviar sería mentira estadística:
-           el inmueble se marcaría como contactado sin haber salido
-           mensaje alguno). Admin puede asignar número en Activados. #}
-      {% if _action[0] != 'confirmar_datos' and slot_phone_map.get(_action[0]) %}
+      {% if _action and _action[0] != 'confirmar_datos' and slot_phone_map.get(_action[0]) %}
       <button type="button" id="bulk-send" class="btn-bulk" disabled
               data-slot="{{ _action[0] }}"
               data-label="{{ _action[1] }}">{{ _action[1] }} a seleccionados</button>
       {% endif %}
+      <button type="button" id="bulk-delete" class="btn-bulk" disabled
+              style="background:#fee2e2;color:#991b1b;border-color:#fecaca">
+        🗑 Eliminar seleccionados
+      </button>
     </div>
-    {% endif %}
     {# Funnel de conversión de bienvenidas para la vista actual. #}
     {% if bienv_funnel and bienv_funnel.enviados > 0 %}
       {% set _n = bienv_funnel.enviados %}
@@ -600,7 +596,7 @@
     <table class="table-x">
       <thead>
         <tr>
-          {% if _action %}<th style="width:28px"></th>{% endif %}
+          <th style="width:28px"></th>
           <th>Código</th><th>Estado</th><th>Op</th><th>Tipo</th><th>m²</th>
           <th>Precio</th><th>Teléfono</th>
           <th>Bienvenida</th>
@@ -611,10 +607,8 @@
       <tbody>
         {% for i in inmuebles %}
         <tr class="{% if not i.activo %}inactivo{% endif %}" data-iid="{{ i.id }}" data-tel-ok="{{ 1 if i.celular_valido else 0 }}">
-          {% if _action %}
           <td><input type="checkbox" class="row-check" value="{{ i.id }}"
-                     {% if not _action[2] and not i.celular_valido %}disabled title="Sin teléfono válido"{% endif %}></td>
-          {% endif %}
+                     {% if _action and not _action[2] and not i.celular_valido %}disabled title="Sin teléfono válido"{% endif %}></td>
           <td class="code-col">{{ i.codigo }}</td>
           <td>
             <span class="state-pill {% if i.activo %}activo{% else %}inactivo{% endif %}">
@@ -1070,12 +1064,9 @@ function petraDeshacer(ev, quien, formId, label) {
 (function(){
   var bulkAll = document.getElementById('bulk-all');
   var bulkBtn = document.getElementById('bulk-send');
+  var bulkDel = document.getElementById('bulk-delete');
   var bulkCnt = document.getElementById('bulk-count');
-  // El bulkBtn puede no existir (ej. slot=confirmar_datos o slot en
-  // "Ninguno"). Igual queremos que el checkbox "Seleccionar todos"
-  // marque todas las filas y actualice el contador — es una funcionalidad
-  // visual útil, independiente del botón de envío.
-  if (!bulkAll && !bulkBtn) return;
+  if (!bulkAll && !bulkBtn && !bulkDel) return;
   var checks = Array.prototype.slice.call(
     document.querySelectorAll('.row-check:not([disabled])'));
 
@@ -1083,6 +1074,34 @@ function petraDeshacer(ev, quien, formId, label) {
     var n = checks.filter(function(c){ return c.checked; }).length;
     if (bulkCnt) bulkCnt.textContent = n + ' seleccionados';
     if (bulkBtn) bulkBtn.disabled = (n === 0);
+    if (bulkDel) bulkDel.disabled = (n === 0);
+  }
+  if (bulkDel) {
+    bulkDel.addEventListener('click', function(){
+      var ids = checks.filter(function(c){ return c.checked; })
+                      .map(function(c){ return parseInt(c.value, 10); });
+      if (!ids.length) return;
+      if (!confirm('¿Eliminar ' + ids.length + ' inmueble(s)?\n\nEsta acción es DEFINITIVA.')) return;
+      bulkDel.disabled = true;
+      var fd = new FormData();
+      fd.append('ids', ids.join(','));
+      fetch('/panel/petra/v2/inmuebles/eliminar-bulk?token={{ token }}', {
+        method: 'POST', body: fd,
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (j.ok) {
+          window.location.reload();
+        } else {
+          alert('Error: ' + (j.error || 'desconocido'));
+          bulkDel.disabled = false;
+        }
+      })
+      .catch(function(e){
+        alert('Error de red: ' + e);
+        bulkDel.disabled = false;
+      });
+    });
   }
   if (bulkAll) {
     bulkAll.addEventListener('change', function(){

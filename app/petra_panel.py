@@ -3169,9 +3169,16 @@ def _fmt_precio_cop(valor):
 
 @petra_panel_bp.get("/v2")
 def panel_v2_home():
-    """Dashboard unificado v2 — KPIs agrupados en 6 secciones:
-    Agentes / Oferta / Demanda / Bot / Marketing / Salud del sistema.
-    Reusa _metricas_piloto() + _run_checks() + chart 14d mensajes."""
+    """Dashboard — redirige a /v2/activos (la vista operativa). El dashboard
+    anterior (KPIs) se conserva en /v2/metricas."""
+    _check_token()
+    token = (request.args.get("token") or "").strip()
+    return redirect(url_for("petra_panel.panel_v2_activos", token=token))
+
+
+@petra_panel_bp.get("/v2/metricas")
+def panel_v2_metricas_old():
+    """Dashboard viejo (KPIs 6 secciones). Mantenido por link directo."""
     _check_token()
     token = (request.args.get("token") or "").strip()
 
@@ -6640,6 +6647,32 @@ def _conjunto_editar_redirect(token, flash):
                             token=token, flash=flash))
 
 
+@petra_panel_bp.post("/visitante/conjuntos/<int:cid>/eliminar")
+def visitante_conjunto_eliminar(cid):
+    """Elimina un conjunto. Falla si tiene inmuebles asociados (para
+    evitar borrados accidentales)."""
+    _check_token()
+    token = (request.form.get("token") or "").strip()
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM inmuebles_visitante WHERE conjunto_id=%s",
+                (cid,),
+            ).fetchone()[0]
+            if n and int(n) > 0:
+                return _conjunto_editar_redirect(token, "tiene_inmuebles")
+            conn.execute("DELETE FROM conjuntos_visitante WHERE id=%s", (cid,))
+            conn.commit()
+        try:
+            from app.petra_visitante.router import _conjunto_cache_bust
+            _conjunto_cache_bust()
+        except Exception:
+            pass
+    except Exception:
+        return _conjunto_editar_redirect(token, "error")
+    return _conjunto_editar_redirect(token, "eliminado")
+
+
 @petra_panel_bp.post("/v2/conjuntos/<int:cid>/toggle-conectado")
 def panel_v2_conjunto_toggle_conectado(cid):
     """Togglea el flag qr_instalado del conjunto. Marca/desmarca el chip
@@ -6941,6 +6974,37 @@ def visitante_inmueble_editar(iid):
         return redirect(request.referrer or url_for(
             "petra_panel.visitante_conjuntos", token=token))
     return _inmueble_back(cid, token, "editado")
+
+
+@petra_panel_bp.post("/v2/inmuebles/eliminar-bulk")
+def panel_v2_inmuebles_eliminar_bulk():
+    """Elimina varios inmuebles por ID. Body: ids=1,2,3 o form[ids][]."""
+    _check_token()
+    from flask import jsonify
+    raw = (request.form.get("ids") or "").strip()
+    ids = []
+    if raw:
+        for p in raw.split(","):
+            p = p.strip()
+            if p.isdigit():
+                ids.append(int(p))
+    else:
+        for v in request.form.getlist("ids[]"):
+            if str(v).isdigit():
+                ids.append(int(v))
+    if not ids:
+        return jsonify({"ok": False, "error": "sin_ids"}), 400
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            cur = conn.execute(
+                "DELETE FROM inmuebles_visitante WHERE id = ANY(%s)", (ids,))
+            n = cur.rowcount if hasattr(cur, "rowcount") else len(ids)
+            conn.commit()
+        return jsonify({"ok": True, "eliminados": n})
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[inmuebles bulk eliminar] fallo")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @petra_panel_bp.post("/visitante/inmuebles/<int:iid>/eliminar")
@@ -7989,6 +8053,7 @@ def panel_v2_conjuntos():
             "       COALESCE(SUM(CASE WHEN i.activo AND i.operacion='venta' "
             "                          THEN 1 ELSE 0 END), 0) AS ven_activos, "
             "       COALESCE(SUM(CASE WHEN i.activo THEN 1 ELSE 0 END), 0) AS act, "
+            "       COALESCE(SUM(CASE WHEN NOT i.activo THEN 1 ELSE 0 END), 0) AS pausados, "
             "       COALESCE(SUM(CASE WHEN i.activo AND i.datos_confirmado_at IS NOT NULL "
             "                          THEN 1 ELSE 0 END), 0) AS n_conf, "
             "       COALESCE(SUM(CASE WHEN i.activo AND i.bienvenida_at IS NOT NULL "
@@ -8002,7 +8067,7 @@ def panel_v2_conjuntos():
             "  FROM conjuntos_visitante c "
             "  LEFT JOIN inmuebles_visitante i ON i.conjunto_id = c.id "
             " GROUP BY c.id "
-            " ORDER BY c.creado_en DESC")
+            " ORDER BY c.codigo NULLS LAST, c.id")
     activos = [c for c in conjuntos if (c.get("act") or 0) > 0]
     return render_template(
         "petra_panel_v2_conjuntos.html",
@@ -8385,17 +8450,21 @@ def panel_v2_activos():
     token = (request.args.get("token") or "").strip()
 
     def _bucketize(rows, ts_key):
-        """Agrupa rows por días desde ts_key. Retorna lista [{d, n}]
-        ordenada por días DESC (más viejos primero)."""
+        """Agrupa rows por días calendario en zona Bogotá (UTC-5) desde
+        ts_key hasta hoy. Retorna lista [{d, n}] ordenada DESC."""
         from collections import Counter
-        now = _dt.datetime.now(tz=_dt.timezone.utc)
+        bogota = _dt.timezone(_dt.timedelta(hours=-5))
+        hoy = _dt.datetime.now(tz=bogota).date()
         c = Counter()
         for r in rows:
             ts = r.get(ts_key)
             if not ts:
                 continue
             try:
-                d = (now - ts).days
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=_dt.timezone.utc)
+                fecha_bog = ts.astimezone(bogota).date()
+                d = (hoy - fecha_bog).days
                 if d < 0:
                     d = 0
             except Exception:
@@ -8408,10 +8477,29 @@ def panel_v2_activos():
             _bv_slot = _leer_slots().get("bienvenida") or ""
         except Exception:
             _bv_slot = ""
+        # Garantizar columnas de control QR en conjuntos_visitante.
+        for col in ("qr_impreso_at", "qr_bodega_at", "qr_asignado_at",
+                    "qr_enviado_at", "inventario_recibido_at",
+                    "material_recibido_at"):
+            try:
+                conn.execute(
+                    f"ALTER TABLE conjuntos_visitante "
+                    f"  ADD COLUMN IF NOT EXISTS {col} TIMESTAMPTZ")
+            except Exception:
+                pass
         conjuntos = _rows(conn,
-            "SELECT id, codigo, nombre, ciudad "
+            "SELECT id, codigo, nombre, ciudad, qr_instalado, qr_instalado_en, "
+            "       qr_impreso_at, qr_bodega_at, qr_asignado_at, "
+            "       qr_enviado_at, inventario_recibido_at, material_recibido_at "
             "  FROM conjuntos_visitante "
             " WHERE qr_instalado = TRUE "
+            " ORDER BY codigo NULLS LAST, id")
+        # También traer los NO activados para la sección QR control
+        conjuntos_todos = _rows(conn,
+            "SELECT id, codigo, nombre, ciudad, qr_instalado, qr_instalado_en, "
+            "       qr_impreso_at, qr_bodega_at, qr_asignado_at, "
+            "       qr_enviado_at, inventario_recibido_at, material_recibido_at "
+            "  FROM conjuntos_visitante "
             " ORDER BY codigo NULLS LAST, id")
         inmuebles = _rows(conn,
             "SELECT id, conjunto_id, activo, propietario_telefono, creado_en, "
@@ -8526,13 +8614,155 @@ def panel_v2_activos():
         tot_activos += n_act
         tot_pausados += len(pausados)
 
+    # Para la tabla de control QR, mapeo simple con las columnas nuevas.
+    qr_control = []
+    for c in conjuntos_todos:
+        qr_control.append({
+            "id": c["id"],
+            "codigo": c.get("codigo") or "",
+            "nombre": c.get("nombre") or "",
+            "ciudad": c.get("ciudad") or "",
+            "impreso": bool(c.get("qr_impreso_at")),
+            "bodega": bool(c.get("qr_bodega_at")),
+            "asignado": bool(c.get("qr_asignado_at")),
+            "enviado": bool(c.get("qr_enviado_at")),
+            "inventario": bool(c.get("inventario_recibido_at")),
+            "material": bool(c.get("material_recibido_at")),
+            "conectado": bool(c.get("qr_instalado")),
+        })
+
     return render_template(
         "petra_panel_v2_activos.html",
         conjuntos=salida,
+        qr_control=qr_control,
         total_activos=tot_activos,
         total_pausados=tot_pausados,
         token=token,
     )
+
+
+@petra_panel_bp.post("/v2/conjuntos/qr-paso-bulk")
+def panel_v2_conjunto_qr_paso_bulk():
+    """Marca/desmarca un paso para TODOS los conjuntos a la vez.
+    body: paso=<slug>  mode=mark|unmark"""
+    _check_token()
+    from flask import jsonify
+    paso = (request.form.get("paso") or "").strip()
+    mode = (request.form.get("mode") or "mark").strip()
+    col_map = {
+        "impreso":    "qr_impreso_at",
+        "bodega":     "qr_bodega_at",
+        "asignado":   "qr_asignado_at",
+        "enviado":    "qr_enviado_at",
+        "inventario": "inventario_recibido_at",
+        "material":   "material_recibido_at",
+    }
+    col = col_map.get(paso)
+    if paso == "conectado":
+        try:
+            with _db._conexion_directa(timeout=15) as conn:
+                if mode == "mark":
+                    conn.execute(
+                        "UPDATE conjuntos_visitante "
+                        "   SET qr_instalado = TRUE, "
+                        "       qr_instalado_en = COALESCE(qr_instalado_en, NOW()) "
+                        " WHERE qr_instalado = FALSE")
+                else:
+                    conn.execute(
+                        "UPDATE conjuntos_visitante "
+                        "   SET qr_instalado = FALSE, qr_instalado_en = NULL "
+                        " WHERE qr_instalado = TRUE")
+                conn.commit()
+            return jsonify({"ok": True, "paso": paso, "mode": mode})
+        except Exception:
+            import logging as _lg
+            _lg.getLogger(__name__).exception("[qr_paso bulk] conectado fallo")
+            return jsonify({"error": "db_error"}), 500
+    if not col:
+        return jsonify({"error": "paso_invalido"}), 400
+    try:
+        with _db._conexion_directa(timeout=15) as conn:
+            try:
+                conn.execute(
+                    f"ALTER TABLE conjuntos_visitante "
+                    f"  ADD COLUMN IF NOT EXISTS {col} TIMESTAMPTZ")
+            except Exception:
+                pass
+            if mode == "mark":
+                conn.execute(
+                    f"UPDATE conjuntos_visitante SET {col} = NOW() "
+                    f" WHERE {col} IS NULL")
+            else:
+                conn.execute(
+                    f"UPDATE conjuntos_visitante SET {col} = NULL "
+                    f" WHERE {col} IS NOT NULL")
+            conn.commit()
+        return jsonify({"ok": True, "paso": paso, "mode": mode})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[qr_paso bulk] %s fallo", paso)
+        return jsonify({"error": "db_error"}), 500
+
+
+@petra_panel_bp.post("/v2/conjuntos/<int:cid>/toggle-qr-paso")
+def panel_v2_conjunto_toggle_qr_paso(cid):
+    """Togglea uno de los pasos del flujo QR del conjunto.
+    body/query: paso=impreso|bodega|asignado|enviado|inventario|material|conectado
+    Devuelve {ok, paso, marcado}."""
+    _check_token()
+    from flask import jsonify, request as _req
+    paso = ((_req.form.get("paso") or _req.args.get("paso")) or "").strip()
+    col_map = {
+        "impreso":    "qr_impreso_at",
+        "bodega":     "qr_bodega_at",
+        "asignado":   "qr_asignado_at",
+        "enviado":    "qr_enviado_at",
+        "inventario": "inventario_recibido_at",
+        "material":   "material_recibido_at",
+    }
+    if paso == "conectado":
+        # Reutiliza el toggle existente del flag qr_instalado.
+        try:
+            with _db._conexion_directa(timeout=10) as conn:
+                row = conn.execute(
+                    "UPDATE conjuntos_visitante "
+                    "   SET qr_instalado = NOT qr_instalado, "
+                    "       qr_instalado_en = CASE WHEN NOT qr_instalado "
+                    "                               THEN NOW() ELSE NULL END "
+                    " WHERE id = %s RETURNING qr_instalado",
+                    (cid,)).fetchone()
+                conn.commit()
+            if not row:
+                return jsonify({"error": "not_found"}), 404
+            return jsonify({"ok": True, "paso": paso, "marcado": bool(row[0])})
+        except Exception:
+            import logging as _lg
+            _lg.getLogger(__name__).exception("[qr_paso] toggle conectado fallo")
+            return jsonify({"error": "db_error"}), 500
+    col = col_map.get(paso)
+    if not col:
+        return jsonify({"error": "paso_invalido"}), 400
+    try:
+        with _db._conexion_directa(timeout=10) as conn:
+            try:
+                conn.execute(
+                    f"ALTER TABLE conjuntos_visitante "
+                    f"  ADD COLUMN IF NOT EXISTS {col} TIMESTAMPTZ")
+            except Exception:
+                pass
+            row = conn.execute(
+                f"UPDATE conjuntos_visitante "
+                f"   SET {col} = CASE WHEN {col} IS NULL THEN NOW() ELSE NULL END "
+                f" WHERE id = %s RETURNING {col}",
+                (cid,)).fetchone()
+            conn.commit()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+        return jsonify({"ok": True, "paso": paso, "marcado": row[0] is not None})
+    except Exception:
+        import logging as _lg
+        _lg.getLogger(__name__).exception("[qr_paso] toggle %s fallo", paso)
+        return jsonify({"error": "db_error"}), 500
 
 
 @petra_panel_bp.get("/v2/salud-bot")
